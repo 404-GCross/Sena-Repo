@@ -4,6 +4,7 @@ import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
 import "../models/game.dart";
+import "../services/api_client.dart";
 import "../providers/game_provider.dart";
 
 class GameDetailScreen extends StatefulWidget {
