@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+.vscode/
+*.g.dart
+*.freezed.dart
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sena Repo data
+*.db
+covers/
+backgrounds/
+
+# Config with secrets
+server/config.yaml
+
+# Yukihub参考文件
+README_Yukihub.md

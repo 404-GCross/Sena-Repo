@@ -1,0 +1,123 @@
+name: Build Sena Repo Client
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "client/**"
+      - ".github/workflows/build.yml"
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: client
+
+jobs:
+  # ── Android APK ──────────────────────────────────
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29"
+          channel: "stable"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK (release)
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sena-repo-android
+          path: client/build/app/outputs/flutter-apk/app-release.apk
+
+  # ── Windows EXE ──────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29"
+          channel: "stable"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          Compress-Archive -Path client/build/windows/x64/runner/Release/* -DestinationPath sena-repo-windows.zip
+
+      - name: Upload Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: sena-repo-windows
+          path: client/sena-repo-windows.zip
+
+  # ── Linux AppImage ───────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29"
+          channel: "stable"
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Linux
+        run: flutter build linux --release
+
+      - name: Package Linux
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czf ../../../../../sena-repo-linux.tar.gz .
+
+      - name: Upload Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: sena-repo-linux
+          path: client/sena-repo-linux.tar.gz
+
+  # ── Docker Server Image ──────────────────────────
+  build-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t sena-repo:latest server/
+
+      - name: Save Docker image
+        run: docker save sena-repo:latest | gzip > sena-repo-server.tar.gz
+
+      - name: Upload Server Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: sena-repo-server
+          path: sena-repo-server.tar.gz

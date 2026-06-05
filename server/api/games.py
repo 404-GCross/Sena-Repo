@@ -1,0 +1,211 @@
+"""Game browsing and management API."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+
+from database import get_session
+from models.game import Game, GameVersion, GameTag
+from models.ignore_list import IgnoreList
+from models.tag import Tag
+from schemas.common import MessageResponse
+from schemas.game import GameDetail, GameSummary
+
+router = APIRouter(prefix="/api/games", tags=["games"])
+
+
+def _game_to_summary(game: Game) -> GameSummary:
+    """Convert a Game ORM object to a GameSummary schema."""
+    platforms = list({v.platform.value for v in game.versions}) if game.versions else []
+    tag_names = [gt.tag.name for gt in game.tags] if game.tags else []
+    return GameSummary(
+        id=game.id,
+        name=game.name,
+        company_name=game.company.name if game.company else None,
+        folder_path=game.folder_path,
+        cover_path=game.cover_path,
+        platform_summary=", ".join(platforms),
+        tag_names=tag_names,
+        imported_at=game.imported_at,
+    )
+
+
+@router.get("", response_model=list[GameSummary])
+async def list_games(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    tag: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
+    root_id: int | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """List games with optional filters, sorted by import time descending."""
+    query = (
+        select(Game)
+        .where(Game.is_deleted == False)
+        .options(
+            joinedload(Game.company),
+            selectinload(Game.versions),
+            selectinload(Game.tags).joinedload(GameTag.tag),
+        )
+    )
+
+    if root_id is not None:
+        query = query.where(Game.root_id == root_id)
+    if platform:
+        query = query.where(
+            Game.versions.any(GameVersion.platform == platform)
+        )
+
+    # Filter by tag name
+    if tag:
+        query = query.where(
+            Game.tags.any(
+                GameTag.tag.has(Tag.name == tag)
+            )
+        )
+
+    query = query.order_by(Game.imported_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+
+    result = await session.execute(query)
+    games = result.unique().scalars().all()
+    return [_game_to_summary(g) for g in games]
+
+
+@router.get("/search", response_model=list[GameSummary])
+async def search_games(
+    q: str = Query(min_length=1),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    tag: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
+    root_id: int | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Search games by name, folder path, or tag."""
+    query = (
+        select(Game)
+        .where(Game.is_deleted == False)
+        .options(
+            joinedload(Game.company),
+            selectinload(Game.versions),
+            selectinload(Game.tags).joinedload(GameTag.tag),
+        )
+    )
+
+    # Full-text-ish search across name, folder_path, and tag names
+    search_term = f"%{q}%"
+    query = query.where(
+        or_(
+            Game.name.ilike(search_term),
+            Game.folder_path.ilike(search_term),
+            Game.tags.any(
+                GameTag.tag.has(Tag.name.ilike(search_term))
+            ),
+        )
+    )
+
+    if root_id is not None:
+        query = query.where(Game.root_id == root_id)
+    if platform:
+        query = query.where(
+            Game.versions.any(GameVersion.platform == platform)
+        )
+    if tag:
+        query = query.where(
+            Game.tags.any(GameTag.tag.has(Tag.name == tag))
+        )
+
+    query = query.order_by(Game.imported_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+
+    result = await session.execute(query)
+    games = result.unique().scalars().all()
+    return [_game_to_summary(g) for g in games]
+
+
+@router.get("/{game_id}", response_model=GameDetail)
+async def get_game(
+    game_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a single game with full details including versions and tags."""
+    result = await session.execute(
+        select(Game)
+        .where(Game.id == game_id)
+        .options(
+            joinedload(Game.company),
+            selectinload(Game.versions),
+            selectinload(Game.tags).joinedload(GameTag.tag),
+        )
+    )
+    game = result.unique().scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    platforms = list({v.platform.value for v in game.versions})
+    return GameDetail(
+        id=game.id,
+        name=game.name,
+        company_name=game.company.name if game.company else None,
+        root_id=game.root_id,
+        folder_path=game.folder_path,
+        cover_path=game.cover_path,
+        bg_path=game.bg_path,
+        developer=game.developer,
+        description=game.description,
+        release_date=game.release_date,
+        vndb_id=game.vndb_id,
+        steam_id=game.steam_id,
+        bangumi_id=game.bangumi_id,
+        is_deleted=game.is_deleted,
+        imported_at=game.imported_at,
+        updated_at=game.updated_at,
+        versions=[
+            {
+                "id": v.id,
+                "platform": v.platform.value,
+                "filename": v.filename,
+                "file_path": v.file_path,
+                "file_size": v.file_size,
+            }
+            for v in game.versions
+        ],
+        tags=[
+            {"id": gt.tag.id, "name": gt.tag.name, "color": gt.tag.color, "created_at": gt.tag.created_at}
+            for gt in game.tags
+        ],
+    )
+
+
+@router.delete("/{game_id}", response_model=MessageResponse)
+async def delete_game(
+    game_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Soft-delete a game: mark as deleted and add folder to ignore list."""
+    result = await session.execute(
+        select(Game).where(Game.id == game_id)
+    )
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # Soft delete
+    game.is_deleted = True
+    game.updated_at = datetime.utcnow()
+
+    # Add to ignore list
+    existing = await session.execute(
+        select(IgnoreList).where(IgnoreList.path == game.folder_path)
+    )
+    if existing.scalar_one_or_none() is None:
+        session.add(IgnoreList(path=game.folder_path))
+
+    await session.commit()
+    return MessageResponse(message=f"Game '{game.name}' removed")
