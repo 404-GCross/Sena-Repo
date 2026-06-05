@@ -33,7 +33,6 @@ class SenaRepoApp extends StatelessWidget {
             brightness: Brightness.dark,
           ),
           useMaterial3: true,
-          fontFamily: "NotoSansSC",
         ),
         home: const ConnectScreen(),
       ),
