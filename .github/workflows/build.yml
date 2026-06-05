@@ -29,7 +29,7 @@ jobs:
           channel: "stable"
 
       - name: Generate platform files
-        run: flutter create . --project-name sena_repo --org com.sena
+        run: flutter create . --platforms=android --project-name sena_repo --org com.sena
 
       - name: Install dependencies
         run: flutter pub get
@@ -55,7 +55,7 @@ jobs:
           channel: "stable"
 
       - name: Generate platform files
-        run: flutter create . --project-name sena_repo --org com.sena
+        run: flutter create . --platforms=windows --project-name sena_repo --org com.sena
 
       - name: Install dependencies
         run: flutter pub get
@@ -90,8 +90,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
 
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
       - name: Generate platform files
-        run: flutter create . --project-name sena_repo --org com.sena
+        run: flutter create . --platforms=linux --project-name sena_repo --org com.sena
 
       - name: Install dependencies
         run: flutter pub get
