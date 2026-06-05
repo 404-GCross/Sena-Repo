@@ -2,12 +2,9 @@ name: Build Sena Repo Client
 
 on:
   push:
-    branches: [main, master]
-    paths:
-      - "client/**"
-      - ".github/workflows/build.yml"
+    branches: [main, master, dev]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, dev]
   workflow_dispatch:
 
 defaults:
