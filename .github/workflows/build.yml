@@ -36,11 +36,6 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fix Android NDK version
-        run: |
-          # Plugins require NDK 27, but flutter create defaults to 26
-          sed -i '/^android {/a \    ndkVersion = "27.0.12077973"' android/app/build.gradle.kts
-
       - name: Build APK (release)
         run: flutter build apk --release
 
