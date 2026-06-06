@@ -31,7 +31,7 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
     scrapers: list[BaseScraper] = [
         VndbKanaScraper(),
         VndbTitlesScraper(),
-        BangumiScraper(),
+        BangumiScraper(token=s.bangumi_token),
         SteamScraper(),
         DLsiteScraper(),
         MuyueScraper(),

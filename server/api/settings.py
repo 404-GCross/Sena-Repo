@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 # --- Scraper Config ---
 
 class ScraperConfigOut(BaseModel):
+    bangumi_token: str = ""
     vndb_token: str = ""
     steamgriddb_key: str = ""
     igdb_client_id: str = ""
@@ -25,6 +26,7 @@ class ScraperConfigOut(BaseModel):
 
 
 class ScraperConfigUpdate(BaseModel):
+    bangumi_token: str | None = None
     vndb_token: str | None = None
     steamgriddb_key: str | None = None
     igdb_client_id: str | None = None
@@ -44,6 +46,7 @@ async def get_scraper_config():
         return val[:4] + "****" + val[-4:] if len(val) > 8 else "****"
 
     return ScraperConfigOut(
+        bangumi_token=_mask(s.bangumi_token),
         vndb_token=_mask(s.vndb_token),
         steamgriddb_key=_mask(s.steamgriddb_key),
         igdb_client_id=_mask(s.igdb_client_id),

@@ -25,6 +25,7 @@ class CustomRegex:
 
 @dataclass
 class ScraperConfig:
+    bangumi_token: str = ""
     vndb_token: str = ""
     steamgriddb_key: str = ""
     igdb_client_id: str = ""
