@@ -7,6 +7,7 @@ import "../providers/game_provider.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
 import "game_detail_screen.dart";
+import "steam_patch_screen.dart";
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,6 +37,16 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: gameProvider.loadGames,
             tooltip: "刷新",
+          ),
+          IconButton(
+            icon: const Icon(Icons.build, color: Colors.blueGrey),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SteamPatchScreen()),
+              );
+            },
+            tooltip: "Steam 补丁",
           ),
           IconButton(
             icon: const Icon(Icons.settings),
