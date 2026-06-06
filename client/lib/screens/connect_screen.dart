@@ -73,7 +73,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  const Text("连接到游戏服务器"),
+                  const Text("连接到仓库"),
                   const SizedBox(height: 24),
                   TextField(
                     controller: _hostController,
