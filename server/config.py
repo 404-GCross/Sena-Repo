@@ -109,6 +109,18 @@ def load_config(config_path: str | None = None) -> Config:
     if os.environ.get("SENA_PORT"):
         config.server.port = int(os.environ["SENA_PORT"])
 
+    # Scraper API keys (env vars — safer than config files)
+    if os.environ.get("SENA_BANGUMI_TOKEN"):
+        config.scrapers.bangumi_token = os.environ["SENA_BANGUMI_TOKEN"]
+    if os.environ.get("SENA_VNDB_TOKEN"):
+        config.scrapers.vndb_token = os.environ["SENA_VNDB_TOKEN"]
+    if os.environ.get("SENA_STEAMGRIDDB_KEY"):
+        config.scrapers.steamgriddb_key = os.environ["SENA_STEAMGRIDDB_KEY"]
+    if os.environ.get("SENA_IGDB_CLIENT_ID"):
+        config.scrapers.igdb_client_id = os.environ["SENA_IGDB_CLIENT_ID"]
+    if os.environ.get("SENA_IGDB_CLIENT_SECRET"):
+        config.scrapers.igdb_client_secret = os.environ["SENA_IGDB_CLIENT_SECRET"]
+
     # 3. CLI arg overrides
     if args.host:
         config.server.host = args.host
