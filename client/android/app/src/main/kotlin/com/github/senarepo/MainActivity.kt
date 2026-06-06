@@ -1,4 +1,4 @@
-package com.sena.sena_repo
+package com.github.senarepo
 
 import io.flutter.embedding.android.FlutterActivity
 

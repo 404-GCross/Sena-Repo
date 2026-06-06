@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.sena.sena_repo"
+    namespace = "com.github.senarepo"
     compileSdk = flutter.compileSdkVersion
 
     compileOptions {
@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.sena.sena_repo"
+        applicationId = "com.github.senarepo"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = 1
