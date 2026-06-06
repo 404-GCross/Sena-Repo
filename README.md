@@ -1,5 +1,5 @@
 # Sena Repo - GalGame私有库管理器
-## 📱 功能特性
+## 📱 简介
 
 **Sena Repo** 是一款面向多平台的Galgame/视觉小说私有库管理工具，适合用于管理属于用户自己的远程服务器库（例如NAS里）的游戏，使得使用者能方便地从自己的游戏库中快速下载并导入游戏。
 
@@ -52,6 +52,8 @@
 
 支持的平台标识：`PC`、`KRKR`、`Ty`（Tyranor）、`ONS`、`直装`
 
+> 末尾为 `.apk` 或文件名含"安卓""直装"字样的自动归类为直装版。
+
 ### 3. 导入
 
 - 同一游戏下的不同平台压缩包各生成独立条目，归入同一游戏名下（如 "游戏2" 下同时存在 PC 版和 KRKR 版）
@@ -80,19 +82,19 @@
   - 增加截屏并作为封面按钮
   - 刮削源：
 
-    VNDB Kana v2
+    VNDB Kana v2（免认证）
     
-    muyueGalgame
+    Bangumi（免认证，填 Token 提速率）
     
-    Bangumi
+    Steam（免认证）
     
-    Steam
+    muyueGalgame（免认证）
     
-    DLsite (最好有日本地区代理，dddd)
+    DLsite（免认证，最好有日本代理）
     
     SteamGridDB（需要 Key）
     
-    IGDB（需要 Client ID/Secret ）
+    IGDB（需要 Client ID/Secret）
     
     VNDB（需要 Token）
     
@@ -132,8 +134,19 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/your/games:/games \
   -v /path/to/data:/data \
+  -e SENA_BANGUMI_TOKEN="your_token" \
   sena-repo:latest
 ```
+
+> 刮削 API Key 通过环境变量传入（可选，不填也能用免认证源）：
+
+| 环境变量 | 对应刮削源 | 获取地址 |
+|---|---|---|
+| `SENA_BANGUMI_TOKEN` | Bangumi | https://bgm.tv/dev/app |
+| `SENA_VNDB_TOKEN` | VNDB | https://vndb.org/u/tokens |
+| `SENA_STEAMGRIDDB_KEY` | SteamGridDB | https://www.steamgriddb.com/profile/preferences/api |
+| `SENA_IGDB_CLIENT_ID` | IGDB | https://dev.twitch.tv/console/apps |
+| `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
 
 **方式二：Docker Compose**
 
@@ -148,6 +161,10 @@ services:
     volumes:
       - /path/to/your/games:/games
       - /path/to/data:/data
+    environment:
+      - SENA_BANGUMI_TOKEN=your_token
+      - SENA_VNDB_TOKEN=your_token
+      # 更多环境变量见上方表格
     restart: unless-stopped
 ```
 
