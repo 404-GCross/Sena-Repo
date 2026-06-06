@@ -28,7 +28,20 @@ BUILTIN_PATTERNS: list[tuple[re.Pattern, Platform]] = [
     (re.compile(r"\[ONS\](.+)", re.IGNORECASE), Platform.ONS),
     # 直装_GameName.apk
     (re.compile(r"直装_(.+)", re.IGNORECASE), Platform.DIRECT),
+
+    # ── Fallback: fuzzy patterns for files without brackets ──
+
+    # Contains "安卓直装" or "直装版" in name
+    (re.compile(r"(.+?)安卓", re.IGNORECASE), Platform.DIRECT),
+    (re.compile(r"(.+?)直装", re.IGNORECASE), Platform.DIRECT),
+    # Contains "kirikiroid" → KRKR
+    (re.compile(r"(?i).*kirikiroid.*(.+)", re.IGNORECASE), Platform.KRKR),
+    # Contains "tyranor" → Tyranor
+    (re.compile(r"(?i).*tyranor.*(.+)", re.IGNORECASE), Platform.TYRANOR),
 ]
+
+# Extensions that indicate Android直装 even without explicit marker
+DIRECT_INSTALL_EXTENSIONS = {".apk"}
 
 
 def extract_platform_and_name(
@@ -62,6 +75,13 @@ def extract_platform_and_name(
                 platform=platform,
                 game_name=m.group(1).strip(),
             )
+
+    # Fallback: any .apk without a recognized platform = Android直装
+    if re.search(r"\.apk$", filename, re.IGNORECASE):
+        return ExtractionResult(
+            platform=Platform.DIRECT,
+            game_name=re.sub(r"\.apk$", "", filename, flags=re.IGNORECASE).strip(),
+        )
 
     return None
 
