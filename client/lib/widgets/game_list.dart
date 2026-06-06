@@ -7,8 +7,14 @@ import "../models/game.dart";
 class GameList extends StatelessWidget {
   final List<GameSummary> games;
   final void Function(GameSummary game) onTap;
+  final String coverBaseUrl;
 
-  const GameList({super.key, required this.games, required this.onTap});
+  const GameList({
+    super.key,
+    required this.games,
+    required this.onTap,
+    this.coverBaseUrl = "",
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -24,8 +30,8 @@ class GameList extends StatelessWidget {
               height: 110,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: game.coverPath != null
-                    ? Image.network(game.coverPath!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
+                child: game.coverPath != null && coverBaseUrl.isNotEmpty
+                    ? Image.network("$coverBaseUrl/api/files/covers${game.coverPath!}", fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
                     : _placeholder(),
               ),
             ),

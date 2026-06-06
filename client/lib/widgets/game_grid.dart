@@ -7,8 +7,14 @@ import "../models/game.dart";
 class GameGrid extends StatelessWidget {
   final List<GameSummary> games;
   final void Function(GameSummary game) onTap;
+  final String coverBaseUrl;
 
-  const GameGrid({super.key, required this.games, required this.onTap});
+  const GameGrid({
+    super.key,
+    required this.games,
+    required this.onTap,
+    this.coverBaseUrl = "",
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +29,7 @@ class GameGrid extends StatelessWidget {
       itemCount: games.length,
       itemBuilder: (context, index) {
         final game = games[index];
-        return _GameCard(game: game, onTap: () => onTap(game));
+        return _GameCard(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl);
       },
     );
   }
@@ -32,8 +38,9 @@ class GameGrid extends StatelessWidget {
 class _GameCard extends StatelessWidget {
   final GameSummary game;
   final VoidCallback onTap;
+  final String coverBaseUrl;
 
-  const _GameCard({required this.game, required this.onTap});
+  const _GameCard({required this.game, required this.onTap, this.coverBaseUrl = ""});
 
   @override
   Widget build(BuildContext context) {
@@ -48,8 +55,8 @@ class _GameCard extends StatelessWidget {
               flex: 3,
               child: Container(
                 color: Colors.grey[850],
-                child: game.coverPath != null
-                    ? Image.network(game.coverPath!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
+                child: game.coverPath != null && coverBaseUrl.isNotEmpty
+                    ? Image.network("$coverBaseUrl/api/files/covers${game.coverPath!}", fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
                     : _placeholder(),
               ),
             ),

@@ -57,6 +57,7 @@ from api.roots import router as roots_router
 from api.download import router as download_router
 from api.settings import router as settings_router
 from api.scraper import router as scraper_router
+from api.files import router as files_router
 
 app.include_router(games_router)
 app.include_router(tags_router)
@@ -64,6 +65,7 @@ app.include_router(roots_router)
 app.include_router(download_router)
 app.include_router(settings_router)
 app.include_router(scraper_router)
+app.include_router(files_router)
 
 
 @app.get("/api/health")

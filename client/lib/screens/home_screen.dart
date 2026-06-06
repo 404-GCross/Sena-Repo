@@ -84,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     : _isGridView
                         ? GameGrid(
                             games: gameProvider.games,
+                            coverBaseUrl: gameProvider.api.baseUrl,
                             onTap: (game) {
                               Navigator.push(
                                 context,
@@ -95,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           )
                         : GameList(
                             games: gameProvider.games,
+                            coverBaseUrl: gameProvider.api.baseUrl,
                             onTap: (game) {
                               Navigator.push(
                                 context,

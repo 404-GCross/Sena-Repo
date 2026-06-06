@@ -79,7 +79,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: game.coverPath != null
                     ? Image.network(
-                        "${_api.baseUrl}/api/files${game.coverPath!}",
+                        "${_api.baseUrl}/api/files/covers${game.coverPath!}",
                         height: 300,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _placeholderCover(),
