@@ -7,7 +7,6 @@ plugins {
 android {
     namespace = "com.sena.sena_repo"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

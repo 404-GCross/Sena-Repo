@@ -70,7 +70,7 @@ jobs:
       - name: Package Windows
         shell: pwsh
         run: |
-          Compress-Archive -Path client/build/windows/x64/runner/Release/* -DestinationPath sena-repo-windows.zip
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath sena-repo-windows.zip
 
       - name: Upload Windows
         uses: actions/upload-artifact@v4
@@ -93,7 +93,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev rpm zstd file
+            libgtk-3-dev liblzma-dev rpm zstd file imagemagick
 
       - name: Enable Linux + generate platform files
         run: |
