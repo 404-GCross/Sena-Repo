@@ -1,5 +1,8 @@
 name: Build Sena Repo Client
 
+env:
+  VERSION: "0.1.0"
+
 on:
   push:
     branches: [main, master, dev]
@@ -39,11 +42,17 @@ jobs:
       - name: Build APK (release)
         run: flutter build apk --release
 
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             "dist/Sena-Repo_Android_v${VERSION}.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: sena-repo-android
-          path: client/build/app/outputs/flutter-apk/app-release.apk
+          name: Sena-Repo_Android
+          path: client/dist/Sena-Repo_Android_*.apk
 
   # ── Windows EXE ──────────────────────────────────
   build-windows:
@@ -70,13 +79,14 @@ jobs:
       - name: Package Windows
         shell: pwsh
         run: |
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath sena-repo-windows.zip
+          mkdir -p dist
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "dist/Sena-Repo_Windows_v${env:VERSION}.zip"
 
       - name: Upload Windows
         uses: actions/upload-artifact@v4
         with:
-          name: sena-repo-windows
-          path: client/sena-repo-windows.zip
+          name: Sena-Repo_Windows
+          path: client/dist/Sena-Repo_Windows_*.zip
 
   # ── Linux (RPM + Arch + AppImage) ─────────────────
   build-linux:
@@ -110,7 +120,6 @@ jobs:
       - name: Setup packaging
         run: |
           BUNDLE=build/linux/x64/release/bundle
-          VERSION="0.1.0"
           mkdir -p dist
 
           # Desktop file + icon
@@ -129,7 +138,6 @@ jobs:
       - name: Build RPM
         run: |
           BUNDLE=build/linux/x64/release/bundle
-          VERSION="0.1.0"
           RELEASE="1"
           ARCH="x86_64"
 
@@ -168,13 +176,12 @@ jobs:
           SPEC
 
           rpmbuild -bb --target ${ARCH} ~/rpmbuild/SPECS/sena-repo.spec
-          cp ~/rpmbuild/RPMS/${ARCH}/sena-repo-${VERSION}-${RELEASE}*.rpm dist/
+          cp ~/rpmbuild/RPMS/${ARCH}/sena-repo-*.rpm "dist/Sena-Repo_Fedora_v${VERSION}.rpm"
 
       # ── Arch Linux (pacman) ──
       - name: Build Arch package
         run: |
           BUNDLE=build/linux/x64/release/bundle
-          VERSION="0.1.0"
           PKG="sena-repo-${VERSION}-1-x86_64"
 
           mkdir -p "$PKG/opt/sena-repo"
@@ -206,14 +213,13 @@ jobs:
           cd ..
 
           # Package as .pkg.tar.zst
-          tar -c -I 'zstd -19' -f "dist/${PKG}.pkg.tar.zst" -C "$PKG" .
+          tar -c -I 'zstd -19' -f "dist/Sena-Repo_Arch_v${VERSION}.pkg.tar.zst" -C "$PKG" .
           rm -rf "$PKG"
 
       # ── AppImage (universal) ──
       - name: Build AppImage
         run: |
           BUNDLE=build/linux/x64/release/bundle
-          VERSION="0.1.0"
 
           APPDIR="SenaRepo.AppDir"
           mkdir -p "$APPDIR"
@@ -243,27 +249,27 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/sena-repo-${VERSION}-x86_64.AppImage"
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_AppImage_v${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
 
       # ── Upload artifacts ──
       - name: Upload RPM
         uses: actions/upload-artifact@v4
         with:
-          name: sena-repo-fedora-rpm
-          path: client/dist/*.rpm
+          name: Sena-Repo_Fedora
+          path: client/dist/Sena-Repo_Fedora_*.rpm
 
       - name: Upload Arch
         uses: actions/upload-artifact@v4
         with:
-          name: sena-repo-arch-pkg
-          path: client/dist/*.pkg.tar.zst
+          name: Sena-Repo_Arch
+          path: client/dist/Sena-Repo_Arch_*.pkg.tar.zst
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: sena-repo-appimage
-          path: client/dist/*.AppImage
+          name: Sena-Repo_AppImage
+          path: client/dist/Sena-Repo_AppImage_*.AppImage
 
   # ── Docker Server Image ──────────────────────────
   build-server:
@@ -278,10 +284,11 @@ jobs:
         run: docker build -t sena-repo:latest server/
 
       - name: Save Docker image
-        run: docker save sena-repo:latest | gzip > sena-repo-server.tar.gz
+        run: |
+          docker save sena-repo:latest | gzip > "Sena-Repo_Server_v${VERSION}.tar.gz"
 
       - name: Upload Server Image
         uses: actions/upload-artifact@v4
         with:
-          name: sena-repo-server
-          path: sena-repo-server.tar.gz
+          name: Sena-Repo_Server
+          path: Sena-Repo_Server_*.tar.gz
