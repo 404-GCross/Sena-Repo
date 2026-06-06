@@ -237,6 +237,7 @@ jobs:
             "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png" 2>/dev/null || \
           convert -size 256x256 xc:purple "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
           ln -sf usr/share/icons/hicolor/256x256/apps/sena-repo.png "$APPDIR/.DirIcon"
+          cp "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png" "$APPDIR/sena-repo.png"
 
           # Build AppImage
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
