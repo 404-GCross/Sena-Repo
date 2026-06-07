@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,9 +76,10 @@ async def delete_root(
 
 @router.post("/refresh-all", response_model=dict)
 async def refresh_all_roots(
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
-    """Re-scan ALL root directories and import/update games."""
+    """Re-scan ALL root directories and import/update games, then auto-scrape new games."""
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
 
@@ -89,15 +90,19 @@ async def refresh_all_roots(
         stats = await import_from_root(root.id, config, session)
         all_stats["total_games"] += stats.get("total_games", 0)
 
+    # Auto-trigger batch scrape for new games without covers
+    background_tasks.add_task(_auto_scrape, config)
+
     return all_stats
 
 
 @router.post("/{root_id}/refresh", response_model=dict)
 async def refresh_root(
     root_id: int,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
-    """Re-scan a root directory and import/update games."""
+    """Re-scan a root directory and import/update games, then auto-scrape."""
     result = await session.execute(
         select(RootDirectory).where(RootDirectory.id == root_id)
     )
@@ -107,4 +112,25 @@ async def refresh_root(
 
     config = load_config()
     stats = await import_from_root(root_id, config, session)
+
+    # Auto-trigger batch scrape for new games without covers
+    background_tasks.add_task(_auto_scrape, config)
+
     return stats
+
+
+async def _auto_scrape(config):
+    """Background task: batch scrape all games without covers."""
+    import asyncio
+    from database import _session_factory
+    from models.scrape_job import JobStatus, ScrapeJob
+    from services.scraper.orchestrator import run_batch_scrape
+
+    try:
+        async with _session_factory() as session:
+            job = ScrapeJob(status=JobStatus.PENDING)
+            session.add(job)
+            await session.commit()
+            await run_batch_scrape(config, None, session, job)
+    except Exception:
+        pass  # Don't fail the scan if scrape fails
