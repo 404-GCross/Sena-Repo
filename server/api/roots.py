@@ -90,3 +90,21 @@ async def refresh_root(
     config = load_config()
     stats = await import_from_root(root_id, config, session)
     return stats
+
+
+@router.post("/refresh-all", response_model=dict)
+async def refresh_all_roots(
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-scan ALL root directories and import/update games."""
+    result = await session.execute(select(RootDirectory))
+    roots = result.scalars().all()
+
+    config = load_config()
+    all_stats = {"roots_scanned": len(roots), "total_games": 0}
+
+    for root in roots:
+        stats = await import_from_root(root.id, config, session)
+        all_stats["total_games"] += stats.get("total_games", 0)
+
+    return all_stats

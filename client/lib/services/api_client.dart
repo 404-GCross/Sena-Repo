@@ -129,6 +129,12 @@ class ApiClient {
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> refreshAllRoots() async {
+    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/refresh-all"));
+    if (resp.statusCode != 200) throw HttpException("Refresh all failed");
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
   // --- Scraper ---
 
   Future<Map<String, dynamic>> scrapeGame(int gameId) async {
