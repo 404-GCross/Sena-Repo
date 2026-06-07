@@ -76,6 +76,22 @@ def scan_root(root_path: str, ignore_paths: set[str] | None = None) -> ScanResul
 
         company = CompanyFolder(name=company_entry.name, path=str(company_entry))
 
+        # Archives directly in company folder → each becomes its own game
+        for file_entry in sorted(company_entry.iterdir()):
+            if file_entry.is_file() and is_archive(file_entry.name):
+                # Use file path as virtual folder path for uniqueness
+                game_path_str = str(file_entry)
+                if game_path_str not in ignore_paths:
+                    game = GameFolder(name=file_entry.stem, path=game_path_str)
+                    game.archives.append(
+                        ArchiveFile(
+                            filename=file_entry.name,
+                            filepath=str(file_entry),
+                            file_size=file_entry.stat().st_size,
+                        )
+                    )
+                    company.games.append(game)
+
         # Level 2: Game folders
         for game_entry in sorted(company_entry.iterdir()):
             if not game_entry.is_dir():
