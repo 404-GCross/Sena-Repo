@@ -8,6 +8,7 @@ import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
+import "profile_screen.dart";
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -124,6 +125,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // ── Tab 1: Steam 补丁 ──
           const SteamPatchScreen(),
+
+          // ── Tab 2: 我的 ──
+          const ProfileScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -138,7 +142,12 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Icon(Icons.build_outlined),
             selectedIcon: Icon(Icons.build),
-            label: "Steam 补丁",
+            label: "Steam补丁库",
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: "我的",
           ),
         ],
       ),
