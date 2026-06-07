@@ -87,8 +87,8 @@ def scan_root(root_path: str, ignore_paths: set[str] | None = None) -> ScanResul
 
             game = GameFolder(name=game_entry.name, path=game_path_str)
 
-            # Level 3: Archive files
-            for file_entry in sorted(game_entry.iterdir()):
+            # Level 3+: Archive files (recursive, find them anywhere inside game folder)
+            for file_entry in sorted(game_entry.rglob("*")):
                 if file_entry.is_file() and is_archive(file_entry.name):
                     game.archives.append(
                         ArchiveFile(
