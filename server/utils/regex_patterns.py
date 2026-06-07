@@ -83,6 +83,13 @@ def extract_platform_and_name(
             game_name=re.sub(r"\.apk$", "", filename, flags=re.IGNORECASE).strip(),
         )
 
+    # Fallback: any archive without a recognized platform = PC
+    if re.search(r"\.(rar|zip|7z|tar|gz|xz)$", filename, re.IGNORECASE):
+        return ExtractionResult(
+            platform=Platform.PC,
+            game_name=name_no_ext.strip(),
+        )
+
     return None
 
 
