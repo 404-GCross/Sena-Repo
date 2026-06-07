@@ -1,5 +1,7 @@
 /// Grid view for game library.
 
+import "dart:io" show Platform;
+
 import "package:flutter/material.dart";
 
 import "../models/game.dart";
@@ -21,7 +23,7 @@ class GameGrid extends StatelessWidget {
     return GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+        crossAxisCount: Platform.isAndroid ? 3 : 4,
         childAspectRatio: 0.7,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
