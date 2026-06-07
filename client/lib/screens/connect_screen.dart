@@ -43,6 +43,38 @@ class _ConnectScreenState extends State<ConnectScreen> {
     if (success && mounted) {
       games.connect(host, port);
       await games.loadGames();
+      if (!mounted) return;
+
+      // If no games, ask user whether to scan
+      if (games.games.isEmpty) {
+        final shouldScan = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("游戏库为空"),
+            content: const Text("服务端尚未扫描，是否立即扫描？"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text("稍后"),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text("开始扫描"),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldScan == true && mounted) {
+          try {
+            await games.api.refreshAllRoots();
+            await games.loadGames();
+          } catch (_) {
+            // Scan failed, continue to home anyway
+          }
+        }
+      }
+
       if (mounted) {
         Navigator.pushReplacement(
           context,
