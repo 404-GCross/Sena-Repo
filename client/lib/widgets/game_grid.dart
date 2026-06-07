@@ -20,35 +20,18 @@ class GameGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = Platform.isAndroid
-            ? 3
-            : width > 1600
-                ? 7
-                : width > 1200
-                    ? 6
-                    : width > 900
-                        ? 5
-                        : width > 600
-                            ? 4
-                            : 3;
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(8),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            childAspectRatio: 0.7,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-          ),
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: Platform.isAndroid ? 160 : 200,
+        childAspectRatio: 0.7,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
       itemCount: games.length,
       itemBuilder: (context, index) {
         final game = games[index];
         return _GameCard(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl);
-      },
-    );
       },
     );
   }
