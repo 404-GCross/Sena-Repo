@@ -74,24 +74,6 @@ async def delete_root(
     return MessageResponse(message="Root directory removed")
 
 
-@router.post("/{root_id}/refresh", response_model=dict)
-async def refresh_root(
-    root_id: int,
-    session: AsyncSession = Depends(get_session),
-):
-    """Re-scan a root directory and import/update games."""
-    result = await session.execute(
-        select(RootDirectory).where(RootDirectory.id == root_id)
-    )
-    root = result.scalar_one_or_none()
-    if root is None:
-        raise HTTPException(status_code=404, detail="Root directory not found")
-
-    config = load_config()
-    stats = await import_from_root(root_id, config, session)
-    return stats
-
-
 @router.post("/refresh-all", response_model=dict)
 async def refresh_all_roots(
     session: AsyncSession = Depends(get_session),
@@ -108,3 +90,21 @@ async def refresh_all_roots(
         all_stats["total_games"] += stats.get("total_games", 0)
 
     return all_stats
+
+
+@router.post("/{root_id}/refresh", response_model=dict)
+async def refresh_root(
+    root_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-scan a root directory and import/update games."""
+    result = await session.execute(
+        select(RootDirectory).where(RootDirectory.id == root_id)
+    )
+    root = result.scalar_one_or_none()
+    if root is None:
+        raise HTTPException(status_code=404, detail="Root directory not found")
+
+    config = load_config()
+    stats = await import_from_root(root_id, config, session)
+    return stats
