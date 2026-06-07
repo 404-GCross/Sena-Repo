@@ -1,4 +1,7 @@
 /// Main home screen with bottom tab navigation.
+/// Steam patch tab is hidden on Android (PC-only feature).
+
+import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -22,9 +25,82 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isGridView = true;
   final _searchController = TextEditingController();
 
+  bool get _showSteamTab => !Platform.isAndroid;
+
+  Widget _buildGameLibrary(GameProvider gameProvider) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: "搜索游戏...",
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        gameProvider.search("");
+                      },
+                    )
+                  : null,
+            ),
+            onChanged: (v) => gameProvider.search(v),
+          ),
+        ),
+        Expanded(
+          child: gameProvider.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : gameProvider.games.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.gamepad, size: 64, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text("游戏库为空",
+                              style: TextStyle(color: Colors.grey, fontSize: 18)),
+                          Text("请在服务端添加根目录并刷新",
+                              style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    )
+                  : _isGridView
+                      ? GameGrid(
+                          games: gameProvider.games,
+                          coverBaseUrl: gameProvider.api.baseUrl,
+                          onTap: (game) => _openDetail(game),
+                        )
+                      : GameList(
+                          games: gameProvider.games,
+                          coverBaseUrl: gameProvider.api.baseUrl,
+                          onTap: (game) => _openDetail(game),
+                        ),
+        ),
+      ],
+    );
+  }
+
+  void _openDetail(game) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final gameProvider = context.watch<GameProvider>();
+
+    // Build page list and nav destinations dynamically
+    final pages = <Widget>[
+      _buildGameLibrary(gameProvider),
+      if (_showSteamTab) const SteamPatchScreen(),
+      const ProfileScreen(),
+    ];
+    final profileIdx = _showSteamTab ? 2 : 1;
 
     return Scaffold(
       appBar: AppBar(
@@ -49,104 +125,25 @@ class _HomeScreenState extends State<HomeScreen> {
               ]
             : null,
       ),
-      body: IndexedStack(
-        index: _currentTab,
-        children: [
-          // ── Tab 0: 游戏库 ──
-          Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: "搜索游戏...",
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              gameProvider.search("");
-                            },
-                          )
-                        : null,
-                  ),
-                  onChanged: (v) => gameProvider.search(v),
-                ),
-              ),
-              Expanded(
-                child: gameProvider.isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : gameProvider.games.isEmpty
-                        ? const Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.gamepad, size: 64, color: Colors.grey),
-                                SizedBox(height: 16),
-                                Text("游戏库为空",
-                                    style: TextStyle(color: Colors.grey, fontSize: 18)),
-                                Text("请在服务端添加根目录并刷新",
-                                    style: TextStyle(color: Colors.grey)),
-                              ],
-                            ),
-                          )
-                        : _isGridView
-                            ? GameGrid(
-                                games: gameProvider.games,
-                                coverBaseUrl: gameProvider.api.baseUrl,
-                                onTap: (game) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          GameDetailScreen(gameId: game.id),
-                                    ),
-                                  );
-                                },
-                              )
-                            : GameList(
-                                games: gameProvider.games,
-                                coverBaseUrl: gameProvider.api.baseUrl,
-                                onTap: (game) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          GameDetailScreen(gameId: game.id),
-                                    ),
-                                  );
-                                },
-                              ),
-              ),
-            ],
-          ),
-
-          // ── Tab 1: Steam 补丁 ──
-          const SteamPatchScreen(),
-
-          // ── Tab 2: 我的 ──
-          const ProfileScreen(),
-        ],
-      ),
+      body: IndexedStack(index: _currentTab, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTab,
         onDestinationSelected: (i) => setState(() => _currentTab = i),
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.gamepad_outlined),
             selectedIcon: Icon(Icons.gamepad),
             label: "游戏库",
           ),
+          if (_showSteamTab)
+            const NavigationDestination(
+              icon: Icon(Icons.build_outlined),
+              selectedIcon: Icon(Icons.build),
+              label: "Steam补丁库",
+            ),
           NavigationDestination(
-            icon: Icon(Icons.build_outlined),
-            selectedIcon: Icon(Icons.build),
-            label: "Steam补丁库",
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
+            icon: const Icon(Icons.person_outlined),
+            selectedIcon: const Icon(Icons.person),
             label: "我的",
           ),
         ],
