@@ -114,25 +114,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.refresh),
-                  onPressed: () async {
-                    final api = gameProvider.api;
-                    try {
-                      await api.refreshAllRoots();
-                      await gameProvider.loadGames();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("扫描完成")),
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text("扫描失败: $e")),
-                        );
-                      }
-                    }
-                  },
-                  tooltip: "扫描刷新",
+                  onPressed: gameProvider.loadGames,
+                  tooltip: "刷新",
                 ),
                 IconButton(
                   icon: const Icon(Icons.settings),
