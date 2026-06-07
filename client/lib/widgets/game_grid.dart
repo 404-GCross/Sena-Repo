@@ -25,11 +25,15 @@ class GameGrid extends StatelessWidget {
         final width = constraints.maxWidth;
         final columns = Platform.isAndroid
             ? 3
-            : width > 1200
-                ? 5
-                : width > 800
-                    ? 4
-                    : 3;
+            : width > 1600
+                ? 7
+                : width > 1200
+                    ? 6
+                    : width > 900
+                        ? 5
+                        : width > 600
+                            ? 4
+                            : 3;
 
         return GridView.builder(
           padding: const EdgeInsets.all(8),
