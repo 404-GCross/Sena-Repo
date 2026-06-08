@@ -8,6 +8,7 @@ import "dart:convert";
 
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
+import "beautify_screen.dart";
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -40,6 +41,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
           _menuItem(Icons.grid_view, "显示", () => Navigator.push(context,
               MaterialPageRoute(builder: (_) => const _DisplayPage()))),
+          _menuItem(Icons.palette, "美化", () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
           const Divider(),
           const ListTile(title: Text("Sena Repo"), subtitle: Text("v0.1.0"), leading: Icon(Icons.info_outline)),
         ],

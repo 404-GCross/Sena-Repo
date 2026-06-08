@@ -7,6 +7,7 @@ import "package:provider/provider.dart";
 
 import "providers/settings_provider.dart";
 import "providers/game_provider.dart";
+import "providers/theme_provider.dart";
 import "screens/connect_screen.dart";
 
 void main() {
@@ -23,18 +24,20 @@ class SenaRepoApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
-      child: MaterialApp(
-        title: "Sena Repo",
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF7C3AED),
-            brightness: Brightness.dark,
+      child: Consumer<ThemeProvider>(
+        builder: (context, theme, _) => MaterialApp(
+          title: "Sena Repo",
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: theme.accentColor,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
           ),
-          useMaterial3: true,
-        ),
-        home: const ConnectScreen(),
+          home: const ConnectScreen(),
       ),
     );
   }
