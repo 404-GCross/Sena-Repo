@@ -89,6 +89,104 @@ class _GameEditScreenState extends State<GameEditScreen> {
     setState(() => _saving = false);
   }
 
+  Future<void> _downloadMetadata() async {
+    final sources = {
+      "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
+      "steam": "Steam", "dlsite": "DLsite", "muyue": "muyue",
+    };
+    String src = "vndb_kana";
+    final searchCtrl = TextEditingController(text: _name.text);
+    List<Map<String, dynamic>> results = [];
+    bool searching = false;
+    Map<String, dynamic>? picked;
+
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text("下载元数据"),
+          content: SizedBox(
+            width: 550, height: 500,
+            child: Column(children: [
+              Row(children: [
+                Expanded(child: TextField(controller: searchCtrl, decoration: const InputDecoration(labelText: "名称或 ID", isDense: true))),
+                const SizedBox(width: 8),
+                DropdownButton<String>(
+                  value: src, underline: const SizedBox(),
+                  items: sources.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+                  onChanged: (v) => setD(() => src = v!),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(icon: const Icon(Icons.search, size: 18),
+                  onPressed: () async {
+                    setD(() { searching = true; results = []; });
+                    try {
+                      final resp = await http.get(Uri.parse(
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(searchCtrl.text)}&source=$src"));
+                      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+                      setD(() { results = (data["results"] as List).cast<Map<String, dynamic>>(); searching = false; });
+                    } catch (e) { setD(() => searching = false); }
+                  }),
+              ]),
+              const SizedBox(height: 12),
+              if (searching) const Expanded(child: Center(child: CircularProgressIndicator())),
+              if (results.isNotEmpty)
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: results.length,
+                    itemBuilder: (_, i) {
+                      final r = results[i];
+                      final sel = picked?["source_id"] == r["source_id"];
+                      return ListTile(
+                        selected: sel,
+                        leading: (r["cover_url"] ?? "").toString().isNotEmpty
+                            ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                                child: Image.network(r["cover_url"].toString(), width: 50, height: 70, fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 36)))
+                            : const Icon(Icons.image, size: 36),
+                        title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
+                        subtitle: Text([r["developer"], r["release_date"]].where((s) => s != null && s.toString().isNotEmpty).join(" · "),
+                            maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                        onTap: () => setD(() => picked = Map<String, dynamic>.from(r)..["source_name"] = src),
+                      );
+                    },
+                  ),
+                ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(onPressed: picked == null ? null : () => Navigator.pop(ctx, picked), child: const Text("对比并应用")),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    // Populate form with downloaded data
+    setState(() {
+      if ((selected["title"] ?? "").toString().isNotEmpty) _name.text = selected["title"].toString();
+      if ((selected["developer"] ?? "").toString().isNotEmpty) _dev.text = selected["developer"].toString();
+      if ((selected["description"] ?? "").toString().isNotEmpty) _desc.text = selected["description"].toString();
+      if ((selected["release_date"] ?? "").toString().isNotEmpty) _date.text = selected["release_date"].toString();
+      if ((selected["cover_url"] ?? "").toString().isNotEmpty) _coverUrl.text = selected["cover_url"].toString();
+      final sf = {"vndb_kana": "vndb_id", "bangumi": "bangumi_id", "steam": "steam_id"};
+      final f = sf[selected["source_name"]] ?? "";
+      if (f.isNotEmpty && (selected["source_id"] ?? "").toString().isNotEmpty) {
+        switch (f) {
+          case "vndb_id": _vndb.text = selected["source_id"].toString();
+          case "steam_id": _steam.text = selected["source_id"].toString();
+          case "bangumi_id": _bgm.text = selected["source_id"].toString();
+        }
+      }
+    });
+    _showMsg("已填入，请核对后保存");
+  }
+
+  void _showMsg(String msg) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   void _showError(String msg) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
@@ -118,6 +216,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
       appBar: AppBar(
         title: Text("编辑 — ${g.name}"),
         actions: [
+          OutlinedButton.icon(
+            icon: const Icon(Icons.cloud_download, size: 18),
+            label: const Text("下载元数据"),
+            onPressed: _downloadMetadata,
+          ),
+          const SizedBox(width: 8),
           FilledButton.icon(onPressed: _saving ? null : _save,
             icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.save, size: 18),
