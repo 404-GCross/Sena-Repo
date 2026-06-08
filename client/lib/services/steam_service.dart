@@ -51,7 +51,7 @@ class PatchMatch {
 }
 
 class SteamService {
-  /// Let user pick steamapps/common directory.
+  /// Let user pick Steam steamapps directory.
   static Future<String?> pickSteamDir() async {
     final result = await FilePicker.platform.getDirectoryPath(
       dialogTitle: "选择 Steam 库 common 目录",

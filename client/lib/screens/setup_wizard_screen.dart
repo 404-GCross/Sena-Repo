@@ -247,8 +247,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _steamCommonCtrl,
       decoration: InputDecoration(
-        labelText: "本机 Steam common 目录",
-        hintText: "C:/Steam/steamapps/common",
+        labelText: "本机 Steam 库目录",
+        hintText: "C:/Steam/steamapps",
         prefixIcon: const Icon(Icons.computer),
         suffixIcon: IconButton(
           icon: const Icon(Icons.folder_open),
