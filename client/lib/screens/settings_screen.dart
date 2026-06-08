@@ -27,6 +27,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, bool> _sources = {};
   Map<String, TextEditingController> _keyCtrls = {};
 
+  // Scan settings
+  String _scanStructure = "company_game"; // company_game | game_only | flat
+  bool _autoScan = false;
+  int _scanInterval = 24; // hours
+
   @override
   void initState() {
     super.initState();
@@ -181,6 +186,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: const Icon(Icons.refresh),
                   label: const Text("扫描全部根目录"),
                 ),
+                const SizedBox(height: 24),
+
+                // ── Scan Settings ──
+                _sectionHeader("扫描设置"),
+                ListTile(
+                  title: const Text("目录结构"),
+                  subtitle: Text(_scanStructure == "company_game"
+                      ? "会社 / 游戏"
+                      : _scanStructure == "game_only"
+                          ? "仅游戏"
+                          : "扁平（无结构）"),
+                  trailing: DropdownButton<String>(
+                    value: _scanStructure,
+                    underline: const SizedBox(),
+                    items: const [
+                      DropdownMenuItem(value: "company_game", child: Text("会社 / 游戏")),
+                      DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
+                      DropdownMenuItem(value: "flat", child: Text("扁平")),
+                    ],
+                    onChanged: (v) {
+                      setState(() => _scanStructure = v!);
+                      // TODO: save to server
+                    },
+                  ),
+                ),
+                SwitchListTile(
+                  title: const Text("自动扫描"),
+                  subtitle: Text(_autoScan ? "每 $_scanInterval 小时" : "关闭"),
+                  value: _autoScan,
+                  onChanged: (v) => setState(() => _autoScan = v),
+                ),
+                if (_autoScan)
+                  ListTile(
+                    title: const Text("扫描间隔（小时）"),
+                    trailing: SizedBox(
+                      width: 100,
+                      child: TextField(
+                        keyboardType: TextInputType.number,
+                        controller: TextEditingController(text: "$_scanInterval"),
+                        onSubmitted: (v) {
+                          final n = int.tryParse(v);
+                          if (n != null && n > 0) setState(() => _scanInterval = n);
+                        },
+                        decoration: const InputDecoration(isDense: true),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 24),
 
                 // ── Scraper Config ──
