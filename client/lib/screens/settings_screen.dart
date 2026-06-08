@@ -200,15 +200,30 @@ class _ScraperPageState extends State<_ScraperPage> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
   }
 
-  Widget _row(String label, String src, bool needsApi, {String? key1, String? key2, String hint = ""}) => Column(children: [
-    SwitchListTile(title: Text(label), value: _sources[src] ?? false, onChanged: (v) => setState(() => _sources[src] = v), dense: true),
-    if (_sources[src] == true && needsApi) ...[
-      if (key1 != null) Padding(padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4), child: TextField(controller: _keys[key1], decoration: InputDecoration(labelText: _kl(key1), hintText: hint, isDense: true)))),
-      if (key2 != null) Padding(padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8), child: TextField(controller: _keys[key2], decoration: InputDecoration(labelText: _kl(key2), isDense: true)))),
-    ],
-  ]);
+  Widget _row(String label, String src, bool needsApi, {String? key1, String? key2, String hint = ""}) {
+    final children = <Widget>[
+      SwitchListTile(title: Text(label), value: _sources[src] ?? false, onChanged: (v) => setState(() => _sources[src] = v), dense: true),
+    ];
+    if (_sources[src] == true && needsApi) {
+      if (key1 != null) {
+        children.add(Padding(padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4),
+            child: TextField(controller: _keys[key1], decoration: InputDecoration(labelText: _kl(key1), hintText: hint, isDense: true))));
+      }
+      if (key2 != null) {
+        children.add(Padding(padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+            child: TextField(controller: _keys[key2], decoration: InputDecoration(labelText: _kl(key2), isDense: true))));
+      }
+    }
+    return Column(children: children);
+  }
 
-  String _kl(String k) => const {"bangumi_token": "Bangumi Token", "vndb_token": "VNDB Token", "steamgriddb_key": "SteamGridDB Key", "igdb_client_id": "IGDB Client ID", "igdb_client_secret": "IGDB Client Secret"}[k] ?? k;
+  static const _keyLabels = {
+    "bangumi_token": "Bangumi Token", "vndb_token": "VNDB Token",
+    "steamgriddb_key": "SteamGridDB Key", "igdb_client_id": "IGDB Client ID",
+    "igdb_client_secret": "IGDB Client Secret",
+  };
+
+  String _kl(String k) => _keyLabels[k] ?? k;
 
   @override
   Widget build(BuildContext context) => Scaffold(
