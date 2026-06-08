@@ -28,7 +28,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
 
   // Step 3: Steam
-  final _patchDirCtrl = TextEditingController(text: "/data/steam_patches");
+  final _patchDirCtrl = TextEditingController(text: "/steam_patch");
   final _steamCommonCtrl = TextEditingController();
 
   // Step 4: Scrapers
