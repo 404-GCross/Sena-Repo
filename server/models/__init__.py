@@ -3,3 +3,4 @@ from .tag import Tag
 from .root_directory import RootDirectory
 from .ignore_list import IgnoreList
 from .scrape_job import ScrapeJob, ScrapeResult, JobStatus
+from .user import User, hash_password, verify_password

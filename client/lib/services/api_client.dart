@@ -135,6 +135,21 @@ class ApiClient {
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
+  // --- Setup ---
+
+  Future<bool> checkSetupNeeded() async {
+    try {
+      final resp = await _client
+          .get(Uri.parse("$baseUrl/api/setup/status"))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        return data["needs_setup"] == true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   // --- Scraper ---
 
   Future<Map<String, dynamic>> scrapeGame(int gameId) async {

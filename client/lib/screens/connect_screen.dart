@@ -6,6 +6,7 @@ import "package:provider/provider.dart";
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "home_screen.dart";
+import "setup_wizard_screen.dart";
 
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
@@ -42,10 +43,26 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final success = await settings.connect(host, port);
     if (success && mounted) {
       games.connect(host, port);
-      await games.loadGames();
+
+      // Check if server needs setup
+      final api = games.api;
+      final needsSetup = await api.checkSetupNeeded();
+      if (needsSetup && mounted) {
+        final result = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
+        );
+        if (result == true) {
+          await games.loadGames();
+        }
+        if (!mounted) return;
+      } else {
+        await games.loadGames();
+      }
+
       if (!mounted) return;
 
-      // If no games, ask user whether to scan
+      // If still no games, ask whether to scan
       if (games.games.isEmpty) {
         final shouldScan = await showDialog<bool>(
           context: context,

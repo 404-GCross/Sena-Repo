@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from database import get_session
-from models.game import Game, GameVersion, GameTag
+from models.game import Company, Game, GameVersion, GameTag
 from models.ignore_list import IgnoreList
 from models.tag import Tag
 from schemas.common import MessageResponse
@@ -41,9 +41,14 @@ async def list_games(
     tag: str | None = Query(default=None),
     platform: str | None = Query(default=None),
     root_id: int | None = Query(default=None),
+    sort: str = Query(default="imported"),
     session: AsyncSession = Depends(get_session),
 ):
-    """List games with optional filters, sorted by import time descending."""
+    """List games with optional filters and sorting.
+
+    Sort options: imported (default), name, company
+    When sorting by company, games are ordered by: company.name → game.name
+    """
     query = (
         select(Game)
         .where(Game.is_deleted == False)
@@ -69,7 +74,14 @@ async def list_games(
             )
         )
 
-    query = query.order_by(Game.imported_at.desc())
+    # Ordering
+    if sort == "company":
+        query = query.join(Game.company).order_by(Company.name.asc(), Game.name.asc())
+    elif sort == "name":
+        query = query.order_by(Game.name.asc(), Game.imported_at.desc())
+    else:
+        query = query.order_by(Game.imported_at.desc())
+
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await session.execute(query)
