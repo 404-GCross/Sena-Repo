@@ -139,7 +139,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             child: Text(label, style: TextStyle(color: Colors.grey[400], fontSize: 12)))),
         Expanded(
           child: TextField(controller: ctrl, maxLines: maxLines,
-            decoration: InputDetails(border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)), isDense: true,
+            decoration: _dec(border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)), isDense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
             style: const TextStyle(fontSize: 13)),
         ),
@@ -185,7 +185,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     TextField(controller: _name,
                       style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                      decoration: InputDetails(border: InputBorder.none, isDense: true)),
+                      decoration: _dec(border: InputBorder.none, isDense: true)),
                     const SizedBox(height: 4),
                     Text(g.companyName ?? "", style: TextStyle(fontSize: 15, color: Colors.grey[400])),
                     const SizedBox(height: 8),
@@ -220,10 +220,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     _field("VNDB ID", _vndb,
                         sourceId: g.vndbId != null && g.vndbId!.isNotEmpty ? g.vndbId : null),
                     _field("Steam ID", _steam,
-                        sourceId: g.steamId,
                         sourceId: g.steamId != null && g.steamId!.isNotEmpty ? g.steamId : null),
                     _field("Bangumi ID", _bgm,
-                        sourceId: g.bangumiId,
                         sourceId: g.bangumiId != null && g.bangumiId!.isNotEmpty ? g.bangumiId : null),
                     const SizedBox(height: 12),
                     _section("版本"),
@@ -233,7 +231,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       ...g.versions.map((v) => Container(
                         margin: const EdgeInsets.only(bottom: 4),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(color: Colors.white5, borderRadius: BorderRadius.circular(6)),
+                        decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(6)),
                         child: Row(children: [
                           Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 13))),
                           Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -250,14 +248,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     _section("简介"),
                     TextField(controller: _desc, maxLines: 8,
-                      decoration: InputDetails(
+                      decoration: _dec(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         hintText: "游戏简介..."),
                       style: const TextStyle(fontSize: 13)),
                     const SizedBox(height: 16),
                     _section("备注"),
                     TextField(controller: _notes, maxLines: 4,
-                      decoration: InputDetails(
+                      decoration: _dec(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         hintText: "个人备注..."),
                       style: const TextStyle(fontSize: 13)),
@@ -425,7 +423,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 }
 
-class InputDetails extends InputDecoration {
-  const InputDetails({super.border, super.isDense, super.contentPadding, super.hintText})
-      : super(filled: true, fillColor: Colors.white.withValues(alpha: 0.04));
+InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText}) {
+  return InputDecoration(
+    filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
+    border: border, isDense: isDense,
+    contentPadding: contentPadding, hintText: hintText,
+  );
 }
