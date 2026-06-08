@@ -17,6 +17,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _passConfirmCtrl = TextEditingController();
   bool _loading = false;
   String? _error;
   bool _showRegister = false;
@@ -46,6 +47,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _register() async {
+    if (_passCtrl.text != _passConfirmCtrl.text) {
+      setState(() => _error = "两次密码不一致");
+      return;
+    }
     setState(() { _loading = true; _error = null; });
     try {
       final resp = await http.post(
@@ -107,6 +112,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: true,
                   ),
                   if (_showRegister) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _passConfirmCtrl,
+                      decoration: const InputDecoration(
+                          labelText: "确认密码", prefixIcon: Icon(Icons.lock)),
+                      obscureText: true,
+                    ),
                     const SizedBox(height: 12),
                     SwitchListTile(
                       title: const Text("注册为管理员"),
