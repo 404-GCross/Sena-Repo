@@ -14,7 +14,7 @@ from models.game import Company, Game, GameVersion, Platform, GameTag
 from models.ignore_list import IgnoreList
 from models.root_directory import RootDirectory
 from models.tag import Tag
-from services.cleaner import clean_filename, normalize_company_name
+from services.cleaner import clean_filename, normalize_company_name, _clean_name
 from services.scanner import scan_root, get_ignore_paths
 
 logger = logging.getLogger(__name__)
@@ -149,9 +149,10 @@ async def _upsert_game(
         select(Game).where(Game.folder_path == folder_path)
     )
     game = result.scalar_one_or_none()
+    clean_name = _clean_name(name)
     if game is None:
         game = Game(
-            name=name,
+            name=clean_name,
             company_id=company_id,
             root_id=root_id,
             folder_path=folder_path,
@@ -160,7 +161,7 @@ async def _upsert_game(
         await session.flush()
     else:
         # Update fields if changed
-        game.name = name
+        game.name = clean_name
         game.company_id = company_id
         game.updated_at = datetime.utcnow()
     return game
