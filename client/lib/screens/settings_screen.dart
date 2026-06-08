@@ -25,8 +25,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _newRootCtrl = TextEditingController();
 
   // Scraper
-  Map<String, bool> _sources = {};
-  Map<String, TextEditingController> _keyCtrls = {};
+  Map<String, bool> _sources = {
+    "vndb_kana": true, "bangumi": true, "steam": true,
+    "dlsite": true, "muyue": true, "steamgriddb": false, "igdb": false,
+  };
+  Map<String, TextEditingController> _keyCtrls = {
+    "bangumi_token": TextEditingController(),
+    "vndb_token": TextEditingController(),
+    "steamgriddb_key": TextEditingController(),
+    "igdb_client_id": TextEditingController(),
+    "igdb_client_secret": TextEditingController(),
+  };
 
   // Scan settings
   String _scanStructure = "company_game"; // company_game | game_only | flat
@@ -261,23 +270,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 24),
 
                 // ── Scraper Config ──
-                _sectionHeader("刮削配置"),
-                ...["bangumi_token", "vndb_token", "steamgriddb_key", "igdb_client_id", "igdb_client_secret"].map((key) {
-                  final labels = {
-                    "bangumi_token": "Bangumi Token",
-                    "vndb_token": "VNDB Token",
-                    "steamgriddb_key": "SteamGridDB Key",
-                    "igdb_client_id": "IGDB Client ID",
-                    "igdb_client_secret": "IGDB Client Secret",
-                  };
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: TextField(
-                      controller: _keyCtrls[key],
-                      decoration: InputDecoration(labelText: labels[key], isDense: true),
-                    ),
-                  );
-                }),
+                _sectionHeader("刮削源"),
+                _srcRow("VNDB Kana v2（免认证）", "vndb_kana", false),
+                _srcRow("Bangumi", "bangumi", true,
+                    keyName: "bangumi_token", hint: "https://bgm.tv/dev/app"),
+                _srcRow("Steam（免认证）", "steam", false),
+                _srcRow("DLsite（免认证）", "dlsite", false),
+                _srcRow("muyueGalgame（免认证）", "muyue", false),
+                _srcRow("SteamGridDB（需要 Key）", "steamgriddb", true,
+                    keyName: "steamgriddb_key"),
+                _srcRow("IGDB（需要 Client ID/Secret）", "igdb", true,
+                    keyName: "igdb_client_id", keyName2: "igdb_client_secret"),
                 FilledButton.tonalIcon(
                   onPressed: _saveScraperConfig,
                   icon: const Icon(Icons.save),
@@ -295,6 +298,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
     );
+  }
+
+  Widget _srcRow(String label, String srcKey, bool needsApi,
+      {String? keyName, String? keyName2, String hint = ""}) {
+    return Column(
+      children: [
+        SwitchListTile(
+          title: Text(label, style: const TextStyle(fontSize: 14)),
+          value: _sources[srcKey] ?? false,
+          onChanged: (v) => setState(() => _sources[srcKey] = v),
+          dense: true,
+        ),
+        if (_sources[srcKey] == true && needsApi) ...[
+          if (keyName != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4),
+              child: TextField(
+                controller: _keyCtrls[keyName],
+                decoration: InputDecoration(labelText: _keyLabel(keyName), hintText: hint, isDense: true),
+              ),
+            ),
+          if (keyName2 != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+              child: TextField(
+                controller: _keyCtrls[keyName2],
+                decoration: InputDecoration(labelText: _keyLabel(keyName2), isDense: true),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  String _keyLabel(String key) {
+    const labels = {
+      "bangumi_token": "Bangumi Token",
+      "vndb_token": "VNDB Token",
+      "steamgriddb_key": "SteamGridDB Key",
+      "igdb_client_id": "IGDB Client ID",
+      "igdb_client_secret": "IGDB Client Secret",
+    };
+    return labels[key] ?? key;
   }
 
   Widget _sectionHeader(String title) {
