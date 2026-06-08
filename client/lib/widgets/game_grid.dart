@@ -48,10 +48,10 @@ class _GameGridState extends State<GameGrid> {
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
       ),
-      itemCount: games.length,
+      itemCount: widget.games.length,
       itemBuilder: (context, index) {
-        final game = games[index];
-        return _GameCard(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl);
+        final game = widget.games[index];
+        return _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl);
       },
     );
   }
