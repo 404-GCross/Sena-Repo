@@ -6,6 +6,7 @@ import "package:provider/provider.dart";
 import "../providers/settings_provider.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
+import "connect_screen.dart";
 import "../providers/game_provider.dart";
 
 class ProfileScreen extends StatelessWidget {
@@ -51,6 +52,31 @@ class ProfileScreen extends StatelessWidget {
           onTap: () => Navigator.push(context,
               MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
+        const SizedBox(height: 32),
+        ListTile(
+          leading: const Icon(Icons.logout, color: Colors.red),
+          title: const Text("退出登录", style: TextStyle(color: Colors.red)),
+          onTap: () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text("退出登录"),
+                content: const Text("确定退出登录吗？"),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确定")),
+                ],
+              ),
+            );
+            if (confirmed == true && context.mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const ConnectScreen()),
+                (_) => false,
+              );
+            }
+          },
+        ),
+        const Divider(),
         ListTile(
           leading: const Icon(Icons.info_outline),
           title: const Text("关于"),
