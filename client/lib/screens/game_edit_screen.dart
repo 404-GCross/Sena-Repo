@@ -312,13 +312,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (src == null || !mounted) return;
 
-    // Step 2: Search
-    final ctrl = TextEditingController(text: _name.text);
+    // Step 2: Search — prefill with existing ID if available, otherwise game name
+    final idMap = {"vndb_kana": _vndb.text, "bangumi": _bgm.text, "steam": _steam.text};
+    final prefill = (idMap[src] != null && idMap[src]!.isNotEmpty) ? idMap[src]! : _name.text;
+    final ctrl = TextEditingController(text: prefill);
     final q = await showDialog<String>(
       context: context, builder: (ctx) => AlertDialog(
         title: Text("${sources[src]} — 搜索"),
         content: TextField(controller: ctrl, autofocus: true,
-          decoration: _dec(labelText: "名称或 ID", hintText: "输入后回车搜索")),
+          decoration: _dec(labelText: "名称/ID", hintText: "游戏名 或 VNDB ID / Steam App ID / Bangumi ID")),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
           FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text("搜索")),
