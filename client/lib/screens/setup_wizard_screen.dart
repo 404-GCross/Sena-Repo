@@ -2,6 +2,7 @@
 
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
+import "package:file_picker/file_picker.dart";
 import "dart:convert";
 
 import "../services/api_client.dart";
@@ -203,6 +204,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     )),
   ];
 
+  Future<void> _pickSteamDir() async {
+    final result = await FilePicker.platform.getDirectoryPath();
+    if (result != null) {
+      _steamCommonCtrl.text = result;
+    }
+  }
+
   List<Widget> _buildStep3() => [
     TextField(
       controller: _patchDirCtrl,
@@ -211,7 +219,16 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     const SizedBox(height: 12),
     TextField(
       controller: _steamCommonCtrl,
-      decoration: const InputDecoration(labelText: "本机 Steam common 目录", hintText: "C:/Steam/steamapps/common", prefixIcon: Icon(Icons.computer)),
+      decoration: InputDecoration(
+        labelText: "本机 Steam common 目录",
+        hintText: "C:/Steam/steamapps/common",
+        prefixIcon: const Icon(Icons.computer),
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.folder_open),
+          onPressed: _pickSteamDir,
+          tooltip: "选择文件夹",
+        ),
+      ),
     ),
     const SizedBox(height: 8),
     Text("PC 端专属，可稍后在设置中配置", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
