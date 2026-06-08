@@ -3,10 +3,11 @@
 import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 
-class GameGrid extends StatelessWidget {
+class GameGrid extends StatefulWidget {
   final List<GameSummary> games;
   final void Function(GameSummary game) onTap;
   final String coverBaseUrl;
@@ -19,11 +20,30 @@ class GameGrid extends StatelessWidget {
   });
 
   @override
+  State<GameGrid> createState() => _GameGridState();
+}
+
+class _GameGridState extends State<GameGrid> {
+  double _coverSize = 200;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCoverSize();
+  }
+
+  Future<void> _loadCoverSize() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getDouble("cover_size") ?? (Platform.isAndroid ? 160.0 : 200.0);
+    if (mounted) setState(() => _coverSize = v);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: Platform.isAndroid ? 160 : 200,
+        maxCrossAxisExtent: _coverSize,
         childAspectRatio: 0.7,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,

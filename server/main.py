@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -10,6 +11,29 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import load_config
 from database import create_tables, init_database
+
+
+async def _auto_scan_task(config, logger):
+    """Background task: periodically scan if auto-scan is enabled."""
+    import asyncio
+    while True:
+        await asyncio.sleep(300)  # check every 5 minutes
+        try:
+            if not getattr(config, "_auto_scan", False):
+                continue
+            # Check if enough time has passed since last scan
+            last = getattr(config, "_last_auto_scan", 0)
+            now = asyncio.get_event_loop().time()
+            interval_seconds = getattr(config, "_scan_interval", 24) * 3600
+            if now - last < interval_seconds:
+                continue
+            config._last_auto_scan = now
+            logger.info("Auto-scan triggered")
+            # Run scan via the internal function
+            from api.roots import _run_scan
+            await _run_scan(config)
+        except Exception as e:
+            logger.error(f"Auto-scan error: {e}")
 
 
 @asynccontextmanager
@@ -29,7 +53,16 @@ async def lifespan(app: FastAPI):
     # Store config in app state for route access
     app.state.config = config
 
+    # Start auto-scan background task
+    task = asyncio.create_task(_auto_scan_task(config, logger))
+
     yield
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
     logger.info("Shutting down Sena Repo server...")
 

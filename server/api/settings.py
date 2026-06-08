@@ -17,6 +17,37 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 # --- Scraper Config ---
 
+class ScanSettings(BaseModel):
+    auto_scan: bool = False
+    scan_interval: int = 24  # hours
+    scan_structure: str = "company_game"
+
+
+class ScanSettingsOut(BaseModel):
+    auto_scan: bool
+    scan_interval: int
+    scan_structure: str
+
+
+@router.get("/scan", response_model=ScanSettingsOut)
+async def get_scan_settings():
+    config = load_config()
+    return ScanSettingsOut(
+        auto_scan=getattr(config, "_auto_scan", False),
+        scan_interval=getattr(config, "_scan_interval", 24),
+        scan_structure=getattr(config, "_scan_structure", "company_game"),
+    )
+
+
+@router.put("/scan")
+async def update_scan_settings(body: ScanSettings):
+    config = load_config()
+    config._auto_scan = body.auto_scan
+    config._scan_interval = body.scan_interval
+    config._scan_structure = body.scan_structure
+    return {"message": "保存成功"}
+
+
 class ScraperConfigOut(BaseModel):
     bangumi_token: str = ""
     vndb_token: str = ""

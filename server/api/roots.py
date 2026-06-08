@@ -119,6 +119,17 @@ async def refresh_root(
     return stats
 
 
+async def _run_scan(config):
+    """Internal helper for auto-scan. Runs refresh-all without HTTP."""
+    from database import _session_factory
+    from sqlalchemy import select
+    async with _session_factory() as session:
+        result = await session.execute(select(RootDirectory))
+        roots = result.scalars().all()
+        for root in roots:
+            await import_from_root(root.id, config, session)
+
+
 async def _auto_scrape(config):
     """Background task: batch scrape all games without covers."""
     import asyncio

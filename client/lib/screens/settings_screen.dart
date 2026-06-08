@@ -3,6 +3,7 @@
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
+import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 
 import "../providers/game_provider.dart";
@@ -32,6 +33,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoScan = false;
   int _scanInterval = 24; // hours
 
+  // Cover size
+  double _coverSize = 200; // maxCrossAxisExtent, default 200
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +52,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadAll() async {
     setState(() => _loading = true);
+    final prefs = await SharedPreferences.getInstance();
+    _coverSize = prefs.getDouble("cover_size") ?? 200;
     await Future.wait([_loadRoots(), _loadScraperConfig()]);
     setState(() => _loading = false);
   }
@@ -233,6 +239,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ),
+                const SizedBox(height: 24),
+
+                // ── Display ──
+                _sectionHeader("显示"),
+                ListTile(
+                  title: const Text("封面大小"),
+                  subtitle: Slider(
+                    value: _coverSize,
+                    min: 100,
+                    max: 300,
+                    divisions: 20,
+                    label: "${_coverSize.round()}px",
+                    onChanged: (v) async {
+                      setState(() => _coverSize = v);
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setDouble("cover_size", v);
+                    },
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 // ── Scraper Config ──
