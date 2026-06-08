@@ -16,18 +16,24 @@ class ExtractionResult:
 
 # Built-in patterns ordered by priority (first match wins)
 BUILTIN_PATTERNS: list[tuple[re.Pattern, Platform]] = [
-    # [PC]GameName.rar
+    # [PC]GameName.rar  or  (PC)GameName.rar
     (re.compile(r"\[PC\](.+)", re.IGNORECASE), Platform.PC),
-    # [KRKR]GameName.zip
+    (re.compile(r"\(PC\)(.+)", re.IGNORECASE), Platform.PC),
+    # [KRKR]GameName.zip  or  (KRKR)GameName.zip
     (re.compile(r"\[KRKR\](.+)", re.IGNORECASE), Platform.KRKR),
+    (re.compile(r"\(KRKR\)(.+)", re.IGNORECASE), Platform.KRKR),
     # [KR]GameName.zip (alternative KRKR notation)
     (re.compile(r"\[KR\](.+)", re.IGNORECASE), Platform.KRKR),
-    # [Ty]GameName.zip
+    (re.compile(r"\(KR\)(.+)", re.IGNORECASE), Platform.KRKR),
+    # [Ty]GameName.zip  or  (Ty)GameName.zip
     (re.compile(r"\[Ty\](.+)", re.IGNORECASE), Platform.TYRANOR),
+    (re.compile(r"\(Ty\)(.+)", re.IGNORECASE), Platform.TYRANOR),
     # [Ar]GameName.zip (Tyranor variant)
     (re.compile(r"\[Ar\](.+)", re.IGNORECASE), Platform.TYRANOR),
-    # [ONS]GameName.7z
+    (re.compile(r"\(Ar\)(.+)", re.IGNORECASE), Platform.TYRANOR),
+    # [ONS]GameName.7z  or  (ONS)GameName.7z
     (re.compile(r"\[ONS\](.+)", re.IGNORECASE), Platform.ONS),
+    (re.compile(r"\(ONS\)(.+)", re.IGNORECASE), Platform.ONS),
     # 直装_GameName.apk
     (re.compile(r"直装_(.+)", re.IGNORECASE), Platform.DIRECT),
 
@@ -36,7 +42,10 @@ BUILTIN_PATTERNS: list[tuple[re.Pattern, Platform]] = [
     # Contains "安卓直装" or "直装版" in name
     (re.compile(r"(.+?)安卓", re.IGNORECASE), Platform.DIRECT),
     (re.compile(r"(.+?)直装", re.IGNORECASE), Platform.DIRECT),
-    # Contains "kirikiroid" → KRKR
+    # Contains "krkr" or starts/ends with KRKR without brackets
+    (re.compile(r"(?i)(.+)krkr$", re.IGNORECASE), Platform.KRKR),
+    (re.compile(r"(?i)^krkr[_\.](.+)", re.IGNORECASE), Platform.KRKR),
+    (re.compile(r"(?i)(.+)krkr[_\.]", re.IGNORECASE), Platform.KRKR),
     (re.compile(r"(?i).*kirikiroid.*(.+)", re.IGNORECASE), Platform.KRKR),
     # Contains "tyranor" → Tyranor
     (re.compile(r"(?i).*tyranor.*(.+)", re.IGNORECASE), Platform.TYRANOR),
