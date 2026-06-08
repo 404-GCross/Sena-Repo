@@ -10,6 +10,7 @@ import "package:http/http.dart" as http;
 import "../models/game.dart";
 import "../services/api_client.dart";
 import "../providers/game_provider.dart";
+import "game_edit_screen.dart";
 
 class GameDetailScreen extends StatefulWidget {
   final int gameId;
@@ -375,7 +376,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         IconButton(
           icon: const Icon(Icons.edit),
           tooltip: "编辑",
-          onPressed: () => _showEditDialog(context),
+          onPressed: () async {
+            final changed = await Navigator.push<bool>(
+              context, MaterialPageRoute(builder: (_) => GameEditScreen(game: game)));
+            if (changed == true) _load();
+          },
         ),
       ]),
       body: SingleChildScrollView(
