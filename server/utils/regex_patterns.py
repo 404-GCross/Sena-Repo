@@ -24,6 +24,8 @@ BUILTIN_PATTERNS: list[tuple[re.Pattern, Platform]] = [
     (re.compile(r"\[KR\](.+)", re.IGNORECASE), Platform.KRKR),
     # [Ty]GameName.zip
     (re.compile(r"\[Ty\](.+)", re.IGNORECASE), Platform.TYRANOR),
+    # [Ar]GameName.zip (Tyranor variant)
+    (re.compile(r"\[Ar\](.+)", re.IGNORECASE), Platform.TYRANOR),
     # [ONS]GameName.7z
     (re.compile(r"\[ONS\](.+)", re.IGNORECASE), Platform.ONS),
     # 直装_GameName.apk
