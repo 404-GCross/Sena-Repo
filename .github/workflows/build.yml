@@ -259,6 +259,36 @@ jobs:
           name: Sena-Repo_Fedora
           path: client/dist/Sena-Repo_Fedora_*.rpm
 
+      # ── DEB (Debian/Ubuntu) ──
+      - name: Build DEB
+        run: |
+          BUNDLE=build/linux/x64/release/bundle
+          DEB="sena-repo_${VERSION}_amd64"
+          mkdir -p "$DEB/DEBIAN" "$DEB/opt/sena-repo"
+          cp -r "$BUNDLE"/* "$DEB/opt/sena-repo/"
+          mkdir -p "$DEB/usr/bin" "$DEB/usr/share/applications"
+          ln -s /opt/sena-repo/sena_repo "$DEB/usr/bin/sena-repo"
+          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$DEB/usr/share/applications/"
+          cat > "$DEB/DEBIAN/control" << CONTROL
+          Package: sena-repo
+          Version: ${VERSION}
+          Section: games
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Sena Repo Team
+          Description: GalGame Private Library Manager
+           Sena Repo is a cross-platform GalGame/Visual Novel
+           private library manager with multi-source metadata scraping.
+          CONTROL
+          dpkg-deb --build "$DEB" "dist/Sena-Repo_Debian_v${VERSION}.deb"
+          rm -rf "$DEB"
+
+      - name: Upload Debian
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Debian
+          path: client/dist/Sena-Repo_Debian_*.deb
+
       - name: Upload Arch
         uses: actions/upload-artifact@v4
         with:
