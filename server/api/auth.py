@@ -161,3 +161,14 @@ async def mark_read(note_id: int, session: AsyncSession = Depends(get_session)):
         note.read = True
         await session.commit()
     return {"ok": True}
+
+
+@router.post("/notifications/read-all")
+async def mark_all_read(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(Notification).where(Notification.read == False)
+    )
+    for note in result.scalars().all():
+        note.read = True
+    await session.commit()
+    return {"ok": True}

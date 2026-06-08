@@ -63,7 +63,16 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("通知")),
+      appBar: AppBar(title: const Text("通知"), actions: [
+        IconButton(
+          icon: const Icon(Icons.done_all),
+          tooltip: "全部已读",
+          onPressed: () async {
+            await http.post(Uri.parse("${widget.api.baseUrl}/api/auth/notifications/read-all"));
+            _load();
+          },
+        ),
+      ]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
