@@ -16,8 +16,8 @@ class SteamGridDBScraper(BaseScraper):
 
     source_name = "steamgriddb"
 
-    def __init__(self, api_key: str = "", client: httpx.AsyncClient | None = None):
-        super().__init__(client)
+    def __init__(self, proxy: str = "", api_key: str = "", client: httpx.AsyncClient | None = None):
+        super().__init__(proxy=proxy, client=client)
         self.api_key = api_key
 
     async def search(

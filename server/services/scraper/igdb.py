@@ -18,11 +18,12 @@ class IGDBScraper(BaseScraper):
 
     def __init__(
         self,
+        proxy: str = "",
         client_id: str = "",
         client_secret: str = "",
         client: httpx.AsyncClient | None = None,
     ):
-        super().__init__(client)
+        super().__init__(proxy=proxy, client=client)
         self.client_id = client_id
         self.client_secret = client_secret
         self._access_token: str | None = None

@@ -24,10 +24,11 @@ class BangumiScraper(BaseScraper):
 
     def __init__(
         self,
+        proxy: str = "",
         token: str = "",
         client: httpx.AsyncClient | None = None,
     ):
-        super().__init__(client)
+        super().__init__(proxy=proxy, client=client)
         self.token = token
 
     async def search(
