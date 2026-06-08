@@ -4,7 +4,6 @@
 import "dart:convert";
 
 import "package:flutter/material.dart";
-import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 
@@ -131,7 +130,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   void _showMsg(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   void _showError(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
-  Widget _field(String label, TextEditingController ctrl, {int maxLines = 1, String? source, String? sourceLabel, String? sourceId, bool hasData = false}) {
+  Widget _field(String label, TextEditingController ctrl, {int maxLines = 1, String? sourceId}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -144,14 +143,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
             style: const TextStyle(fontSize: 13)),
         ),
-        if (source != null && sourceLabel != null)
-          Padding(padding: const EdgeInsets.only(left: 4),
-            child: IconButton(
-              icon: Icon(_dirty[source] == true ? Icons.cloud_done : Icons.cloud_download, size: 18,
-                  color: _dirty[source] == true ? Colors.green : Colors.grey),
-              tooltip: "从 $sourceLabel 下载",
-              onPressed: () => _downloadFromSource(source, sourceLabel),
-            )),
         if (sourceId != null && sourceId.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 10, left: 4),
             child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -173,7 +164,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         title: const Text("编辑游戏"),
         actions: [
           OutlinedButton.icon(icon: const Icon(Icons.cloud_download, size: 16),
-            label: const Text("下载元数据"), onPressed: _showSearchPanel),
+            label: const Text("下载元数据"), onPressed: _downloadMetadata),
           const SizedBox(width: 8),
           FilledButton.icon(
             onPressed: _saving ? null : _save,
@@ -223,17 +214,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     _section("详细信息"),
                     _field("开发商", _dev,
-                        source: "vndb_kana", sourceLabel: "VNDB"),
+                        sourceId: g.vndbId),
                     _field("发售日", _date,
-                        source: "vndb_kana", sourceLabel: "VNDB"),
+                        sourceId: g.vndbId),
                     _field("VNDB ID", _vndb,
-                        source: "vndb_kana", sourceLabel: "VNDB",
                         sourceId: g.vndbId != null && g.vndbId!.isNotEmpty ? g.vndbId : null),
                     _field("Steam ID", _steam,
-                        source: "steam", sourceLabel: "Steam",
+                        sourceId: g.steamId,
                         sourceId: g.steamId != null && g.steamId!.isNotEmpty ? g.steamId : null),
                     _field("Bangumi ID", _bgm,
-                        source: "bangumi", sourceLabel: "Bangumi",
+                        sourceId: g.bangumiId,
                         sourceId: g.bangumiId != null && g.bangumiId!.isNotEmpty ? g.bangumiId : null),
                     const SizedBox(height: 12),
                     _section("版本"),
@@ -306,34 +296,125 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
   }
 
-  void _showSearchPanel() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("下载元数据"),
-        content: SizedBox(width: 400,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            _searchTile("VNDB Kana v2", "vndb_kana", "免认证"),
-            _searchTile("Bangumi", "bangumi", "可选 Token"),
-            _searchTile("Steam", "steam", "免认证"),
-            _searchTile("DLsite", "dlsite", "免认证"),
-            _searchTile("muyueGalgame", "muyue", "免认证"),
-          ])),
+  // ── Single unified download: search all sources → show results → compare → apply ──
+
+  Future<void> _downloadMetadata() async {
+    final ctrl = TextEditingController(text: _name.text);
+    final q = await showDialog<String>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("下载元数据"), content: TextField(controller: ctrl, autofocus: true,
+          decoration: const InputDecoration(labelText: "名称或 ID", hintText: "输入后回车搜索")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text("搜索")),
+        ],
+      ),
+    );
+    if (q == null || q.isEmpty) return;
+
+    // Search across all sources
+    final sources = ["vndb_kana", "bangumi", "steam"];
+    List<Map<String, dynamic>> allResults = [];
+    for (final src in sources) {
+      try {
+        final resp = await http.get(Uri.parse(
+            "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$src"));
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        for (final r in (data["results"] as List)) {
+          (r as Map<String, dynamic>)["_source"] = src;
+        }
+        allResults.addAll((data["results"] as List).cast<Map<String, dynamic>>());
+      } catch (_) {}
+    }
+    if (allResults.isEmpty) { _showError("所有源均无结果"); return; }
+
+    // Show results
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: Text("搜索结果 — ${allResults.length} 条"),
+        content: SizedBox(width: 480, height: 450,
+          child: ListView.builder(itemCount: allResults.length, itemBuilder: (_, i) {
+            final r = allResults[i];
+            final src = r["_source"] ?? "";
+            return ListTile(
+              leading: (r["cover_url"] ?? "").toString().isNotEmpty
+                  ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                      child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
+                          fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
+                  : _noCover(),
+              title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
+              subtitle: Text("${_sourceLabel(src)} · ${r["developer"] ?? ""} · ${r["release_date"] ?? ""}",
+                  maxLines: 2, style: const TextStyle(fontSize: 11)),
+              trailing: _sourceBadgeSmall(_sourceLabel(src)),
+              onTap: () => Navigator.pop(ctx, r),
+            );
+          })),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
       ),
     );
+    if (picked == null || !mounted) return;
+
+    // Show comparison before applying
+    final confirmed = await showDialog<bool>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("确认应用"),
+        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _compareRow("名称", _name.text, (picked["title"] ?? "").toString()),
+          _compareRow("开发商", _dev.text, (picked["developer"] ?? "").toString()),
+          _compareRow("日期", _date.text, (picked["release_date"] ?? "").toString()),
+          _compareRow("简介", _desc.text.isNotEmpty ? "${_desc.text.substring(0, _desc.text.length.clamp(0, 60))}..." : "",
+              (picked["description"] ?? "").toString().length > 60
+                  ? "${picked["description"].toString().substring(0, 60)}..."
+                  : (picked["description"] ?? "").toString()),
+          const SizedBox(height: 8),
+          Text("来源: ${_sourceLabel(picked["_source"] ?? "")}",
+              style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确认应用")),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Apply
+    setState(() {
+      _name.text = (picked["title"] ?? "").toString();
+      _dev.text = (picked["developer"] ?? "").toString();
+      _desc.text = (picked["description"] ?? "").toString();
+      _date.text = (picked["release_date"] ?? "").toString();
+      final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
+      final f = picked["_source"]?.toString() ?? "";
+      if (sf.containsKey(f) && (picked["source_id"] ?? "").toString().isNotEmpty) {
+        sf[f]!.text = picked["source_id"].toString();
+      }
+    });
+    _showMsg("已应用元数据，核对后保存");
   }
 
-  Widget _searchTile(String label, String source, String hint) {
-    return ListTile(
-      title: Text(label, style: const TextStyle(fontSize: 14)),
-      subtitle: Text(hint, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () {
-        Navigator.pop(context);
-        _downloadFromSource(source, label);
-      },
+  Widget _compareRow(String label, String current, String incoming) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+        Row(children: [
+          Expanded(child: Text(current.isEmpty ? "(空)" : current, style: TextStyle(fontSize: 12, color: current != incoming && incoming.isNotEmpty ? Colors.orange : Colors.white70))),
+          if (current != incoming && incoming.isNotEmpty) ...[
+            const Icon(Icons.arrow_forward, size: 14, color: Colors.grey),
+            Expanded(child: Text(incoming, style: const TextStyle(fontSize: 12, color: Colors.green))),
+          ],
+        ]),
+      ]),
     );
+  }
+
+  String _sourceLabel(String s) => {"vndb_kana": "VNDB", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "muyue": "muyue"}[s] ?? s;
+
+  Widget _sourceBadgeSmall(String label) {
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4)),
+      child: Text(label, style: const TextStyle(fontSize: 10)));
   }
 
   @override
