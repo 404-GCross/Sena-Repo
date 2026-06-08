@@ -4,6 +4,7 @@ import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
 import "../providers/settings_provider.dart";
+import "settings_screen.dart";
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -37,12 +38,8 @@ class ProfileScreen extends StatelessWidget {
           leading: const Icon(Icons.settings),
           title: const Text("设置"),
           trailing: const Icon(Icons.chevron_right),
-          onTap: () {
-            // TODO: settings page
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("设置页面（待实现）")),
-            );
-          },
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
         ListTile(
           leading: const Icon(Icons.info_outline),

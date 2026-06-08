@@ -1,0 +1,238 @@
+/// Settings screen: root dirs, scraper config, preferences.
+
+import "package:flutter/material.dart";
+import "package:provider/provider.dart";
+import "package:http/http.dart" as http;
+import "dart:convert";
+
+import "../providers/game_provider.dart";
+import "../services/api_client.dart";
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _loading = false;
+  String? _status;
+
+  late ApiClient _api;
+  List<Map<String, dynamic>> _roots = [];
+  final _newRootCtrl = TextEditingController();
+
+  // Scraper
+  Map<String, bool> _sources = {};
+  Map<String, TextEditingController> _keyCtrls = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _api = context.read<GameProvider>().api;
+    _keyCtrls = {
+      "bangumi_token": TextEditingController(),
+      "vndb_token": TextEditingController(),
+      "steamgriddb_key": TextEditingController(),
+      "igdb_client_id": TextEditingController(),
+      "igdb_client_secret": TextEditingController(),
+    };
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAll());
+  }
+
+  Future<void> _loadAll() async {
+    setState(() => _loading = true);
+    await Future.wait([_loadRoots(), _loadScraperConfig()]);
+    setState(() => _loading = false);
+  }
+
+  Future<void> _loadRoots() async {
+    try {
+      final resp = await http.get(Uri.parse("${_api.baseUrl}/api/roots"));
+      if (resp.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(resp.body);
+        _roots = data.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadScraperConfig() async {
+    try {
+      final resp = await http.get(Uri.parse("${_api.baseUrl}/api/settings/scraper"));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        for (final key in _keyCtrls.keys) {
+          _keyCtrls[key]!.text = data[key] ?? "";
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _addRoot() async {
+    final path = _newRootCtrl.text.trim();
+    if (path.isEmpty) return;
+    try {
+      final resp = await http.post(
+        Uri.parse("${_api.baseUrl}/api/roots"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"path": path}),
+      );
+      if (resp.statusCode == 201) {
+        _newRootCtrl.clear();
+        await _loadRoots();
+        _showStatus("已添加");
+      }
+    } catch (e) {
+      _showStatus("添加失败: $e");
+    }
+  }
+
+  Future<void> _deleteRoot(int id) async {
+    try {
+      await http.delete(Uri.parse("${_api.baseUrl}/api/roots/$id"));
+      await _loadRoots();
+      _showStatus("已删除");
+    } catch (e) {
+      _showStatus("删除失败: $e");
+    }
+  }
+
+  Future<void> _scanAll() async {
+    setState(() => _loading = true);
+    try {
+      await http.post(Uri.parse("${_api.baseUrl}/api/roots/refresh-all"));
+      _showStatus("扫描完成");
+    } catch (e) {
+      _showStatus("扫描失败: $e");
+    }
+    setState(() => _loading = false);
+  }
+
+  Future<void> _saveScraperConfig() async {
+    final body = <String, String>{};
+    for (final key in _keyCtrls.keys) {
+      body[key] = _keyCtrls[key]!.text;
+    }
+    try {
+      await http.put(
+        Uri.parse("${_api.baseUrl}/api/settings/scraper"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
+      );
+      _showStatus("刮削配置已保存");
+    } catch (e) {
+      _showStatus("保存失败: $e");
+    }
+  }
+
+  void _showStatus(String msg) {
+    if (mounted) {
+      setState(() => _status = msg);
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _status = null);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("设置")),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // Status
+                if (_status != null)
+                  Card(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(_status!),
+                    ),
+                  ),
+
+                // ── Root Directories ──
+                _sectionHeader("根目录管理"),
+                ..._roots.map((r) => ListTile(
+                      title: Text(r["path"] ?? "", style: const TextStyle(fontSize: 14)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _deleteRoot(r["id"] as int),
+                      ),
+                    )),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newRootCtrl,
+                        decoration: const InputDecoration(hintText: "/games", isDense: true),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(icon: const Icon(Icons.add), onPressed: _addRoot),
+                  ]),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _scanAll,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("扫描全部根目录"),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Scraper Config ──
+                _sectionHeader("刮削配置"),
+                ...["bangumi_token", "vndb_token", "steamgriddb_key", "igdb_client_id", "igdb_client_secret"].map((key) {
+                  final labels = {
+                    "bangumi_token": "Bangumi Token",
+                    "vndb_token": "VNDB Token",
+                    "steamgriddb_key": "SteamGridDB Key",
+                    "igdb_client_id": "IGDB Client ID",
+                    "igdb_client_secret": "IGDB Client Secret",
+                  };
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: TextField(
+                      controller: _keyCtrls[key],
+                      decoration: InputDecoration(labelText: labels[key], isDense: true),
+                    ),
+                  );
+                }),
+                FilledButton.tonalIcon(
+                  onPressed: _saveScraperConfig,
+                  icon: const Icon(Icons.save),
+                  label: const Text("保存刮削配置"),
+                ),
+                const SizedBox(height: 32),
+
+                // ── About ──
+                _sectionHeader("关于"),
+                const ListTile(
+                  title: Text("Sena Repo"),
+                  subtitle: Text("v0.1.0"),
+                  leading: Icon(Icons.info_outline),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  @override
+  void dispose() {
+    _newRootCtrl.dispose();
+    for (final c in _keyCtrls.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+}

@@ -12,6 +12,7 @@ import "../widgets/game_list.dart";
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
+import "settings_screen.dart";
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -119,7 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.settings),
-                  onPressed: () => _showSettings(context),
+                  onPressed: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen())),
                   tooltip: "设置",
                 ),
               ]
@@ -151,17 +153,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showSettings(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("设置"),
-        content: const Text("设置页面（待实现）"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text("关闭")),
-        ],
-      ),
-    );
-  }
 }
