@@ -121,9 +121,12 @@ class BaseScraper(ABC):
 def clean_title(title: str) -> str:
     """Clean a game title for better scraper matching.
 
-    Removes version numbers, common suffixes, and normalizes spacing.
+    Removes platform markers, version numbers, and suffixes.
     """
     t = title.strip()
+    # Strip platform markers: [PC], (KRKR), 【Ty】, 直装_, etc.
+    t = re.sub(r"^[\[\(（][A-Za-z]+[\]\)）]", "", t).strip()
+    t = re.sub(r"^直装[_ ]", "", t, flags=re.IGNORECASE).strip()
     # Strip common version/edition suffixes
     t = re.sub(r"[-_ ]?v?\d+\.?\d*$", "", t)
     t = re.sub(r"[-_ ]?(汉化|中文|官方中文|完全版|DL版|体験版|体験版Ver[\d.]+).*$", "", t)
