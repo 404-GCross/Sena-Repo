@@ -2,6 +2,7 @@
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/game_provider.dart";
 import "../services/steam_service.dart";
@@ -21,9 +22,25 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _checking = false;
   String? _status;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedDir();
+  }
+
+  Future<void> _loadSavedDir() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString("steam_common_dir");
+    if (saved != null && saved.isNotEmpty && mounted) {
+      setState(() => _commonDir = saved);
+    }
+  }
+
   Future<void> _pickDirectory() async {
     final dir = await SteamService.pickSteamDir();
     if (dir != null && mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("steam_common_dir", dir);
       setState(() {
         _commonDir = dir;
         _status = null;

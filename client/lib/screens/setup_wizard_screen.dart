@@ -3,6 +3,7 @@
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:file_picker/file_picker.dart";
+import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 
 import "../services/api_client.dart";
@@ -83,6 +84,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
       // Save scraper keys
       await _saveScraperKeys();
+      // Persist Steam common dir for the Steam patch tab
+      if (_steamCommonCtrl.text.trim().isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString("steam_common_dir", _steamCommonCtrl.text.trim());
+      }
       // Trigger scan
       await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
       if (mounted) Navigator.pop(context, true);
