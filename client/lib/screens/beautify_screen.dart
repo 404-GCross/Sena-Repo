@@ -1,6 +1,9 @@
 /// Beautify settings: accent color picker + custom background.
 
+import "dart:io";
+
 import "package:flutter/material.dart";
+import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 
 import "../providers/theme_provider.dart";
@@ -38,6 +41,17 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
     Color(0xFFA855F7), // Purple
     Color(0xFF14B8A6), // Teal
   ];
+
+  Future<void> _pickLocalImage() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+    );
+    if (result != null && result.files.single.path != null) {
+      final path = result.files.single.path!;
+      _bgUrlCtrl.text = path;
+      context.read<ThemeProvider>().setBackgroundUrl("file://$path");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -131,8 +145,14 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
               child: FilledButton.tonalIcon(
                 onPressed: () => theme.setBackgroundUrl(_bgUrlCtrl.text.trim().isEmpty ? null : _bgUrlCtrl.text.trim()),
                 icon: const Icon(Icons.check),
-                label: const Text("应用背景"),
+                label: const Text("应用"),
               ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _pickLocalImage,
+              icon: const Icon(Icons.image),
+              label: const Text("本地"),
             ),
             const SizedBox(width: 8),
             OutlinedButton(
