@@ -1,26 +1,23 @@
-"""Bangumi scraper — supports public API and authenticated v0 API."""
+"""Bangumi scraper — v0 POST API with mirror fallback."""
 
 from __future__ import annotations
 
 import logging
-from urllib.parse import quote
 
 import httpx
 
-from .base import BaseScraper, ScraperResult
+from .base import BaseScraper, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
+BGM_MAIN = "https://api.bgm.tv"
+BGM_MIRROR = "https://api.bangumi.one"
+
 
 class BangumiScraper(BaseScraper):
-    """Scrape Bangumi for game metadata.
-
-    Public old API works without auth (rate-limited).
-    v0 API requires a token from https://bgm.tv/dev/app (higher limits).
-    """
+    """Scrape Bangumi via v0 POST API with optional token + mirror fallback."""
 
     source_name = "bangumi"
-    base_url = "https://api.bgm.tv"
 
     def __init__(
         self,
@@ -36,87 +33,59 @@ class BangumiScraper(BaseScraper):
         name: str,
         company_hint: str | None = None,
     ) -> list[ScraperResult]:
-        if self.token:
-            return await self._search_v0(name)
-        return await self._search_public(name)
+        keyword = clean_title(name)
+        if not keyword:
+            return []
 
-    async def _search_v0(self, name: str) -> list[ScraperResult]:
-        """Search via authenticated v0 API (requires token)."""
-        client = await self._get_client()
-        results = []
+        # Try main endpoint first, then mirror
+        for endpoint, use_proxy in [(BGM_MAIN, True), (BGM_MIRROR, False)]:
+            try:
+                results = await self._do_search(endpoint, keyword, use_proxy)
+                if results:
+                    return results
+            except Exception as e:
+                logger.debug(f"Bangumi {endpoint} failed: {e}")
+        return []
 
-        try:
-            resp = await client.get(
-                f"{self.base_url}/v0/search/subjects",
-                params={
-                    "keyword": name,
-                    "type": 4,   # 4 = game
-                    "limit": 5,
-                    "responseGroup": "large",
-                },
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                    "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
-                },
-                timeout=15.0,
-            )
-            resp.raise_for_status()
+    async def _do_search(
+        self, endpoint: str, keyword: str, use_proxy: bool
+    ) -> list[ScraperResult]:
+        kwargs = {"timeout": httpx.Timeout(15.0)}
+        if use_proxy and self.proxy:
+            kwargs["proxy"] = self.proxy
+        async with httpx.AsyncClient(**kwargs) as client:
+            body = {
+                "keyword": keyword,
+                "sort": "match",
+                "filter": {"type": [4]},  # 4 = game
+            }
+            headers = {
+                "Content-Type": "application/json; charset=UTF-8",
+                "Accept": "application/json",
+                "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
+            }
+            if self.token:
+                headers["Authorization"] = f"Bearer {self.token}"
+
+            url = f"{endpoint}/v0/search/subjects?limit=3&offset=0"
+            resp = await self._request_with_retry(client, "POST", url, json=body, headers=headers)
             data = resp.json()
+            return [self._parse(item) for item in data.get("data", []) if item.get("id")]
 
-            for item in data.get("data", []):
-                cover_url = ""
-                if item.get("images"):
-                    cover_url = item["images"].get("large", "")
+    def _parse(self, item: dict) -> ScraperResult:
+        images = item.get("images", {})
+        cover = images.get("large", "") or images.get("common", "") or images.get("grid", "")
+        if cover.startswith("//"):
+            cover = "https:" + cover
 
-                results.append(ScraperResult(
-                    title=item.get("name_cn", "") or item.get("name", ""),
-                    description=item.get("summary", ""),
-                    release_date=item.get("date", ""),
-                    cover_url=cover_url,
-                    source_id=str(item.get("id", "")),
-                    source_name=self.source_name,
-                ))
+        tags = item.get("tags", [])
+        tag_names = [t.get("name", "") for t in tags[:5] if t.get("name")]
 
-        except httpx.HTTPError as e:
-            logger.warning(f"Bangumi v0 search failed for '{name}': {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error in Bangumi v0: {e}")
-
-        return results
-
-    async def _search_public(self, name: str) -> list[ScraperResult]:
-        """Search via old public API (no auth, rate-limited)."""
-        client = await self._get_client()
-        results = []
-
-        try:
-            resp = await client.get(
-                f"{self.base_url}/search/subject/{quote(name)}",
-                params={
-                    "type": 4,
-                    "responseGroup": "large",
-                    "max_results": 5,
-                },
-                timeout=15.0,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-            for item in data.get("list", []):
-                cover_url = item.get("images", {}).get("large", "")
-
-                results.append(ScraperResult(
-                    title=item.get("name_cn", "") or item.get("name", ""),
-                    description=item.get("summary", ""),
-                    release_date=item.get("air_date", ""),
-                    cover_url=cover_url,
-                    source_id=str(item.get("id", "")),
-                    source_name=self.source_name,
-                ))
-
-        except httpx.HTTPError as e:
-            logger.warning(f"Bangumi search failed for '{name}': {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error in Bangumi: {e}")
-
-        return results
+        return ScraperResult(
+            title=item.get("name_cn", "") or item.get("name", ""),
+            description=item.get("summary", ""),
+            release_date=item.get("date", ""),
+            cover_url=cover,
+            source_id=str(item.get("id", "")),
+            source_name=self.source_name,
+        )

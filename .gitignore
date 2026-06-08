@@ -28,5 +28,6 @@ backgrounds/
 # Config with secrets
 server/config.yaml
 
-# Yukihub参考文件
+# 参考文件
 README_Yukihub.md
+参考项目源码

@@ -14,7 +14,7 @@ from config import Config
 from models.game import Game
 from models.scrape_job import JobStatus, ScrapeJob
 
-from .base import BaseScraper, ScraperResult
+from .base import BaseScraper, ScraperResult, clean_title, extract_dlsite_workno
 from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
@@ -83,35 +83,81 @@ async def scrape_single_game(
     company_hint = game.company.name if game.company else None
     results = {}
 
-    for scraper in scrapers:
-        try:
-            result = await scraper.search_best(game.name, company_hint)
-            if result:
-                results[scraper.source_name] = result
+    # ── Build search candidates (best → worst) ──
+    candidates: list[str] = []
+    raw_name = game.name
 
-                # Download cover if found and game has no cover
-                if result.cover_url and not game.cover_path:
-                    ext = ".jpg"
-                    cover_path = covers_dir / f"{game.id}_{scraper.source_name}{ext}"
-                    success = await _download_cover(client, result.cover_url, cover_path)
-                    if success:
-                        game.cover_path = str(cover_path)
-                        session.add(game)
+    # Extract folder name for additional candidate
+    folder_name = ""
+    try:
+        folder_name = Path(game.folder_path).name
+    except Exception:
+        pass
 
-                # Set developer from scraper result if game doesn't have one
-                if result.developer and not game.developer:
-                    game.developer = result.developer
+    candidates.append(clean_title(raw_name))
+    if folder_name and clean_title(folder_name) not in candidates:
+        candidates.append(clean_title(folder_name))
+    for c in list(candidates):
+        if c and c != raw_name and raw_name not in candidates:
+            candidates.append(raw_name)
+    candidates = [c for c in candidates if c]
 
-                # Set description if not set
-                if result.description and not game.description:
-                    game.description = result.description[:2000]  # Truncate
+    # ── DLsite: auto-detect work number → prioritize DLsite ──
+    dlsite_workno = extract_dlsite_workno(raw_name) or extract_dlsite_workno(folder_name)
+    if dlsite_workno:
+        dlsite_scraper = next((s for s in scrapers if s.source_name == "dlsite"), None)
+        if dlsite_scraper:
+            for query in [dlsite_workno] + candidates:
+                try:
+                    result = await dlsite_scraper.search_best(query, company_hint)
+                    if result:
+                        results[dlsite_scraper.source_name] = result
+                        await _apply_result(result, dlsite_scraper.source_name, game, client, covers_dir, session)
+                        break
+                except Exception:
+                    continue
 
-        except Exception as e:
-            logger.error(f"Scraper {scraper.source_name} error for '{game.name}': {e}")
-            results[scraper.source_name] = None
+    # ── Standard search: try candidates × scrapers ──
+    non_dlsite = [s for s in scrapers if s.source_name != "dlsite"]
+    for query in candidates:
+        for scraper in non_dlsite:
+            if scraper.source_name in results:
+                continue
+            try:
+                result = await scraper.search_best(query, company_hint)
+                if result:
+                    results[scraper.source_name] = result
+                    await _apply_result(result, scraper.source_name, game, client, covers_dir, session)
+                    break  # Found for this candidate, try next candidate for remaining scrapers
+            except Exception as e:
+                logger.error(f"Scraper {scraper.source_name} error for '{query}': {e}")
 
     await session.commit()
     return results
+
+
+async def _apply_result(
+    result: ScraperResult,
+    source_name: str,
+    game: Game,
+    client: httpx.AsyncClient,
+    covers_dir: Path,
+    session: AsyncSession,
+):
+    """Apply a scraper result to a game: download cover, set metadata."""
+    if result.cover_url and not game.cover_path:
+        ext = ".jpg"
+        cover_path = covers_dir / f"{game.id}_{source_name}{ext}"
+        success = await _download_cover(client, result.cover_url, cover_path)
+        if success:
+            game.cover_path = str(cover_path)
+            session.add(game)
+    if result.developer and not game.developer:
+        game.developer = result.developer
+        session.add(game)
+    if result.description and not game.description:
+        game.description = result.description[:2000]
+        session.add(game)
 
 
 async def run_batch_scrape(
