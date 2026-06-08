@@ -203,6 +203,136 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
   }
 
+  Future<void> _showSearchDialog(BuildContext context) async {
+    if (_game == null) return;
+    final game = _game!;
+    final searchCtrl = TextEditingController(text: game.name);
+    String selectedSource = "vndb_kana";
+    List<Map<String, dynamic>> candidates = [];
+    bool searching = false;
+    String? searchError;
+    Map<String, dynamic>? selected;
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          title: Text("搜索「${game.name}」"),
+          content: SizedBox(
+            width: 500,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: searchCtrl,
+                      decoration: const InputDecoration(labelText: "搜索关键词", isDense: true),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  DropdownButton<String>(
+                    value: selectedSource,
+                    underline: const SizedBox(),
+                    items: const [
+                      DropdownMenuItem(value: "vndb_kana", child: Text("VNDB")),
+                      DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
+                      DropdownMenuItem(value: "steam", child: Text("Steam")),
+                      DropdownMenuItem(value: "dlsite", child: Text("DLsite")),
+                      DropdownMenuItem(value: "muyue", child: Text("muyue")),
+                    ],
+                    onChanged: (v) => setDState(() => selectedSource = v!),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.search, size: 18),
+                    label: const Text("搜索"),
+                    onPressed: () async {
+                      setDState(() { searching = true; candidates = []; searchError = null; });
+                      try {
+                        final resp = await http.get(Uri.parse(
+                          "${_api.baseUrl}/api/scrape/search?q=${Uri.encodeComponent(searchCtrl.text)}&source=$selectedSource"));
+                        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+                        setDState(() {
+                          candidates = (data["results"] as List).cast<Map<String, dynamic>>();
+                          searching = false;
+                        });
+                      } catch (e) {
+                        setDState(() { searchError = "$e"; searching = false; });
+                      }
+                    },
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                if (searching) const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
+                if (searchError != null) Text(searchError!, style: const TextStyle(color: Colors.red)),
+                if (candidates.isNotEmpty)
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: candidates.length,
+                      itemBuilder: (_, i) {
+                        final c = candidates[i];
+                        final isSelected = selected?["source_id"] == c["source_id"]
+                            && selected?["source"] == selectedSource;
+                        return ListTile(
+                          selected: isSelected,
+                          leading: c["cover_url"] != null && c["cover_url"].toString().isNotEmpty
+                              ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                                  child: Image.network(c["cover_url"].toString(), width: 60, height: 85, fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40)))
+                              : const Icon(Icons.image, size: 40),
+                          title: Text(c["title"] ?? "", style: const TextStyle(fontSize: 14)),
+                          subtitle: Text(
+                            [c["developer"], c["release_date"]].where((s) => s != null && s.toString().isNotEmpty).join(" · "),
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            setDState(() {
+                              selected = {"source_id": c["source_id"], "source": selectedSource,
+                                "cover_url": c["cover_url"], "developer": c["developer"],
+                                "title": c["title"], "description": c["description"],
+                                "release_date": c["release_date"]};
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(
+              onPressed: selected == null ? null : () => Navigator.pop(ctx, selected),
+              child: const Text("应用选中"),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      try {
+        final body = {
+          "source_id": result["source_id"], "source": result["source"],
+          "cover_url": result["cover_url"] ?? "", "developer": result["developer"] ?? "",
+          "title": result["title"] ?? "", "description": result["description"] ?? "",
+          "release_date": result["release_date"] ?? "",
+        };
+        await http.post(
+          Uri.parse("${_api.baseUrl}/api/games/${game.id}/scrape-apply"),
+          headers: {"Content-Type": "application/json"}, body: jsonEncode(body),
+        );
+        _load();
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已应用")));
+      } catch (e) {
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -221,6 +351,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final game = _game!;
     return Scaffold(
       appBar: AppBar(title: Text(game.name), actions: [
+        IconButton(
+          icon: const Icon(Icons.search),
+          tooltip: "搜索刮削",
+          onPressed: () => _showSearchDialog(context),
+        ),
         IconButton(
           icon: const Icon(Icons.edit),
           tooltip: "编辑",

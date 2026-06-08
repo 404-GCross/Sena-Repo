@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -47,6 +48,90 @@ class JobStatusOut(BaseModel):
     current_game: str | None
     log: str
     started_at: str | None
+
+
+# --- Search candidates (Playnite-style) ---
+
+@router.get("/scrape/search")
+async def search_candidates(
+    q: str,
+    source: str = "vndb_kana",
+):
+    """Search a specific source and return all candidates."""
+    config = load_config()
+    scrapers = {s.source_name: s for s in _build_scrapers(config)}
+    scraper = scrapers.get(source)
+    if scraper is None:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
+
+    try:
+        results = await scraper.search(q)
+        return {
+            "source": source,
+            "query": q,
+            "results": [
+                {"title": r.title, "cover_url": r.cover_url, "developer": r.developer,
+                 "description": r.description, "release_date": r.release_date,
+                 "source_id": r.source_id}
+                for r in results
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await scraper.close()
+
+
+@router.post("/games/{game_id}/scrape-apply")
+async def scrape_apply(
+    game_id: int,
+    source: str,
+    source_id: str,
+    cover_url: str = "",
+    developer: str = "",
+    title: str = "",
+    description: str = "",
+    release_date: str = "",
+    session: AsyncSession = Depends(get_session),
+):
+    """Apply a specific scraper result to a game."""
+    result = await session.execute(select(Game).where(Game.id == game_id))
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if cover_url:
+        config = load_config()
+        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+        if config.proxy:
+            client_kwargs["proxy"] = config.proxy
+        async with httpx.AsyncClient(**client_kwargs) as c:
+            try:
+                resp = await c.get(cover_url)
+                resp.raise_for_status()
+                cover_path = config.covers_path / f"{game_id}_{source}.jpg"
+                config.covers_path.mkdir(parents=True, exist_ok=True)
+                cover_path.write_bytes(resp.content)
+                game.cover_path = str(cover_path)
+            except Exception as e:
+                logger.warning(f"Cover download failed: {e}")
+
+    if developer:
+        game.developer = developer
+    if description:
+        game.description = description[:2000]
+    if release_date:
+        game.release_date = release_date
+    sfx = ""
+    sf = {"vndb_kana": "vndb_id", "vndb": "vndb_id", "bangumi": "bangumi_id", "steam": "steam_id"}
+    sfx = sf.get(source, "")
+    if sfx and source_id:
+        setattr(game, sfx, source_id)
+
+    game.updated_at = datetime.utcnow()
+    session.add(game)
+    await session.commit()
+    return {"message": "已应用"}
 
 
 # --- Manual scrape for a single game ---
