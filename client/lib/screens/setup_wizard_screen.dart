@@ -18,6 +18,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _usernameCtrl = TextEditingController(text: "admin");
   final _passwordCtrl = TextEditingController();
   final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
+  final _patchDirCtrl = TextEditingController(text: "/data/steam_patches");
+  final _steamCommonCtrl = TextEditingController(text: "");
   bool _loading = false;
   String? _error;
 
@@ -54,6 +56,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "admin_username": _usernameCtrl.text.trim(),
           "admin_password": _passwordCtrl.text,
           "game_dirs": dirs,
+          "steam_dir": _steamCommonCtrl.text.trim(),
+          "patch_dir": _patchDirCtrl.text.trim(),
         }),
       );
 
@@ -164,6 +168,33 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         ),
                       );
                     }),
+                    const SizedBox(height: 20),
+
+                    // Steam patch dir
+                    const Text("Steam 补丁", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(
+                      "服务端存放补丁的目录，以及本机 Steam common 路径",
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _patchDirCtrl,
+                      decoration: const InputDecoration(
+                        labelText: "服务端补丁目录",
+                        hintText: "/data/steam_patches",
+                        prefixIcon: Icon(Icons.dns),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _steamCommonCtrl,
+                      decoration: const InputDecoration(
+                        labelText: "本机 Steam common 目录 (可选)",
+                        hintText: "C:/Steam/steamapps/common",
+                        prefixIcon: Icon(Icons.computer),
+                      ),
+                    ),
                     const SizedBox(height: 24),
 
                     if (_error != null)
