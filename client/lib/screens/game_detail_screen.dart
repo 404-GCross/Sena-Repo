@@ -3,6 +3,7 @@
 import "dart:convert";
 
 import "package:flutter/material.dart";
+import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 
@@ -58,6 +59,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final vndbCtrl = TextEditingController(text: game.vndbId ?? "");
     final steamCtrl = TextEditingController(text: game.steamId ?? "");
     final bgmCtrl = TextEditingController(text: game.bangumiId ?? "");
+    final coverCtrl = TextEditingController(text: "");
+    final bgCtrl = TextEditingController(text: game.bgPath ?? "");
+
+    Future<void> pickImage(TextEditingController ctrl) async {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result != null && result.files.single.path != null) {
+        ctrl.text = result.files.single.path!;
+      }
+    }
 
     final saved = await showDialog<bool>(
       context: context,
@@ -79,6 +89,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               TextField(controller: vndbCtrl, decoration: const InputDecoration(labelText: "VNDB ID")),
               TextField(controller: steamCtrl, decoration: const InputDecoration(labelText: "Steam App ID")),
               TextField(controller: bgmCtrl, decoration: const InputDecoration(labelText: "Bangumi ID")),
+              const SizedBox(height: 12),
+              const Text("封面与背景", style: TextStyle(fontWeight: FontWeight.bold)),
+              Row(children: [
+                Expanded(child: TextField(controller: coverCtrl, decoration: const InputDecoration(labelText: "封面 URL", isDense: true))),
+                const SizedBox(width: 4),
+                IconButton(icon: const Icon(Icons.folder_open), tooltip: "本地图片", onPressed: () => pickImage(coverCtrl)),
+              ]),
+              Row(children: [
+                Expanded(child: TextField(controller: bgCtrl, decoration: const InputDecoration(labelText: "背景 URL", isDense: true))),
+                const SizedBox(width: 4),
+                IconButton(icon: const Icon(Icons.folder_open), tooltip: "本地图片", onPressed: () => pickImage(bgCtrl)),
+              ]),
               const SizedBox(height: 12),
               if (game.versions.isNotEmpty) ...[
                 const Text("版本管理", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -126,6 +148,20 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           headers: {"Content-Type": "application/json"},
           body: jsonEncode(body),
         );
+        // Update cover if provided
+        if (coverCtrl.text.trim().isNotEmpty) {
+          final covUrl = coverCtrl.text.trim();
+          if (covUrl.startsWith("http")) {
+            await http.post(Uri.parse("${_api.baseUrl}/api/games/${game.id}/cover?cover_url=${Uri.encodeComponent(covUrl)}"));
+          }
+        }
+        // Update background if changed
+        if (bgCtrl.text.trim().isNotEmpty && bgCtrl.text.trim() != (game.bgPath ?? "")) {
+          final bgUrl = bgCtrl.text.trim();
+          if (bgUrl.startsWith("http")) {
+            await http.post(Uri.parse("${_api.baseUrl}/api/games/${game.id}/background?bg_url=${Uri.encodeComponent(bgUrl)}"));
+          }
+        }
         if (resp.statusCode == 200) {
           _load();
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
