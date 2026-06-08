@@ -17,9 +17,23 @@ class SetupWizardScreen extends StatefulWidget {
 class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _usernameCtrl = TextEditingController(text: "admin");
   final _passwordCtrl = TextEditingController();
-  final _dirsCtrl = TextEditingController(text: "/games");
+  final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
   bool _loading = false;
   String? _error;
+
+  void _addDirRow() {
+    setState(() {
+      _dirCtrls.add(TextEditingController());
+    });
+  }
+
+  void _removeDirRow(int index) {
+    if (_dirCtrls.length > 1) {
+      setState(() {
+        _dirCtrls.removeAt(index);
+      });
+    }
+  }
 
   Future<void> _submit() async {
     setState(() {
@@ -28,9 +42,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     });
 
     try {
-      final dirs = _dirsCtrl.text
-          .split("\n")
-          .map((s) => s.trim())
+      final dirs = _dirCtrls
+          .map((c) => c.text.trim())
           .where((s) => s.isNotEmpty)
           .toList();
 
@@ -116,18 +129,41 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     const Text("游戏目录", style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     Text(
-                      "每行一个路径，服务端将扫描这些目录下的游戏",
+                      "服务端将扫描这些目录下的游戏",
                       style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _dirsCtrl,
-                      decoration: const InputDecoration(
-                        hintText: "/games\n/nas/galgame",
-                        prefixIcon: Icon(Icons.folder),
-                      ),
-                      maxLines: 4,
-                    ),
+                    ..._dirCtrls.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final ctrl = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: ctrl,
+                                decoration: InputDecoration(
+                                  hintText: "/games",
+                                  prefixIcon: const Icon(Icons.folder),
+                                  suffixIcon: _dirCtrls.length > 1
+                                      ? IconButton(
+                                          icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                          onPressed: () => _removeDirRow(i),
+                                        )
+                                      : null,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton.filled(
+                              icon: const Icon(Icons.add, size: 20),
+                              onPressed: _addDirRow,
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                     const SizedBox(height: 24),
 
                     if (_error != null)
