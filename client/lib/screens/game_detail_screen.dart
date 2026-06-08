@@ -18,19 +18,14 @@ class GameDetailScreen extends StatefulWidget {
 class _GameDetailScreenState extends State<GameDetailScreen> {
   GameDetail? _game;
   bool _isLoading = true;
-  late final ApiClient _api;
   bool _isDeleting = false;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _api = context.read<GameProvider>().api;
-  }
+  ApiClient get _api => context.read<GameProvider>().api;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {
