@@ -212,7 +212,10 @@ async def run_batch_scrape(
     completed = 0
     failed = 0
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    async with httpx.AsyncClient(**client_kwargs) as client:
         for i, game in enumerate(games):
             job.current_game = game.name
             job.completed_games = i

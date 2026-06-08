@@ -84,7 +84,10 @@ async def scrape_game_cover(
     covers_dir = config.covers_path
     found_results = []
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    async with httpx.AsyncClient(**client_kwargs) as client:
         for scraper in all_scrapers:
             try:
                 result = await scraper.search_best(game.name, company_hint)
@@ -237,7 +240,10 @@ async def update_game_cover(
         ext = ".jpg"
         cover_path = covers_dir / f"{game_id}_manual{ext}"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    async with httpx.AsyncClient(**client_kwargs) as client:
             try:
                 resp = await client.get(cover_url)
                 resp.raise_for_status()
@@ -293,7 +299,10 @@ async def update_game_background(
         ext = ".jpg" if ".jpg" in bg_url.lower() or ".jpeg" in bg_url.lower() else ".png"
         bg_path = bg_dir / f"{game_id}_bg{ext}"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    async with httpx.AsyncClient(**client_kwargs) as client:
             try:
                 resp = await client.get(bg_url)
                 resp.raise_for_status()
