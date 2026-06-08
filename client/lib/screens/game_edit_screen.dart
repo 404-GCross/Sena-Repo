@@ -312,10 +312,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (src == null || !mounted) return;
 
-    // Step 2: Search — prefill with existing ID if available, otherwise game name
-    final idMap = {"vndb_kana": _vndb.text, "bangumi": _bgm.text, "steam": _steam.text};
-    final prefill = (idMap[src] != null && idMap[src]!.isNotEmpty) ? idMap[src]! : _name.text;
-    final ctrl = TextEditingController(text: prefill);
+    // Step 2: Search
+    final ctrl = TextEditingController(text: _name.text);
     final q = await showDialog<String>(
       context: context, builder: (ctx) => AlertDialog(
         title: Text("${sources[src]} — 搜索"),
