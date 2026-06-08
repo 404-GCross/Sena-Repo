@@ -121,6 +121,16 @@ async def approve_user(body: ApproveRequest, session: AsyncSession = Depends(get
 
     user.status = "active" if body.approve else "rejected"
 
+    # Mark related approval notification as read
+    related = await session.execute(
+        select(Notification).where(
+            Notification.target_user_id == body.user_id,
+            Notification.type == "approval_request",
+        )
+    )
+    for n in related.scalars().all():
+        n.read = True
+
     # Notification for the applicant
     session.add(Notification(
         type="approved" if body.approve else "rejected",
