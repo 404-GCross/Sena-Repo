@@ -7,6 +7,7 @@ import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
+import "login_screen.dart";
 
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
@@ -56,13 +57,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
           await games.loadGames();
         }
         if (!mounted) return;
-      } else {
-        await games.loadGames();
+      } else if (mounted) {
+        // Server is set up → show login
+        final loginResult = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+        );
+        if (loginResult == null) return; // user went back
       }
 
       if (!mounted) return;
+      await games.loadGames();
 
-      // If still no games, ask whether to scan
+      // If no games, ask whether to scan
       if (games.games.isEmpty) {
         final shouldScan = await showDialog<bool>(
           context: context,

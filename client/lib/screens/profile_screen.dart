@@ -5,6 +5,8 @@ import "package:provider/provider.dart";
 
 import "../providers/settings_provider.dart";
 import "settings_screen.dart";
+import "notification_screen.dart";
+import "../providers/game_provider.dart";
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -34,6 +36,14 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 32),
         const Divider(),
+        ListTile(
+          leading: const Icon(Icons.notifications_outlined),
+          title: const Text("通知"),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => NotificationScreen(
+                  api: context.read<GameProvider>().api))),
+        ),
         ListTile(
           leading: const Icon(Icons.settings),
           title: const Text("设置"),

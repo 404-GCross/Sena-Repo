@@ -31,4 +31,17 @@ class User(Base):
     password_hash = Column(String(128), nullable=False)
     salt = Column(String(64), nullable=False)
     is_admin = Column(Boolean, default=False)
+    status = Column(String(16), default="active")  # active, pending, rejected
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String(32), nullable=False)  # approval_request, approved, rejected, system
+    title = Column(String(256), nullable=False)
+    body = Column(String(1024), default="")
+    target_user_id = Column(Integer, nullable=True)  # user being registered (for approval)
+    read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

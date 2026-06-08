@@ -1,0 +1,163 @@
+"""Auth API — login, register, admin approval, notifications."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_session
+from models.user import User, Notification, hash_password, verify_password
+
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginResponse(BaseModel):
+    token: str  # user id as simple token for now
+    is_admin: bool
+    username: str
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=128)
+    password: str = Field(min_length=4, max_length=128)
+    is_admin: bool = False  # false = regular user
+
+class ApproveRequest(BaseModel):
+    user_id: int
+    approve: bool  # true = approve, false = reject
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(User).where(User.username == body.username)
+    )
+    user = result.scalar_one_or_none()
+
+    if user is None or not verify_password(body.password, user.salt, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    if user.status == "pending":
+        raise HTTPException(status_code=403, detail="账户等待管理员审批中")
+    if user.status == "rejected":
+        raise HTTPException(status_code=403, detail="账户已被拒绝")
+
+    return LoginResponse(
+        token=str(user.id),
+        is_admin=user.is_admin,
+        username=user.username,
+    )
+
+
+@router.post("/register")
+async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)):
+    # Check if username exists
+    existing = await session.execute(
+        select(User).where(User.username == body.username)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="用户名已存在")
+
+    # Count existing users. If 0, first user is auto-admin and auto-approved
+    count = await session.execute(select(func.count()).select_from(User))
+    is_first = count.scalar() == 0
+
+    pw_hash, salt = hash_password(body.password)
+    user = User(
+        username=body.username,
+        password_hash=pw_hash,
+        salt=salt,
+        is_admin=is_first or body.is_admin,
+        status="active" if is_first else "pending",
+    )
+    session.add(user)
+    await session.flush()
+
+    if not is_first:
+        # Notify all admins about this registration
+        admins = await session.execute(
+            select(User).where(User.is_admin == True)
+        )
+        for admin in admins.scalars():
+            session.add(Notification(
+                type="approval_request",
+                title=f"新用户注册: {body.username}",
+                body=f"用户 {body.username} 申请{'管理员' if body.is_admin else '普通用户'}账户，等待审批",
+                target_user_id=user.id,
+            ))
+
+    await session.commit()
+
+    if is_first:
+        return {"message": "注册成功，首个用户已自动激活", "user_id": user.id, "auto_approved": True}
+    return {"message": "注册成功，等待管理员审批", "user_id": user.id, "pending": True}
+
+
+@router.get("/pending")
+async def list_pending(session: AsyncSession = Depends(get_session)):
+    """List users pending approval (admin only)."""
+    result = await session.execute(
+        select(User).where(User.status == "pending").order_by(User.created_at.desc())
+    )
+    users = result.scalars().all()
+    return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "created_at": str(u.created_at)} for u in users]
+
+
+@router.post("/approve")
+async def approve_user(body: ApproveRequest, session: AsyncSession = Depends(get_session)):
+    """Approve or reject a pending user."""
+    result = await session.execute(select(User).where(User.id == body.user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.status != "pending":
+        raise HTTPException(status_code=400, detail="该用户不在待审批状态")
+
+    user.status = "active" if body.approve else "rejected"
+
+    # Notification for the applicant
+    session.add(Notification(
+        type="approved" if body.approve else "rejected",
+        title="账户已通过审批" if body.approve else "账户已被拒绝",
+        body=f"你的账户申请{'已通过' if body.approve else '已被拒绝'}",
+        target_user_id=user.id,
+    ))
+
+    await session.commit()
+    return {"message": "操作成功"}
+
+
+@router.get("/notifications")
+async def list_notifications(session: AsyncSession = Depends(get_session)):
+    """List recent notifications."""
+    result = await session.execute(
+        select(Notification).order_by(Notification.created_at.desc()).limit(50)
+    )
+    notes = result.scalars().all()
+    return [{"id": n.id, "type": n.type, "title": n.title, "body": n.body,
+             "target_user_id": n.target_user_id, "read": n.read, "created_at": str(n.created_at)}
+            for n in notes]
+
+
+@router.get("/notifications/unread-count")
+async def unread_count(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(func.count()).select_from(Notification).where(Notification.read == False)
+    )
+    return {"count": result.scalar()}
+
+
+@router.post("/notifications/{note_id}/read")
+async def mark_read(note_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(Notification).where(Notification.id == note_id))
+    note = result.scalar_one_or_none()
+    if note:
+        note.read = True
+        await session.commit()
+    return {"ok": True}

@@ -60,6 +60,7 @@ from api.scraper import router as scraper_router
 from api.files import router as files_router
 from api.steam_patch import router as steam_patch_router
 from api.setup import router as setup_router
+from api.auth import router as auth_router
 
 app.include_router(games_router)
 app.include_router(tags_router)
@@ -70,6 +71,7 @@ app.include_router(scraper_router)
 app.include_router(files_router)
 app.include_router(steam_patch_router)
 app.include_router(setup_router)
+app.include_router(auth_router)
 
 
 @app.get("/api/health")
