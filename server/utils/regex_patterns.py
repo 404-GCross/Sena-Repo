@@ -16,24 +16,18 @@ class ExtractionResult:
 
 # Built-in patterns ordered by priority (first match wins)
 BUILTIN_PATTERNS: list[tuple[re.Pattern, Platform]] = [
-    # [PC]GameName.rar  or  (PC)GameName.rar
-    (re.compile(r"\[PC\](.+)", re.IGNORECASE), Platform.PC),
-    (re.compile(r"\(PC\)(.+)", re.IGNORECASE), Platform.PC),
-    # [KRKR]GameName.zip  or  (KRKR)GameName.zip
-    (re.compile(r"\[KRKR\](.+)", re.IGNORECASE), Platform.KRKR),
-    (re.compile(r"\(KRKR\)(.+)", re.IGNORECASE), Platform.KRKR),
-    # [KR]GameName.zip (alternative KRKR notation)
-    (re.compile(r"\[KR\](.+)", re.IGNORECASE), Platform.KRKR),
-    (re.compile(r"\(KR\)(.+)", re.IGNORECASE), Platform.KRKR),
-    # [Ty]GameName.zip  or  (Ty)GameName.zip
-    (re.compile(r"\[Ty\](.+)", re.IGNORECASE), Platform.TYRANOR),
-    (re.compile(r"\(Ty\)(.+)", re.IGNORECASE), Platform.TYRANOR),
-    # [Ar]GameName.zip (Tyranor variant)
-    (re.compile(r"\[Ar\](.+)", re.IGNORECASE), Platform.TYRANOR),
-    (re.compile(r"\(Ar\)(.+)", re.IGNORECASE), Platform.TYRANOR),
-    # [ONS]GameName.7z  or  (ONS)GameName.7z
-    (re.compile(r"\[ONS\](.+)", re.IGNORECASE), Platform.ONS),
-    (re.compile(r"\(ONS\)(.+)", re.IGNORECASE), Platform.ONS),
+    # [PC] / (PC) / （PC）
+    (re.compile(r"[\[\(（]PC[\]\)）](.+)", re.IGNORECASE), Platform.PC),
+    # [KRKR] / (KRKR) / （KRKR）
+    (re.compile(r"[\[\(（]KRKR[\]\)）](.+)", re.IGNORECASE), Platform.KRKR),
+    # [KR] / (KR) / （KR）
+    (re.compile(r"[\[\(（]KR[\]\)）](.+)", re.IGNORECASE), Platform.KRKR),
+    # [Ty] / (Ty) / （Ty）
+    (re.compile(r"[\[\(（]Ty[\]\)）](.+)", re.IGNORECASE), Platform.TYRANOR),
+    # [Ar] / (Ar) / （Ar）
+    (re.compile(r"[\[\(（]Ar[\]\)）](.+)", re.IGNORECASE), Platform.TYRANOR),
+    # [ONS] / (ONS) / （ONS）
+    (re.compile(r"[\[\(（]ONS[\]\)）](.+)", re.IGNORECASE), Platform.ONS),
     # 直装_GameName.apk
     (re.compile(r"直装_(.+)", re.IGNORECASE), Platform.DIRECT),
 
