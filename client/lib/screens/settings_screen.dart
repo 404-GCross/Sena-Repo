@@ -241,17 +241,42 @@ class _ScraperPageState extends State<_ScraperPage> {
       const Divider(height: 24),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: TextField(
-          controller: _keys["proxy"],
-          decoration: const InputDecoration(
-            labelText: "HTTP 代理",
-            hintText: "http://127.0.0.1:7890",
-            helperText: "刮削源走代理访问（如日本代理）",
-            isDense: true,
+        child: Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _keys["proxy"],
+              decoration: const InputDecoration(
+                labelText: "HTTP 代理",
+                hintText: "http://127.0.0.1:7890",
+                helperText: "刮削源走代理访问（如日本代理）",
+                isDense: true,
+              ),
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: _testProxy,
+            child: const Text("测试"),
+          ),
+        ]),
       ),
     ]),
+
+  Future<void> _testProxy() async {
+    try {
+      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"));
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(data["ok"] == true
+              ? "连接成功: ${data["latency_ms"]}ms (${data["proxy"]})"
+              : "连接失败: ${data["error"]}"),
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+    }
+  }
   );
 
   @override

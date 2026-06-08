@@ -108,6 +108,23 @@ async def update_scraper_config(body: ScraperConfigUpdate):
     return {"message": "已保存"}
 
 
+@router.post("/proxy-test")
+async def test_proxy():
+    """Test if the proxy is reachable by accessing a known URL."""
+    import httpx
+    from config import load_config
+    config = load_config()
+    kwargs = {"timeout": httpx.Timeout(10.0)}
+    if config.proxy:
+        kwargs["proxy"] = config.proxy
+    try:
+        async with httpx.AsyncClient(**kwargs) as client:
+            resp = await client.get("https://www.google.com")
+            return {"ok": True, "status": resp.status_code, "proxy": config.proxy or "直连", "latency_ms": round(resp.elapsed.total_seconds() * 1000)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "proxy": config.proxy or "直连"}
+
+
 # --- Ignore List ---
 
 class IgnoreItemOut(BaseModel):
