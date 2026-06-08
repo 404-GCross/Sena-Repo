@@ -73,10 +73,25 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text("编辑「${game.name}」"),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+              // Cover preview
+              if (game.coverPath != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      "${_api.baseUrl}/api/files/covers${game.coverPath!}",
+                      height: 180, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "游戏名")),
               const SizedBox(height: 8),
               TextField(controller: devCtrl, decoration: const InputDecoration(labelText: "开发商")),
@@ -125,7 +140,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             ],
           ),
         ),
-        actions: [
+      ),
+      actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("保存")),
         ],
