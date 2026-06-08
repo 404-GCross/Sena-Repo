@@ -5,6 +5,9 @@ server:
   host: "0.0.0.0"
   port: 11451
 
+# HTTP proxy for scrapers (e.g. http://127.0.0.1:7890)
+proxy: ""
+
 # Path where game files are stored
 games_path: "/path/to/your/games"
 

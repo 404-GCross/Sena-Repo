@@ -54,6 +54,7 @@ class ScraperConfigOut(BaseModel):
     steamgriddb_key: str = ""
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
+    proxy: str = ""
 
 
 class ScraperConfigUpdate(BaseModel):
@@ -62,6 +63,7 @@ class ScraperConfigUpdate(BaseModel):
     steamgriddb_key: str | None = None
     igdb_client_id: str | None = None
     igdb_client_secret: str | None = None
+    proxy: str | None = None
 
 
 @router.get("/scraper", response_model=ScraperConfigOut)
@@ -82,11 +84,28 @@ async def get_scraper_config():
         steamgriddb_key=_mask(s.steamgriddb_key),
         igdb_client_id=_mask(s.igdb_client_id),
         igdb_client_secret=_mask(s.igdb_client_secret),
+        proxy=config.proxy,
     )
 
 
-# NOTE: Full scraper config update will be implemented in Phase 2
-# when scraper services are built out.
+@router.put("/scraper")
+async def update_scraper_config(body: ScraperConfigUpdate):
+    """Update scraper configuration."""
+    from config import load_config, Config
+    config = load_config()
+    if body.bangumi_token is not None:
+        config.scrapers.bangumi_token = body.bangumi_token
+    if body.vndb_token is not None:
+        config.scrapers.vndb_token = body.vndb_token
+    if body.steamgriddb_key is not None:
+        config.scrapers.steamgriddb_key = body.steamgriddb_key
+    if body.igdb_client_id is not None:
+        config.scrapers.igdb_client_id = body.igdb_client_id
+    if body.igdb_client_secret is not None:
+        config.scrapers.igdb_client_secret = body.igdb_client_secret
+    if body.proxy is not None:
+        config.proxy = body.proxy
+    return {"message": "已保存"}
 
 
 # --- Ignore List ---

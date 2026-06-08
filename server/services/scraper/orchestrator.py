@@ -29,19 +29,20 @@ logger = logging.getLogger(__name__)
 def _build_scrapers(config: Config) -> list[BaseScraper]:
     """Build all available scrapers from config."""
     scrapers: list[BaseScraper] = [
-        VndbKanaScraper(),
-        VndbTitlesScraper(),
-        BangumiScraper(token=s.bangumi_token),
-        SteamScraper(),
-        DLsiteScraper(),
-        MuyueScraper(),
+        VndbKanaScraper(proxy=config.proxy),
+        VndbTitlesScraper(proxy=config.proxy),
+        BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
+        SteamScraper(proxy=config.proxy),
+        DLsiteScraper(proxy=config.proxy),
+        MuyueScraper(proxy=config.proxy),
     ]
 
     s = config.scrapers
     if s.steamgriddb_key:
-        scrapers.append(SteamGridDBScraper(api_key=s.steamgriddb_key))
+        scrapers.append(SteamGridDBScraper(proxy=config.proxy, api_key=s.steamgriddb_key))
     if s.igdb_client_id and s.igdb_client_secret:
         scrapers.append(IGDBScraper(
+            proxy=config.proxy,
             client_id=s.igdb_client_id,
             client_secret=s.igdb_client_secret,
         ))

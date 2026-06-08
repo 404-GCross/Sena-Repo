@@ -37,6 +37,7 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     games_path: str = "/games"
     data_path: str = "/data"
+    proxy: str = ""
     custom_regex: list[CustomRegex] = field(default_factory=list)
     scrapers: ScraperConfig = field(default_factory=ScraperConfig)
 
@@ -108,6 +109,8 @@ def load_config(config_path: str | None = None) -> Config:
         config.server.host = os.environ["SENA_HOST"]
     if os.environ.get("SENA_PORT"):
         config.server.port = int(os.environ["SENA_PORT"])
+    if os.environ.get("SENA_PROXY"):
+        config.proxy = os.environ["SENA_PROXY"]
 
     # Scraper API keys (env vars — safer than config files)
     if os.environ.get("SENA_BANGUMI_TOKEN"):

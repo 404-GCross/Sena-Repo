@@ -34,13 +34,17 @@ class BaseScraper(ABC):
 
     source_name: str = "base"
 
-    def __init__(self, client: httpx.AsyncClient | None = None):
+    def __init__(self, proxy: str = "", client: httpx.AsyncClient | None = None):
+        self.proxy = proxy
         self._client = client
         self._own_client = False
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            kwargs = {"timeout": httpx.Timeout(30.0)}
+            if self.proxy:
+                kwargs["proxy"] = self.proxy
+            self._client = httpx.AsyncClient(**kwargs)
             self._own_client = True
         return self._client
 

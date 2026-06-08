@@ -177,7 +177,7 @@ class _ScraperPage extends StatefulWidget {
 
 class _ScraperPageState extends State<_ScraperPage> {
   final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "muyue": true, "steamgriddb": false, "igdb": false};
-  final _keys = {"bangumi_token": TextEditingController(), "vndb_token": TextEditingController(), "steamgriddb_key": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController()};
+  final _keys = {"bangumi_token": TextEditingController(), "vndb_token": TextEditingController(), "steamgriddb_key": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
   void initState() { super.initState(); _loadKeys(); }
@@ -190,6 +190,8 @@ class _ScraperPageState extends State<_ScraperPage> {
         for (final k in _keys.keys) { _keys[k]?.text = data[k] ?? ""; }
       }
     } catch (_) {}
+    // Load proxy from config
+    _keys["proxy"]?.text = "";
   }
 
   Future<void> _save() async {
@@ -236,6 +238,19 @@ class _ScraperPageState extends State<_ScraperPage> {
       _row("muyueGalgame（免认证）", "muyue", false),
       _row("SteamGridDB（需要 Key）", "steamgriddb", true, key1: "steamgriddb_key"),
       _row("IGDB（需要 Client ID/Secret）", "igdb", true, key1: "igdb_client_id", key2: "igdb_client_secret"),
+      const Divider(height: 24),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: TextField(
+          controller: _keys["proxy"],
+          decoration: const InputDecoration(
+            labelText: "HTTP 代理",
+            hintText: "http://127.0.0.1:7890",
+            helperText: "刮削源走代理访问（如日本代理）",
+            isDense: true,
+          ),
+        ),
+      ),
     ]),
   );
 

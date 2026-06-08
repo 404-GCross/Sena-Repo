@@ -34,6 +34,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _steamCommonCtrl = TextEditingController();
 
   // Step 4: Scrapers
+  final _proxyCtrl = TextEditingController();
   bool _useBangumi = true;
   bool _useVndbKana = true;
   bool _useSteam = true;
@@ -314,6 +315,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               decoration: const InputDecoration(labelText: "Client Secret", isDense: true)),
           ]),
         )),
+    const SizedBox(height: 16),
+    const Text("代理服务器", style: TextStyle(fontWeight: FontWeight.bold)),
+    const SizedBox(height: 4),
+    Text("刮削源走代理访问，如 http://127.0.0.1:7890", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    const SizedBox(height: 8),
+    TextField(
+      controller: _proxyCtrl,
+      decoration: const InputDecoration(labelText: "HTTP 代理", hintText: "http://127.0.0.1:7890", isDense: true),
+    ),
     const SizedBox(height: 8),
     Text("可稍后在设置中修改", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
   ];
