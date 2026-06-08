@@ -221,3 +221,89 @@ async def delete_game(
 
     await session.commit()
     return MessageResponse(message=f"Game '{game.name}' removed")
+
+
+from pydantic import BaseModel
+
+class GameUpdate(BaseModel):
+    name: str | None = None
+    developer: str | None = None
+    description: str | None = None
+    release_date: str | None = None
+    vndb_id: str | None = None
+    steam_id: str | None = None
+    bangumi_id: str | None = None
+
+
+@router.put("/{game_id}")
+async def update_game(
+    game_id: int,
+    body: GameUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Edit game metadata."""
+    result = await session.execute(select(Game).where(Game.id == game_id))
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(game, field, value)
+    game.updated_at = datetime.utcnow()
+    await session.commit()
+    return {"message": "更新成功"}
+
+
+@router.post("/{game_id}/versions/{version_id}/move")
+async def move_version(
+    game_id: int,
+    version_id: int,
+    to_game_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Move a game version to another game."""
+    result = await session.execute(
+        select(GameVersion).where(GameVersion.id == version_id, GameVersion.game_id == game_id)
+    )
+    version = result.scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="版本未找到")
+
+    # Verify target game exists
+    target = await session.execute(select(Game).where(Game.id == to_game_id))
+    if target.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="目标游戏未找到")
+
+    version.game_id = to_game_id
+    await session.commit()
+    return {"message": "版本已移动"}
+
+
+@router.post("/{from_id}/merge/{to_id}")
+async def merge_games(
+    from_id: int,
+    to_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Merge game A into game B: move all versions and delete game A."""
+    from_game = await session.execute(select(Game).where(Game.id == from_id))
+    to_game = await session.execute(select(Game).where(Game.id == to_id))
+    if from_game.scalar_one_or_none() is None or to_game.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="游戏未找到")
+
+    # Move all versions
+    versions = await session.execute(
+        select(GameVersion).where(GameVersion.game_id == from_id)
+    )
+    for v in versions.scalars().all():
+        v.game_id = to_id
+
+    # Soft delete source game
+    from_g = from_game.scalar_one()
+    from_g.is_deleted = True
+    from_g.updated_at = datetime.utcnow()
+    session.add(IgnoreList(path=from_g.folder_path))
+
+    await session.commit()
+    return {"message": "合并完成"}

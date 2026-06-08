@@ -1,7 +1,10 @@
 /// Game detail screen: view game metadata, versions, tags.
 
+import "dart:convert";
+
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:http/http.dart" as http;
 
 import "../models/game.dart";
 import "../services/api_client.dart";
@@ -45,6 +48,125 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
   }
 
+  Future<void> _showEditDialog(BuildContext context) async {
+    if (_game == null) return;
+    final game = _game!;
+    final nameCtrl = TextEditingController(text: game.name);
+    final devCtrl = TextEditingController(text: game.developer ?? "");
+    final descCtrl = TextEditingController(text: game.description ?? "");
+    final dateCtrl = TextEditingController(text: game.releaseDate ?? "");
+    final vndbCtrl = TextEditingController(text: game.vndbId ?? "");
+    final steamCtrl = TextEditingController(text: game.steamId ?? "");
+    final bgmCtrl = TextEditingController(text: game.bangumiId ?? "");
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("编辑「${game.name}」"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "游戏名")),
+              const SizedBox(height: 8),
+              TextField(controller: devCtrl, decoration: const InputDecoration(labelText: "开发商")),
+              const SizedBox(height: 8),
+              TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: "发行日期")),
+              const SizedBox(height: 8),
+              TextField(controller: descCtrl, decoration: const InputDecoration(labelText: "简介"), maxLines: 3),
+              const SizedBox(height: 12),
+              const Text("刮削源 ID", style: TextStyle(fontWeight: FontWeight.bold)),
+              TextField(controller: vndbCtrl, decoration: const InputDecoration(labelText: "VNDB ID")),
+              TextField(controller: steamCtrl, decoration: const InputDecoration(labelText: "Steam App ID")),
+              TextField(controller: bgmCtrl, decoration: const InputDecoration(labelText: "Bangumi ID")),
+              const SizedBox(height: 12),
+              if (game.versions.isNotEmpty) ...[
+                const Text("版本管理", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                ...game.versions.map((v) => ListTile(
+                  dense: true,
+                  title: Text(v.filename, style: const TextStyle(fontSize: 13)),
+                  subtitle: Text(v.platform),
+                  trailing: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 18),
+                    onSelected: (action) async {
+                      if (action == "move") {
+                        await _showMoveDialog(context, v);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: "move", child: Text("移动到其他游戏...")),
+                    ],
+                  ),
+                )),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("保存")),
+        ],
+      ),
+    );
+
+    if (saved == true) {
+      try {
+        final body = <String, dynamic>{
+          "name": nameCtrl.text.trim(),
+          "developer": devCtrl.text.trim(),
+          "description": descCtrl.text.trim(),
+          "release_date": dateCtrl.text.trim(),
+          "vndb_id": vndbCtrl.text.trim(),
+          "steam_id": steamCtrl.text.trim(),
+          "bangumi_id": bgmCtrl.text.trim(),
+        };
+        final resp = await http.put(
+          Uri.parse("${_api.baseUrl}/api/games/${game.id}"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(body),
+        );
+        if (resp.statusCode == 200) {
+          _load();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+      }
+    }
+  }
+
+  Future<void> _showMoveDialog(BuildContext context, dynamic version) async {
+    final ctrl = TextEditingController();
+    final gameId = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("移动到哪个游戏？"),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: "目标游戏 ID", hintText: "输入游戏ID"),
+          keyboardType: TextInputType.number,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () {
+            final id = int.tryParse(ctrl.text.trim());
+            Navigator.pop(ctx, id);
+          }, child: const Text("移动")),
+        ],
+      ),
+    );
+    if (gameId != null) {
+      try {
+        await http.post(Uri.parse("${_api.baseUrl}/api/games/${_game!.id}/versions/${version.id}/move?to_game_id=$gameId"));
+        _load();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已移动")));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -62,7 +184,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     final game = _game!;
     return Scaffold(
-      appBar: AppBar(title: Text(game.name)),
+      appBar: AppBar(title: Text(game.name), actions: [
+        IconButton(
+          icon: const Icon(Icons.edit),
+          tooltip: "编辑",
+          onPressed: () => _showEditDialog(context),
+        ),
+      ]),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
