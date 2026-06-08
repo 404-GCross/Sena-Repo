@@ -32,6 +32,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _steamCommonCtrl = TextEditingController();
 
   // Step 4: Scrapers
+  bool _useBangumi = true;
+  bool _useVndbKana = true;
+  bool _useSteam = true;
+  bool _useDlsite = true;
+  bool _useMuyue = true;
+  bool _useSteamGridDB = false;
+  bool _useIGDB = false;
   final _bangumiCtrl = TextEditingController();
   final _vndbCtrl = TextEditingController();
   final _steamGridDBCtrl = TextEditingController();
@@ -234,20 +241,60 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     Text("PC 端专属，可稍后在设置中配置", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
   ];
 
+  Widget _buildScraperRow(String label, bool enabled, bool needsApi, VoidCallback onToggle, {Widget? apiFields}) {
+    return Column(
+      children: [
+        CheckboxListTile(
+          value: enabled,
+          onChanged: (_) => onToggle(),
+          title: Text(label, style: const TextStyle(fontSize: 14)),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+        if (enabled && needsApi && apiFields != null) apiFields,
+      ],
+    );
+  }
+
   List<Widget> _buildStep4() => [
-    Text("选择刮削源并填写 API Key（可选）",
-      style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-    const SizedBox(height: 12),
-    TextField(controller: _bangumiCtrl, decoration: const InputDecoration(labelText: "Bangumi Token", hintText: "https://bgm.tv/dev/app")),
+    Text("选择刮削源，勾选后可用", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
     const SizedBox(height: 8),
-    TextField(controller: _vndbCtrl, decoration: const InputDecoration(labelText: "VNDB Token", hintText: "https://vndb.org/u/tokens")),
+    _buildScraperRow("VNDB Kana v2（免认证）", _useVndbKana, false,
+        () => setState(() => _useVndbKana = !_useVndbKana)),
+    _buildScraperRow("Bangumi", _useBangumi, true,
+        () => setState(() => _useBangumi = !_useBangumi),
+        apiFields: Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: TextField(controller: _bangumiCtrl,
+            decoration: const InputDecoration(labelText: "Bangumi Token", hintText: "https://bgm.tv/dev/app", isDense: true)),
+        )),
+    _buildScraperRow("Steam（免认证）", _useSteam, false,
+        () => setState(() => _useSteam = !_useSteam)),
+    _buildScraperRow("DLsite（免认证）", _useDlsite, false,
+        () => setState(() => _useDlsite = !_useDlsite)),
+    _buildScraperRow("muyueGalgame（免认证）", _useMuyue, false,
+        () => setState(() => _useMuyue = !_useMuyue)),
+    _buildScraperRow("SteamGridDB（需要 Key）", _useSteamGridDB, true,
+        () => setState(() => _useSteamGridDB = !_useSteamGridDB),
+        apiFields: Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: TextField(controller: _steamGridDBCtrl,
+            decoration: const InputDecoration(labelText: "SteamGridDB Key", isDense: true)),
+        )),
+    _buildScraperRow("IGDB（需要 Client ID/Secret）", _useIGDB, true,
+        () => setState(() => _useIGDB = !_useIGDB),
+        apiFields: Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: Column(children: [
+            TextField(controller: _igdbIdCtrl,
+              decoration: const InputDecoration(labelText: "Client ID", isDense: true)),
+            const SizedBox(height: 8),
+            TextField(controller: _igdbSecretCtrl,
+              decoration: const InputDecoration(labelText: "Client Secret", isDense: true)),
+          ]),
+        )),
     const SizedBox(height: 8),
-    TextField(controller: _steamGridDBCtrl, decoration: const InputDecoration(labelText: "SteamGridDB Key", hintText: "steamgriddb.com/profile/preferences/api")),
-    const SizedBox(height: 8),
-    TextField(controller: _igdbIdCtrl, decoration: const InputDecoration(labelText: "IGDB Client ID")),
-    const SizedBox(height: 8),
-    TextField(controller: _igdbSecretCtrl, decoration: const InputDecoration(labelText: "IGDB Client Secret")),
-    const SizedBox(height: 8),
-    Text("留空则跳过对应源，可稍后在设置中配置", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    Text("可稍后在设置中修改", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
   ];
 }
