@@ -88,6 +88,9 @@ class GameDetail {
   final String? developer;
   final String? description;
   final String? releaseDate;
+  final String? vndbId;
+  final String? steamId;
+  final String? bangumiId;
   final bool isDeleted;
   final String importedAt;
   final String updatedAt;
@@ -105,6 +108,9 @@ class GameDetail {
     this.developer,
     this.description,
     this.releaseDate,
+    this.vndbId,
+    this.steamId,
+    this.bangumiId,
     required this.isDeleted,
     required this.importedAt,
     required this.updatedAt,
@@ -124,6 +130,9 @@ class GameDetail {
       developer: json["developer"],
       description: json["description"],
       releaseDate: json["release_date"],
+      vndbId: json["vndb_id"],
+      steamId: json["steam_id"],
+      bangumiId: json["bangumi_id"],
       isDeleted: json["is_deleted"] ?? false,
       importedAt: json["imported_at"] ?? "",
       updatedAt: json["updated_at"] ?? "",
