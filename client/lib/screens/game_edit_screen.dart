@@ -428,10 +428,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 }
 
-InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText}) {
+InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText, String? labelText}) {
   return InputDecoration(
     filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
     border: border, isDense: isDense,
-    contentPadding: contentPadding, hintText: hintText,
+    contentPadding: contentPadding, hintText: hintText, labelText: labelText,
   );
 }
