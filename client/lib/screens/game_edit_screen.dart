@@ -297,11 +297,28 @@ class _GameEditScreenState extends State<GameEditScreen> {
   // ── Single unified download: search all sources → show results → compare → apply ──
 
   Future<void> _downloadMetadata() async {
+    // Step 1: Pick source
+    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "muyue": "muyueGalgame"};
+    final src = await showDialog<String>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("选择数据来源"),
+        content: Column(mainAxisSize: MainAxisSize.min,
+          children: sources.entries.map((e) => ListTile(
+            title: Text(e.value), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.pop(ctx, e.key),
+          )).toList()),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+      ),
+    );
+    if (src == null || !mounted) return;
+
+    // Step 2: Search
     final ctrl = TextEditingController(text: _name.text);
     final q = await showDialog<String>(
       context: context, builder: (ctx) => AlertDialog(
-        title: const Text("下载元数据"), content: TextField(controller: ctrl, autofocus: true,
-          decoration: const InputDecoration(labelText: "名称或 ID", hintText: "输入后回车搜索")),
+        title: Text("${sources[src]} — 搜索"),
+        content: TextField(controller: ctrl, autofocus: true,
+          decoration: _dec(labelText: "名称或 ID", hintText: "输入后回车搜索")),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
           FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text("搜索")),
@@ -310,30 +327,21 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (q == null || q.isEmpty) return;
 
-    // Search across all sources
-    final sources = ["vndb_kana", "bangumi", "steam"];
-    List<Map<String, dynamic>> allResults = [];
-    for (final src in sources) {
-      try {
-        final resp = await http.get(Uri.parse(
-            "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$src"));
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        for (final r in (data["results"] as List)) {
-          (r as Map<String, dynamic>)["_source"] = src;
-        }
-        allResults.addAll((data["results"] as List).cast<Map<String, dynamic>>());
-      } catch (_) {}
-    }
-    if (allResults.isEmpty) { _showError("所有源均无结果"); return; }
+    // Step 3: Show results
+    List<Map<String, dynamic>> results = [];
+    try {
+      final resp = await http.get(Uri.parse(
+          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$src"));
+      results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+    } catch (_) { _showError("搜索失败"); return; }
+    if (results.isEmpty) { _showError("无结果"); return; }
 
-    // Show results
     final picked = await showDialog<Map<String, dynamic>>(
       context: context, builder: (ctx) => AlertDialog(
-        title: Text("搜索结果 — ${allResults.length} 条"),
+        title: Text("${sources[src]} — ${results.length} 条结果"),
         content: SizedBox(width: 480, height: 450,
-          child: ListView.builder(itemCount: allResults.length, itemBuilder: (_, i) {
-            final r = allResults[i];
-            final src = r["_source"] ?? "";
+          child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+            final r = results[i];
             return ListTile(
               leading: (r["cover_url"] ?? "").toString().isNotEmpty
                   ? ClipRRect(borderRadius: BorderRadius.circular(4),
@@ -341,9 +349,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
                   : _noCover(),
               title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
-              subtitle: Text("${_sourceLabel(src)} · ${r["developer"] ?? ""} · ${r["release_date"] ?? ""}",
+              subtitle: Text("${r["developer"] ?? ""} · ${r["release_date"] ?? ""}",
                   maxLines: 2, style: const TextStyle(fontSize: 11)),
-              trailing: _sourceBadgeSmall(_sourceLabel(src)),
               onTap: () => Navigator.pop(ctx, r),
             );
           })),
@@ -352,21 +359,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (picked == null || !mounted) return;
 
-    // Show comparison before applying
+    // Step 4: Compare & confirm
     final confirmed = await showDialog<bool>(
       context: context, builder: (ctx) => AlertDialog(
-        title: const Text("确认应用"),
+        title: const Text("对比并应用"),
         content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _compareRow("名称", _name.text, (picked["title"] ?? "").toString()),
           _compareRow("开发商", _dev.text, (picked["developer"] ?? "").toString()),
           _compareRow("日期", _date.text, (picked["release_date"] ?? "").toString()),
-          _compareRow("简介", _desc.text.isNotEmpty ? "${_desc.text.substring(0, _desc.text.length.clamp(0, 60))}..." : "",
+          _compareRow("简介", _desc.text.isNotEmpty ? _desc.text.substring(0, _desc.text.length.clamp(0, 60)) : "",
               (picked["description"] ?? "").toString().length > 60
                   ? "${picked["description"].toString().substring(0, 60)}..."
                   : (picked["description"] ?? "").toString()),
           const SizedBox(height: 8),
-          Text("来源: ${_sourceLabel(picked["_source"] ?? "")}",
-              style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+          Text("来源: ${sources[src]}", style: TextStyle(color: Colors.grey[500], fontSize: 12)),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
@@ -383,9 +389,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _desc.text = (picked["description"] ?? "").toString();
       _date.text = (picked["release_date"] ?? "").toString();
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
-      final f = picked["_source"]?.toString() ?? "";
-      if (sf.containsKey(f) && (picked["source_id"] ?? "").toString().isNotEmpty) {
-        sf[f]!.text = picked["source_id"].toString();
+      if (sf.containsKey(src) && (picked["source_id"] ?? "").toString().isNotEmpty) {
+        sf[src]!.text = picked["source_id"].toString();
       }
     });
     _showMsg("已应用元数据，核对后保存");
