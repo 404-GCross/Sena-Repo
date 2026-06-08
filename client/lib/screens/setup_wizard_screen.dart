@@ -23,6 +23,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   // Step 1: Admin
   final _userCtrl = TextEditingController(text: "admin");
   final _passCtrl = TextEditingController();
+  final _passConfirmCtrl = TextEditingController();
 
   // Step 2: Game dirs
   final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
@@ -45,7 +46,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _igdbIdCtrl = TextEditingController();
   final _igdbSecretCtrl = TextEditingController();
 
-  void _next() => setState(() => _step++);
+  void _next() {
+    // Validate password match on step 0
+    if (_step == 0 && _passCtrl.text != _passConfirmCtrl.text) {
+      setState(() => _error = "两次密码不一致");
+      return;
+    }
+    setState(() { _step++; _error = null; });
+  }
   void _prev() => setState(() { _step--; _error = null; });
 
   void _addDir() => setState(() => _dirCtrls.add(TextEditingController()));
@@ -184,6 +192,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _passCtrl,
       decoration: const InputDecoration(labelText: "密码", prefixIcon: Icon(Icons.lock)),
+      obscureText: true,
+    ),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _passConfirmCtrl,
+      decoration: const InputDecoration(labelText: "确认密码", prefixIcon: Icon(Icons.lock)),
       obscureText: true,
     ),
   ];
