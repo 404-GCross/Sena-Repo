@@ -130,26 +130,7 @@ class _GameCardState extends State<_GameCard> {
                   ),
                 ),
 
-                // Tags (top area, centered)
-                if (game.tagNames.isNotEmpty)
-                  Positioned(
-                    left: 6, right: 6, top: 8,
-                    child: Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 4, runSpacing: 4,
-                      children: game.tagNames.take(2).map((t) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                        ),
-                        child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500)),
-                      )).toList(),
-                    ),
-                  ),
-
-                // Game name + platform (bottom)
+                // Game name + company (bottom)
                 Positioned(
                   left: 8, right: 8, bottom: 8,
                   child: Column(
