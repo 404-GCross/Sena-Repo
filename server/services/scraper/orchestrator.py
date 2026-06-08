@@ -34,9 +34,9 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         VndbKanaScraper(proxy=config.proxy),
         VndbTitlesScraper(proxy=config.proxy),
         BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
-        SteamScraper(proxy=config.proxy),
         DLsiteScraper(proxy=config.proxy),
         MuyueScraper(proxy=config.proxy),
+        SteamScraper(proxy=config.proxy),
     ]
     if s.steamgriddb_key:
         scrapers.append(SteamGridDBScraper(proxy=config.proxy, api_key=s.steamgriddb_key))

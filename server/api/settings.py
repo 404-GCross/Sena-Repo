@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -88,23 +90,47 @@ async def get_scraper_config():
     )
 
 
+def _scraper_config_path() -> Path:
+    """Get the path to the persisted scraper config JSON file."""
+    from config import load_config
+    config = load_config()
+    return Path(config.data_path) / "scraper_config.json"
+
+
+def _read_scraper_config() -> dict:
+    """Read persisted scraper config from JSON file."""
+    p = _scraper_config_path()
+    if p.is_file():
+        try:
+            import json
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _write_scraper_config(data: dict):
+    """Write scraper config to JSON file."""
+    _scraper_config_path().parent.mkdir(parents=True, exist_ok=True)
+    import json
+    p = _scraper_config_path()
+    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 @router.put("/scraper")
 async def update_scraper_config(body: ScraperConfigUpdate):
-    """Update scraper configuration."""
-    from config import load_config, Config
+    """Update scraper configuration, persisted to data directory."""
+    from config import load_config
     config = load_config()
-    if body.bangumi_token is not None:
-        config.scrapers.bangumi_token = body.bangumi_token
-    if body.vndb_token is not None:
-        config.scrapers.vndb_token = body.vndb_token
-    if body.steamgriddb_key is not None:
-        config.scrapers.steamgriddb_key = body.steamgriddb_key
-    if body.igdb_client_id is not None:
-        config.scrapers.igdb_client_id = body.igdb_client_id
-    if body.igdb_client_secret is not None:
-        config.scrapers.igdb_client_secret = body.igdb_client_secret
-    if body.proxy is not None:
-        config.proxy = body.proxy
+    data = _read_scraper_config()
+
+    for key in ("bangumi_token", "vndb_token", "steamgriddb_key", "igdb_client_id", "igdb_client_secret", "proxy"):
+        val = getattr(body, key, None)
+        if val is not None:
+            setattr(config.scrapers, key, val) if key != "proxy" else setattr(config, "proxy", val)
+            data[key] = val
+
+    _write_scraper_config(data)
     return {"message": "已保存"}
 
 
