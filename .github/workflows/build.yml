@@ -34,7 +34,7 @@ jobs:
       - name: Enable Android + generate platform files
         run: |
           flutter config --enable-android
-          flutter create . --project-name sena_repo --org com.github
+          flutter create . --project-name sena_repo --org senarepo
 
       - name: Install dependencies
         run: flutter pub get
@@ -68,7 +68,7 @@ jobs:
       - name: Enable Windows + generate platform files
         run: |
           flutter config --enable-windows-desktop
-          flutter create . --project-name sena_repo --org com.github
+          flutter create . --project-name sena_repo --org senarepo
 
       - name: Install dependencies
         run: flutter pub get
@@ -108,7 +108,7 @@ jobs:
       - name: Enable Linux + generate platform files
         run: |
           flutter config --enable-linux-desktop
-          flutter create . --project-name sena_repo --org com.github
+          flutter create . --project-name sena_repo --org senarepo
 
       - name: Install dependencies
         run: flutter pub get
