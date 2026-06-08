@@ -227,6 +227,22 @@ class _ScraperPageState extends State<_ScraperPage> {
 
   String _kl(String k) => _keyLabels[k] ?? k;
 
+  Future<void> _testProxy() async {
+    try {
+      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"));
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(data["ok"] == true
+              ? "连接成功: ${data["latency_ms"]}ms (${data["proxy"]})"
+              : "连接失败: ${data["error"]}"),
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("刮削源"), actions: [IconButton(icon: const Icon(Icons.save), onPressed: _save)]),
@@ -238,7 +254,7 @@ class _ScraperPageState extends State<_ScraperPage> {
       _row("muyueGalgame（免认证）", "muyue", false),
       _row("SteamGridDB（需要 Key）", "steamgriddb", true, key1: "steamgriddb_key"),
       _row("IGDB（需要 Client ID/Secret）", "igdb", true, key1: "igdb_client_id", key2: "igdb_client_secret"),
-      const Divider(height: 24),
+      const SizedBox(height: 24),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(children: [
@@ -260,24 +276,7 @@ class _ScraperPageState extends State<_ScraperPage> {
           ),
         ]),
       ),
-    ]),
-
-  Future<void> _testProxy() async {
-    try {
-      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"));
-      final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(data["ok"] == true
-              ? "连接成功: ${data["latency_ms"]}ms (${data["proxy"]})"
-              : "连接失败: ${data["error"]}"),
-        ));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
-    }
-  }
-  );
+    ]));
 
   @override
   void dispose() { for (final c in _keys.values) { c.dispose(); } super.dispose(); }
