@@ -545,6 +545,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               }).toList())),
           ),
           actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, {"retry": true}), child: const Text("重新搜索")),
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
             FilledButton(onPressed: () => Navigator.pop(ctx, useSearch), child: const Text("应用所选")),
           ],
@@ -552,20 +553,26 @@ class _GameEditScreenState extends State<GameEditScreen> {
       ),
     );
     if (confirmed == null || !mounted) return;
+    if (confirmed is Map && (confirmed as Map)["retry"] == true) {
+      _downloadMetadata();
+      return;
+    }
 
+    if (confirmed is! Map<String, bool>) return;
     // Apply only selected fields
+    final apply = confirmed as Map<String, bool>;
     setState(() {
-      if (confirmed["名称"] == true) _name.text = incoming["名称"]!;
-      if (confirmed["开发商"] == true) _dev.text = incoming["开发商"]!;
-      if (confirmed["日期"] == true) _date.text = incoming["日期"]!;
-      if (confirmed["简介"] == true) _desc.text = incoming["简介"]!;
+      if (apply["名称"] == true) _name.text = incoming["名称"]!;
+      if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
+      if (apply["日期"] == true) _date.text = incoming["日期"]!;
+      if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (picked["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = picked["source_id"].toString();
       }
     });
     // Download cover if selected
-    if (confirmed["封面"] == true && coverUrl.isNotEmpty) {
+    if (apply["封面"] == true && coverUrl.isNotEmpty) {
       try {
         await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
       } catch (_) {}
