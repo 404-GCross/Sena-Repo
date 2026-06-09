@@ -23,9 +23,8 @@ class GameEditScreen extends StatefulWidget {
 class _GameEditScreenState extends State<GameEditScreen> {
   late final TextEditingController _name, _dev, _desc, _date,
       _vndb, _steam, _bgm, _notes;
-  late final Map<String, bool> _dirty; // Track which fields were manually changed
   bool _saving = false;
-  bool _showSearch = false;
+  String? _coverPath;
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
@@ -33,6 +32,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   void initState() {
     super.initState();
     final g = widget.game;
+    _coverPath = _coverPath;
     _name = TextEditingController(text: g.name);
     _dev = TextEditingController(text: g.developer ?? "");
     _desc = TextEditingController(text: g.description ?? "");
@@ -175,6 +175,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
+  Future<void> _reloadGame() async {
+    try {
+      final resp = await http.get(Uri.parse("$_baseUrl/api/games/${widget.game.id}"));
+      if (resp.statusCode == 200) {
+        final fresh = GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+        if (mounted) setState(() => _coverPath = fresh.coverPath);
+      }
+    } catch (_) {}
+  }
+
   void _showMsg(String m) {
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("提示"), content: Text(m),
@@ -215,7 +225,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   @override
   Widget build(BuildContext context) {
     final g = widget.game;
-    final hasCover = g.coverPath != null && g.coverPath!.isNotEmpty;
+    final hasCover = _coverPath != null && _coverPath!.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -279,7 +289,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 ClipRRect(borderRadius: BorderRadius.circular(10),
                   child: SizedBox(width: 200, height: 280,
                     child: hasCover
-                        ? Image.network("$_baseUrl/api/files/covers${g.coverPath!}",
+                        ? Image.network("$_baseUrl/api/files/covers${_coverPath!}",
                             fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
                         : _coverPlaceholder())),
               ]),
@@ -502,9 +512,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(f, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                         isCover
-                            ? (widget.game.coverPath != null
+                            ? (_coverPath != null
                                 ? ClipRRect(borderRadius: BorderRadius.circular(4),
-                                    child: Image.network("$_baseUrl/api/files/covers${widget.game.coverPath!}",
+                                    child: Image.network("$_baseUrl/api/files/covers${_coverPath!}",
                                         width: 80, height: 110, fit: BoxFit.cover,
                                         errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40)))
                                 : Text("(无)", style: TextStyle(fontSize: 13, color: Colors.grey)))
@@ -530,9 +540,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       ],
                     ]),
                     if (hasDiff)
-                      SwitchListTile(title: const Text("使用搜索结果", style: TextStyle(fontSize: 12)),
+                      Padding(padding: EdgeInsets.zero, child: SwitchListTile(
+                        title: const Text("使用搜索结果", style: TextStyle(fontSize: 12)),
                         value: useSearch[f] ?? false, dense: true, contentPadding: EdgeInsets.zero,
-                        onChanged: (v) => setD(() => useSearch[f] = v)),
+                        onChanged: (v) => setD(() => useSearch[f] = v))),
                   ]),
                 );
               }).toList())),
@@ -563,6 +574,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
       } catch (_) {}
     }
+    // Refresh game data to show updated cover
+    _reloadGame();
     _showMsg("已应用所选字段，核对后保存");
   }
 
