@@ -225,6 +225,23 @@ async def delete_game(
 
 from pydantic import BaseModel
 
+class QuickCreate(BaseModel):
+    name: str
+
+
+@router.put("/quick-create")
+async def quick_create_game(
+    body: QuickCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Quick-create a minimal game entry (for version moving)."""
+    game = Game(name=body.name, root_id=0, folder_path=f"/virtual/{body.name}")
+    session.add(game)
+    await session.commit()
+    await session.refresh(game)
+    return {"id": game.id, "name": game.name}
+
+
 class GameUpdate(BaseModel):
     name: str | None = None
     developer: str | None = None

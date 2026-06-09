@@ -123,17 +123,70 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Future<void> _moveVersionDialog(version) async {
-    final ctrl = TextEditingController();
+    final searchCtrl = TextEditingController();
+    var results = <Map<String, dynamic>>[];
     final targetId = await showDialog<int>(
-      context: context, builder: (ctx) => AlertDialog(
-        title: const Text("移动到哪个游戏？"),
-        content: TextField(controller: ctrl, keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: "目标游戏 ID")),
+      context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+        title: Text("移动「${version.filename}」"),
+        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            Expanded(child: TextField(controller: searchCtrl, autofocus: true,
+              decoration: const InputDecoration(labelText: "搜索游戏名称", isDense: true),
+              onSubmitted: (v) async {
+                setD(() => results = []);
+                try {
+                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"));
+                  if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+                } catch (_) {}
+                setD(() {});
+              })),
+            const SizedBox(width: 8),
+            IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
+              setD(() => results = []);
+              try {
+                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"));
+                if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+              } catch (_) {}
+              setD(() {});
+            }),
+          ]),
+          const SizedBox(height: 8),
+          if (results.isNotEmpty)
+            SizedBox(height: 250, child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+              final g = results[i];
+              return ListTile(
+                title: Text(g["name"] ?? "", style: const TextStyle(fontSize: 13)),
+                subtitle: Text("${g["company_name"] ?? ""} · ${g["platform_summary"] ?? ""}",
+                    style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.pop(ctx, g["id"] as int),
+              );
+            })),
+          if (results.isEmpty && searchCtrl.text.isNotEmpty)
+            Padding(padding: const EdgeInsets.all(16), child: Text("无结果，可创建新条目",
+                style: TextStyle(color: Colors.grey[500]))),
+        ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())), child: const Text("移动")),
+          if (searchCtrl.text.trim().isNotEmpty)
+            TextButton.icon(
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text("创建新条目并移入"),
+              onPressed: () async {
+                // Create new game with version filename as name
+                try {
+                  final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
+                    headers: {"Content-Type": "application/json"},
+                    body: jsonEncode({"name": searchCtrl.text.trim()}),
+                  );
+                  if (r.statusCode == 200) {
+                    final newId = jsonDecode(r.body)["id"] as int;
+                    Navigator.pop(ctx, newId);
+                  }
+                } catch (_) {}
+              },
+            ),
         ],
-      ),
+      )),
     );
     if (targetId != null && targetId > 0) {
       try {
@@ -145,22 +198,72 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Future<void> _mergeGameDialog() async {
-    final ctrl = TextEditingController();
+    final searchCtrl = TextEditingController();
+    var results = <Map<String, dynamic>>[];
     final targetId = await showDialog<int>(
-      context: context, builder: (ctx) => AlertDialog(
+      context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
         title: const Text("合并到哪个游戏？"),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
+        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text("当前游戏的所有版本将移至目标游戏，当前游戏将被删除。",
               style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           const SizedBox(height: 8),
-          TextField(controller: ctrl, keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: "目标游戏 ID")),
-        ]),
+          Row(children: [
+            Expanded(child: TextField(controller: searchCtrl, autofocus: true,
+              decoration: const InputDecoration(labelText: "搜索游戏名称", isDense: true),
+              onSubmitted: (v) async {
+                setD(() => results = []);
+                try {
+                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"));
+                  if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+                } catch (_) {}
+                setD(() {});
+              })),
+            const SizedBox(width: 8),
+            IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
+              setD(() => results = []);
+              try {
+                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"));
+                if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+              } catch (_) {}
+              setD(() {});
+            }),
+          ]),
+          const SizedBox(height: 8),
+          if (results.isNotEmpty)
+            SizedBox(height: 250, child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+              final g = results[i];
+              return ListTile(
+                title: Text(g["name"] ?? "", style: const TextStyle(fontSize: 13)),
+                subtitle: Text("${g["company_name"] ?? ""} · ${g["platform_summary"] ?? ""}",
+                    style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.pop(ctx, g["id"] as int),
+              );
+            })),
+          if (results.isEmpty && searchCtrl.text.isNotEmpty)
+            Padding(padding: const EdgeInsets.all(16), child: Text("无结果，可创建新条目",
+                style: TextStyle(color: Colors.grey[500]))),
+        ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())), child: const Text("合并")),
+          if (searchCtrl.text.trim().isNotEmpty)
+            TextButton.icon(
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text("创建新条目并合并"),
+              onPressed: () async {
+                try {
+                  final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
+                    headers: {"Content-Type": "application/json"},
+                    body: jsonEncode({"name": searchCtrl.text.trim()}),
+                  );
+                  if (r.statusCode == 200) {
+                    final newId = jsonDecode(r.body)["id"] as int;
+                    Navigator.pop(ctx, newId);
+                  }
+                } catch (_) {}
+              },
+            ),
         ],
-      ),
+      )),
     );
     if (targetId != null && targetId > 0) {
       try {
