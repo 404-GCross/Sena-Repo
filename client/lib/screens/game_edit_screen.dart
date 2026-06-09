@@ -692,14 +692,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
                   final r = results[i];
                   return ListTile(
-                    leading: (r["cover_url"] ?? "").toString().isNotEmpty
-                        ? ClipRRect(borderRadius: BorderRadius.circular(4),
-                            child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
-                                fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
-                        : _noCover(),
-                    title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
-                    subtitle: Text("${r["developer"] ?? ""} . ${r["release_date"] ?? ""}",
-                        maxLines: 2, style: const TextStyle(fontSize: 11)),
+                    title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 14)),
+                    subtitle: Text([r["developer"], r["release_date"]]
+                        .where((s) => s != null && s.toString().isNotEmpty).join(" · "),
+                        maxLines: 1, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: () => Navigator.pop(ctx, r),
                   );
                 })),
@@ -718,8 +715,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
-    // Step 3: Per-field comparison
+    // Pre-fetch cover image with loading indicator
     final coverUrl = (r["cover_url"] ?? "").toString();
+    if (coverUrl.isNotEmpty && mounted) {
+      showDialog(context: context, barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()));
+      try {
+        await http.get(Uri.parse(coverUrl)).timeout(const Duration(seconds: 8));
+      } catch (_) {}
+      if (mounted) Navigator.of(context).pop();
+    }
+
+    // Step 3: Per-field comparison
     final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
     final incoming = {
       "名称": (r["title"] ?? "").toString(),
