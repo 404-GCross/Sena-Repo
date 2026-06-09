@@ -45,9 +45,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
           _menuItem(Icons.image_search, "刮削源", "元数据来源与代理",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
-          if (_isAdmin)
-            _menuItem(Icons.people, "用户管理", "审批注册申请",
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)))),
+          _menuItem(Icons.people, "用户管理", "审批注册申请",
+            () {
+              if (!_isAdmin) {
+                showDialog(context: context, builder: (c) => AlertDialog(
+                  title: const Text("权限不足"),
+                  content: const Text("用户管理仅限管理员使用"),
+                  actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
+                ));
+                return;
+              }
+              Navigator.push(context, MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)));
+            }),
           const SizedBox(height: 24),
           _section("客户端"),
           _menuItem(Icons.grid_view, "显示", "封面大小调整",
