@@ -49,12 +49,11 @@ class TrayService {
     ]);
     await _tray.setContextMenu(menu);
 
-    // Handle tray icon events
+    // Handle tray icon left-click to restore window
+    // Right-click context menu is handled automatically by Windows
     _tray.registerSystemTrayEventHandler((eventName) {
-      if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
+      if (eventName == "SystemTray.leftClick" || eventName == "SystemTray.doubleClick") {
         windowManager.show();
-      } else if (eventName == "SystemTray.rightClick") {
-        _tray.popUpContextMenu();
       }
     });
 
