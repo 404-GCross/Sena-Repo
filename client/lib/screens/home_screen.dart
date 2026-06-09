@@ -6,6 +6,8 @@ import "dart:io" show File, Platform;
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
+import "package:font_awesome_flutter/font_awesome_flutter.dart";
+
 import "../providers/theme_provider.dart";
 
 import "../providers/game_provider.dart";
@@ -306,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const Spacer(),
             // Nav tabs centered
             _navTab(Icons.gamepad, Icons.gamepad_outlined, "游戏库", 0),
-            if (showSteam) _navTab(Icons.build, Icons.build_outlined, "Steam", 1),
+            if (showSteam) _navTab(FontAwesomeIcons.steam, FontAwesomeIcons.steam, "Steam", 1),
             _navTab(Icons.person, Icons.person_outlined, "我的", showSteam ? 2 : 1),
             const Spacer(),
           ]),
@@ -354,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
                 if (showSteam)
                   const NavigationDestination(
-                    icon: Icon(Icons.build_outlined), selectedIcon: Icon(Icons.build), label: "Steam补丁"),
+                    icon: FaIcon(FontAwesomeIcons.steam), selectedIcon: FaIcon(FontAwesomeIcons.steam, color: Theme.of(context).colorScheme.primary), label: "Steam补丁"),
                 const NavigationDestination(
                   icon: Icon(Icons.person_outlined), selectedIcon: Icon(Icons.person), label: "我的"),
               ],

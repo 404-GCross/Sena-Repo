@@ -4,6 +4,8 @@ import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
+import "package:font_awesome_flutter/font_awesome_flutter.dart";
+
 import "../providers/game_provider.dart";
 import "../services/steam_service.dart";
 
@@ -109,7 +111,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Icon(Icons.build_outlined, size: 28, color: theme.colorScheme.primary),
+              FaIcon(FontAwesomeIcons.steam, size: 24, color: theme.colorScheme.primary),
               const SizedBox(width: 12),
               Text("Steam 补丁注入", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
             ]),
