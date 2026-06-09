@@ -449,12 +449,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
 
     // Step 3: Per-field comparison (Playnite style)
-    final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
+    final coverUrl = (picked["cover_url"] ?? "").toString();
+    final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc, "封面": _name}; // cover uses _name as dummy ctrl
     final incoming = {
       "名称": (picked["title"] ?? "").toString(),
       "开发商": (picked["developer"] ?? "").toString(),
       "日期": (picked["release_date"] ?? "").toString(),
       "简介": (picked["description"] ?? "").toString(),
+      "封面": coverUrl.isNotEmpty ? "下载并替换当前封面" : "",
     };
     final useSearch = <String, bool>{};
     for (final f in fields.keys) {
@@ -470,16 +472,24 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 final cur = fields[f]!.text;
                 final inc = incoming[f] ?? "";
                 final hasDiff = inc.isNotEmpty && inc != cur;
+                final isCover = f == "封面" && inc.isNotEmpty;
                 return Padding(padding: const EdgeInsets.only(bottom: 6),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(f, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                        Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 13,
-                            color: !useSearch[f]! || !hasDiff ? Colors.white : Colors.grey,
-                            decoration: useSearch[f]! && hasDiff ? TextDecoration.lineThrough : null)),
+                        isCover
+                            ? (widget.game.coverPath != null
+                                ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                                    child: Image.network("$_baseUrl/api/files/covers${widget.game.coverPath!}",
+                                        width: 80, height: 110, fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40)))
+                                : Text("(无)", style: TextStyle(fontSize: 13, color: Colors.grey)))
+                            : Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 13,
+                                color: !useSearch[f]! || !hasDiff ? Colors.white : Colors.grey,
+                                decoration: useSearch[f]! && hasDiff ? TextDecoration.lineThrough : null)),
                       ])),
-                      if (hasDiff) ...[
+                      if (hasDiff && !isCover) ...[
                         const Padding(padding: EdgeInsets.symmetric(horizontal: 6),
                             child: Icon(Icons.arrow_forward, size: 16, color: Colors.green)),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -487,6 +497,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           Text(inc.length > 60 ? "${inc.substring(0, 60)}..." : inc,
                               style: TextStyle(fontSize: 13, color: useSearch[f]! ? Colors.green : Colors.grey)),
                         ])),
+                      ],
+                      if (hasDiff && isCover) ...[
+                        const Padding(padding: EdgeInsets.symmetric(horizontal: 6),
+                            child: Icon(Icons.arrow_forward, size: 16, color: Colors.green)),
+                        ClipRRect(borderRadius: BorderRadius.circular(4),
+                          child: Image.network(coverUrl, width: 80, height: 110, fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40))),
                       ],
                     ]),
                     if (hasDiff)
@@ -517,6 +534,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sf[src]!.text = picked["source_id"].toString();
       }
     });
+    // Download cover if selected
+    if (confirmed["封面"] == true && coverUrl.isNotEmpty) {
+      try {
+        await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
+      } catch (_) {}
+    }
     _showMsg("已应用所选字段，核对后保存");
   }
 
