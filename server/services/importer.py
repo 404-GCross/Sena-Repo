@@ -61,6 +61,7 @@ async def import_from_root(
                 company_id=company.id,
                 root_id=root.id,
                 folder_path=game_folder.path,
+                developer=company_name,
             )
 
             version_count = 0
@@ -143,6 +144,7 @@ async def _upsert_game(
     company_id: int,
     root_id: int,
     folder_path: str,
+    developer: str | None = None,
 ) -> Game:
     """Get or create a Game by folder_path (unique key)."""
     result = await session.execute(
@@ -156,6 +158,7 @@ async def _upsert_game(
             company_id=company_id,
             root_id=root_id,
             folder_path=folder_path,
+            developer=developer,
         )
         session.add(game)
         await session.flush()
@@ -163,6 +166,8 @@ async def _upsert_game(
         # Update fields if changed
         game.name = clean_name
         game.company_id = company_id
+        if game.developer is None and developer:
+            game.developer = developer
         game.updated_at = datetime.utcnow()
     return game
 
