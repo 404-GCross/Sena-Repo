@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 
@@ -233,15 +232,13 @@ async def start_batch_scrape(
 
     # Run in background
     async def _run():
-        from database import init_database, create_tables
         from database import _session_factory
         if _session_factory is None:
-            init_database(config)
-            await create_tables()
+            raise RuntimeError("Database not initialized")
         async with _session_factory() as bg_session:
             await run_batch_scrape(config, body.game_ids, bg_session, job)
 
-    background_tasks.add_task(asyncio.create_task, _run())
+    background_tasks.add_task(_run)
 
     return {
         "job_id": job.id,
