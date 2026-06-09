@@ -89,7 +89,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (results.isEmpty) { _showError("无结果"); return; }
 
     // Show results
-    final picked = await showDialog<Map<String, dynamic>>(
+    final picked = await showDialog<Object?>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text("$label — 搜索结果"),
@@ -117,13 +117,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
       ),
     );
     if (picked == null || !mounted) return;
+    final r = picked as Map<String, dynamic>;
 
     // Apply to form (mark dirty)
     setState(() {
-      _name.text = (picked["title"] ?? "").toString();
-      _dev.text = (picked["developer"] ?? "").toString();
-      _desc.text = (picked["description"] ?? "").toString();
-      _date.text = (picked["release_date"] ?? "").toString();
+      _name.text = (r["title"] ?? "").toString();
+      _dev.text = (r["developer"] ?? "").toString();
+      _desc.text = (r["description"] ?? "").toString();
+      _date.text = (r["release_date"] ?? "").toString();
     });
     _showMsg("已填入 $label 数据");
   }
@@ -619,7 +620,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
     // Step 2: Search with inline loading + results
     final ctrl = TextEditingController(text: _name.text);
-    final picked = await showDialog<Map<String, dynamic>>(
+    final picked = await showDialog<Object?>(
       context: context, builder: (ctx) {
         var results = <Map<String, dynamic>>[];
         var searching = false;
@@ -685,15 +686,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
       return;
     }
     if (picked == null || !mounted) return;
+    final r = picked as Map<String, dynamic>;
 
     // Step 3: Per-field comparison (Playnite style)
-    final coverUrl = (picked["cover_url"] ?? "").toString();
+    final coverUrl = (r["cover_url"] ?? "").toString();
     final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc, "封面": _name}; // cover uses _name as dummy ctrl
     final incoming = {
-      "名称": (picked["title"] ?? "").toString(),
-      "开发商": (picked["developer"] ?? "").toString(),
-      "日期": (picked["release_date"] ?? "").toString(),
-      "简介": (picked["description"] ?? "").toString(),
+      "名称": (r["title"] ?? "").toString(),
+      "开发商": (r["developer"] ?? "").toString(),
+      "日期": (r["release_date"] ?? "").toString(),
+      "简介": (r["description"] ?? "").toString(),
       "封面": coverUrl.isNotEmpty ? "下载并替换当前封面" : "",
     };
     final useSearch = <String, bool>{};
@@ -771,8 +773,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
-      if (sf.containsKey(src) && (picked["source_id"] ?? "").toString().isNotEmpty) {
-        sf[src]!.text = picked["source_id"].toString();
+      if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
+        sf[src]!.text = r["source_id"].toString();
       }
     });
     // Download cover if selected
