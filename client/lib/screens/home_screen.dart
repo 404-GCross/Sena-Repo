@@ -28,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentTab = 0;
   bool _isGridView = true;
   int _unreadCount = 0;
+  int _scrapeProgress = -1; // -1 = none, 0-100 = %
   final _searchController = TextEditingController();
 
   bool get _showSteamTab => !Platform.isAndroid;
@@ -35,21 +36,33 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _pollNotifications();
+    _pollBackground();
   }
 
-  void _pollNotifications() {
+  void _pollBackground() {
     Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 30));
+      await Future.delayed(const Duration(seconds: 8));
       if (!mounted) return false;
       try {
-        final gameProvider = context.read<GameProvider>();
-        final resp = await http.get(
-          Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"),
-        );
-        if (resp.statusCode == 200 && mounted) {
-          final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          setState(() => _unreadCount = data["count"] ?? 0);
+        final base = context.read<GameProvider>().api.baseUrl;
+        // Poll notifications
+        final nResp = await http.get(Uri.parse("$base/api/auth/notifications/unread-count"));
+        if (mounted && nResp.statusCode == 200) {
+          setState(() => _unreadCount = (jsonDecode(nResp.body) as Map)["count"] ?? 0);
+        }
+        // Poll scrape jobs
+        final jResp = await http.get(Uri.parse("$base/api/scrape/jobs"));
+        if (mounted && jResp.statusCode == 200) {
+          final jobs = jsonDecode(jResp.body) as List;
+          final running = jobs.cast<Map>().where((j) => j["status"] == "running").toList();
+          if (running.isNotEmpty) {
+            final j = running.first;
+            final total = (j["total_games"] as int?) ?? 1;
+            final done = (j["completed_games"] as int?) ?? 0;
+            setState(() => _scrapeProgress = total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0);
+          } else {
+            setState(() => _scrapeProgress = -1);
+          }
         }
       } catch (_) {}
       return mounted;
@@ -134,7 +147,20 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Sena Repo"),
+        bottom: _scrapeProgress >= 0
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(4),
+                child: LinearProgressIndicator(value: _scrapeProgress / 100.0, backgroundColor: Colors.white10),
+              )
+            : null,
         actions: [
+          if (_scrapeProgress >= 0)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Center(
+                child: Text("刮削中 $_scrapeProgress%", style: TextStyle(fontSize: 11, color: Colors.orange[300])),
+              ),
+            ),
           if (_currentTab == 0) ...[
             IconButton(
               icon: Icon(_isGridView ? Icons.list : Icons.grid_view),
