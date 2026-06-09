@@ -225,21 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openDetail(game) {
     Navigator.push(
       context,
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 300),
-        reverseTransitionDuration: const Duration(milliseconds: 250),
-        pageBuilder: (_, animation, __) => GameDetailScreen(gameId: game.id),
-        transitionsBuilder: (_, animation, __, child) => FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.03, 0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-            child: child,
-          ),
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
     );
   }
 
