@@ -30,17 +30,3 @@ class ScrapeJob(Base):
     started_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class ScrapeResult(Base):
-    """Store per-game scrape results for tracking."""
-    __tablename__ = "scrape_results"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    job_id = Column(Integer, nullable=False)
-    game_id = Column(Integer, nullable=False)
-    source = Column(String(32), nullable=False)
-    success = Column(Integer, default=0)  # 0 = failed, 1 = success
-    cover_url = Column(String(1024), nullable=True)
-    developer = Column(String(512), nullable=True)
-    error = Column(String(512), nullable=True)

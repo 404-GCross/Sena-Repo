@@ -32,13 +32,6 @@ class BatchScrapeRequest(BaseModel):
     game_ids: list[int] | None = None
 
 
-class ScrapeResultOut(BaseModel):
-    source: str
-    title: str
-    cover_url: str
-    developer: str
-
-
 class JobStatusOut(BaseModel):
     id: int
     status: str

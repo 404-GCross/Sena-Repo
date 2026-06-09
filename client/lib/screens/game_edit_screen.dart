@@ -449,31 +449,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
   }
 
-  Widget _compareRow(String label, String current, String incoming) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-        Row(children: [
-          Expanded(child: Text(current.isEmpty ? "(空)" : current, style: TextStyle(fontSize: 12, color: current != incoming && incoming.isNotEmpty ? Colors.orange : Colors.white70))),
-          if (current != incoming && incoming.isNotEmpty) ...[
-            const Icon(Icons.arrow_forward, size: 14, color: Colors.grey),
-            Expanded(child: Text(incoming, style: const TextStyle(fontSize: 12, color: Colors.green))),
-          ],
-        ]),
-      ]),
-    );
-  }
 
-  String _sourceLabel(String s) => {"vndb_kana": "VNDB", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "muyue": "muyue"}[s] ?? s;
-
-  Widget _sourceBadgeSmall(String label) {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4)),
-      child: Text(label, style: const TextStyle(fontSize: 10)));
-  }
-
-  @override
   void dispose() {
     _name.dispose(); _dev.dispose(); _desc.dispose(); _date.dispose();
     _vndb.dispose(); _steam.dispose(); _bgm.dispose(); _notes.dispose();
