@@ -183,9 +183,10 @@ class _ScraperPageState extends State<_ScraperPage> {
   final _keys = {"bangumi_token": TextEditingController(), "vndb_token": TextEditingController(), "steamgriddb_key": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
-  void initState() { super.initState(); _loadKeys(); }
+  void initState() { super.initState(); _loadSettings(); }
 
-  Future<void> _loadKeys() async {
+  Future<void> _loadSettings() async {
+    // Load API keys from server
     try {
       final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"));
       if (resp.statusCode == 200) {
@@ -193,15 +194,29 @@ class _ScraperPageState extends State<_ScraperPage> {
         for (final k in _keys.keys) { _keys[k]?.text = data[k] ?? ""; }
       }
     } catch (_) {}
-    // Load proxy from config
-    _keys["proxy"]?.text = "";
+
+    // Load source toggles from SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    for (final src in _sources.keys) {
+      final v = prefs.getBool("scrape_src_$src");
+      if (v != null) _sources[src] = v;
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _save() async {
+    // Save API keys to server
     final body = <String, String>{};
     for (final k in _keys.keys) { body[k] = _keys[k]!.text; }
     await http.put(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
         headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
+
+    // Save source toggles locally
+    final prefs = await SharedPreferences.getInstance();
+    for (final src in _sources.keys) {
+      await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
+    }
+
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
   }
 
