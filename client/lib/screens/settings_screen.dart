@@ -33,10 +33,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _menuItem(Icons.folder, "根目录管理", () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => _RootDirsPage(api: _api)))),
           _menuItem(Icons.manage_search, "扫描设置", () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const _ScanSettingsPage()))),
+              MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
           _menuItem(Icons.image_search, "刮削源", () => Navigator.push(context,
               MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
           _menuItem(Icons.grid_view, "显示", () => Navigator.push(context,
@@ -58,90 +56,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-// ── Root Dirs Sub-Page ──
-class _RootDirsPage extends StatefulWidget {
+// ── Scan Settings Sub-Page (includes root dirs) ──
+class _ScanSettingsPage extends StatefulWidget {
   final ApiClient api;
-  const _RootDirsPage({required this.api});
-  @override State<_RootDirsPage> createState() => _RootDirsPageState();
+  const _ScanSettingsPage({required this.api});
+  @override State<_ScanSettingsPage> createState() => _ScanSettingsPageState();
 }
 
-class _RootDirsPageState extends State<_RootDirsPage> {
+class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   List<Map<String, dynamic>> _roots = [];
-  final _ctrl = TextEditingController();
-  bool _loading = true;
+  final _dirCtrl = TextEditingController();
+  String _structure = "company_game";
+  bool _autoScan = false;
+  int _interval = 24;
+  bool _loading = false;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _loadRoots(); }
 
-  Future<void> _load() async {
+  Future<void> _loadRoots() async {
     setState(() => _loading = true);
     try {
       final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/roots"));
       if (resp.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(resp.body);
-        _roots = data.cast<Map<String, dynamic>>();
+        _roots = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
       }
     } catch (_) {}
     setState(() => _loading = false);
   }
 
-  Future<void> _add() async {
-    final p = _ctrl.text.trim(); if (p.isEmpty) return;
+  Future<void> _addRoot() async {
+    final p = _dirCtrl.text.trim(); if (p.isEmpty) return;
     await http.post(Uri.parse("${widget.api.baseUrl}/api/roots"),
         headers: {"Content-Type": "application/json"}, body: jsonEncode({"path": p}));
-    _ctrl.clear(); _load();
+    _dirCtrl.clear(); _loadRoots();
   }
 
-  Future<void> _del(int id) async {
+  Future<void> _delRoot(int id) async {
     await http.delete(Uri.parse("${widget.api.baseUrl}/api/roots/$id"));
-    _load();
+    _loadRoots();
   }
 
-  Future<void> _scan() async {
+  Future<void> _scanNow() async {
     setState(() => _loading = true);
     await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
-    _load();
+    _loadRoots();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("扫描已触发")));
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("根目录管理")),
-    body: _loading ? const Center(child: CircularProgressIndicator()) : ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        ..._roots.map((r) => ListTile(
-          title: Text(r["path"] ?? ""),
-          trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _del(r["id"] as int)),
-        )),
-        Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [
-          Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: "/games", isDense: true))),
-          const SizedBox(width: 8),
-          IconButton.filled(icon: const Icon(Icons.add), onPressed: _add),
-        ])),
-        const SizedBox(height: 12),
-        FilledButton.tonalIcon(onPressed: _scan, icon: const Icon(Icons.refresh), label: const Text("扫描全部根目录")),
-      ],
-    ),
-  );
-}
-
-// ── Scan Settings Sub-Page ──
-class _ScanSettingsPage extends StatefulWidget {
-  const _ScanSettingsPage();
-  @override State<_ScanSettingsPage> createState() => _ScanSettingsPageState();
-}
-
-class _ScanSettingsPageState extends State<_ScanSettingsPage> {
-  String _structure = "company_game";
-  bool _autoScan = false;
-  int _interval = 24;
+  Future<void> _scrapeNow() async {
+    await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
+        headers: {"Content-Type": "application/json"}, body: jsonEncode({}));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("刮削已触发")));
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("扫描设置")),
-    body: ListView(
+    body: _loading ? const Center(child: CircularProgressIndicator()) : ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        const Text("根目录", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        ..._roots.map((r) => ListTile(
+          dense: true, title: Text(r["path"] ?? "", style: const TextStyle(fontSize: 13)),
+          trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => _delRoot(r["id"] as int)),
+        )),
+        Row(children: [
+          Expanded(child: TextField(controller: _dirCtrl, decoration: const InputDecoration(hintText: "/games", isDense: true))),
+          const SizedBox(width: 8),
+          IconButton.filled(icon: const Icon(Icons.add, size: 18), onPressed: _addRoot),
+        ]),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(onPressed: _scanNow, icon: const Icon(Icons.refresh), label: const Text("开始扫描")),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(onPressed: _scrapeNow, icon: const Icon(Icons.image_search), label: const Text("批量刮削")),
+        const SizedBox(height: 24),
+        const Divider(),
+        const SizedBox(height: 8),
+        const Text("扫描选项", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
         ListTile(
           title: const Text("目录结构"),
           subtitle: Text(_structure == "company_game" ? "会社 / 游戏" : _structure == "game_only" ? "仅游戏" : "扁平"),
