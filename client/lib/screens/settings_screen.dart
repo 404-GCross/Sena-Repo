@@ -108,9 +108,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _autoScan = false;
   int _interval = 24;
   bool _loading = false;
+  Map<String, dynamic>? _scrapeJob;
+  bool _scraping = false;
 
   @override
-  void initState() { super.initState(); _loadRoots(); }
+  void initState() { super.initState(); _loadRoots(); _checkActiveJob(); }
 
   Future<void> _loadRoots() async {
     setState(() => _loading = true);
@@ -142,10 +144,55 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     if (mounted) _toast(context, "扫描已触发");
   }
 
+  Future<void> _checkActiveJob() async {
+    try {
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs"));
+      if (resp.statusCode == 200) {
+        final jobs = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
+        final running = jobs.cast<Map<String, dynamic>?>().firstWhere(
+          (j) => j?["status"] == "running" || j?["status"] == "pending",
+          orElse: () => null,
+        );
+        if (running != null && mounted) {
+          setState(() { _scrapeJob = running; _scraping = true; });
+          _pollJob(running["id"] as int);
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _scrapeNow() async {
-    await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
-        headers: {"Content-Type": "application/json"}, body: jsonEncode({}));
-    if (mounted) _toast(context, "刮削已触发");
+    setState(() => _scraping = true);
+    try {
+      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
+          headers: {"Content-Type": "application/json"}, body: jsonEncode({}));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final jobId = data["job_id"] as int;
+        if (mounted) _pollJob(jobId);
+      }
+    } catch (_) {
+      if (mounted) _toast(context, "刮削启动失败");
+      setState(() => _scraping = false);
+    }
+  }
+
+  Future<void> _pollJob(int jobId) async {
+    while (mounted) {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      try {
+        final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId"));
+        if (resp.statusCode == 200) {
+          final job = jsonDecode(resp.body) as Map<String, dynamic>;
+          if (mounted) setState(() => _scrapeJob = job);
+          if (job["status"] == "completed" || job["status"] == "failed") {
+            if (mounted) _scraping = false;
+            return;
+          }
+        }
+      } catch (_) {}
+    }
   }
 
   @override
@@ -245,6 +292,62 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ),
           ),
         ]),
+
+        // ── Scrape job progress ──
+        if (_scrapeJob != null) ...[
+          const SizedBox(height: 20),
+          _sectionHeader("刮削进度", Icons.cloud_sync),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Column(children: [
+              Row(children: [
+                _jobStatusIcon(_scrapeJob!["status"]),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_jobStatusLabel(_scrapeJob!["status"]),
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    if (_scrapeJob!["current_game"] != null)
+                      Text("正在处理: ${_scrapeJob!["current_game"]}",
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                  ]),
+                ),
+                if (_scrapeJob!["status"] == "running")
+                  const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+              ]),
+              if (_scrapeJob!["total_games"] != null && (_scrapeJob!["total_games"] as int) > 0) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: ((_scrapeJob!["completed_games"] ?? 0) as int) /
+                        ((_scrapeJob!["total_games"] as int)).clamp(1, 99999),
+                    minHeight: 6,
+                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text("${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ],
+              if (_scrapeJob!["status"] == "completed" && _scrapeJob!["failed_games"] != null && (_scrapeJob!["failed_games"] as int) > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text("${_scrapeJob!["failed_games"]} 个刮削失败",
+                      style: TextStyle(fontSize: 12, color: Colors.red[300])),
+                ),
+            ]),
+          ),
+        ],
+
         const SizedBox(height: 24),
 
         // ── Options ──
@@ -331,6 +434,25 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   );
 
   Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06));
+
+  Widget _jobStatusIcon(String? status) {
+    switch (status) {
+      case "running": return Icon(Icons.sync, size: 24, color: Colors.blue[300]);
+      case "completed": return Icon(Icons.check_circle, size: 24, color: Colors.green[300]);
+      case "failed": return Icon(Icons.error, size: 24, color: Colors.red[300]);
+      default: return Icon(Icons.schedule, size: 24, color: Colors.grey[400]);
+    }
+  }
+
+  String _jobStatusLabel(String? status) {
+    switch (status) {
+      case "pending": return "等待开始...";
+      case "running": return "正在刮削...";
+      case "completed": return "刮削完成";
+      case "failed": return "刮削失败";
+      default: return status ?? "未知";
+    }
+  }
 }
 
 // ── Scraper Sub-Page ──
