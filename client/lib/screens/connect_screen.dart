@@ -80,6 +80,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
           // Save token for auto-login
           if (loginResult is Map) {
             await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
+            await prefs.setString("username", loginResult["username"]?.toString() ?? "");
+            await prefs.setBool("is_admin", loginResult["is_admin"] == true);
           }
         }
       }
