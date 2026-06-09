@@ -233,12 +233,19 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(children: [
             const SizedBox(height: 12),
             // Action buttons at top
-            if (_currentTab == 0) ...[
-              _sideBtn(Icons.refresh, "刷新", gameProvider.loadGames),
-              _sideBtn(_isGridView ? Icons.list : Icons.grid_view,
-                  _isGridView ? "列表" : "网格",
-                  () => setState(() => _isGridView = !_isGridView)),
-            ],
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: _currentTab == 0 ? 1.0 : 0.0,
+              child: IgnorePointer(
+                ignoring: _currentTab != 0,
+                child: Column(children: [
+                  _sideBtn(Icons.refresh, "刷新", gameProvider.loadGames),
+                  _sideBtn(_isGridView ? Icons.list : Icons.grid_view,
+                      _isGridView ? "列表" : "网格",
+                      () => setState(() => _isGridView = !_isGridView)),
+                ]),
+              ),
+            ),
             IconButton(
               icon: Badge(
                 isLabelVisible: _unreadCount > 0,
