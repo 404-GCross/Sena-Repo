@@ -859,9 +859,16 @@ class _UserManagePage extends StatefulWidget {
 class _UserManagePageState extends State<_UserManagePage> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
+  int _currentUserId = 0;
 
   @override
-  void initState() { super.initState(); _loadUsers(); }
+  void initState() { super.initState(); _loadCurrentUser(); _loadUsers(); }
+
+  Future<void> _loadCurrentUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("auth_token");
+    _currentUserId = int.tryParse(token ?? "") ?? 0;
+  }
 
   Future<void> _loadUsers() async {
     setState(() => _loading = true);
@@ -1131,8 +1138,9 @@ class _UserManagePageState extends State<_UserManagePage> {
                           },
                           itemBuilder: (_) => [
                             const PopupMenuItem(value: "edit", child: Text("编辑")),
-                            const PopupMenuItem(value: "delete",
-                              child: Text("删除", style: TextStyle(color: Colors.red))),
+                            if ((u["id"] as int) != _currentUserId)
+                              const PopupMenuItem(value: "delete",
+                                child: Text("删除", style: TextStyle(color: Colors.red))),
                           ],
                         ),
                     ]),
