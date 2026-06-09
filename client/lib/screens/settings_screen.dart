@@ -931,9 +931,12 @@ class _UserManagePageState extends State<_UserManagePage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("用户管理"), actions: [
-      IconButton(icon: const Icon(Icons.person_add), tooltip: "新增用户", onPressed: _createUser),
-    ]),
+    appBar: AppBar(title: const Text("用户管理")),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: _createUser,
+      icon: const Icon(Icons.person_add),
+      label: const Text("新增用户"),
+    ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _users.isEmpty
