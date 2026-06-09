@@ -645,16 +645,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
                               errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40))),
                       ],
                     ]),
-                    if (hasDiff)
-                      Padding(padding: const EdgeInsets.only(top: 4),
-                        child: Row(children: [
-                          Text("使用搜索结果", style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                          const Spacer(),
-                          SizedBox(height: 24, child: Switch(
-                            value: useSearch[f] ?? false,
-                            onChanged: (v) => setD(() => useSearch[f] = v)),
-                          ),
-                        ])),
                   ]),
                 );
               }).toList())),
