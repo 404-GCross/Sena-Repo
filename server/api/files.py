@@ -5,12 +5,32 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+import uuid
+
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pathlib import Path
 from fastapi.responses import FileResponse
 
 from config import load_config
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+
+
+@router.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload an image file. Returns the filename for use in cover/bg URLs."""
+    ext = Path(file.filename or "image.jpg").suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=403, detail="File type not allowed")
+
+    config = load_config()
+    name = f"{uuid.uuid4().hex}{ext}"
+    dest = config.covers_path / name
+    config.covers_path.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    dest.write_bytes(content)
+    return {"filename": name, "url": f"/api/files/covers/{name}"}
 
 # Allowed extensions for security
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
