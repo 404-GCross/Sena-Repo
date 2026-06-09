@@ -247,6 +247,7 @@ class GameUpdate(BaseModel):
     developer: str | None = None
     description: str | None = None
     release_date: str | None = None
+    bg_path: str | None = None
     vndb_id: str | None = None
     steam_id: str | None = None
     bangumi_id: str | None = None
