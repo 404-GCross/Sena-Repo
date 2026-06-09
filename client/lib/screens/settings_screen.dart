@@ -761,62 +761,39 @@ class _DisplayPageState extends State<_DisplayPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("显示")),
     body: ListView(padding: const EdgeInsets.all(16), children: [
-      _sectionHeader("窗口行为", Icons.desktop_windows_outlined),
-      const SizedBox(height: 8),
-      Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-        ),
-        child: SwitchListTile(
-          title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
-          subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
-              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-          value: _trayEnabled,
-          onChanged: (v) async {
-            setState(() => _trayEnabled = v);
-            await SharedPreferences.getInstance().then((p) => p.setBool("minimize_to_tray", v));
-            if (mounted) _toast(context, v ? "已开启托盘最小化" : "已关闭托盘最小化");
-          },
-        ),
-      ),
-      const SizedBox(height: 24),
-      _sectionHeader("封面大小", Icons.photo_size_select_large),
+      _sectionTitle("封面大小"),
       const SizedBox(height: 8),
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Column(children: [
           Row(children: [
-            Icon(Icons.image, size: 24, color: Colors.grey[500]),
-            const SizedBox(width: 12),
-            Expanded(child: Text("${_coverSize.round()} px",
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600))),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.teal.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.image, size: 20, color: Colors.teal[200]),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text("${_coverSize.round()} px", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+              Text("网格封面尺寸", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            ])),
+            Container(
+              width: 32, height: 44,
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(4),
               ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                SizedBox(
-                  width: _coverSize * 0.25, height: _coverSize * 0.35,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.grey[700],
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                ),
-              ]),
             ),
           ]),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Slider(
             value: _coverSize, min: 100, max: 300, divisions: 20,
             activeColor: Theme.of(context).colorScheme.primary,
@@ -831,14 +808,42 @@ class _DisplayPageState extends State<_DisplayPage> {
           ]),
         ]),
       ),
+      const SizedBox(height: 24),
+      _sectionTitle("窗口行为"),
+      const SizedBox(height: 8),
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: SwitchListTile(
+          title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
+          subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          value: _trayEnabled,
+          onChanged: (v) async {
+            setState(() => _trayEnabled = v);
+            await SharedPreferences.getInstance().then((p) => p.setBool("minimize_to_tray", v));
+          },
+        ),
+      ),
     ]),
   );
 
-  Widget _sectionHeader(String title, IconData icon) => Row(children: [
-    Icon(icon, size: 18, color: Colors.white60),
-    const SizedBox(width: 6),
-    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
-  ]);
+  Widget _sectionTitle(String t) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+    child: Row(children: [
+      Container(width: 3, height: 16,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+    ]),
+  );
 }
 
 // ── User Management Sub-Page (admin only) ──
