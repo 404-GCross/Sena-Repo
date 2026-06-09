@@ -930,12 +930,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (confirmed == null || !mounted) return;
 
     if (confirmed is! Map<String, bool>) return;
-    // Show loading while syncing
-    if (mounted) {
-      showDialog(context: context, barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()));
-    }
-    // Apply only selected fields
+    // Apply only selected fields to form
     final apply = confirmed as Map<String, bool>;
     setState(() {
       if (apply["名称"] == true) _name.text = incoming["名称"]!;
@@ -947,16 +942,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sf[src]!.text = r["source_id"].toString();
       }
     });
-    // Download cover if selected
+    // Download cover then auto-save
     if (apply["封面"] == true && coverUrl.isNotEmpty) {
       try {
         await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
       } catch (_) {}
     }
-    // Refresh game data to show updated cover
-    await _reloadGame();
-    if (mounted) Navigator.of(context).pop(); // close loading
-    _showMsg("已应用所选字段，核对后保存");
+    await _save();
   }
 
   @override
