@@ -735,14 +735,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "简介": (r["description"] ?? "").toString(),
     };
     final hasCoverDiff = coverUrl.isNotEmpty;
+    // Build initial selection state (outside StatefulBuilder so it persists across rebuilds)
+    final useSearch = <String, bool>{};
+    for (final f in fields.keys) {
+      useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
+    }
+    useSearch["封面"] = hasCoverDiff;
+
     final confirmed = await showDialog<Map<String, bool>?>(
       context: context, builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) {
-          final useSearch = <String, bool>{};
-          for (final f in fields.keys) {
-            useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
-          }
-          useSearch["封面"] = hasCoverDiff;
           final anyDiff = useSearch.values.any((v) => v);
           return AlertDialog(
           title: Row(children: [
