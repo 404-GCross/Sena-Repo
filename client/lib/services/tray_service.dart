@@ -49,10 +49,12 @@ class TrayService {
     ]);
     await _tray.setContextMenu(menu);
 
-    // Handle tray icon click/double-click to restore window
+    // Handle tray icon events
     _tray.registerSystemTrayEventHandler((eventName) {
       if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
         windowManager.show();
+      } else if (eventName == "SystemTray.rightClick") {
+        _tray.popUpContextMenu();
       }
     });
 
