@@ -18,11 +18,36 @@ class GameProvider extends ChangeNotifier {
   String? _filterDeveloper;
   bool? _filterHasCover;
 
-  List<GameSummary> get games => _searchQuery.isEmpty
-      ? _games
-      : _games.where((g) =>
+  List<GameSummary> get games {
+    var list = _games;
+    // Client-side search
+    if (_searchQuery.isNotEmpty) {
+      list = list.where((g) =>
           g.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           g.tagNames.any((t) => t.toLowerCase().contains(_searchQuery.toLowerCase()))).toList();
+    }
+    // Client-side platform filter
+    if (_filterPlatform != null) {
+      list = list.where((g) => g.platformSummary.contains(_filterPlatform!)).toList();
+    }
+    // Client-side cover filter
+    if (_filterHasCover == true) {
+      list = list.where((g) => g.coverPath != null && g.coverPath!.isNotEmpty).toList();
+    } else if (_filterHasCover == false) {
+      list = list.where((g) => g.coverPath == null || g.coverPath!.isEmpty).toList();
+    }
+    // Client-side sort
+    if (_sortBy == "name") {
+      list.sort((a, b) => a.name.compareTo(b.name));
+    } else if (_sortBy == "name_desc") {
+      list.sort((a, b) => b.name.compareTo(a.name));
+    } else if (_sortBy == "company") {
+      list.sort((a, b) => (a.companyName ?? "").compareTo(b.companyName ?? ""));
+    } else if (_sortBy == "developer") {
+      list.sort((a, b) => (a.developer ?? "").compareTo(b.developer ?? ""));
+    }
+    return list;
+  }
 
   List<Tag> get tags => _tags;
   bool get isLoading => _isLoading;
@@ -40,12 +65,7 @@ class GameProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _games = await _api.getGames(
-        sort: _sortBy,
-        platform: _filterPlatform,
-        developer: _filterDeveloper,
-        hasCover: _filterHasCover,
-      );
+      _games = await _api.getGames();
       _tags = await _api.getTags();
       _error = null;
     } catch (e) {
@@ -55,16 +75,16 @@ class GameProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setFilters({String? platform, String? developer, bool? hasCover}) async {
+  void setFilters({String? platform, String? developer, bool? hasCover}) {
     _filterPlatform = platform;
     _filterDeveloper = developer;
     _filterHasCover = hasCover;
-    await loadGames();
+    notifyListeners();
   }
 
-  Future<void> setSort(String? sort) async {
+  void setSort(String? sort) {
     _sortBy = sort;
-    await loadGames();
+    notifyListeners();
   }
 
   void clearFilters() {
@@ -72,7 +92,7 @@ class GameProvider extends ChangeNotifier {
     _filterDeveloper = null;
     _filterHasCover = null;
     _sortBy = null;
-    loadGames();
+    notifyListeners();
   }
 
   void search(String query) {

@@ -27,9 +27,6 @@ class ApiClient {
     String? tag,
     String? platform,
     int? rootId,
-    String? sort,
-    String? developer,
-    bool? hasCover,
   }) async {
     final params = <String, String>{
       "page": page.toString(),
@@ -38,9 +35,6 @@ class ApiClient {
     if (tag != null) params["tag"] = tag;
     if (platform != null) params["platform"] = platform;
     if (rootId != null) params["root_id"] = rootId.toString();
-    if (sort != null) params["sort"] = sort;
-    if (developer != null) params["developer"] = developer;
-    if (hasCover != null) params["has_cover"] = hasCover.toString();
 
     final uri = Uri.parse("$baseUrl/api/games").replace(queryParameters: params);
     final resp = await _client.get(uri);
