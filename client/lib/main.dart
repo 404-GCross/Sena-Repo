@@ -18,9 +18,25 @@ import "services/logger_service.dart";
 
 final trayService = TrayService();
 
+ServerSocket? _lockServer;
+
+Future<bool> _acquireSingleInstanceLock() async {
+  try {
+    _lockServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 11452);
+    return true; // First instance
+  } catch (_) {
+    return false; // Port in use = another instance already running
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   LoggerService().cleanOldLogs();
+
+  if (!await _acquireSingleInstanceLock()) {
+    // Already running — exit silently
+    exit(0);
+  }
 
   if (Platform.isWindows || Platform.isLinux) {
     await windowManager.ensureInitialized();
