@@ -46,11 +46,12 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
   }
 
   Future<void> _initTray() async {
-    final prefs = await SharedPreferences.getInstance();
-    final enabled = prefs.getBool("minimize_to_tray") ?? false;
     await trayService.init(onQuit: () async {
       await windowManager.destroy();
     });
+    await windowManager.setPreventClose(true);
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool("minimize_to_tray") ?? false;
     await trayService.setEnabled(enabled);
   }
 
