@@ -33,12 +33,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   LoggerService().cleanOldLogs();
 
-  if (!await _acquireSingleInstanceLock()) {
-    // Already running — exit silently
-    exit(0);
-  }
-
   if (Platform.isWindows || Platform.isLinux) {
+    if (!await _acquireSingleInstanceLock()) {
+      exit(0);
+    }
     await windowManager.ensureInitialized();
     windowManager.setTitle("Sena Repo");
   }
