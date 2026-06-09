@@ -103,7 +103,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev rpm zstd file imagemagick
+            libgtk-3-dev liblzma-dev rpm zstd file imagemagick \
+            libayatana-appindicator3-dev
 
       - name: Enable Linux + generate platform files
         run: |
