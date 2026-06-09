@@ -88,11 +88,17 @@ class SteamScraper(BaseScraper):
 
     @staticmethod
     def _pick_best(items: list[dict], title: str) -> dict | None:
-        """Pick best match: exact > prefix > first."""
+        """Pick best match: exact > contains > prefix > first."""
         norm = title.lower()
+        # Exact match
         exact = next((a for a in items if str(a.get("name", "")).lower() == norm), None)
         if exact:
             return exact
+        # Contains match (handles different language names)
+        contains = next((a for a in items if norm in str(a.get("name", "")).lower()), None)
+        if contains:
+            return contains
+        # Prefix match
         starts = next((a for a in items if str(a.get("name", "")).lower().startswith(norm)), None)
         if starts:
             return starts
