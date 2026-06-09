@@ -134,7 +134,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   child: Stack(children: [
                     Container(
                       decoration: BoxDecoration(
-                        shape: const CircleBorder(),
+                        shape: BoxShape.circle,
                         border: Border.all(
                           color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                           width: 3,
