@@ -101,13 +101,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     setState(() => _loading = true);
     await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
     _loadRoots();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("扫描已触发")));
+    if (mounted) _toast(context, "扫描已触发");
   }
 
   Future<void> _scrapeNow() async {
     await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
         headers: {"Content-Type": "application/json"}, body: jsonEncode({}));
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("刮削已触发")));
+    if (mounted) _toast(context, "刮削已触发");
   }
 
   @override
@@ -211,7 +211,7 @@ class _ScraperPageState extends State<_ScraperPage> {
       await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
     }
 
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
+    if (mounted) _toast(context, "已保存");
   }
 
   Widget _row(String label, String src, bool needsApi, {String? key1, String? key2, String hint = ""}) {
@@ -244,14 +244,12 @@ class _ScraperPageState extends State<_ScraperPage> {
       final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"));
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(data["ok"] == true
-              ? "连接成功: ${data["latency_ms"]}ms (${data["proxy"]})"
-              : "连接失败: ${data["error"]}"),
-        ));
+        _toast(context, data["ok"] == true
+            ? "连接成功: ${data["latency_ms"]}ms (${data["proxy"]})"
+            : "连接失败: ${data["error"]}");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+      if (mounted) _toast(context, "$e");
     }
   }
 
@@ -328,3 +326,8 @@ class _DisplayPageState extends State<_DisplayPage> {
     ]),
   );
 }
+
+void _toast(BuildContext ctx, String msg) {
+  showDialog(context: ctx, builder: (c) => AlertDialog(content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
+}
+

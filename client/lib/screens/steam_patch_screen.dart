@@ -197,11 +197,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                         trailing: match.patchAvailable
                             ? FilledButton.tonalIcon(
                                 onPressed: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text("补丁注入待实现: ${match.gameName}"),
-                                    ),
-                                  );
+                                  showDialog(context: context, builder: (c) => AlertDialog(
+                                    title: const Text("提示"), content: Text("补丁注入待实现: ${match.gameName}"),
+                                    actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
+                                  ));
                                 },
                                 icon: const Icon(Icons.download_for_offline, size: 18),
                                 label: const Text("注入"),
