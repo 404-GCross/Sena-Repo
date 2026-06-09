@@ -581,6 +581,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
     child: Center(child: Icon(Icons.image, size: 64, color: Colors.grey[700])),
   );
 
+  Widget _coverPlaceholderSmall() => Container(
+    width: 90, height: 120,
+    decoration: BoxDecoration(
+      color: Colors.grey[850],
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Center(child: Icon(Icons.image, size: 32, color: Colors.grey[700])),
+  );
+
   Widget _sourceBadge(String label, String? id) {
     final active = id != null && id.isNotEmpty;
     return Padding(padding: const EdgeInsets.only(right: 8),
@@ -688,7 +697,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
-    // Step 3: Per-field comparison (Playnite style)
+    // Step 3: Per-field comparison
     final coverUrl = (r["cover_url"] ?? "").toString();
     final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
     final incoming = {
@@ -697,7 +706,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "日期": (r["release_date"] ?? "").toString(),
       "简介": (r["description"] ?? "").toString(),
     };
-    final hasCoverDiff = coverUrl.isNotEmpty && (r["cover_url"] ?? "").toString().isNotEmpty;
+    final hasCoverDiff = coverUrl.isNotEmpty;
     final confirmed = await showDialog<Map<String, bool>?>(
       context: context, builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) {
@@ -705,77 +714,184 @@ class _GameEditScreenState extends State<GameEditScreen> {
           for (final f in fields.keys) {
             useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
           }
-          if (!useSearch.containsKey("封面")) useSearch["封面"] = false;
+          useSearch["封面"] = hasCoverDiff;
+          final anyDiff = useSearch.values.any((v) => v);
           return AlertDialog(
-          title: Text("对比 - ${sources[src]}"),
-          content: SizedBox(width: 480,
+          title: Row(children: [
+            Icon(Icons.compare_arrows, size: 22, color: Colors.green[300]),
+            const SizedBox(width: 8),
+            Text("对比 - ${sources[src]}"),
+          ]),
+          content: SizedBox(width: 500,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (!anyDiff)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(children: [
+                      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+                      const SizedBox(width: 8),
+                      Text("所有字段与现有数据一致，无需更新", style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                    ]),
+                  ),
                 ...fields.keys.map((f) {
                   final cur = fields[f]!.text;
                   final inc = incoming[f] ?? "";
                   final hasDiff = inc.isNotEmpty && inc != cur;
-                  return Padding(padding: const EdgeInsets.only(bottom: 8),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: hasDiff ? Colors.white.withValues(alpha: 0.04) : Colors.white.withValues(alpha: 0.02),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05)),
+                    ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(f, style: TextStyle(fontSize: 12, color: Colors.grey[400])),
-                      const SizedBox(height: 4),
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14,
-                            color: hasDiff ? Colors.grey : null,
-                            decoration: hasDiff ? TextDecoration.lineThrough : null))),
-                        if (hasDiff) ...[
-                          const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
-                              child: Icon(Icons.arrow_forward, size: 16, color: Colors.green)),
-                          Expanded(child: Text(inc.length > 80 ? "${inc.substring(0, 80)}..." : inc,
-                              style: const TextStyle(fontSize: 14, color: Colors.green))),
-                        ],
+                      Row(children: [
+                        Text(f, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[300])),
+                        const Spacer(),
+                        if (hasDiff)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text("有变更", style: TextStyle(fontSize: 11, color: Colors.green[300])),
+                          ),
                       ]),
+                      const SizedBox(height: 10),
                       if (hasDiff)
-                        CheckboxListTile(
-                          dense: true,
-                          title: const Text("应用此项", style: TextStyle(fontSize: 12)),
-                          value: useSearch[f] ?? false,
-                          onChanged: (v) => setD(() => useSearch[f] = v ?? false),
-                          contentPadding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
+                        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(cur.isEmpty ? "(空)" : cur,
+                                  style: TextStyle(fontSize: 14, color: Colors.grey[500],
+                                      decoration: TextDecoration.lineThrough)),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: Icon(Icons.arrow_forward, size: 18, color: Colors.green[400]),
+                          ),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(inc.length > 80 ? "${inc.substring(0, 80)}..." : inc,
+                                  style: const TextStyle(fontSize: 14, color: Colors.green)),
+                            ),
+                          ),
+                        ])
+                      else
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14, color: Colors.grey[400])),
+                        ),
+                      if (hasDiff)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(children: [
+                            SizedBox(
+                              width: 20, height: 20,
+                              child: Checkbox(
+                                value: useSearch[f],
+                                onChanged: (v) => setD(() => useSearch[f] = v ?? false),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => setD(() => useSearch[f] = !(useSearch[f] ?? false)),
+                              child: const Text("应用此项", style: TextStyle(fontSize: 13)),
+                            ),
+                          ]),
                         ),
                     ]),
                   );
                 }),
                 if (hasCoverDiff) ...[
-                  const SizedBox(height: 4),
-                  Text("封面", style: TextStyle(fontSize: 12, color: Colors.grey[400])),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    if (_coverPath != null)
-                      ClipRRect(borderRadius: BorderRadius.circular(6),
-                        child: Image.network("$_baseUrl/api/files/covers${_coverPath!}",
-                            width: 80, height: 110, fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40)))
-                    else
-                      Container(width: 80, height: 110, color: Colors.grey[850],
-                        child: const Center(child: Icon(Icons.image, size: 40, color: Colors.grey))),
-                    const Padding(padding: EdgeInsets.symmetric(horizontal: 10),
-                        child: Icon(Icons.arrow_forward, size: 20, color: Colors.green)),
-                    ClipRRect(borderRadius: BorderRadius.circular(6),
-                      child: Image.network(coverUrl, width: 80, height: 110, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.image, size: 40))),
-                  ]),
-                  const SizedBox(height: 4),
-                  CheckboxListTile(
-                    dense: true,
-                    title: const Text("下载并替换封面", style: TextStyle(fontSize: 12)),
-                    value: useSearch["封面"] ?? hasCoverDiff,
-                    onChanged: (v) => setD(() => useSearch["封面"] = v ?? false),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text("封面", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[300])),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text("有变更", style: TextStyle(fontSize: 11, color: Colors.green[300])),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: _coverPath != null
+                              ? Image.network("$_baseUrl/api/files/covers${_coverPath!}",
+                                  width: 90, height: 120, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => _coverPlaceholderSmall())
+                              : _coverPlaceholderSmall(),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(Icons.arrow_forward, size: 22, color: Colors.green[400]),
+                        ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(coverUrl, width: 90, height: 120, fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _coverPlaceholderSmall()),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        SizedBox(
+                          width: 20, height: 20,
+                          child: Checkbox(
+                            value: useSearch["封面"],
+                            onChanged: (v) => setD(() => useSearch["封面"] = v ?? false),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setD(() => useSearch["封面"] = !(useSearch["封面"] ?? false)),
+                          child: const Text("下载并替换封面", style: TextStyle(fontSize: 13)),
+                        ),
+                      ]),
+                    ]),
                   ),
                 ],
               ]),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-            FilledButton(onPressed: () => Navigator.pop(ctx, useSearch), child: const Text("应用所选")),
+            FilledButton.icon(
+              onPressed: anyDiff ? () => Navigator.pop(ctx, useSearch) : null,
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text("应用所选"),
+            ),
           ],
         );}),
     );
