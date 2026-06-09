@@ -1,5 +1,8 @@
 /// Manages client settings: server connection, preferences.
 
+import "dart:convert";
+import "dart:io";
+
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -28,14 +31,21 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final uri = Uri.parse("http://$host:$port/api/health");
-      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
-      if (resp.statusCode != 200) {
-        _errorMessage = "服务器返回错误: ${resp.statusCode}";
+      // Use dart:io HttpClient for more reliable connection on all platforms
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 5);
+      final request = await client.getUrl(Uri.parse("http://$host:$port/api/health"));
+      final response = await request.close().timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) {
+        _errorMessage = "服务器返回错误: ${response.statusCode}";
         _isLoading = false;
         notifyListeners();
+        client.close();
         return false;
       }
+      // Read response body to confirm full response
+      await response.transform(utf8.decoder).join();
+      client.close();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("server_host", host);
@@ -46,13 +56,18 @@ class SettingsProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return true;
-    } on http.ClientException catch (e) {
-      _errorMessage = "无法连接到服务器: $e";
+    } on SocketException catch (e) {
+      _errorMessage = "无法连接 $host:$port — ${e.message}";
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } on HandshakeException catch (e) {
+      _errorMessage = "SSL/握手失败: ${e.message}";
       _isLoading = false;
       notifyListeners();
       return false;
     } catch (e) {
-      _errorMessage = "连接失败: $e";
+      _errorMessage = "连接失败($host:$port): $e";
       _isLoading = false;
       notifyListeners();
       return false;
