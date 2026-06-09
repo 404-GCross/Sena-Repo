@@ -145,53 +145,183 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     body: _loading ? const Center(child: CircularProgressIndicator()) : ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text("根目录", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        // ── Root directories ──
+        _sectionHeader("根目录", Icons.folder_outlined),
         const SizedBox(height: 8),
-        ..._roots.map((r) => ListTile(
-          dense: true, title: Text(r["path"] ?? "", style: const TextStyle(fontSize: 13)),
-          trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => _delRoot(r["id"] as int)),
-        )),
+        if (_roots.isEmpty)
+          _hintCard("暂无根目录，请在下方添加")
+        else
+          ..._roots.map((r) => Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Row(children: [
+              Icon(Icons.folder, size: 20, color: Colors.grey[500]),
+              const SizedBox(width: 10),
+              Expanded(child: Text(r["path"] ?? "", style: const TextStyle(fontSize: 14))),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                onPressed: () => _delRoot(r["id"] as int),
+                tooltip: "删除",
+              ),
+            ]),
+          )),
+        const SizedBox(height: 10),
         Row(children: [
-          Expanded(child: TextField(controller: _dirCtrl, decoration: const InputDecoration(hintText: "/games", isDense: true))),
+          Expanded(
+            child: TextField(
+              controller: _dirCtrl,
+              decoration: InputDecoration(
+                hintText: "添加路径，如 /mnt/nas/games",
+                hintStyle: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
+                ),
+              ),
+            ),
+          ),
           const SizedBox(width: 8),
-          IconButton.filled(icon: const Icon(Icons.add, size: 18), onPressed: _addRoot),
+          FilledButton.icon(
+            onPressed: _addRoot,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text("添加"),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
         ]),
-        const SizedBox(height: 12),
-        FilledButton.tonalIcon(onPressed: _scanNow, icon: const Icon(Icons.refresh), label: const Text("开始扫描")),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(onPressed: _scrapeNow, icon: const Icon(Icons.image_search), label: const Text("批量刮削")),
         const SizedBox(height: 24),
-        const Divider(),
+
+        // ── Actions ──
+        _sectionHeader("操作", Icons.play_arrow_outlined),
         const SizedBox(height: 8),
-        const Text("扫描选项", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Row(children: [
+          Expanded(
+            child: FilledButton.tonalIcon(
+              onPressed: _scanNow,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text("开始扫描"),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _scrapeNow,
+              icon: const Icon(Icons.image_search, size: 18),
+              label: const Text("批量刮削"),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 24),
+
+        // ── Options ──
+        _sectionHeader("选项", Icons.tune),
         const SizedBox(height: 8),
-        ListTile(
-          title: const Text("目录结构"),
-          subtitle: Text(_structure == "company_game" ? "会社 / 游戏" : _structure == "game_only" ? "仅游戏" : "扁平"),
-          trailing: DropdownButton<String>(
-            value: _structure, underline: const SizedBox(),
-            items: const [
-              DropdownMenuItem(value: "company_game", child: Text("会社 / 游戏")),
-              DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
-              DropdownMenuItem(value: "flat", child: Text("扁平")),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Column(children: [
+            ListTile(
+              title: const Text("目录结构", style: TextStyle(fontSize: 14)),
+              subtitle: Text(
+                _structure == "company_game" ? "会社 / 游戏" : _structure == "game_only" ? "仅游戏" : "扁平",
+                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+              ),
+              trailing: DropdownButton<String>(
+                value: _structure, underline: const SizedBox(),
+                items: const [
+                  DropdownMenuItem(value: "company_game", child: Text("会社 / 游戏")),
+                  DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
+                  DropdownMenuItem(value: "flat", child: Text("扁平")),
+                ],
+                onChanged: (v) => setState(() => _structure = v!),
+              ),
+            ),
+            _divider(),
+            SwitchListTile(
+              title: const Text("自动扫描", style: TextStyle(fontSize: 14)),
+              subtitle: Text(_autoScan ? "每 $_interval 小时" : "关闭",
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+              value: _autoScan,
+              onChanged: (v) => setState(() => _autoScan = v),
+              dense: true,
+            ),
+            if (_autoScan) ...[
+              _divider(),
+              ListTile(
+                title: const Text("扫描间隔（小时）", style: TextStyle(fontSize: 14)),
+                trailing: SizedBox(
+                  width: 80,
+                  child: TextField(
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: "$_interval",
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onChanged: (v) {
+                      final n = int.tryParse(v);
+                      if (n != null && n > 0) setState(() => _interval = n);
+                    },
+                  ),
+                ),
+              ),
             ],
-            onChanged: (v) => setState(() => _structure = v!),
-          ),
+          ]),
         ),
-        SwitchListTile(title: const Text("自动扫描"), subtitle: Text(_autoScan ? "每 $_interval 小时" : "关闭"),
-            value: _autoScan, onChanged: (v) => setState(() => _autoScan = v)),
-        if (_autoScan)
-          ListTile(
-            title: const Text("扫描间隔（小时）"),
-            trailing: SizedBox(width: 80, child: TextField(
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(isDense: true),
-              onSubmitted: (v) { final n = int.tryParse(v); if (n != null && n > 0) setState(() => _interval = n); },
-            )),
-          ),
       ],
     ),
   );
+
+  Widget _sectionHeader(String title, IconData icon) => Row(children: [
+    Icon(icon, size: 18, color: Colors.white60),
+    const SizedBox(width: 6),
+    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+  ]);
+
+  Widget _hintCard(String text) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.03),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+    ),
+    child: Row(children: [
+      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+      const SizedBox(width: 8),
+      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+    ]),
+  );
+
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06));
 }
 
 // ── Scraper Sub-Page ──
