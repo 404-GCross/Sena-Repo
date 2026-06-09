@@ -89,7 +89,7 @@ class _GameListTileState extends State<_GameListTile> {
                   child: hasCover
                       ? Image.network(
                           "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
-                          fit: BoxFit.cover,
+                          fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => _placeholder(),
                         )
                       : _placeholder(),

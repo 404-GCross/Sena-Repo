@@ -45,7 +45,7 @@ class _GameGridState extends State<GameGrid> {
       padding: const EdgeInsets.all(8),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: _coverSize,
-        childAspectRatio: 0.7,
+        childAspectRatio: 0.72,
         crossAxisSpacing: isPC ? 10 : 8,
         mainAxisSpacing: isPC ? 12 : 8,
       ),
@@ -112,11 +112,11 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                     children: [
                       // Cover image
                       Transform.scale(
-                        scale: _hovered ? 1.1 : 1.0,
+                        scale: _hovered ? 1.05 : 1.0,
                         child: hasCover
                             ? Image.network(
                                 "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
-                                fit: BoxFit.cover,
+                                fit: BoxFit.contain,
                                 errorBuilder: (_, __, ___) => _lunaPlaceholder(),
                                 loadingBuilder: (_, child, progress) =>
                                     progress == null ? child : _lunaPlaceholder(),
@@ -198,7 +198,7 @@ class _GameCard extends StatelessWidget {
           Expanded(flex: 3, child: Container(color: Colors.grey[850],
             child: hasCover
                 ? Image.network("$coverBaseUrl/api/files/covers${game.coverPath!}",
-                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
+                    fit: BoxFit.contain, errorBuilder: (_, __, ___) => _placeholder())
                 : _placeholder())),
           Expanded(flex: 1, child: Padding(padding: const EdgeInsets.all(8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.center, children: [
