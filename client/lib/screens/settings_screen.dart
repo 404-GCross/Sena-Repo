@@ -41,58 +41,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _section("服务端"),
-          _menuItem(Icons.manage_search, "扫描设置", "根目录、扫描选项",
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
-          _menuItem(Icons.image_search, "刮削源", "元数据来源与代理",
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
-          _menuItem(Icons.people, "用户管理", "审批注册申请",
-            () {
-              if (!_isAdmin) {
-                showDialog(context: context, builder: (c) => AlertDialog(
-                  title: const Text("权限不足"),
-                  content: const Text("用户管理仅限管理员使用"),
-                  actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
-                ));
-                return;
-              }
-              Navigator.push(context, MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)));
-            }),
+          _sectionHeader("服务端", Icons.dns_outlined),
+          const SizedBox(height: 8),
+          _menuCard([
+            _menuItem(Icons.manage_search, Colors.blue, "扫描设置", "根目录、扫描选项",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
+            _menuItem(Icons.image_search, Colors.orange, "刮削源", "元数据来源与代理",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
+            _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户",
+              () {
+                if (!_isAdmin) {
+                  showDialog(context: context, builder: (c) => AlertDialog(
+                    title: const Text("权限不足"),
+                    content: const Text("用户管理仅限管理员使用"),
+                    actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
+                  ));
+                  return;
+                }
+                Navigator.push(context, MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)));
+              }),
+          ]),
           const SizedBox(height: 24),
-          _section("客户端"),
-          _menuItem(Icons.grid_view, "显示", "封面大小调整",
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
-          _menuItem(Icons.palette, "美化", "背景图片与主题色",
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
-          _menuItem(Icons.person, "个人信息", "修改用户名、密码、头像",
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
+          _sectionHeader("客户端", Icons.phone_android_outlined),
+          const SizedBox(height: 8),
+          _menuCard([
+            _menuItem(Icons.grid_view, Colors.teal, "显示", "封面大小调整",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
+            _menuItem(Icons.palette, Colors.pink, "美化", "背景图片与主题色",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
+            _menuItem(Icons.person, Colors.indigo, "个人信息", "修改用户名、密码、头像",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
+          ]),
           const SizedBox(height: 32),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(children: [
-              Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
-              const SizedBox(width: 8),
-              Text("Sena Repo v0.1.0", style: TextStyle(color: Colors.grey[500], fontSize: 14)),
-            ]),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 6),
+                Text("Sena Repo v0.1.0", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+              ]),
+            ),
           ),
+          const SizedBox(height: 16),
         ],
       ),
     );
   }
 
-  Widget _section(String t) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-    child: Text(t, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[500])),
+  Widget _sectionHeader(String title, IconData icon) => Row(children: [
+    Icon(icon, size: 18, color: Colors.white60),
+    const SizedBox(width: 6),
+    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+  ]);
+
+  Widget _menuCard(List<Widget> children) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.03),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+    ),
+    child: Column(
+      children: children.asMap().entries.map((e) {
+        final isLast = e.key == children.length - 1;
+        return Column(children: [
+          e.value,
+          if (!isLast) Divider(height: 1, indent: 60, color: Colors.white.withValues(alpha: 0.06)),
+        ]);
+      }).toList(),
+    ),
   );
 
-  Widget _menuItem(IconData icon, String title, String subtitle, VoidCallback onTap) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title, style: const TextStyle(fontSize: 15)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-      trailing: const Icon(Icons.chevron_right, size: 18),
+  Widget _menuItem(IconData icon, Color color, String title, String subtitle, VoidCallback onTap) {
+    return InkWell(
       onTap: onTap,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 20, color: color.withValues(alpha: 0.9)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            ]),
+          ),
+          Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
+        ]),
+      ),
     );
   }
 }
