@@ -185,12 +185,15 @@ class _HomeScreenState extends State<HomeScreen> {
         // Background image
         if (theme.backgroundUrl != null && theme.backgroundUrl!.isNotEmpty)
           Positioned.fill(
-            child: theme.backgroundUrl!.startsWith("file://")
-                ? Image.file(File(theme.backgroundUrl!.replaceFirst("file://", "")),
-                    fit: BoxFit.cover, opacity: const AlwaysStoppedAnimation(0.15))
-                : Image.network(theme.backgroundUrl!,
-                    fit: BoxFit.cover, opacity: const AlwaysStoppedAnimation(0.15),
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+            child: Opacity(
+              opacity: 0.2,
+              child: theme.backgroundUrl!.startsWith("file://")
+                  ? Image.file(File(theme.backgroundUrl!.replaceFirst("file://", "")),
+                      fit: BoxFit.cover)
+                  : Image.network(theme.backgroundUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+            ),
           )
         else if (theme.bgColor != null)
           Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
