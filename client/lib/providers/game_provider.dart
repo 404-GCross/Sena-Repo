@@ -13,6 +13,10 @@ class GameProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   String _searchQuery = "";
+  String? _sortBy;
+  String? _filterPlatform;
+  String? _filterDeveloper;
+  bool? _filterHasCover;
 
   List<GameSummary> get games => _searchQuery.isEmpty
       ? _games
@@ -23,6 +27,10 @@ class GameProvider extends ChangeNotifier {
   List<Tag> get tags => _tags;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  String? get sortBy => _sortBy;
+  String? get filterPlatform => _filterPlatform;
+  String? get filterDeveloper => _filterDeveloper;
+  bool? get filterHasCover => _filterHasCover;
 
   void connect(String host, int port) {
     _api.connect(host, port: port);
@@ -32,7 +40,12 @@ class GameProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _games = await _api.getGames();
+      _games = await _api.getGames(
+        sort: _sortBy,
+        platform: _filterPlatform,
+        developer: _filterDeveloper,
+        hasCover: _filterHasCover,
+      );
       _tags = await _api.getTags();
       _error = null;
     } catch (e) {
@@ -40,6 +53,26 @@ class GameProvider extends ChangeNotifier {
     }
     _isLoading = false;
     notifyListeners();
+  }
+
+  Future<void> setFilters({String? platform, String? developer, bool? hasCover}) async {
+    _filterPlatform = platform;
+    _filterDeveloper = developer;
+    _filterHasCover = hasCover;
+    await loadGames();
+  }
+
+  Future<void> setSort(String? sort) async {
+    _sortBy = sort;
+    await loadGames();
+  }
+
+  void clearFilters() {
+    _filterPlatform = null;
+    _filterDeveloper = null;
+    _filterHasCover = null;
+    _sortBy = null;
+    loadGames();
   }
 
   void search(String query) {

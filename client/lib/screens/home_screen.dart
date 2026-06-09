@@ -122,17 +122,60 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        // ── Game count ──
+        // ── Filter/Sort bar ──
         if (!gameProvider.isLoading)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 4),
             child: Row(children: [
-              Text("共 ${gameProvider.games.length} 款游戏",
+              Text("${gameProvider.games.length} 款",
                   style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const Spacer(),
-              if (_searchController.text.isNotEmpty)
-                Text("筛选自 ${gameProvider.games.length} 条",
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    _filterChip("PC", gameProvider.filterPlatform == "PC",
+                        () => _togglePlatformFilter("PC")),
+                    _filterChip("KRKR", gameProvider.filterPlatform == "KRKR",
+                        () => _togglePlatformFilter("KRKR")),
+                    _filterChip("Ty", gameProvider.filterPlatform == "Ty",
+                        () => _togglePlatformFilter("Ty")),
+                    _filterChip("ONS", gameProvider.filterPlatform == "ONS",
+                        () => _togglePlatformFilter("ONS")),
+                    _filterChip("直装", gameProvider.filterPlatform == "直装",
+                        () => _togglePlatformFilter("直装")),
+                    const SizedBox(width: 8),
+                    _filterChip("有封面", gameProvider.filterHasCover == true,
+                        () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == true ? null : true)),
+                    _filterChip("缺封面", gameProvider.filterHasCover == false,
+                        () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == false ? null : false)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 4),
+              DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: gameProvider.sortBy,
+                  hint: Text("排序", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  isDense: true,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                  items: const [
+                    DropdownMenuItem(value: null, child: Text("导入时间↓")),
+                    DropdownMenuItem(value: "name", child: Text("名称↑")),
+                    DropdownMenuItem(value: "name_desc", child: Text("名称↓")),
+                    DropdownMenuItem(value: "company", child: Text("会社↑")),
+                    DropdownMenuItem(value: "developer", child: Text("开发商↑")),
+                  ],
+                  onChanged: (v) => gameProvider.setSort(v),
+                ),
+              ),
+              if (gameProvider.filterPlatform != null || gameProvider.filterHasCover != null || gameProvider.sortBy != null)
+                IconButton(
+                  icon: const Icon(Icons.clear, size: 16),
+                  onPressed: () => gameProvider.clearFilters(),
+                  tooltip: "清除筛选",
+                  visualDensity: VisualDensity.compact,
+                ),
             ]),
           ),
         Expanded(
@@ -302,6 +345,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _batchClearSelection() {
     setState(() { _selectedIds.clear(); _multiSelect = false; });
+  }
+
+  void _togglePlatformFilter(String platform) {
+    final provider = context.read<GameProvider>();
+    provider.setFilters(platform: provider.filterPlatform == platform ? null : platform);
+  }
+
+  Widget _filterChip(String label, bool active, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Text(label, style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w500,
+            color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400],
+          )),
+        ),
+      ),
+    );
   }
 
   @override

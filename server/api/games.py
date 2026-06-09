@@ -42,13 +42,15 @@ async def list_games(
     tag: str | None = Query(default=None),
     platform: str | None = Query(default=None),
     root_id: int | None = Query(default=None),
+    developer: str | None = Query(default=None),
+    has_cover: bool | None = Query(default=None),
     sort: str = Query(default="imported"),
     session: AsyncSession = Depends(get_session),
 ):
     """List games with optional filters and sorting.
 
-    Sort options: imported (default), name, company
-    When sorting by company, games are ordered by: company.name → game.name
+    Filters: tag, platform, root_id, developer, has_cover
+    Sort options: imported (default), name, name_desc, company, developer
     """
     query = (
         select(Game)
@@ -66,6 +68,15 @@ async def list_games(
         query = query.where(
             Game.versions.any(GameVersion.platform == platform)
         )
+    if developer:
+        query = query.where(Game.developer.ilike(f"%{developer}%"))
+    if has_cover is not None:
+        if has_cover:
+            query = query.where(Game.cover_path.isnot(None)).where(Game.cover_path != "")
+        else:
+            query = query.where(
+                (Game.cover_path.is_(None)) | (Game.cover_path == "")
+            )
 
     # Filter by tag name
     if tag:
@@ -78,8 +89,12 @@ async def list_games(
     # Ordering
     if sort == "company":
         query = query.join(Game.company).order_by(Company.name.asc(), Game.name.asc())
+    elif sort == "developer":
+        query = query.order_by(Game.developer.asc().nulls_last(), Game.name.asc())
     elif sort == "name":
         query = query.order_by(Game.name.asc(), Game.imported_at.desc())
+    elif sort == "name_desc":
+        query = query.order_by(Game.name.desc())
     else:
         query = query.order_by(Game.imported_at.desc())
 
