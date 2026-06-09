@@ -170,7 +170,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: InkWell(
         onTap: () => setState(() => _currentTab = index),
         borderRadius: BorderRadius.circular(12),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           width: 56, height: 48,
           decoration: BoxDecoration(
             color: selected ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
@@ -273,7 +274,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 height: 4,
                 child: LinearProgressIndicator(value: _scrapeProgress / 100.0, backgroundColor: Colors.white10),
               ),
-            Expanded(child: IndexedStack(index: _currentTab, children: pages)),
+            Expanded(child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: pages[_currentTab],
+            )),
           ]),
         ),
       ]),
