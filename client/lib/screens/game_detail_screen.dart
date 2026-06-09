@@ -49,13 +49,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
 
+    final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight;
+
     return Scaffold(
       extendBodyBehindAppBar: hasCover,
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: hasCover ? Colors.transparent : null,
         forceMaterialTransparency: hasCover,
-        title: Text(game.name),
+        title: hasCover ? const Text("") : Text(game.name),
         actions: [
           IconButton(icon: const Icon(Icons.search), tooltip: "搜索元数据", onPressed: () => _showSearchDialog(context, game)),
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
@@ -66,15 +68,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         ],
       ),
       body: Stack(children: [
-        // Background banner (Playnite style — use cover as bg)
+        // Background banner (use cover as bg with gradient fade)
         if (hasCover)
           Positioned(
-            top: 0, left: 0, right: 0, height: 360,
+            top: 0, left: 0, right: 0, height: 420,
             child: ShaderMask(
               shaderCallback: (rect) => const LinearGradient(
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Color(0x99000000), Color(0x55000000), Colors.transparent],
-                stops: [0.0, 0.35, 1.0],
+                colors: [Color(0xCC000000), Color(0x66000000), Colors.transparent],
+                stops: [0.0, 0.4, 1.0],
               ).createShader(rect),
               blendMode: BlendMode.dstIn,
               child: Image.network(
@@ -84,18 +86,19 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             ),
           ),
         SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.only(bottom: 32),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
             child: Column(children: [
               // ── Header: cover right, name left ──
               Padding(
-                padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
+                padding: EdgeInsets.fromLTRB(32, hasCover ? topPadding + 12 : 20, 32, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(game.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2)),
+                      if (hasCover)
+                        Text(game.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2)),
                       if (game.companyName != null) ...[
                         const SizedBox(height: 6),
                         Row(children: [
