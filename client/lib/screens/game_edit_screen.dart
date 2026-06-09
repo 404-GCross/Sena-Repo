@@ -20,7 +20,7 @@ class GameEditScreen extends StatefulWidget {
 
 class _GameEditScreenState extends State<GameEditScreen> {
   late final TextEditingController _name, _dev, _desc, _date,
-      _vndb, _steam, _bgm, _notes;
+      _vndb, _steam, _bgm, _notes, _bgUrl;
   bool _saving = false;
   String? _coverPath;
 
@@ -38,6 +38,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _vndb = TextEditingController(text: g.vndbId ?? "");
     _steam = TextEditingController(text: g.steamId ?? "");
     _bgm = TextEditingController(text: g.bangumiId ?? "");
+    _bgUrl = TextEditingController(text: g.bgPath ?? "");
     _notes = TextEditingController();
   }
 
@@ -47,11 +48,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final g = widget.game;
       final body = {"name": _name.text.trim(), "developer": _dev.text.trim(),
         "description": _desc.text.trim(), "release_date": _date.text.trim(),
+        "bg_path": _bgUrl.text.trim(),
         "vndb_id": _vndb.text.trim(), "steam_id": _steam.text.trim(),
         "bangumi_id": _bgm.text.trim()};
       final resp = await http.put(Uri.parse("$_baseUrl/api/games/${g.id}"),
           headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
       if (resp.statusCode != 200) { _showError("保存失败"); return; }
+      // Also update background image if URL provided
+      if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"));
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (e) { _showError("$e"); }
     setState(() => _saving = false);
@@ -685,7 +691,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   @override
   void dispose() {
     _name.dispose(); _dev.dispose(); _desc.dispose(); _date.dispose();
-    _vndb.dispose(); _steam.dispose(); _bgm.dispose(); _notes.dispose();
+    _vndb.dispose(); _steam.dispose(); _bgm.dispose(); _bgUrl.dispose(); _notes.dispose();
     super.dispose();
   }
 
