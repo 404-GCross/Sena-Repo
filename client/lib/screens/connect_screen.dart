@@ -33,15 +33,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (settings.serverHost.isNotEmpty) {
           _hostController.text = settings.serverHost;
           _portController.text = settings.serverPort.toString();
-          _tryAutoConnect();
         }
       });
     });
-  }
-
-  Future<void> _tryAutoConnect() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getString("auth_token")?.isNotEmpty == true) _connect();
   }
 
   Future<void> _connect() async {
