@@ -419,36 +419,144 @@ class _ScraperPageState extends State<_ScraperPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("刮削源"), actions: [IconButton(icon: const Icon(Icons.save), onPressed: _save)]),
+    appBar: AppBar(title: const Text("刮削源"), actions: [
+      FilledButton.icon(
+        onPressed: _save,
+        icon: const Icon(Icons.save, size: 18),
+        label: const Text("保存"),
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        ),
+      ),
+      const SizedBox(width: 8),
+    ]),
     body: ListView(padding: const EdgeInsets.all(16), children: [
-      _row("VNDB Kana v2（免认证）", "vndb_kana", false),
-      _row("Bangumi（免认证）", "bangumi", false),
-      _row("Steam（免认证）", "steam", false),
-      _row("DLsite（免认证）", "dlsite", false),
-      _row("IGDB（需要 Client ID/Secret）", "igdb", true, key1: "igdb_client_id", key2: "igdb_client_secret"),
-      const SizedBox(height: 24),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _keys["proxy"],
-              decoration: const InputDecoration(
-                labelText: "HTTP 代理",
-                hintText: "http://127.0.0.1:7890",
-                helperText: "刮削源走代理访问（如日本代理）",
-                isDense: true,
+      _sectionHeader("刮削源", Icons.image_search),
+      const SizedBox(height: 8),
+      _srcCard("VNDB Kana v2", "vndb_kana", "免认证，中文标题"),
+      _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
+      _srcCard("Steam", "steam", "免认证"),
+      _srcCard("DLsite", "dlsite", "免认证，建议配日本代理"),
+      _srcCard("IGDB", "igdb", "需要 Client ID / Secret", needsApi: true,
+          key1: "igdb_client_id", key2: "igdb_client_secret"),
+      const SizedBox(height: 28),
+      _sectionHeader("HTTP 代理", Icons.dns_outlined),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _keys["proxy"],
+                decoration: InputDecoration(
+                  hintText: "http://127.0.0.1:7890",
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton(
-            onPressed: _testProxy,
-            child: const Text("测试"),
-          ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _testProxy,
+              icon: const Icon(Icons.wifi_find, size: 18),
+              label: const Text("测试"),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ]),
         ]),
       ),
+      const SizedBox(height: 32),
     ]));
+
+  Widget _srcCard(String label, String src, String hint, {bool needsApi = false, String? key1, String? key2}) {
+    final enabled = _sources[src] ?? false;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: enabled
+            ? Colors.green.withValues(alpha: 0.2)
+            : Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(children: [
+        SwitchListTile(
+          title: Text(label, style: const TextStyle(fontSize: 14)),
+          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          value: enabled,
+          onChanged: (v) => setState(() => _sources[src] = v),
+          dense: true,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        if (enabled && needsApi) ...[
+          Divider(height: 1, indent: 56, color: Colors.white.withValues(alpha: 0.06)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
+            child: Column(children: [
+              if (key1 != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    controller: _keys[key1],
+                    decoration: InputDecoration(
+                      labelText: _kl(key1), isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                      ),
+                    ),
+                  ),
+                ),
+              if (key2 != null)
+                TextField(
+                  controller: _keys[key2],
+                  decoration: InputDecoration(
+                    labelText: _kl(key2), isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon) => Row(children: [
+    Icon(icon, size: 18, color: Colors.white60),
+    const SizedBox(width: 6),
+    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+  ]);
+
+  // Remove old _row method, replaced by _srcCard
 
   @override
   void dispose() { for (final c in _keys.values) { c.dispose(); } super.dispose(); }
@@ -475,18 +583,63 @@ class _DisplayPageState extends State<_DisplayPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("显示")),
     body: ListView(padding: const EdgeInsets.all(16), children: [
-      ListTile(
-        title: Text("封面大小: ${_coverSize.round()}px"),
-        subtitle: Slider(
-          value: _coverSize, min: 100, max: 300, divisions: 20,
-          onChanged: (v) async {
-            setState(() => _coverSize = v);
-            await SharedPreferences.getInstance().then((p) => p.setDouble("cover_size", v));
-          },
+      _sectionHeader("封面大小", Icons.photo_size_select_large),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
+        child: Column(children: [
+          Row(children: [
+            Icon(Icons.image, size: 24, color: Colors.grey[500]),
+            const SizedBox(width: 12),
+            Expanded(child: Text("${_coverSize.round()} px",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                SizedBox(
+                  width: _coverSize * 0.25, height: _coverSize * 0.35,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey[700],
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Slider(
+            value: _coverSize, min: 100, max: 300, divisions: 20,
+            activeColor: Theme.of(context).colorScheme.primary,
+            onChanged: (v) async {
+              setState(() => _coverSize = v);
+              await SharedPreferences.getInstance().then((p) => p.setDouble("cover_size", v));
+            },
+          ),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text("100", style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            Text("300", style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          ]),
+        ]),
       ),
     ]),
   );
+
+  Widget _sectionHeader(String title, IconData icon) => Row(children: [
+    Icon(icon, size: 18, color: Colors.white60),
+    const SizedBox(width: 6),
+    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+  ]);
 }
 
 // ── User Management Sub-Page (admin only) ──
