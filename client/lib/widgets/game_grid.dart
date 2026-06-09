@@ -113,9 +113,8 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                     fit: StackFit.expand,
                     children: [
                       // Cover image
-                      AnimatedScale(
+                      Transform.scale(
                         scale: _hovered ? 1.1 : 1.0,
-                        duration: const Duration(milliseconds: 300),
                         child: hasCover
                             ? Image.network(
                                 "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",

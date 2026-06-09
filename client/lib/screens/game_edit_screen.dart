@@ -454,8 +454,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     });
     _showMsg("已应用所选字段，核对后保存");
   }
-  }
-
 
   @override
   void dispose() {
