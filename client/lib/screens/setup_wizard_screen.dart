@@ -40,8 +40,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useVndbKana = true;
   bool _useSteam = true;
   bool _useDlsite = true;
-  bool _useMuyue = true;
-  bool _useSteamGridDB = false;
   bool _useIGDB = false;
   final _bangumiCtrl = TextEditingController();
   final _vndbCtrl = TextEditingController();
@@ -106,7 +104,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     final body = <String, String>{};
     if (_bangumiCtrl.text.isNotEmpty) body["bangumi_token"] = _bangumiCtrl.text;
     if (_vndbCtrl.text.isNotEmpty) body["vndb_token"] = _vndbCtrl.text;
-    if (_steamGridDBCtrl.text.isNotEmpty) body["steamgriddb_key"] = _steamGridDBCtrl.text;
     if (_igdbIdCtrl.text.isNotEmpty) body["igdb_client_id"] = _igdbIdCtrl.text;
     if (_igdbSecretCtrl.text.isNotEmpty) body["igdb_client_secret"] = _igdbSecretCtrl.text;
     if (body.isNotEmpty) {
@@ -313,15 +310,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         () => setState(() => _useSteam = !_useSteam)),
     _buildScraperRow("DLsite（免认证）", _useDlsite, false,
         () => setState(() => _useDlsite = !_useDlsite)),
-    _buildScraperRow("muyueGalgame（免认证）", _useMuyue, false,
-        () => setState(() => _useMuyue = !_useMuyue)),
-    _buildScraperRow("SteamGridDB（需要 Key）", _useSteamGridDB, true,
-        () => setState(() => _useSteamGridDB = !_useSteamGridDB),
-        apiFields: Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 8),
-          child: TextField(controller: _steamGridDBCtrl,
-            decoration: const InputDecoration(labelText: "SteamGridDB Key", isDense: true)),
-        )),
     _buildScraperRow("IGDB（需要 Client ID/Secret）", _useIGDB, true,
         () => setState(() => _useIGDB = !_useIGDB),
         apiFields: Padding(

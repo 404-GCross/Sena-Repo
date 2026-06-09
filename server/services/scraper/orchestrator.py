@@ -19,9 +19,7 @@ from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
 from .dlsite import DLsiteScraper
-from .steamgriddb import SteamGridDBScraper
 from .igdb import IGDBScraper
-from .muyue import MuyueScraper
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +33,8 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         VndbTitlesScraper(proxy=config.proxy),
         BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
         DLsiteScraper(proxy=config.proxy),
-        MuyueScraper(proxy=config.proxy),
         SteamScraper(proxy=config.proxy),
     ]
-    if s.steamgriddb_key:
-        scrapers.append(SteamGridDBScraper(proxy=config.proxy, api_key=s.steamgriddb_key))
     if s.igdb_client_id and s.igdb_client_secret:
         scrapers.append(IGDBScraper(
             proxy=config.proxy,

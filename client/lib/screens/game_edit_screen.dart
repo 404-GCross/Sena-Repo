@@ -401,7 +401,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Future<void> _downloadMetadata() async {
     // Step 1: Pick source
-    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "muyue": "muyueGalgame"};
+    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite"};
     final src = await showDialog<String>(
       context: context, builder: (ctx) => AlertDialog(
         title: const Text("选择数据来源"),

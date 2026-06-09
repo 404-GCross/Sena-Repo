@@ -173,8 +173,8 @@ class _ScraperPage extends StatefulWidget {
 }
 
 class _ScraperPageState extends State<_ScraperPage> {
-  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "muyue": true, "steamgriddb": false, "igdb": false};
-  final _keys = {"bangumi_token": TextEditingController(), "vndb_token": TextEditingController(), "steamgriddb_key": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "igdb": false};
+  final _keys = {"bangumi_token": TextEditingController(), "vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
   void initState() { super.initState(); _loadSettings(); }
@@ -233,7 +233,7 @@ class _ScraperPageState extends State<_ScraperPage> {
 
   static const _keyLabels = {
     "bangumi_token": "Bangumi Token", "vndb_token": "VNDB Token",
-    "steamgriddb_key": "SteamGridDB Key", "igdb_client_id": "IGDB Client ID",
+    "igdb_client_id": "IGDB Client ID",
     "igdb_client_secret": "IGDB Client Secret",
   };
 
@@ -261,8 +261,6 @@ class _ScraperPageState extends State<_ScraperPage> {
       _row("Bangumi", "bangumi", true, key1: "bangumi_token", hint: "从 bgm.tv/dev/app 获取"),
       _row("Steam（免认证）", "steam", false),
       _row("DLsite（免认证）", "dlsite", false),
-      _row("muyueGalgame（免认证）", "muyue", false),
-      _row("SteamGridDB（需要 Key）", "steamgriddb", true, key1: "steamgriddb_key"),
       _row("IGDB（需要 Client ID/Secret）", "igdb", true, key1: "igdb_client_id", key2: "igdb_client_secret"),
       const SizedBox(height: 24),
       Padding(
