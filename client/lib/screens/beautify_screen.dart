@@ -4,12 +4,8 @@ import "dart:io";
 
 import "package:flutter/material.dart";
 import "package:file_picker/file_picker.dart";
-import "dart:convert";
-
-import "package:http/http.dart" as http;
 import "package:provider/provider.dart";
 
-import "../providers/game_provider.dart";
 import "../providers/theme_provider.dart";
 
 class BeautifyScreen extends StatefulWidget {
@@ -50,19 +46,8 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result != null && result.files.single.path != null) {
       final path = result.files.single.path!;
-      try {
-        final uri = Uri.parse("${context.read<GameProvider>().api.baseUrl}/api/files/upload");
-        final request = http.MultipartRequest("POST", uri);
-        request.files.add(await http.MultipartFile.fromPath("file", path));
-        final resp = await request.send();
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(await resp.stream.bytesToString()) as Map<String, dynamic>;
-          final relativeUrl = data["url"] as String;
-          final fullUrl = "${context.read<GameProvider>().api.baseUrl}$relativeUrl";
-          _bgUrlCtrl.text = fullUrl;
-          context.read<ThemeProvider>().setBackgroundUrl(fullUrl);
-        }
-      } catch (_) {}
+      _bgUrlCtrl.text = path;
+      context.read<ThemeProvider>().setBackgroundUrl("file://$path");
     }
   }
 
