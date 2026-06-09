@@ -3,6 +3,8 @@
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
+import "package:shared_preferences/shared_preferences.dart";
+
 import "../providers/settings_provider.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
@@ -69,10 +71,14 @@ class ProfileScreen extends StatelessWidget {
               ),
             );
             if (confirmed == true && context.mounted) {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const ConnectScreen()),
-                (_) => false,
-              );
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove("auth_token");
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const ConnectScreen()),
+                  (_) => false,
+                );
+              }
             }
           },
         ),

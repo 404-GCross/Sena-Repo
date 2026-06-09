@@ -2,6 +2,8 @@
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:shared_preferences/shared_preferences.dart";
+import "package:http/http.dart" as http;
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
@@ -29,9 +31,43 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (settings.serverHost.isNotEmpty) {
           _hostController.text = settings.serverHost;
           _portController.text = settings.serverPort.toString();
+          // Auto-login if we have saved credentials
+          _tryAutoLogin();
         }
       });
     });
+  }
+
+  Future<void> _tryAutoLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("auth_token");
+    if (token == null || token.isEmpty) return;
+
+    final host = _hostController.text.trim();
+    final port = int.tryParse(_portController.text.trim()) ?? 11451;
+    if (host.isEmpty) return;
+
+    final games = context.read<GameProvider>();
+    final api = games.api;
+    try {
+      // Quick check if server is reachable
+      final resp = await http.get(Uri.parse("http://$host:$port/api/health"))
+          .timeout(const Duration(seconds: 3));
+      if (resp.statusCode == 200) {
+        games.connect(host, port);
+        final needsSetup = await api.checkSetupNeeded();
+        if (!needsSetup && mounted) {
+          await games.loadGames();
+          if (mounted) {
+            Navigator.pushReplacement(
+              context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+          }
+        }
+      }
+    } catch (_) {
+      // Server not reachable, stay on connect screen
+    }
+  }
   }
 
   Future<void> _connect() async {
@@ -47,6 +83,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       // Check if server needs setup
       final api = games.api;
+      // Save credentials for auto-login
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("saved_host", host);
+      await prefs.setInt("saved_port", port);
+
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
         final result = await Navigator.push<bool>(
@@ -64,6 +105,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
           MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
         );
         if (loginResult == null) return; // user went back
+        // Save token for auto-login
+        if (loginResult is Map) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
+        }
       }
 
       if (!mounted) return;
