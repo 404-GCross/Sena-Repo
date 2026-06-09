@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote as url_encode
 
 import httpx
 
@@ -61,7 +62,7 @@ class SteamScraper(BaseScraper):
             resp = await self._request_with_retry(
                 client, "GET",
                 f"https://store.steampowered.com/api/storesearch/"
-                f"?term={httpx.URL.percent_encode(title)}&l={lang}&cc={cc}&category1=998",
+                f"?term={url_encode(title)}&l={lang}&cc={cc}&category1=998",
             )
             data = resp.json()
             items = data.get("items", [])
@@ -76,7 +77,7 @@ class SteamScraper(BaseScraper):
         try:
             resp = await self._request_with_retry(
                 client, "GET",
-                f"https://steamcommunity.com/actions/SearchApps/?term={httpx.URL.percent_encode(title)}",
+                f"https://steamcommunity.com/actions/SearchApps/?term={url_encode(title)}",
             )
             apps = resp.json()
             if not isinstance(apps, list) or not apps:
