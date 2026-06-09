@@ -124,58 +124,99 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         // ── Filter/Sort bar ──
         if (!gameProvider.isLoading)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 2, 12, 4),
-            child: Row(children: [
-              Text("${gameProvider.games.length} 款",
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: [
-                    _filterChip("PC", gameProvider.filterPlatform == "PC",
-                        () => _togglePlatformFilter("PC")),
-                    _filterChip("KRKR", gameProvider.filterPlatform == "KRKR",
-                        () => _togglePlatformFilter("KRKR")),
-                    _filterChip("Ty", gameProvider.filterPlatform == "Ty",
-                        () => _togglePlatformFilter("Ty")),
-                    _filterChip("ONS", gameProvider.filterPlatform == "ONS",
-                        () => _togglePlatformFilter("ONS")),
-                    _filterChip("直装", gameProvider.filterPlatform == "直装",
-                        () => _togglePlatformFilter("直装")),
-                    const SizedBox(width: 8),
-                    _filterChip("有封面", gameProvider.filterHasCover == true,
-                        () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == true ? null : true)),
-                    _filterChip("缺封面", gameProvider.filterHasCover == false,
-                        () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == false ? null : false)),
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text("${gameProvider.games.length} 款游戏",
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.primary)),
+                ),
+                const Spacer(),
+                if (gameProvider.filterPlatform != null || gameProvider.filterHasCover != null || gameProvider.sortBy != null)
+                  GestureDetector(
+                    onTap: () => gameProvider.clearFilters(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.close, size: 14, color: Colors.red[300]),
+                        const SizedBox(width: 4),
+                        Text("清除", style: TextStyle(fontSize: 11, color: Colors.red[300])),
+                      ]),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                // Platform filters with icons
+                _filterChip("PC", Icons.desktop_windows, gameProvider.filterPlatform == "PC",
+                    () => _togglePlatformFilter("PC")),
+                _filterChip("KRKR", Icons.android, gameProvider.filterPlatform == "KRKR",
+                    () => _togglePlatformFilter("KRKR")),
+                _filterChip("ONS", Icons.language, gameProvider.filterPlatform == "ONS",
+                    () => _togglePlatformFilter("ONS")),
+                _filterChip("Ty", Icons.phone_android, gameProvider.filterPlatform == "Ty",
+                    () => _togglePlatformFilter("Ty")),
+                _filterChip("直装", Icons.phone_iphone, gameProvider.filterPlatform == "直装",
+                    () => _togglePlatformFilter("直装")),
+                Container(width: 1, height: 18, color: Colors.white.withValues(alpha: 0.08)),
+                const SizedBox(width: 6),
+                _filterChip("有封面", Icons.image, gameProvider.filterHasCover == true,
+                    () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == true ? null : true)),
+                _filterChip("缺封面", Icons.hide_image, gameProvider.filterHasCover == false,
+                    () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == false ? null : false)),
+                const Spacer(),
+                // Sort dropdown styled as pill
+                Container(
+                  padding: const EdgeInsets.only(left: 10, right: 4),
+                  decoration: BoxDecoration(
+                    color: gameProvider.sortBy != null
+                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
+                        : Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: gameProvider.sortBy != null
+                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
+                        : Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.sort, size: 16, color: gameProvider.sortBy != null
+                        ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+                    const SizedBox(width: 4),
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: gameProvider.sortBy,
+                        hint: Text("排序", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        isDense: true,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[300]),
+                        items: const [
+                          DropdownMenuItem(value: null, child: Text("导入时间↓")),
+                          DropdownMenuItem(value: "name", child: Text("名称 A-Z")),
+                          DropdownMenuItem(value: "name_desc", child: Text("名称 Z-A")),
+                          DropdownMenuItem(value: "company", child: Text("会社 A-Z")),
+                          DropdownMenuItem(value: "developer", child: Text("开发商 A-Z")),
+                        ],
+                        onChanged: (v) => gameProvider.setSort(v),
+                      ),
+                    ),
                   ]),
                 ),
-              ),
-              const SizedBox(width: 4),
-              DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: gameProvider.sortBy,
-                  hint: Text("排序", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                  isDense: true,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-                  items: const [
-                    DropdownMenuItem(value: null, child: Text("导入时间↓")),
-                    DropdownMenuItem(value: "name", child: Text("名称↑")),
-                    DropdownMenuItem(value: "name_desc", child: Text("名称↓")),
-                    DropdownMenuItem(value: "company", child: Text("会社↑")),
-                    DropdownMenuItem(value: "developer", child: Text("开发商↑")),
-                  ],
-                  onChanged: (v) => gameProvider.setSort(v),
-                ),
-              ),
-              if (gameProvider.filterPlatform != null || gameProvider.filterHasCover != null || gameProvider.sortBy != null)
-                IconButton(
-                  icon: const Icon(Icons.clear, size: 16),
-                  onPressed: () => gameProvider.clearFilters(),
-                  tooltip: "清除筛选",
-                  visualDensity: VisualDensity.compact,
-                ),
+              ]),
             ]),
           ),
         Expanded(
@@ -397,24 +438,31 @@ class _HomeScreenState extends State<HomeScreen> {
     provider.setFilters(platform: provider.filterPlatform == platform ? null : platform);
   }
 
-  Widget _filterChip(String label, bool active, VoidCallback onTap) {
+  Widget _filterChip(String label, IconData? icon, bool active, VoidCallback onTap) {
     return Padding(
-      padding: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.only(right: 6),
       child: GestureDetector(
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
+            color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.1),
+              color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.06),
             ),
           ),
-          child: Text(label, style: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.w500,
-            color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400],
-          )),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+              const SizedBox(width: 4),
+            ],
+            Text(label, style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w500,
+              color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400],
+            )),
+          ]),
         ),
       ),
     );
