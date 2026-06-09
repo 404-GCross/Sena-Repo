@@ -329,17 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     await Navigator.push(
       context,
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 250),
-        reverseTransitionDuration: const Duration(milliseconds: 200),
-        pageBuilder: (_, animation, secondaryAnimation) =>
-            GameDetailScreen(gameId: game.id),
-        transitionsBuilder: (_, animation, secondaryAnimation, child) =>
-            FadeTransition(
-              opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-              child: child,
-            ),
-      ),
+      MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
     );
     if (mounted) {
       context.read<GameProvider>().loadGames();
