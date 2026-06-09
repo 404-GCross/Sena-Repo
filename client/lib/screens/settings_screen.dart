@@ -251,7 +251,7 @@ class _ScraperPageState extends State<_ScraperPage> {
     appBar: AppBar(title: const Text("刮削源"), actions: [IconButton(icon: const Icon(Icons.save), onPressed: _save)]),
     body: ListView(padding: const EdgeInsets.all(16), children: [
       _row("VNDB Kana v2（免认证）", "vndb_kana", false),
-      _row("Bangumi", "bangumi", true, key1: "bangumi_token", hint: "bgm.tv/dev/app"),
+      _row("Bangumi", "bangumi", true, key1: "bangumi_token", hint: "从 bgm.tv/dev/app 获取"),
       _row("Steam（免认证）", "steam", false),
       _row("DLsite（免认证）", "dlsite", false),
       _row("muyueGalgame（免认证）", "muyue", false),

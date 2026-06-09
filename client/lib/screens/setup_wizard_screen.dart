@@ -307,7 +307,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         apiFields: Padding(
           padding: const EdgeInsets.only(left: 16, bottom: 8),
           child: TextField(controller: _bangumiCtrl,
-            decoration: const InputDecoration(labelText: "Bangumi Token", hintText: "https://bgm.tv/dev/app", isDense: true)),
+            decoration: const InputDecoration(labelText: "Bangumi Token", hintText: "从 bgm.tv/dev/app 获取", isDense: true)),
         )),
     _buildScraperRow("Steam（免认证）", _useSteam, false,
         () => setState(() => _useSteam = !_useSteam)),
