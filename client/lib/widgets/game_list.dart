@@ -18,12 +18,22 @@ class GameList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      itemCount: games.length,
-      itemBuilder: (context, index) {
-        final game = games[index];
-        return _GameListTile(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final columns = w > 1600 ? 3 : w > 1000 ? 2 : 1;
+        final colWidth = (w - 16) / columns;
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Wrap(
+            spacing: 8, runSpacing: 4,
+            children: games.map((game) => SizedBox(
+              width: colWidth - (columns > 1 ? 8 : 0),
+              child: _GameListTile(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl),
+            )).toList(),
+          ),
+        );
       },
     );
   }
