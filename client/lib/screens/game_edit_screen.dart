@@ -545,7 +545,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               }).toList())),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, {"retry": true}), child: const Text("重新搜索")),
+            TextButton(onPressed: () => Navigator.pop(ctx, {"retry": true}), child: const Text("重新选择来源")),
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
             FilledButton(onPressed: () => Navigator.pop(ctx, useSearch), child: const Text("应用所选")),
           ],
