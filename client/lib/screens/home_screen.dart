@@ -207,29 +207,52 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      body: IndexedStack(index: _currentTab, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentTab,
-        onDestinationSelected: (i) => setState(() => _currentTab = i),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.gamepad_outlined),
-            selectedIcon: Icon(Icons.gamepad),
-            label: "游戏库",
-          ),
-          if (_showSteamTab)
-            const NavigationDestination(
-              icon: Icon(Icons.build_outlined),
-              selectedIcon: Icon(Icons.build),
-              label: "Steam补丁库",
-            ),
-          NavigationDestination(
-            icon: const Icon(Icons.person_outlined),
-            selectedIcon: const Icon(Icons.person),
-            label: "我的",
-          ),
-        ],
-      ),
+      body: Platform.isAndroid
+          ? Column(children: [
+              Expanded(child: IndexedStack(index: _currentTab, children: pages)),
+            ])
+          : Row(children: [
+              NavigationRail(
+                selectedIndex: _currentTab,
+                onDestinationSelected: (i) => setState(() => _currentTab = i),
+                labelType: NavigationRailLabelType.all,
+                destinations: [
+                  const NavigationRailDestination(
+                    icon: Icon(Icons.gamepad_outlined),
+                    selectedIcon: Icon(Icons.gamepad),
+                    label: Text("游戏库"),
+                  ),
+                  if (_showSteamTab)
+                    const NavigationRailDestination(
+                      icon: Icon(Icons.build_outlined),
+                      selectedIcon: Icon(Icons.build),
+                      label: Text("Steam补丁"),
+                    ),
+                  const NavigationRailDestination(
+                    icon: Icon(Icons.person_outlined),
+                    selectedIcon: Icon(Icons.person),
+                    label: Text("我的"),
+                  ),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: IndexedStack(index: _currentTab, children: pages)),
+            ]),
+      bottomNavigationBar: Platform.isAndroid
+          ? NavigationBar(
+              selectedIndex: _currentTab,
+              onDestinationSelected: (i) => setState(() => _currentTab = i),
+              destinations: [
+                const NavigationDestination(
+                  icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
+                if (_showSteamTab)
+                  const NavigationDestination(
+                    icon: Icon(Icons.build_outlined), selectedIcon: Icon(Icons.build), label: "Steam补丁"),
+                const NavigationDestination(
+                  icon: Icon(Icons.person_outlined), selectedIcon: Icon(Icons.person), label: "我的"),
+              ],
+            )
+          : null,
     );
   }
 
