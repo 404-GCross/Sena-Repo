@@ -46,15 +46,15 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
   }
 
   Future<void> _initTray() async {
-    // Must call setPreventClose FIRST so onWindowClose always fires
+    // Delay to ensure window is fully created before setting preventClose
+    await Future.delayed(const Duration(milliseconds: 500));
     await windowManager.setPreventClose(true);
     try {
       await trayService.init(onQuit: () async {
+        await windowManager.setPreventClose(false);
         await windowManager.destroy();
       });
-    } catch (_) {
-      // Tray icon init failed, but close-to-tray still works via onWindowClose
-    }
+    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     final enabled = prefs.getBool("minimize_to_tray") ?? false;
     await trayService.setEnabled(enabled);
