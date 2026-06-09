@@ -33,7 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _scrapeProgress = -1; // -1 = none, 0-100 = %
   final _searchController = TextEditingController();
 
-  bool get _showSteamTab => !Platform.isAndroid;
+  bool _isWide(BuildContext ctx) => !Platform.isAndroid || MediaQuery.of(ctx).size.shortestSide > 600;
+  bool _isMobile(BuildContext ctx) => Platform.isAndroid && MediaQuery.of(ctx).size.shortestSide <= 600;
 
   @override
   void initState() {
@@ -138,14 +139,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final gameProvider = context.watch<GameProvider>();
     final theme = context.watch<ThemeProvider>();
+    final wide = _isWide(context);
+    final showSteam = !Platform.isAndroid || wide;
 
     // Build page list and nav destinations dynamically
     final pages = <Widget>[
       _buildGameLibrary(gameProvider),
-      if (_showSteamTab) const SteamPatchScreen(),
+      if (showSteam) const SteamPatchScreen(),
       const ProfileScreen(),
     ];
-    final profileIdx = _showSteamTab ? 2 : 1;
 
     return Stack(
       children: [
@@ -224,7 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      body: Platform.isAndroid
+      body: !_isWide(context)
           ? Column(children: [
               Expanded(child: IndexedStack(index: _currentTab, children: pages)),
             ])
@@ -239,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     selectedIcon: Icon(Icons.gamepad),
                     label: Text("游戏库"),
                   ),
-                  if (_showSteamTab)
+                  if (showSteam)
                     const NavigationRailDestination(
                       icon: Icon(Icons.build_outlined),
                       selectedIcon: Icon(Icons.build),
@@ -255,14 +257,14 @@ class _HomeScreenState extends State<HomeScreen> {
               const VerticalDivider(width: 1),
               Expanded(child: IndexedStack(index: _currentTab, children: pages)),
             ]),
-      bottomNavigationBar: Platform.isAndroid
+      bottomNavigationBar: !_isWide(context)
           ? NavigationBar(
               selectedIndex: _currentTab,
               onDestinationSelected: (i) => setState(() => _currentTab = i),
               destinations: [
                 const NavigationDestination(
                   icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
-                if (_showSteamTab)
+                if (showSteam)
                   const NavigationDestination(
                     icon: Icon(Icons.build_outlined), selectedIcon: Icon(Icons.build), label: "Steam补丁"),
                 const NavigationDestination(

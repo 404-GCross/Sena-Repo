@@ -40,7 +40,7 @@ class _GameGridState extends State<GameGrid> {
 
   @override
   Widget build(BuildContext context) {
-    final isPC = !Platform.isAndroid;
+    final isPC = MediaQuery.of(context).size.shortestSide > 600;
     return GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
