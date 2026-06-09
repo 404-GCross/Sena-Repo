@@ -296,6 +296,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   // ── Single unified download: search all sources → show results → compare → apply ──
 
+  // ── Single unified download: search all sources → show results → compare → apply ──
+
   Future<void> _downloadMetadata() async {
     // Step 1: Pick source
     final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "muyue": "muyueGalgame"};
@@ -312,96 +314,69 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (src == null || !mounted) return;
 
-    // Step 2: Search (with inline loading + results)
+    // Step 2: Search with inline loading + results
     final ctrl = TextEditingController(text: _name.text);
     final picked = await showDialog<Map<String, dynamic>>(
       context: context, builder: (ctx) {
-        List<Map<String, dynamic>> results = [];
-        bool searching = false;
-        String? error;
-        return StatefulBuilder(
-          builder: (ctx, setD) => AlertDialog(
-            title: Text("${sources[src]} — 搜索"),
-            content: SizedBox(width: 400,
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Row(children: [
-                  Expanded(child: TextField(controller: ctrl, autofocus: true,
-                    decoration: _dec(labelText: "名称/ID", hintText: "游戏名 或 VNDB/Steam/Bangumi ID"),
-                    onSubmitted: (v) async {
-                      setD(() { searching = true; results = []; error = null; });
-                      try {
-                        final resp = await http.get(Uri.parse(
-                            "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
-                        results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
-                      } catch (e) { error = "$e"; }
-                      setD(() => searching = false);
-                    })),
-                  const SizedBox(width: 8),
-                  IconButton.filled(icon: const Icon(Icons.search, size: 18),
-                    onPressed: () async {
-                      setD(() { searching = true; results = []; error = null; });
-                      try {
-                        final resp = await http.get(Uri.parse(
-                            "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
-                        results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
-                      } catch (e) { error = "$e"; }
-                      setD(() => searching = false);
-                    }),
-                ]),
-                const SizedBox(height: 8),
-                if (searching) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
-                if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
-                if (!searching && results.isEmpty && error == null)
-                  const Padding(padding: EdgeInsets.all(16), child: Text("无结果", style: TextStyle(color: Colors.grey))),
-                if (results.isNotEmpty)
-                  SizedBox(height: 350,
-                    child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
-                      final r = results[i];
-                      return ListTile(
-                        leading: (r["cover_url"] ?? "").toString().isNotEmpty
-                            ? ClipRRect(borderRadius: BorderRadius.circular(4),
-                                child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
-                                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
-                            : _noCover(),
-                        title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
-                        subtitle: Text("${r["developer"] ?? ""} · ${r["release_date"] ?? ""}",
-                            maxLines: 2, style: const TextStyle(fontSize: 11)),
-                        onTap: () => Navigator.pop(ctx, r),
-                      );
-                    })),
-              ]),
-            ),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
-          ),
-        );
+        var results = <Map<String, dynamic>>[];
+        var searching = false;
+        var error = "";
+        return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+          title: Text("${sources[src]} - 搜索"),
+          content: SizedBox(width: 440, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Expanded(child: TextField(controller: ctrl, autofocus: true,
+                decoration: _dec(labelText: "名称/ID", hintText: "游戏名 或 VNDB/Steam/Bangumi ID"),
+                onSubmitted: (v) async {
+                  setD(() { searching = true; results = []; error = ""; });
+                  try {
+                    final r = await http.get(Uri.parse(
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
+                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                  } catch (e) { error = "$e"; }
+                  setD(() => searching = false);
+                })),
+              const SizedBox(width: 8),
+              IconButton.filled(icon: const Icon(Icons.search, size: 18),
+                onPressed: () async {
+                  setD(() { searching = true; results = []; error = ""; });
+                  try {
+                    final r = await http.get(Uri.parse(
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
+                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                  } catch (e) { error = "$e"; }
+                  setD(() => searching = false);
+                }),
+            ]),
+            const SizedBox(height: 8),
+            if (searching) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
+            if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.red)),
+            if (!searching && results.isEmpty && error.isEmpty)
+              const Padding(padding: EdgeInsets.all(16), child: Text("无结果", style: TextStyle(color: Colors.grey))),
+            if (results.isNotEmpty)
+              SizedBox(height: 350,
+                child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+                  final r = results[i];
+                  return ListTile(
+                    leading: (r["cover_url"] ?? "").toString().isNotEmpty
+                        ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                            child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
+                                fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
+                        : _noCover(),
+                    title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
+                    subtitle: Text("${r["developer"] ?? ""} . ${r["release_date"] ?? ""}",
+                        maxLines: 2, style: const TextStyle(fontSize: 11)),
+                    onTap: () => Navigator.pop(ctx, r),
+                  );
+                })),
+          ])),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+        ));
       },
     );
     if (picked == null || !mounted) return;
 
-    final picked = await showDialog<Map<String, dynamic>>(
-      context: context, builder: (ctx) => AlertDialog(
-        title: Text("${sources[src]} — ${results.length} 条结果"),
-        content: SizedBox(width: 480, height: 450,
-          child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
-            final r = results[i];
-            return ListTile(
-              leading: (r["cover_url"] ?? "").toString().isNotEmpty
-                  ? ClipRRect(borderRadius: BorderRadius.circular(4),
-                      child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
-                          fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
-                  : _noCover(),
-              title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
-              subtitle: Text("${r["developer"] ?? ""} · ${r["release_date"] ?? ""}",
-                  maxLines: 2, style: const TextStyle(fontSize: 11)),
-              onTap: () => Navigator.pop(ctx, r),
-            );
-          })),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
-      ),
-    );
-    if (picked == null || !mounted) return;
-
-    // Step 4: Per-field comparison (Playnite style)
+    // Step 3: Per-field comparison (Playnite style)
     final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
     final incoming = {
       "名称": (picked["title"] ?? "").toString(),
@@ -416,7 +391,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final confirmed = await showDialog<Map<String, bool>?>(
       context: context, builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: Text("对比 — ${sources[src]}"),
+          title: Text("对比 - ${sources[src]}"),
           content: SizedBox(width: 480, child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
               children: fields.keys.map((f) {
@@ -426,29 +401,24 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 return Padding(padding: const EdgeInsets.only(bottom: 6),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(f, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                          Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 13,
-                              color: !useSearch[f]! || !hasDiff ? Colors.white : Colors.grey,
-                              decoration: useSearch[f]! && hasDiff ? TextDecoration.lineThrough : null)),
-                        ]),
-                      ),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(f, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                        Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 13,
+                            color: !useSearch[f]! || !hasDiff ? Colors.white : Colors.grey,
+                            decoration: useSearch[f]! && hasDiff ? TextDecoration.lineThrough : null)),
+                      ])),
                       if (hasDiff) ...[
                         const Padding(padding: EdgeInsets.symmetric(horizontal: 6),
                             child: Icon(Icons.arrow_forward, size: 16, color: Colors.green)),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(sources[src]!, style: TextStyle(fontSize: 10, color: Colors.green[300])),
-                            Text(inc.length > 60 ? "${inc.substring(0, 60)}..." : inc,
-                                style: TextStyle(fontSize: 13, color: useSearch[f]! ? Colors.green : Colors.grey)),
-                          ]),
-                        ),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(sources[src]!, style: TextStyle(fontSize: 10, color: Colors.green[300])),
+                          Text(inc.length > 60 ? "${inc.substring(0, 60)}..." : inc,
+                              style: TextStyle(fontSize: 13, color: useSearch[f]! ? Colors.green : Colors.grey)),
+                        ])),
                       ],
                     ]),
                     if (hasDiff)
-                      SwitchListTile(
-                        title: const Text("使用搜索结果", style: TextStyle(fontSize: 12)),
+                      SwitchListTile(title: const Text("使用搜索结果", style: TextStyle(fontSize: 12)),
                         value: useSearch[f] ?? false, dense: true, contentPadding: EdgeInsets.zero,
                         onChanged: (v) => setD(() => useSearch[f] = v)),
                   ]),
@@ -476,6 +446,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
     });
     _showMsg("已应用所选字段，核对后保存");
+  }
   }
 
   Widget _compareRow(String label, String current, String incoming) {
@@ -510,10 +481,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 }
 
-InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText, String? labelText}) {
+InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText}) {
   return InputDecoration(
     filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
     border: border, isDense: isDense,
-    contentPadding: contentPadding, hintText: hintText, labelText: labelText,
+    contentPadding: contentPadding, hintText: hintText,
   );
 }
