@@ -744,19 +744,44 @@ class _DisplayPage extends StatefulWidget {
 
 class _DisplayPageState extends State<_DisplayPage> {
   double _coverSize = 200;
+  bool _trayEnabled = false;
 
   @override
   void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() => _coverSize = prefs.getDouble("cover_size") ?? 200);
+    if (mounted) setState(() {
+      _coverSize = prefs.getDouble("cover_size") ?? 200;
+      _trayEnabled = prefs.getBool("minimize_to_tray") ?? false;
+    });
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("显示")),
     body: ListView(padding: const EdgeInsets.all(16), children: [
+      _sectionHeader("窗口行为", Icons.desktop_windows_outlined),
+      const SizedBox(height: 8),
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: SwitchListTile(
+          title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
+          subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          value: _trayEnabled,
+          onChanged: (v) async {
+            setState(() => _trayEnabled = v);
+            await SharedPreferences.getInstance().then((p) => p.setBool("minimize_to_tray", v));
+            if (mounted) _toast(context, v ? "已开启托盘最小化" : "已关闭托盘最小化");
+          },
+        ),
+      ),
+      const SizedBox(height: 24),
       _sectionHeader("封面大小", Icons.photo_size_select_large),
       const SizedBox(height: 8),
       Container(
