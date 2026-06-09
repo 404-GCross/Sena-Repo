@@ -330,26 +330,14 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.push(
       context,
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 280),
-        reverseTransitionDuration: const Duration(milliseconds: 220),
+        transitionDuration: const Duration(milliseconds: 250),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
         pageBuilder: (_, animation, secondaryAnimation) =>
             GameDetailScreen(gameId: game.id),
         transitionsBuilder: (_, animation, secondaryAnimation, child) =>
-            SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0.08, 0),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-              child: FadeTransition(
-                opacity: animation,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: Offset.zero,
-                    end: const Offset(-0.04, 0),
-                  ).animate(CurvedAnimation(parent: secondaryAnimation, curve: Curves.easeOut)),
-                  child: child,
-                ),
-              ),
+            FadeTransition(
+              opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+              child: child,
             ),
       ),
     );
