@@ -42,7 +42,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _notes = TextEditingController();
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool popOnSave = true}) async {
     setState(() => _saving = true);
     try {
       final g = widget.game;
@@ -58,7 +58,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
         await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"));
       }
-      if (mounted) Navigator.pop(context, true);
+      if (popOnSave && mounted) Navigator.pop(context, true);
     } catch (e) { _showError("$e"); }
     setState(() => _saving = false);
   }
@@ -948,7 +948,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
       } catch (_) {}
     }
-    await _save();
+    await _save(popOnSave: false);
   }
 
   @override
