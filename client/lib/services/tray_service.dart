@@ -48,6 +48,14 @@ class TrayService {
       MenuItemLabel(label: "退出", onClicked: (_) => _onQuit?.call()),
     ]);
     await _tray.setContextMenu(menu);
+
+    // Handle tray icon click/double-click to restore window
+    _tray.registerSystemTrayEventHandler((eventName) {
+      if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
+        windowManager.show();
+      }
+    });
+
     _initialized = true;
   }
 
