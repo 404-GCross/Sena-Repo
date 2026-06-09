@@ -2,7 +2,7 @@
 ///
 /// Cross-platform client for Windows, Android, and Linux.
 
-import "dart:io" show Platform;
+import "dart:io" show InternetAddress, Platform, ServerSocket, exit;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
