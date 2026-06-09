@@ -277,37 +277,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ]),
         ),
       ]),
-      bottomNavigationBar: !_isWide(context)
-          ? Column(children: [
-              Expanded(child: IndexedStack(index: _currentTab, children: pages)),
-            ])
-          : Row(children: [
-              NavigationRail(
-                selectedIndex: _currentTab,
-                onDestinationSelected: (i) => setState(() => _currentTab = i),
-                labelType: NavigationRailLabelType.all,
-                destinations: [
-                  const NavigationRailDestination(
-                    icon: Icon(Icons.gamepad_outlined),
-                    selectedIcon: Icon(Icons.gamepad),
-                    label: Text("游戏库"),
-                  ),
-                  if (showSteam)
-                    const NavigationRailDestination(
-                      icon: Icon(Icons.build_outlined),
-                      selectedIcon: Icon(Icons.build),
-                      label: Text("Steam补丁"),
-                    ),
-                  const NavigationRailDestination(
-                    icon: Icon(Icons.person_outlined),
-                    selectedIcon: Icon(Icons.person),
-                    label: Text("我的"),
-                  ),
-                ],
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(child: IndexedStack(index: _currentTab, children: pages)),
-            ]),
       floatingActionButton: _currentTab == 0
           ? FloatingActionButton.extended(
               onPressed: () => _addNewGame(context, gameProvider),
