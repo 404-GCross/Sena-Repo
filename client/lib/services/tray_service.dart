@@ -55,7 +55,6 @@ class TrayService {
     final canvas = ui.Canvas(recorder);
     const size = 32.0;
 
-    // Background: rounded purple square
     final paint = ui.Paint()..color = const ui.Color(0xFF7C3AED);
     canvas.drawRRect(
       ui.RRect.fromRectAndRadius(
@@ -63,24 +62,6 @@ class TrayService {
         const ui.Radius.circular(6),
       ),
       paint,
-    );
-
-    // White "S" letter
-    final textPainter = ui.TextPainter(
-      text: ui.TextSpan(
-        text: "S",
-        style: ui.TextStyle(
-          color: const ui.Color(0xFFFFFFFF),
-          fontSize: 22,
-          fontWeight: ui.FontWeight.bold,
-        ),
-      ),
-      textDirection: ui.TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      ui.Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
     );
 
     final picture = recorder.endRecording();
