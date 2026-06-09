@@ -1,4 +1,4 @@
-/// Grid view for game library — full-bleed cover style inspired by myGal.
+/// Grid view for game library — LunaBox-inspired card design.
 
 import "dart:io" show Platform;
 
@@ -40,35 +40,40 @@ class _GameGridState extends State<GameGrid> {
 
   @override
   Widget build(BuildContext context) {
+    final isPC = !Platform.isAndroid;
     return GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: _coverSize,
-        childAspectRatio: 0.73,  // portrait box art ratio
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+        childAspectRatio: isPC ? 0.83 : 0.73,  // PC: 3/3.6 like LunaBox
+        crossAxisSpacing: isPC ? 10 : 8,
+        mainAxisSpacing: isPC ? 12 : 8,
       ),
       itemCount: widget.games.length,
       itemBuilder: (context, index) {
         final game = widget.games[index];
-        return _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl);
+        return isPC
+            ? _LunaBoxCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl)
+            : _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl);
       },
     );
   }
 }
 
-class _GameCard extends StatefulWidget {
+// ── PC: LunaBox-style card ──
+
+class _LunaBoxCard extends StatefulWidget {
   final GameSummary game;
   final VoidCallback onTap;
   final String coverBaseUrl;
 
-  const _GameCard({required this.game, required this.onTap, this.coverBaseUrl = ""});
+  const _LunaBoxCard({required this.game, required this.onTap, this.coverBaseUrl = ""});
 
   @override
-  State<_GameCard> createState() => _GameCardState();
+  State<_LunaBoxCard> createState() => _LunaBoxCardState();
 }
 
-class _GameCardState extends State<_GameCard> {
+class _LunaBoxCardState extends State<_LunaBoxCard> {
   bool _hovered = false;
 
   @override
@@ -83,78 +88,74 @@ class _GameCardState extends State<_GameCard> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          transform: _hovered
-              ? (Matrix4.identity()..translate(0.0, -3.0))
-              : Matrix4.identity(),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _hovered
+                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: 1,
+            ),
             boxShadow: _hovered
-                ? [BoxShadow(color: Colors.black45, blurRadius: 16, offset: const Offset(0, 6))]
-                : [BoxShadow(color: Colors.black26, blurRadius: 6, offset: const Offset(0, 2))],
+                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 4))]
+                : [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 6, offset: const Offset(0, 1))],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              fit: StackFit.expand,
+            borderRadius: BorderRadius.circular(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Cover image or placeholder
-                if (hasCover)
-                  Image.network(
-                    "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _placeholder(),
-                    loadingBuilder: (_, child, progress) {
-                      if (progress == null) return child;
-                      return _placeholder();
-                    },
-                  )
-                else
-                  _placeholder(),
-
-                // Gradient overlay: darkens bottom for text readability
-                const Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Color(0x44000000),
-                          Color(0xBB000000),
-                        ],
-                        stops: [0.0, 0.45, 0.7, 1.0],
+                // Cover with hover zoom
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Cover image
+                      AnimatedScale(
+                        scale: _hovered ? 1.1 : 1.0,
+                        duration: const Duration(milliseconds: 300),
+                        child: hasCover
+                            ? Image.network(
+                                "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => _lunaPlaceholder(),
+                                loadingBuilder: (_, child, progress) =>
+                                    progress == null ? child : _lunaPlaceholder(),
+                              )
+                            : _lunaPlaceholder(),
                       ),
-                    ),
+                      // Hover overlay
+                      if (_hovered)
+                        Container(
+                          color: Colors.black.withValues(alpha: 0.4),
+                          child: Center(
+                            child: Container(
+                              width: 44, height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.25),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.info_outline, color: Colors.white, size: 22),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-
-                // Game name + company (bottom)
-                Positioned(
-                  left: 8, right: 8, bottom: 8,
+                // Meta
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        game.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
-                        ),
-                      ),
+                      Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                       if (game.companyName != null)
-                        Text(
-                          game.companyName!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.3),
-                        ),
+                        Text(game.companyName!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                     ],
                   ),
                 ),
@@ -166,41 +167,54 @@ class _GameCardState extends State<_GameCard> {
     );
   }
 
-  Widget _placeholder() {
+  Widget _lunaPlaceholder() {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.grey[800]!, Colors.grey[900]!],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          colors: [Colors.grey[800]!, Colors.grey[850]!],
         ),
       ),
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-              ),
-              child: Icon(Icons.videogame_asset, size: 36, color: Colors.grey[500]),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-              ),
-              child: Text("无封面", style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-            ),
-          ],
-        ),
+        child: Icon(Icons.image_not_supported_outlined, size: 36, color: Colors.grey[600]),
       ),
     );
   }
+}
+
+// ── Android: simple card ──
+
+class _GameCard extends StatelessWidget {
+  final GameSummary game;
+  final VoidCallback onTap;
+  final String coverBaseUrl;
+
+  const _GameCard({required this.game, required this.onTap, this.coverBaseUrl = ""});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCover = game.coverPath != null && coverBaseUrl.isNotEmpty;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(flex: 3, child: Container(color: Colors.grey[850],
+            child: hasCover
+                ? Image.network("$coverBaseUrl/api/files/covers${game.coverPath!}",
+                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
+                : _placeholder())),
+          Expanded(flex: 1, child: Padding(padding: const EdgeInsets.all(8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 2),
+              Text(game.platformSummary, style: TextStyle(color: Colors.grey[400], fontSize: 11)),
+            ]))),
+        ]),
+      ),
+    );
+  }
+
+  Widget _placeholder() => const Center(child: Icon(Icons.videogame_asset, size: 48, color: Colors.grey));
 }
