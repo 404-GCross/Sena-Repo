@@ -45,16 +45,14 @@ class _GameGridState extends State<GameGrid> {
       padding: const EdgeInsets.all(8),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: _coverSize,
-        childAspectRatio: isPC ? 0.83 : 0.73,  // PC: 3/3.6 like LunaBox
+        childAspectRatio: 0.7,
         crossAxisSpacing: isPC ? 10 : 8,
         mainAxisSpacing: isPC ? 12 : 8,
       ),
       itemCount: widget.games.length,
       itemBuilder: (context, index) {
         final game = widget.games[index];
-        return isPC
-            ? _LunaBoxCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl)
-            : _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl);
+        return _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl);
       },
     );
   }
