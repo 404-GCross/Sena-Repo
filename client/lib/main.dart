@@ -66,9 +66,8 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
     await Future.delayed(const Duration(milliseconds: 500));
     await windowManager.setPreventClose(true);
     try {
-      await trayService.init(onQuit: () async {
-        await windowManager.setPreventClose(false);
-        await windowManager.destroy();
+      await trayService.init(onQuit: () {
+        exit(0);
       });
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
@@ -83,8 +82,7 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
     if (enabled) {
       await windowManager.hide();
     } else {
-      await trayService.dispose();
-      await windowManager.destroy();
+      exit(0);
     }
   }
 
