@@ -2,7 +2,6 @@
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/settings_provider.dart";
@@ -11,92 +10,235 @@ import "notification_screen.dart";
 import "connect_screen.dart";
 import "../providers/game_provider.dart";
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  String _username = "";
+  String _serverInfo = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+  }
+
+  Future<void> _loadUserInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settings = context.read<SettingsProvider>();
+    if (mounted) {
+      setState(() {
+        _username = prefs.getString("username") ?? "Sena Repo";
+        _serverInfo = "服务器: ${settings.serverHost}:${settings.serverPort}";
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
+    final hasCover = settings.serverHost.isNotEmpty;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       children: [
-        const SizedBox(height: 24),
-        const CircleAvatar(
-          radius: 40,
-          child: Icon(Icons.person, size: 40),
+        // ── Avatar & Name ──
+        const SizedBox(height: 16),
+        Center(
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                width: 3,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                  blurRadius: 20,
+                ),
+              ],
+            ),
+            child: CircleAvatar(
+              radius: 44,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              child: Text(
+                _username.isNotEmpty ? _username[0].toUpperCase() : "S",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
-        const Center(
-          child: Text("Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        Center(
+          child: Text(
+            _username,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Center(
           child: Text(
             "服务器: ${settings.serverHost}:${settings.serverPort}",
-            style: TextStyle(color: Colors.grey[500]),
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
           ),
         ),
         const SizedBox(height: 32),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.notifications_outlined),
-          title: const Text("通知"),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => NotificationScreen(
-                  api: context.read<GameProvider>().api))),
-        ),
-        ListTile(
-          leading: const Icon(Icons.settings),
-          title: const Text("设置"),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen())),
+
+        // ── Menu Items ──
+        _menuCard([
+          _menuItem(
+            icon: Icons.notifications_outlined,
+            title: "通知",
+            trailing: "查看通知",
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => NotificationScreen(
+                    api: context.read<GameProvider>().api))),
+          ),
+          _menuDivider(),
+          _menuItem(
+            icon: Icons.settings,
+            title: "设置",
+            trailing: "服务器、刮削源、显示",
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
+        ]),
+        const SizedBox(height: 16),
+        _menuCard([
+          _menuItem(
+            icon: Icons.info_outline,
+            title: "关于",
+            trailing: "Sena Repo v0.1.0",
+            onTap: () => _showAbout(context),
+          ),
+        ]),
+        const SizedBox(height: 32),
+
+        // ── Logout ──
+        Center(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            icon: const Icon(Icons.logout, size: 18),
+            label: const Text("退出登录"),
+            onPressed: _logout,
+          ),
         ),
         const SizedBox(height: 32),
-        ListTile(
-          leading: const Icon(Icons.logout, color: Colors.red),
-          title: const Text("退出登录", style: TextStyle(color: Colors.red)),
-          onTap: () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text("退出登录"),
-                content: const Text("确定退出登录吗？"),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
-                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确定")),
-                ],
-              ),
-            );
-            if (confirmed == true && context.mounted) {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove("auth_token");
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const ConnectScreen()),
-                  (_) => false,
-                );
-              }
-            }
-          },
-        ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: const Text("关于"),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () {
-            showAboutDialog(
-              context: context,
-              applicationName: "Sena Repo",
-              applicationVersion: "0.1.0",
-              applicationLegalese: "GPL-2.0",
-            );
-          },
-        ),
       ],
     );
+  }
+
+  Widget _menuCard(List<Widget> children) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.04),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+    ),
+    child: Column(children: children),
+  );
+
+  Widget _menuItem({
+    required IconData icon,
+    required String title,
+    required String trailing,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 22, color: Colors.white70),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                Text(trailing, style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
+        ]),
+      ),
+    );
+  }
+
+  Widget _menuDivider() => Divider(height: 1, indent: 68, color: Colors.white.withValues(alpha: 0.06));
+
+  void _showAbout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(children: [
+          Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          const Text("关于"),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Sena Repo", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text("版本: 0.1.0", style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+            const SizedBox(height: 12),
+            Text("GalGame 私人图书馆管理器", style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+          ],
+        ),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定")),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("退出登录"),
+        content: const Text("确定退出登录吗？"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确定")),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove("auth_token");
+      await prefs.remove("username");
+      await prefs.remove("is_admin");
+      if (context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const ConnectScreen()),
+          (_) => false,
+        );
+      }
+    }
   }
 }

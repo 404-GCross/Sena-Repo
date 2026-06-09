@@ -145,7 +145,7 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
@@ -201,11 +201,13 @@ class _GameCard extends StatelessWidget {
                     fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
                 : _placeholder())),
           Expanded(flex: 1, child: Padding(padding: const EdgeInsets.all(8),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child: Column(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.center, children: [
               Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               const SizedBox(height: 2),
-              Text(game.platformSummary, style: TextStyle(color: Colors.grey[400], fontSize: 11)),
+              if (game.companyName != null)
+                Text(game.companyName!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 11)),
             ]))),
         ]),
       ),

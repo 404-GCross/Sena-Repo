@@ -19,11 +19,18 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late ApiClient _api;
+  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
     _api = context.read<GameProvider>().api;
+    _loadIsAdmin();
+  }
+
+  Future<void> _loadIsAdmin() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _isAdmin = prefs.getBool("is_admin") ?? false);
   }
 
   @override
@@ -33,30 +40,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _menuItem(Icons.manage_search, "扫描设置", () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
-          _menuItem(Icons.image_search, "刮削源", () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
-          _menuItem(Icons.grid_view, "显示", () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const _DisplayPage()))),
-          _menuItem(Icons.palette, "美化", () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
-          const Divider(),
-          const ListTile(title: Text("Sena Repo"), subtitle: Text("v0.1.0"), leading: Icon(Icons.info_outline)),
+          _section("服务端"),
+          _menuItem(Icons.manage_search, "扫描设置", "根目录、扫描选项",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
+          _menuItem(Icons.image_search, "刮削源", "元数据来源与代理",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
+          if (_isAdmin)
+            _menuItem(Icons.people, "用户管理", "审批注册申请",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)))),
+          const SizedBox(height: 24),
+          _section("客户端"),
+          _menuItem(Icons.grid_view, "显示", "封面大小调整",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
+          _menuItem(Icons.palette, "美化", "背景图片与主题色",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
+          const SizedBox(height: 32),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(children: [
+              Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+              const SizedBox(width: 8),
+              Text("Sena Repo v0.1.0", style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+            ]),
+          ),
         ],
       ),
     );
   }
 
-  Widget _menuItem(IconData icon, String title, VoidCallback onTap) {
+  Widget _section(String t) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+    child: Text(t, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[500])),
+  );
+
+  Widget _menuItem(IconData icon, String title, String subtitle, VoidCallback onTap) {
     return ListTile(
-      leading: Icon(icon), title: Text(title),
-      trailing: const Icon(Icons.chevron_right), onTap: onTap,
+      leading: Icon(icon),
+      title: Text(title, style: const TextStyle(fontSize: 15)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+      trailing: const Icon(Icons.chevron_right, size: 18),
+      onTap: onTap,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     );
   }
 }
 
-// ── Scan Settings Sub-Page (includes root dirs) ──
+// ── Scan Settings Sub-Page ──
 class _ScanSettingsPage extends StatefulWidget {
   final ApiClient api;
   const _ScanSettingsPage({required this.api});
@@ -180,7 +209,6 @@ class _ScraperPageState extends State<_ScraperPage> {
   void initState() { super.initState(); _loadSettings(); }
 
   Future<void> _loadSettings() async {
-    // Load API keys from server
     try {
       final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"));
       if (resp.statusCode == 200) {
@@ -189,7 +217,6 @@ class _ScraperPageState extends State<_ScraperPage> {
       }
     } catch (_) {}
 
-    // Load source toggles from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     for (final src in _sources.keys) {
       final v = prefs.getBool("scrape_src_$src");
@@ -199,13 +226,11 @@ class _ScraperPageState extends State<_ScraperPage> {
   }
 
   Future<void> _save() async {
-    // Save API keys to server
     final body = <String, String>{};
     for (final k in _keys.keys) { body[k] = _keys[k]!.text; }
     await http.put(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
         headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
 
-    // Save source toggles locally
     final prefs = await SharedPreferences.getInstance();
     for (final src in _sources.keys) {
       await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
@@ -325,7 +350,96 @@ class _DisplayPageState extends State<_DisplayPage> {
   );
 }
 
+// ── User Management Sub-Page (admin only) ──
+class _UserManagePage extends StatefulWidget {
+  final ApiClient api;
+  const _UserManagePage({required this.api});
+  @override State<_UserManagePage> createState() => _UserManagePageState();
+}
+
+class _UserManagePageState extends State<_UserManagePage> {
+  List<Map<String, dynamic>> _pending = [];
+  bool _loading = true;
+
+  @override
+  void initState() { super.initState(); _loadPending(); }
+
+  Future<void> _loadPending() async {
+    setState(() => _loading = true);
+    try {
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/pending"));
+      if (resp.statusCode == 200) {
+        _pending = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _approve(int userId, bool approve) async {
+    try {
+      await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/auth/approve"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"user_id": userId, "approve": approve}),
+      );
+      _loadPending();
+      if (mounted) _toast(context, approve ? "已通过" : "已拒绝");
+    } catch (_) {
+      if (mounted) _toast(context, "操作失败");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text("用户管理")),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _pending.isEmpty
+            ? Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
+                  const SizedBox(height: 12),
+                  Text("暂无待审批用户", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
+                ]))
+            : ListView(padding: const EdgeInsets.all(16), children: [
+                Text("待审批 (${_pending.length})", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                ..._pending.map((u) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  child: Row(children: [
+                    CircleAvatar(
+                      radius: 20,
+                      child: Text((u["username"]?.toString() ?? "?")[0].toUpperCase()),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(u["username"] ?? "?", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                        Text(u["is_admin"] == true ? "申请管理员" : "普通用户",
+                            style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                      ]),
+                    ),
+                    TextButton(
+                      onPressed: () => _approve(u["id"] as int, false),
+                      child: const Text("拒绝", style: TextStyle(color: Colors.red)),
+                    ),
+                    const SizedBox(width: 4),
+                    FilledButton(
+                      onPressed: () => _approve(u["id"] as int, true),
+                      child: const Text("通过"),
+                    ),
+                  ]),
+                )),
+              ]),
+  );
+}
+
 void _toast(BuildContext ctx, String msg) {
   showDialog(context: ctx, builder: (c) => AlertDialog(content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
 }
-
