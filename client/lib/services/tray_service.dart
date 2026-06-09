@@ -39,9 +39,9 @@ class TrayService {
 
     // Register event handler BEFORE init to catch all events
     _tray.registerSystemTrayEventHandler((eventName) {
-      if (eventName == kSystemTrayEventClick) {
+      if (eventName == "SystemTray.leftClick") {
         windowManager.show();
-      } else if (eventName == kSystemTrayEventRightClick) {
+      } else if (eventName == "SystemTray.rightClick") {
         _tray.popUpContextMenu();
       }
     });
