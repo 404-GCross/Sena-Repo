@@ -109,6 +109,35 @@ async def list_users(session: AsyncSession = Depends(get_session)):
     return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "status": u.status, "created_at": str(u.created_at)} for u in users]
 
 
+class CreateUserRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=128)
+    password: str = Field(min_length=4, max_length=128)
+    is_admin: bool = False
+
+
+@router.post("/users")
+async def create_user(body: CreateUserRequest, session: AsyncSession = Depends(get_session)):
+    """Admin creates a user directly (pre-approved)."""
+    existing = await session.execute(
+        select(User).where(User.username == body.username)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="用户名已存在")
+
+    pw_hash, salt = hash_password(body.password)
+    user = User(
+        username=body.username,
+        password_hash=pw_hash,
+        salt=salt,
+        is_admin=body.is_admin,
+        status="active",
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return {"id": user.id, "username": user.username, "message": "用户创建成功"}
+
+
 @router.get("/pending")
 async def list_pending(session: AsyncSession = Depends(get_session)):
     """List users pending approval (admin only)."""

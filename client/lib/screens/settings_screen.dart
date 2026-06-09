@@ -873,9 +873,67 @@ class _UserManagePageState extends State<_UserManagePage> {
     }
   }
 
+  Future<void> _createUser() async {
+    final nameCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    bool asAdmin = false;
+    final result = await showDialog<bool>(
+      context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text("新增用户"),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: nameCtrl, autofocus: true,
+              decoration: const InputDecoration(labelText: "用户名", isDense: true)),
+            const SizedBox(height: 10),
+            TextField(controller: passCtrl, obscureText: true,
+              decoration: const InputDecoration(labelText: "密码", isDense: true)),
+            const SizedBox(height: 4),
+            CheckboxListTile(
+              title: const Text("设为管理员"),
+              value: asAdmin,
+              onChanged: (v) => setD(() => asAdmin = v ?? false),
+              dense: true, contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(onPressed: () {
+              if (nameCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) return;
+              Navigator.pop(ctx, true);
+            }, child: const Text("创建")),
+          ],
+        ),
+      ),
+    );
+    if (result != true) return;
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/auth/users"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "username": nameCtrl.text.trim(),
+          "password": passCtrl.text,
+          "is_admin": asAdmin,
+        }),
+      );
+      if (resp.statusCode == 200) {
+        _loadUsers();
+        if (mounted) _toast(context, "用户创建成功");
+      } else {
+        final data = jsonDecode(resp.body);
+        if (mounted) _toast(context, data["detail"] ?? "创建失败");
+      }
+    } catch (_) {
+      if (mounted) _toast(context, "创建失败");
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("用户管理")),
+    appBar: AppBar(title: const Text("用户管理"), actions: [
+      IconButton(icon: const Icon(Icons.person_add), tooltip: "新增用户", onPressed: _createUser),
+    ]),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _users.isEmpty
