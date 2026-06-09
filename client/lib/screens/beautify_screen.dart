@@ -57,9 +57,10 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
         final resp = await request.send();
         if (resp.statusCode == 200) {
           final data = jsonDecode(await resp.stream.bytesToString()) as Map<String, dynamic>;
-          final url = data["url"] as String;
-          _bgUrlCtrl.text = url;
-          context.read<ThemeProvider>().setBackgroundUrl(url);
+          final relativeUrl = data["url"] as String;
+          final fullUrl = "${context.read<GameProvider>().api.baseUrl}$relativeUrl";
+          _bgUrlCtrl.text = fullUrl;
+          context.read<ThemeProvider>().setBackgroundUrl(fullUrl);
         }
       } catch (_) {}
     }
