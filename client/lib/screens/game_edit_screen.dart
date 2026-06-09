@@ -587,7 +587,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       },
     );
     if (picked == "retry") {
-      _downloadMetadata();
+      await _downloadMetadata();
       return;
     }
     if (picked == null || !mounted) return;
