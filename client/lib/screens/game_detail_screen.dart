@@ -153,22 +153,25 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                             final v = e.value;
                             final isLast = e.key == game.versions.length - 1;
                             return Column(children: [
-                              Row(children: [
-                                Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    color: _platformColor(v.platform).withValues(alpha: 0.15),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                child: Row(children: [
+                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
+                                  const SizedBox(width: 12),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: _platformColor(v.platform).withValues(alpha: 0.15),
+                                    ),
+                                    child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
                                   ),
-                                  child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                              ]),
+                                  const SizedBox(width: 10),
+                                  Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                                ]),
+                              ),
                               if (!isLast) _divider(),
                             ]);
                           }).toList(),
