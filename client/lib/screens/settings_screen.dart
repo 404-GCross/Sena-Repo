@@ -650,18 +650,18 @@ class _UserManagePage extends StatefulWidget {
 }
 
 class _UserManagePageState extends State<_UserManagePage> {
-  List<Map<String, dynamic>> _pending = [];
+  List<Map<String, dynamic>> _users = [];
   bool _loading = true;
 
   @override
-  void initState() { super.initState(); _loadPending(); }
+  void initState() { super.initState(); _loadUsers(); }
 
-  Future<void> _loadPending() async {
+  Future<void> _loadUsers() async {
     setState(() => _loading = true);
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/pending"));
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/users"));
       if (resp.statusCode == 200) {
-        _pending = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
+        _users = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
       }
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
@@ -674,10 +674,28 @@ class _UserManagePageState extends State<_UserManagePage> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"user_id": userId, "approve": approve}),
       );
-      _loadPending();
+      _loadUsers();
       if (mounted) _toast(context, approve ? "已通过" : "已拒绝");
     } catch (_) {
       if (mounted) _toast(context, "操作失败");
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case "active": return "已激活";
+      case "pending": return "待审批";
+      case "rejected": return "已拒绝";
+      default: return status;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case "active": return Colors.green;
+      case "pending": return Colors.orange;
+      case "rejected": return Colors.red;
+      default: return Colors.grey;
     }
   }
 
@@ -686,48 +704,79 @@ class _UserManagePageState extends State<_UserManagePage> {
     appBar: AppBar(title: const Text("用户管理")),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
-        : _pending.isEmpty
+        : _users.isEmpty
             ? Center(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
                   const SizedBox(height: 12),
-                  Text("暂无待审批用户", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
+                  Text("暂无用户", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
                 ]))
             : ListView(padding: const EdgeInsets.all(16), children: [
-                Text("待审批 (${_pending.length})", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text("全部用户 (${_users.length})", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                ..._pending.map((u) => Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                  ),
-                  child: Row(children: [
-                    CircleAvatar(
-                      radius: 20,
-                      child: Text((u["username"]?.toString() ?? "?")[0].toUpperCase()),
+                ..._users.map((u) {
+                  final username = u["username"] ?? "?";
+                  final isAdmin = u["is_admin"] == true;
+                  final status = u["status"] ?? "active";
+                  final isPending = status == "pending";
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(u["username"] ?? "?", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-                        Text(u["is_admin"] == true ? "申请管理员" : "普通用户",
-                            style: TextStyle(fontSize: 13, color: Colors.grey[500])),
-                      ]),
-                    ),
-                    TextButton(
-                      onPressed: () => _approve(u["id"] as int, false),
-                      child: const Text("拒绝", style: TextStyle(color: Colors.red)),
-                    ),
-                    const SizedBox(width: 4),
-                    FilledButton(
-                      onPressed: () => _approve(u["id"] as int, true),
-                      child: const Text("通过"),
-                    ),
-                  ]),
-                )),
+                    child: Row(children: [
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: _statusColor(status).withValues(alpha: 0.2),
+                        child: Text(username[0].toUpperCase(),
+                            style: TextStyle(color: _statusColor(status), fontWeight: FontWeight.w600)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            Text(username, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                            const SizedBox(width: 8),
+                            if (isAdmin)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text("管理员", style: TextStyle(fontSize: 10, color: Colors.purple[200])),
+                              ),
+                          ]),
+                          const SizedBox(height: 3),
+                          Row(children: [
+                            Container(width: 6, height: 6,
+                              decoration: BoxDecoration(
+                                color: _statusColor(status),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(_statusLabel(status), style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                          ]),
+                        ]),
+                      ),
+                      if (isPending) ...[
+                        TextButton(
+                          onPressed: () => _approve(u["id"] as int, false),
+                          child: const Text("拒绝", style: TextStyle(color: Colors.red)),
+                        ),
+                        const SizedBox(width: 4),
+                        FilledButton(
+                          onPressed: () => _approve(u["id"] as int, true),
+                          child: const Text("通过"),
+                        ),
+                      ],
+                    ]),
+                  );
+                }),
               ]),
   );
 }

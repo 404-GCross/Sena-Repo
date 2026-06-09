@@ -99,6 +99,16 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
     return {"message": "注册成功，等待管理员审批", "user_id": user.id, "pending": True}
 
 
+@router.get("/users")
+async def list_users(session: AsyncSession = Depends(get_session)):
+    """List all users."""
+    result = await session.execute(
+        select(User).order_by(User.created_at.desc())
+    )
+    users = result.scalars().all()
+    return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "status": u.status, "created_at": str(u.created_at)} for u in users]
+
+
 @router.get("/pending")
 async def list_pending(session: AsyncSession = Depends(get_session)):
     """List users pending approval (admin only)."""
