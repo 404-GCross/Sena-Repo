@@ -1,16 +1,13 @@
 /// Initial screen: connect to Sena Repo server.
 
-import "dart:convert";
-
 import "package:flutter/material.dart";
-import "package:http/http.dart" as http;
 import "package:provider/provider.dart";
-import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
+import "package:shared_preferences/shared_preferences.dart";
 import "login_screen.dart";
 
 class ConnectScreen extends StatefulWidget {
@@ -33,9 +30,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (settings.serverHost.isNotEmpty) {
           _hostController.text = settings.serverHost;
           _portController.text = settings.serverPort.toString();
+          _tryAutoConnect();
         }
       });
     });
+  }
+
+  Future<void> _tryAutoConnect() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString("auth_token")?.isNotEmpty == true) _connect();
   }
 
   Future<void> _connect() async {
@@ -77,8 +80,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
           // Save token for auto-login
           if (loginResult is Map) {
             await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
-            await prefs.setString("username", loginResult["username"]?.toString() ?? "");
-            await prefs.setBool("is_admin", loginResult["is_admin"] == true);
           }
         }
       }
@@ -86,40 +87,34 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (!mounted) return;
       await games.loadGames();
 
-      // Only prompt to scan if there are root directories but no games
+      // If no games, ask whether to scan
       if (games.games.isEmpty) {
-        try {
-          final rootsResp = await http.get(Uri.parse("${games.api.baseUrl}/api/roots"));
-          if (rootsResp.statusCode == 200) {
-            final roots = jsonDecode(rootsResp.body) as List;
-            if (roots.isNotEmpty && mounted) {
-              final shouldScan = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text("游戏库为空"),
-                  content: const Text("服务端已配置根目录但尚无游戏，是否立即扫描？"),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text("稍后"),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text("开始扫描"),
-                    ),
-                  ],
-                ),
-              );
+        final shouldScan = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("游戏库为空"),
+            content: const Text("服务端尚未扫描，是否立即扫描？"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text("稍后"),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text("开始扫描"),
+              ),
+            ],
+          ),
+        );
 
-              if (shouldScan == true && mounted) {
-                try {
-                  await games.api.refreshAllRoots();
-                  await games.loadGames();
-                } catch (_) {}
-              }
-            }
+        if (shouldScan == true && mounted) {
+          try {
+            await games.api.refreshAllRoots();
+            await games.loadGames();
+          } catch (_) {
+            // Scan failed, continue to home anyway
           }
-        } catch (_) {}
+        }
       }
 
       if (mounted) {
