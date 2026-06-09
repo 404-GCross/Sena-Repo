@@ -5,9 +5,11 @@ import "dart:convert";
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 
 import "../models/game.dart";
+import "../providers/game_provider.dart";
 import "../providers/game_provider.dart";
 
 class GameEditScreen extends StatefulWidget {
@@ -222,6 +224,27 @@ class _GameEditScreenState extends State<GameEditScreen> {
           OutlinedButton.icon(icon: const Icon(Icons.cloud_download, size: 16),
             label: const Text("下载元数据"), onPressed: _downloadMetadata),
           const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            tooltip: "删除游戏",
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context, builder: (ctx) => AlertDialog(
+                  title: const Text("确认删除"),
+                  content: Text("确定删除「${widget.game.name}」吗？\n不会删除本地文件。"),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("删除")),
+                  ],
+                ),
+              );
+              if (confirmed == true && context.mounted) {
+                await context.read<GameProvider>().deleteGame(widget.game.id);
+                if (context.mounted) Navigator.pop(context, true);
+              }
+            },
+          ),
+          const SizedBox(width: 4),
           FilledButton.icon(
             onPressed: _saving ? null : _save,
             icon: _saving ? const SizedBox(width: 16, height: 16,

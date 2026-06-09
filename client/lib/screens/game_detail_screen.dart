@@ -413,40 +413,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   ),
                 )),
 
-            // Actions
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () => _scrapeCoverFlow(context, game),
-                  icon: const Icon(Icons.image_search),
-                  label: const Text("刮削封面"),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text("确认删除"),
-                        content: Text("确定删除「${game.name}」吗？\n不会删除本地文件。"),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
-                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("删除")),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true && mounted) {
-                      await context.read<GameProvider>().deleteGame(game.id);
-                      if (mounted) Navigator.pop(context);
-                    }
-                  },
-                  icon: const Icon(Icons.delete),
-                  label: const Text("删除"),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                ),
-              ],
-            ),
           ],
         ),
       ),
