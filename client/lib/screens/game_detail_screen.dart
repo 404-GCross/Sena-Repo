@@ -91,16 +91,20 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             child: Column(children: [
               // ── Header: cover right, name left ──
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(game.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                      Text(game.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2)),
                       if (game.companyName != null) ...[
-                        const SizedBox(height: 4),
-                        Text(game.companyName!, style: TextStyle(fontSize: 15, color: Colors.grey[400])),
+                        const SizedBox(height: 6),
+                        Row(children: [
+                          Icon(Icons.business, size: 16, color: Colors.grey[400]),
+                          const SizedBox(width: 6),
+                          Text(game.companyName!, style: TextStyle(fontSize: 16, color: Colors.grey[400])),
+                        ]),
                       ],
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
                       Row(children: [
                         _sourceBadge("VNDB", game.vndbId),
                         _sourceBadge("Steam", game.steamId),
@@ -108,66 +112,105 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       ]),
                     ]),
                   ),
-                  const SizedBox(width: 20),
-                  ClipRRect(borderRadius: BorderRadius.circular(10),
-                    child: SizedBox(width: 200, height: 280,
-                      child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
-                              fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                          : _coverPlaceholder())),
+                  const SizedBox(width: 24),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
+                      ),
+                      child: SizedBox(width: 200, height: 280,
+                        child: hasCover
+                            ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                                fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
+                            : _coverPlaceholder()),
+                    ),
+                  ),
                 ]),
               ),
 
               // ── Body: left metadata + right description ──
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                padding: const EdgeInsets.fromLTRB(32, 24, 32, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   // Left: metadata grid + versions
                   Expanded(
                     flex: 5,
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      _section("详细信息"),
-                      _infoRow("开发商", game.developer),
-                      _infoRow("发售日", game.releaseDate),
-                      const SizedBox(height: 12),
-                      _section("版本"),
+                      _section("详细信息", Icons.info_outline),
+                      _fieldCard(children: [
+                        _infoRow("开发商", game.developer, Icons.business),
+                        _divider(),
+                        _infoRow("发售日", game.releaseDate, Icons.calendar_today),
+                      ]),
+                      const SizedBox(height: 20),
+                      _section("版本", Icons.folder_outlined),
                       if (game.versions.isEmpty)
-                        Text("无", style: TextStyle(color: Colors.grey[500], fontSize: 13))
+                        _hintCard("暂无版本信息")
                       else
-                        ...game.versions.map((v) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.04), borderRadius: BorderRadius.circular(6)),
-                            child: Row(children: [
-                              Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 13))),
-                              const SizedBox(width: 8),
-                              Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4)),
-                                child: Text(v.platform, style: const TextStyle(fontSize: 11))),
-                              const SizedBox(width: 4),
-                              Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                            ]),
-                          ),
-                        )),
-                      const SizedBox(height: 12),
+                        _fieldCard(children:
+                          game.versions.asMap().entries.map((e) {
+                            final v = e.value;
+                            final isLast = e.key == game.versions.length - 1;
+                            return Column(children: [
+                              Row(children: [
+                                Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    color: _platformColor(v.platform).withValues(alpha: 0.15),
+                                  ),
+                                  child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                              ]),
+                              if (!isLast) _divider(),
+                            ]);
+                          }).toList(),
+                        ),
+                      const SizedBox(height: 20),
                       if (game.tags.isNotEmpty) ...[
-                        _section("标签"),
-                        Wrap(spacing: 6, children: game.tags.map((t) => Chip(
-                          label: Text(t.name, style: const TextStyle(fontSize: 12)),
-                          visualDensity: VisualDensity.compact,
+                        _section("标签", Icons.label_outline),
+                        const SizedBox(height: 4),
+                        Wrap(spacing: 8, runSpacing: 6, children: game.tags.map((t) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                          ),
+                          child: Text(t.name, style: const TextStyle(fontSize: 13)),
                         )).toList()),
                       ],
                     ]),
                   ),
-                  const SizedBox(width: 24),
+                  const SizedBox(width: 28),
                   // Right: description
                   Expanded(
                     flex: 4,
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      _section("简介"),
-                      Text(game.description?.isNotEmpty == true ? game.description! : "暂无简介",
-                          style: TextStyle(fontSize: 13, color: game.description?.isNotEmpty == true ? null : Colors.grey[500], height: 1.5)),
+                      _section("简介", Icons.description_outlined),
+                      Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.03),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                        ),
+                        child: Text(
+                          game.description?.isNotEmpty == true ? game.description! : "暂无简介",
+                          style: TextStyle(
+                            fontSize: 15,
+                            height: 1.7,
+                            color: game.description?.isNotEmpty == true ? null : Colors.grey[500],
+                          ),
+                        ),
+                      ),
                     ]),
                   ),
                 ]),
@@ -180,35 +223,92 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     );
   }
 
-  Widget _section(String t) => Padding(
-    padding: const EdgeInsets.only(bottom: 6, top: 4),
-    child: Text(t, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white70)),
+  Widget _section(String t, [IconData? icon]) => Padding(
+    padding: const EdgeInsets.only(bottom: 8, top: 4),
+    child: Row(children: [
+      if (icon != null) ...[
+        Icon(icon, size: 18, color: Colors.white60),
+        const SizedBox(width: 6),
+      ],
+      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+    ]),
   );
 
-  Widget _infoRow(String label, String? value) {
+  Widget _fieldCard({required List<Widget> children}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.03),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+    ),
+    child: Column(children: children),
+  );
+
+  Widget _hintCard(String text) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.03),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+    ),
+    child: Row(children: [
+      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+      const SizedBox(width: 8),
+      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+    ]),
+  );
+
+  Color _platformColor(String platform) {
+    switch (platform.toLowerCase()) {
+      case "windows": return Colors.blue;
+      case "android": return Colors.green;
+      case "linux": return Colors.orange;
+      case "mac": return Colors.grey;
+      default: return Colors.white60;
+    }
+  }
+
+  Widget _infoRow(String label, String? value, [IconData? icon]) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(width: 80, child: Padding(padding: const EdgeInsets.only(top: 2),
-          child: Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500])))),
+        if (icon != null) ...[
+          Icon(icon, size: 18, color: Colors.grey[500]),
+          const SizedBox(width: 8),
+        ],
+        SizedBox(width: 70, child: Padding(padding: const EdgeInsets.only(top: 1),
+          child: Text(label, style: TextStyle(fontSize: 14, color: Colors.grey[500])))),
         Expanded(child: Text(value?.isNotEmpty == true ? value! : "—",
-            style: TextStyle(fontSize: 13, color: value?.isNotEmpty == true ? null : Colors.grey[700]))),
+            style: TextStyle(fontSize: 15, color: value?.isNotEmpty == true ? null : Colors.grey[700]))),
       ]),
     );
   }
 
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.08));
+
   Widget _sourceBadge(String label, String? id) {
     final active = id != null && id.isNotEmpty;
-    return Padding(padding: const EdgeInsets.only(right: 6),
-      child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(color: active ? Colors.green.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: active ? Colors.green.withValues(alpha: 0.4) : Colors.white24)),
-        child: Text(label, style: TextStyle(fontSize: 11, color: active ? Colors.green : Colors.grey))));
+    return Padding(padding: const EdgeInsets.only(right: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: active ? Colors.green.withValues(alpha: 0.35) : Colors.white24)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (active)
+            Padding(padding: const EdgeInsets.only(right: 4),
+              child: Icon(Icons.check_circle, size: 12, color: Colors.green[300])),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: active ? Colors.green[300] : Colors.grey)),
+        ])));
   }
 
   Widget _coverPlaceholder() => Container(
-    color: Colors.grey[850], width: 200, height: 280,
+    decoration: BoxDecoration(
+      color: Colors.grey[850],
+      borderRadius: BorderRadius.circular(12),
+    ),
+    width: 200, height: 280,
     child: Center(child: Icon(Icons.image, size: 64, color: Colors.grey[700])),
   );
 
