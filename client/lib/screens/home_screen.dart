@@ -159,6 +159,33 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _sideBtn(IconData icon, String tooltip, VoidCallback onTap) {
+    return IconButton(icon: Icon(icon, size: 22), onPressed: onTap, tooltip: tooltip);
+  }
+
+  Widget _navTab(IconData icon, IconData outlined, String label, int index) {
+    final selected = _currentTab == index;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        onTap: () => setState(() => _currentTab = index),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 56, height: 48,
+          decoration: BoxDecoration(
+            color: selected ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(selected ? icon : outlined, size: 22,
+                color: selected ? Theme.of(context).colorScheme.primary : null),
+            Text(label, style: TextStyle(fontSize: 9, color: selected ? Theme.of(context).colorScheme.primary : null)),
+          ]),
+        ),
+      ),
+    );
+  }
+
   void _openDetail(game) {
     Navigator.push(
       context,
@@ -198,62 +225,59 @@ class _HomeScreenState extends State<HomeScreen> {
         else if (theme.bgColor != null)
           Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
         Scaffold(
-      appBar: AppBar(
-        title: const Text("Sena Repo"),
-        bottom: _scrapeProgress >= 0
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(4),
-                child: LinearProgressIndicator(value: _scrapeProgress / 100.0, backgroundColor: Colors.white10),
-              )
-            : null,
-        actions: [
-          if (_scrapeProgress >= 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Center(
-                child: Text("刮削中 $_scrapeProgress%", style: TextStyle(fontSize: 11, color: Colors.orange[300])),
+      body: Row(children: [
+        // ── Left Sidebar ──
+        SizedBox(
+          width: 72,
+          child: Column(children: [
+            const SizedBox(height: 12),
+            // Action buttons at top
+            if (_currentTab == 0) ...[
+              _sideBtn(Icons.refresh, "刷新", gameProvider.loadGames),
+              _sideBtn(_isGridView ? Icons.list : Icons.grid_view,
+                  _isGridView ? "列表" : "网格",
+                  () => setState(() => _isGridView = !_isGridView)),
+            ],
+            IconButton(
+              icon: Badge(
+                isLabelVisible: _unreadCount > 0,
+                label: Text("$_unreadCount", style: const TextStyle(fontSize: 10)),
+                child: const Icon(Icons.notifications_outlined, size: 22),
               ),
+              onPressed: () async {
+                await Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
+                try {
+                  final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
+                  if (r.statusCode == 200 && mounted) {
+                    setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
+                  }
+                } catch (_) {}
+              },
+              tooltip: "通知",
             ),
-          if (_currentTab == 0) ...[
-            IconButton(
-              icon: Icon(_isGridView ? Icons.list : Icons.grid_view),
-              onPressed: () => setState(() => _isGridView = !_isGridView),
-              tooltip: _isGridView ? "列表视图" : "网格视图",
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: gameProvider.loadGames,
-              tooltip: "刷新",
-            ),
-          ],
-          IconButton(
-            icon: Badge(
-              isLabelVisible: _unreadCount > 0,
-              label: Text("$_unreadCount"),
-              child: const Icon(Icons.notifications_outlined),
-            ),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => NotificationScreen(api: gameProvider.api)),
-              );
-              // Refresh unread count
-              try {
-                final resp = await http.get(
-                  Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"),
-                );
-                if (resp.statusCode == 200 && mounted) {
-                  final data = jsonDecode(resp.body) as Map<String, dynamic>;
-                  setState(() => _unreadCount = data["count"] ?? 0);
-                }
-              } catch (_) {}
-            },
-            tooltip: "通知",
-          ),
-        ],
-      ),
-      body: !_isWide(context)
+            const Spacer(),
+            // Nav tabs centered
+            _navTab(Icons.gamepad, Icons.gamepad_outlined, "游戏库", 0),
+            if (showSteam) _navTab(Icons.build, Icons.build_outlined, "Steam", 1),
+            _navTab(Icons.person, Icons.person_outlined, "我的", showSteam ? 2 : 1),
+            const Spacer(),
+          ]),
+        ),
+        const VerticalDivider(width: 1),
+        // ── Content ──
+        Expanded(
+          child: Column(children: [
+            if (_scrapeProgress >= 0)
+              SizedBox(
+                height: 4,
+                child: LinearProgressIndicator(value: _scrapeProgress / 100.0, backgroundColor: Colors.white10),
+              ),
+            Expanded(child: IndexedStack(index: _currentTab, children: pages)),
+          ]),
+        ),
+      ]),
+      bottomNavigationBar: !_isWide(context)
           ? Column(children: [
               Expanded(child: IndexedStack(index: _currentTab, children: pages)),
             ])
