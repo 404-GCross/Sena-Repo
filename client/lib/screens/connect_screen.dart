@@ -65,16 +65,22 @@ class _ConnectScreenState extends State<ConnectScreen> {
         }
         if (!mounted) return;
       } else if (mounted) {
-        // Server is set up → show login
-        final loginResult = await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
-        );
-        if (loginResult == null) return; // user went back
-        // Save token for auto-login
-        if (loginResult is Map) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
+        // Check if we have a saved token → skip login
+        final prefs = await SharedPreferences.getInstance();
+        final savedToken = prefs.getString("auth_token");
+        if (savedToken != null && savedToken.isNotEmpty) {
+          // Token exists, skip login
+        } else {
+          // No token → show login
+          final loginResult = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+          );
+          if (loginResult == null) return; // user went back
+          // Save token for auto-login
+          if (loginResult is Map) {
+            await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
+          }
         }
       }
 
