@@ -46,6 +46,7 @@ class GameSummary {
   final int id;
   final String name;
   final String? companyName;
+  final String? developer;
   final String folderPath;
   final String? coverPath;
   final String platformSummary;
@@ -56,6 +57,7 @@ class GameSummary {
     required this.id,
     required this.name,
     this.companyName,
+    this.developer,
     required this.folderPath,
     this.coverPath,
     required this.platformSummary,
@@ -68,6 +70,7 @@ class GameSummary {
       id: json["id"] ?? 0,
       name: json["name"] ?? "",
       companyName: json["company_name"],
+      developer: json["developer"],
       folderPath: json["folder_path"] ?? "",
       coverPath: json["cover_path"],
       platformSummary: json["platform_summary"] ?? "",

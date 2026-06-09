@@ -149,9 +149,9 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                     children: [
                       Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                      if (game.companyName != null)
-                        Text(game.companyName!, maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                      Text(game.developer ?? game.companyName ?? "",
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                     ],
                   ),
                 ),
@@ -205,9 +205,9 @@ class _GameCard extends StatelessWidget {
               Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               const SizedBox(height: 2),
-              if (game.companyName != null)
-                Text(game.companyName!, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.grey[400], fontSize: 11)),
+              Text(game.developer ?? game.companyName ?? "",
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.grey[400], fontSize: 11)),
             ]))),
         ]),
       ),

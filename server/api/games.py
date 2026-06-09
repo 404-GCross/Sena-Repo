@@ -26,6 +26,7 @@ def _game_to_summary(game: Game) -> GameSummary:
         id=game.id,
         name=game.name,
         company_name=game.company.name if game.company else None,
+        developer=game.developer,
         folder_path=game.folder_path,
         cover_path=game.cover_path,
         platform_summary=", ".join(platforms),

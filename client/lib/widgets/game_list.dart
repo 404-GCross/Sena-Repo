@@ -105,8 +105,8 @@ class _GameListTileState extends State<_GameListTile> {
                     Text(game.name,
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                    if (game.companyName != null)
-                      Text(game.companyName!, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                    Text(game.developer ?? game.companyName ?? "",
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                   ],
                 ),
               ),

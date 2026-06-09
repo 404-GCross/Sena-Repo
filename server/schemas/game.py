@@ -22,6 +22,7 @@ class GameSummary(BaseModel):
     id: int
     name: str
     company_name: str | None = None
+    developer: str | None = None
     folder_path: str
     cover_path: str | None = None
     platform_summary: str = ""  # e.g. "PC, KRKR"
