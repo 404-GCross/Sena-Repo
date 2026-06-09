@@ -15,6 +15,8 @@ import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
 import "settings_screen.dart";
+import "package:http/http.dart" as http;
+import "dart:convert";
 import "notification_screen.dart";
 import "package:http/http.dart" as http;
 import "dart:convert";
@@ -126,6 +128,35 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _addNewGame(BuildContext ctx, GameProvider provider) async {
+    final nameCtrl = TextEditingController();
+    final folderCtrl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: ctx, builder: (c) => AlertDialog(
+        title: const Text("新建条目"),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "游戏名"), autofocus: true),
+          const SizedBox(height: 8),
+          TextField(controller: folderCtrl, decoration: const InputDecoration(labelText: "路径（可选）")),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text("创建")),
+        ],
+      ),
+    );
+    if (result == true) {
+      try {
+        await http.put(Uri.parse("${provider.api.baseUrl}/api/games/quick-create"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"name": nameCtrl.text.trim()}),
+        );
+        await provider.loadGames();
+        if (ctx.mounted) showDialog(context: ctx, builder: (d) => AlertDialog(content: const Text("已创建"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
+      } catch (_) {}
+    }
   }
 
   void _openDetail(game) {
@@ -257,6 +288,12 @@ class _HomeScreenState extends State<HomeScreen> {
               const VerticalDivider(width: 1),
               Expanded(child: IndexedStack(index: _currentTab, children: pages)),
             ]),
+      floatingActionButton: _currentTab == 0
+          ? FloatingActionButton.extended(
+              onPressed: () => _addNewGame(context, gameProvider),
+              icon: const Icon(Icons.add), label: const Text("新建条目"),
+            )
+          : null,
       bottomNavigationBar: !_isWide(context)
           ? NavigationBar(
               selectedIndex: _currentTab,
