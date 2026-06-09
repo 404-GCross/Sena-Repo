@@ -135,10 +135,36 @@ class SteamScraper(BaseScraper):
                 except Exception:
                     continue
 
+            # Ratings and genres
+            rating = 0.0
+            metacritic = (details.get("metacritic") or {}).get("score", 0)
+            if metacritic > 0:
+                rating = round(metacritic / 10.0, 1)
+            else:
+                # Fallback to review rating
+                try:
+                    r_resp = await client.get(
+                        f"https://store.steampowered.com/appreviews/{appid}?json=1&language=all&"
+                        f"purchase_type=all&num_per_page=0&filter=summary"
+                    )
+                    r_data = r_resp.json()
+                    if r_data.get("success") == 1:
+                        q = r_data.get("query_summary", {})
+                        total = q.get("total_positive", 0) + q.get("total_negative", 0)
+                        if total > 0:
+                            rating = round(q["total_positive"] / total * 10, 1)
+                except Exception:
+                    pass
+
+            genres = [g.get("description", "") for g in details.get("genres", []) if g.get("description")]
+            if not genres:
+                genres = [c.get("description", "") for c in details.get("categories", [])[:5] if c.get("description")]
+
             return [ScraperResult(
                 title=title,
                 developer=developer,
                 description=description,
+                release_date=(details.get("release_date") or {}).get("date", ""),
                 cover_url=cover_url,
                 source_id=appid,
                 source_name=self.source_name,
