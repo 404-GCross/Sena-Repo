@@ -222,11 +222,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openDetail(game) {
-    Navigator.push(
+  void _openDetail(game) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
     );
+    if (mounted) {
+      context.read<GameProvider>().loadGames();
+    }
   }
 
   @override
