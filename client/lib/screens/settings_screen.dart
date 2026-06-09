@@ -174,7 +174,7 @@ class _ScraperPage extends StatefulWidget {
 
 class _ScraperPageState extends State<_ScraperPage> {
   final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "igdb": false};
-  final _keys = {"bangumi_token": TextEditingController(), "vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
+  final _keys = {"vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
   void initState() { super.initState(); _loadSettings(); }
@@ -258,7 +258,7 @@ class _ScraperPageState extends State<_ScraperPage> {
     appBar: AppBar(title: const Text("刮削源"), actions: [IconButton(icon: const Icon(Icons.save), onPressed: _save)]),
     body: ListView(padding: const EdgeInsets.all(16), children: [
       _row("VNDB Kana v2（免认证）", "vndb_kana", false),
-      _row("Bangumi", "bangumi", true, key1: "bangumi_token", hint: "从 bgm.tv/dev/app 获取"),
+      _row("Bangumi（免认证）", "bangumi", false),
       _row("Steam（免认证）", "steam", false),
       _row("DLsite（免认证）", "dlsite", false),
       _row("IGDB（需要 Client ID/Secret）", "igdb", true, key1: "igdb_client_id", key2: "igdb_client_secret"),

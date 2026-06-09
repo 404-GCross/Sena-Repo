@@ -41,9 +41,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useSteam = true;
   bool _useDlsite = true;
   bool _useIGDB = false;
-  final _bangumiCtrl = TextEditingController();
   final _vndbCtrl = TextEditingController();
-  final _steamGridDBCtrl = TextEditingController();
   final _igdbIdCtrl = TextEditingController();
   final _igdbSecretCtrl = TextEditingController();
 
@@ -102,7 +100,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Future<void> _saveScraperKeys() async {
     final body = <String, String>{};
-    if (_bangumiCtrl.text.isNotEmpty) body["bangumi_token"] = _bangumiCtrl.text;
     if (_vndbCtrl.text.isNotEmpty) body["vndb_token"] = _vndbCtrl.text;
     if (_igdbIdCtrl.text.isNotEmpty) body["igdb_client_id"] = _igdbIdCtrl.text;
     if (_igdbSecretCtrl.text.isNotEmpty) body["igdb_client_secret"] = _igdbSecretCtrl.text;
@@ -299,13 +296,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     const SizedBox(height: 8),
     _buildScraperRow("VNDB Kana v2（免认证）", _useVndbKana, false,
         () => setState(() => _useVndbKana = !_useVndbKana)),
-    _buildScraperRow("Bangumi", _useBangumi, true,
-        () => setState(() => _useBangumi = !_useBangumi),
-        apiFields: Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 8),
-          child: TextField(controller: _bangumiCtrl,
-            decoration: const InputDecoration(labelText: "Bangumi Token", hintText: "从 bgm.tv/dev/app 获取", isDense: true)),
-        )),
+    _buildScraperRow("Bangumi（免认证）", _useBangumi, false,
+        () => setState(() => _useBangumi = !_useBangumi)),
     _buildScraperRow("Steam（免认证）", _useSteam, false,
         () => setState(() => _useSteam = !_useSteam)),
     _buildScraperRow("DLsite（免认证）", _useDlsite, false,
