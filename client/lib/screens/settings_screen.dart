@@ -41,6 +41,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _sectionHeader("客户端", Icons.phone_android_outlined),
+          const SizedBox(height: 8),
+          _menuCard([
+            _menuItem(Icons.person, Colors.indigo, "个人信息", "修改用户名、密码、头像",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
+            _menuItem(Icons.grid_view, Colors.teal, "显示", "封面大小、托盘设置",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
+            _menuItem(Icons.palette, Colors.pink, "美化", "背景图片与主题色",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
+          ]),
+          const SizedBox(height: 24),
           _sectionHeader("服务端", Icons.dns_outlined),
           const SizedBox(height: 8),
           _menuCard([
@@ -60,17 +71,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 }
                 Navigator.push(context, MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)));
               }),
-          ]),
-          const SizedBox(height: 24),
-          _sectionHeader("客户端", Icons.phone_android_outlined),
-          const SizedBox(height: 8),
-          _menuCard([
-            _menuItem(Icons.grid_view, Colors.teal, "显示", "封面大小调整",
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
-            _menuItem(Icons.palette, Colors.pink, "美化", "背景图片与主题色",
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
-            _menuItem(Icons.person, Colors.indigo, "个人信息", "修改用户名、密码、头像",
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
           ]),
           const SizedBox(height: 32),
           Center(
