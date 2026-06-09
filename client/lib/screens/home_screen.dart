@@ -182,40 +182,46 @@ class _HomeScreenState extends State<HomeScreen> {
                 _filterChip("缺封面", Icons.hide_image, gameProvider.filterHasCover == false,
                     () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == false ? null : false)),
                 const Spacer(),
-                // Sort dropdown styled as pill
-                Container(
-                  padding: const EdgeInsets.only(left: 10, right: 4),
-                  decoration: BoxDecoration(
-                    color: gameProvider.sortBy != null
-                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
-                        : Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: gameProvider.sortBy != null
-                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
-                        : Colors.white.withValues(alpha: 0.08)),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.sort, size: 16, color: gameProvider.sortBy != null
-                        ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
-                    const SizedBox(width: 4),
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: gameProvider.sortBy,
-                        hint: Text("排序", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                        isDense: true,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[300]),
-                        items: const [
-                          DropdownMenuItem(value: null, child: Text("导入时间↓")),
-                          DropdownMenuItem(value: "name", child: Text("名称 A-Z")),
-                          DropdownMenuItem(value: "name_desc", child: Text("名称 Z-A")),
-                          DropdownMenuItem(value: "company", child: Text("会社 A-Z")),
-                          DropdownMenuItem(value: "developer", child: Text("开发商 A-Z")),
-                        ],
-                        onChanged: (v) => gameProvider.setSort(v),
-                      ),
+                // Sort: styled popup menu
+                PopupMenuButton<String>(
+                  offset: const Offset(0, 36),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  onSelected: (v) => gameProvider.setSort(v),
+                  itemBuilder: (_) => [
+                    _sortItem(null, "导入时间 ↓", Icons.schedule, gameProvider.sortBy == null),
+                    _sortItem("name", "名称 A → Z", Icons.sort_by_alpha, gameProvider.sortBy == "name"),
+                    _sortItem("name_desc", "名称 Z → A", Icons.text_rotation_none, gameProvider.sortBy == "name_desc"),
+                    _sortItem("company", "会社 A → Z", Icons.business, gameProvider.sortBy == "company"),
+                    _sortItem("developer", "开发商 A → Z", Icons.code, gameProvider.sortBy == "developer"),
+                  ],
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: gameProvider.sortBy != null
+                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
+                          : Colors.white.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: gameProvider.sortBy != null
+                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
+                          : Colors.white.withValues(alpha: 0.06)),
                     ),
-                  ]),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.sort, size: 16, color: gameProvider.sortBy != null
+                          ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+                      const SizedBox(width: 4),
+                      Text(_sortLabel(gameProvider.sortBy),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500,
+                              color: gameProvider.sortBy != null
+                                  ? Theme.of(context).colorScheme.primary : Colors.grey[500])),
+                      const SizedBox(width: 2),
+                      Icon(Icons.arrow_drop_down, size: 18, color: gameProvider.sortBy != null
+                          ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+                    ]),
+                  ),
                 ),
+                if (gameProvider.sortBy != null) const SizedBox(width: 4),
               ]),
             ]),
           ),
@@ -453,6 +459,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _batchClearSelection() {
     setState(() { _selectedIds.clear(); _multiSelect = false; });
+  }
+
+  String _sortLabel(String? sortBy) {
+    switch (sortBy) {
+      case "name": return "名称 A-Z";
+      case "name_desc": return "名称 Z-A";
+      case "company": return "会社 A-Z";
+      case "developer": return "开发商 A-Z";
+      default: return "排序";
+    }
+  }
+
+  PopupMenuItem<String> _sortItem(String? value, String label, IconData icon, bool active) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Row(children: [
+        Icon(icon, size: 18, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400]),
+        const SizedBox(width: 10),
+        Text(label, style: TextStyle(
+          fontSize: 13, fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+          color: active ? Theme.of(context).colorScheme.primary : Colors.grey[300],
+        )),
+        if (active) ...[
+          const Spacer(),
+          Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary),
+        ],
+      ]),
+    );
   }
 
   void _togglePlatformFilter(String platform) {
