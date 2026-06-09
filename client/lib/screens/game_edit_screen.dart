@@ -168,13 +168,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
               );
             })),
           if (results.isEmpty && searchCtrl.text.isNotEmpty)
-            Padding(padding: const EdgeInsets.all(16), child: Text("无结果，可创建新条目",
+            Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
                 style: TextStyle(color: Colors.grey[500]))),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          if (searchCtrl.text.trim().isNotEmpty)
-            TextButton.icon(
+          TextButton.icon(
               icon: const Icon(Icons.add, size: 16),
               label: const Text("创建新条目并移入"),
               onPressed: () async {
@@ -246,7 +245,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               );
             })),
           if (results.isEmpty && searchCtrl.text.isNotEmpty)
-            Padding(padding: const EdgeInsets.all(16), child: Text("无结果，可创建新条目",
+            Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
                 style: TextStyle(color: Colors.grey[500]))),
         ])),
         actions: [
