@@ -5,11 +5,9 @@ import "dart:convert";
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 
 import "../models/game.dart";
-import "../providers/game_provider.dart";
 import "../providers/game_provider.dart";
 
 class GameEditScreen extends StatefulWidget {
@@ -32,7 +30,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   void initState() {
     super.initState();
     final g = widget.game;
-    _coverPath = _coverPath;
+    _coverPath = g.coverPath;
     _name = TextEditingController(text: g.name);
     _dev = TextEditingController(text: g.developer ?? "");
     _desc = TextEditingController(text: g.description ?? "");
