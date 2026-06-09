@@ -251,13 +251,6 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             tooltip: "通知",
           ),
-          if (_currentTab == 0)
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const SettingsScreen())),
-              tooltip: "设置",
-            ),
         ],
       ),
       body: !_isWide(context)
