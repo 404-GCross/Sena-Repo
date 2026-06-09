@@ -54,23 +54,29 @@ class BangumiScraper(BaseScraper):
         if use_proxy and self.proxy:
             kwargs["proxy"] = self.proxy
         async with httpx.AsyncClient(**kwargs) as client:
-            body = {
-                "keyword": keyword,
-                "sort": "match",
-                "filter": {"type": [4]},  # 4 = game
-            }
             headers = {
-                "Content-Type": "application/json; charset=UTF-8",
                 "Accept": "application/json",
                 "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
             }
-            if self.token:
-                headers["Authorization"] = f"Bearer {self.token}"
-
-            url = f"{endpoint}/v0/search/subjects?limit=3&offset=0"
-            resp = await self._request_with_retry(client, "POST", url, json=body, headers=headers)
+            # Old API for better Chinese search (same as Playnite)
+            from urllib.parse import quote as url_quote
+            url = f"{endpoint}/search/subject/{url_quote(keyword)}?type=4&responseGroup=large&max_results=5"
+            resp = await self._request_with_retry(client, "GET", url, headers=headers)
             data = resp.json()
-            return [self._parse(item) for item in data.get("data", []) if item.get("id")]
+            results = []
+            for item in data.get("list", []):
+                cover = (item.get("images") or {}).get("large", "")
+                if cover.startswith("//"):
+                    cover = "https:" + cover
+                results.append(ScraperResult(
+                    title=item.get("name_cn", "") or item.get("name", ""),
+                    description=item.get("summary", ""),
+                    release_date=item.get("air_date", ""),
+                    cover_url=cover,
+                    source_id=str(item.get("id", "")),
+                    source_name=self.source_name,
+                ))
+            return results
 
     def _parse(self, item: dict) -> ScraperResult:
         images = item.get("images", {})
