@@ -11,6 +11,7 @@ import "../providers/settings_provider.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
 import "connect_screen.dart";
+import "download_manager_screen.dart";
 import "../providers/game_provider.dart";
 
 class ProfileScreen extends StatefulWidget {
@@ -122,6 +123,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => NotificationScreen(
                     api: context.read<GameProvider>().api))),
+          ),
+          _menuDivider(),
+          _menuItem(
+            icon: Icons.download_outlined,
+            title: "下载管理",
+            trailing: "查看下载任务",
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
           ),
           _menuDivider(),
           _menuItem(

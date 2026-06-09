@@ -8,6 +8,7 @@ import "package:http/http.dart" as http;
 
 import "../models/game.dart";
 import "../services/api_client.dart";
+import "../services/download_service.dart";
 import "../providers/game_provider.dart";
 import "game_edit_screen.dart";
 
@@ -173,6 +174,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                   ),
                                   const SizedBox(width: 10),
                                   Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: const Icon(Icons.download, size: 20),
+                                    tooltip: "下载",
+                                    onPressed: () => _startDownload(game, v),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
                                 ]),
                               ),
                               if (!isLast) _divider(),
@@ -388,6 +396,25 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   void _showDialog(BuildContext ctx, String title, String msg) {
     showDialog(context: ctx, builder: (c) => AlertDialog(title: Text(title), content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
+  }
+
+  Future<void> _startDownload(GameDetail game, dynamic v) async {
+    final downloadUrl = "$_baseUrl/api/download/${game.id}/${v.id}";
+    await DownloadService().startDownload(
+      gameId: game.id,
+      versionId: v.id,
+      fileName: v.filename,
+      downloadUrl: downloadUrl,
+      gameName: game.name,
+      companyName: game.companyName ?? "",
+    );
+    if (mounted) {
+      showDialog(context: context, builder: (c) => AlertDialog(
+        title: const Text("下载已开始"),
+        content: Text("${v.filename} 正在后台下载"),
+        actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
+      ));
+    }
   }
 
   Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
