@@ -356,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
                 if (showSteam)
                   const NavigationDestination(
-                    icon: FaIcon(FontAwesomeIcons.steam), selectedIcon: FaIcon(FontAwesomeIcons.steam, color: Theme.of(context).colorScheme.primary), label: "Steam补丁"),
+                    icon: Icon(FontAwesomeIcons.steam), selectedIcon: Icon(FontAwesomeIcons.steam), label: "Steam补丁"),
                 const NavigationDestination(
                   icon: Icon(Icons.person_outlined), selectedIcon: Icon(Icons.person), label: "我的"),
               ],
