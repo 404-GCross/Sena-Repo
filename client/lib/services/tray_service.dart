@@ -37,6 +37,15 @@ class TrayService {
       iconPath = iconFile.path;
     } catch (_) {}
 
+    // Register event handler BEFORE init to catch all events
+    _tray.registerSystemTrayEventHandler((eventName) {
+      if (eventName == kSystemTrayEventClick) {
+        windowManager.show();
+      } else if (eventName == kSystemTrayEventRightClick) {
+        _tray.popUpContextMenu();
+      }
+    });
+
     await _tray.initSystemTray(
       title: "Sena Repo",
       iconPath: iconPath,
@@ -48,14 +57,6 @@ class TrayService {
       MenuItemLabel(label: "退出", onClicked: (_) => _onQuit?.call()),
     ]);
     await _tray.setContextMenu(menu);
-
-    // Handle tray icon left-click to restore window
-    // Right-click context menu is handled automatically by Windows
-    _tray.registerSystemTrayEventHandler((eventName) {
-      if (eventName == "SystemTray.leftClick" || eventName == "SystemTray.doubleClick") {
-        windowManager.show();
-      }
-    });
 
     _initialized = true;
   }
