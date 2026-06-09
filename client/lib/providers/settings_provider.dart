@@ -46,13 +46,13 @@ class SettingsProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return true;
-    } on http.ClientException {
-      _errorMessage = "无法连接到服务器，请检查地址和端口";
+    } on http.ClientException catch (e) {
+      _errorMessage = "无法连接到服务器: $e";
       _isLoading = false;
       notifyListeners();
       return false;
     } catch (e) {
-      _errorMessage = "连接超时，请检查网络";
+      _errorMessage = "连接失败: $e";
       _isLoading = false;
       notifyListeners();
       return false;
