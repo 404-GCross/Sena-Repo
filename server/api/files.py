@@ -79,6 +79,23 @@ async def serve_background(filename: str):
     )
 
 
+@router.get("/avatars/{filename:path}")
+async def serve_avatar(filename: str):
+    """Serve a user avatar image file."""
+    name = Path(filename).name
+    ext = Path(name).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=403, detail="File type not allowed")
+
+    config = load_config()
+    avatars_dir = Path(config.data_path) / "avatars"
+    file_path = avatars_dir / name
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    return FileResponse(file_path, media_type=_media_type(ext),
+        headers={"Cache-Control": "public, max-age=3600"})
+
+
 def _media_type(ext: str) -> str:
     return {
         ".jpg": "image/jpeg",

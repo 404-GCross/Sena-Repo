@@ -1,6 +1,9 @@
 /// Profile / my page.
 
+import "dart:convert";
+
 import "package:flutter/material.dart";
+import "package:http/http.dart" as http;
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
@@ -20,6 +23,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   String _username = "";
   String _serverInfo = "";
+  String? _avatarPath;
+  int _userId = 0;
 
   @override
   void initState() {
@@ -30,11 +35,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     final settings = context.read<SettingsProvider>();
+    final token = prefs.getString("auth_token");
+    _userId = int.tryParse(token ?? "") ?? 0;
     if (mounted) {
       setState(() {
         _username = prefs.getString("username") ?? "Sena Repo";
         _serverInfo = "服务器: ${settings.serverHost}:${settings.serverPort}";
       });
+    }
+    // Try loading avatar from server
+    if (_userId > 0) {
+      try {
+        final resp = await http.get(Uri.parse(
+            "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/$_userId"));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body) as Map<String, dynamic>;
+          if (mounted) setState(() => _avatarPath = data["avatar_path"]);
+        }
+      } catch (_) {}
     }
   }
 
@@ -66,14 +84,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: CircleAvatar(
               radius: 44,
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              child: Text(
-                _username.isNotEmpty ? _username[0].toUpperCase() : "S",
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
+              backgroundImage: _avatarPath != null && _avatarPath!.isNotEmpty
+                  ? NetworkImage("${context.read<GameProvider>().api.baseUrl}/api/files/avatars/${_avatarPath!.split("/").last}")
+                  : null,
+              child: _avatarPath == null || _avatarPath!.isEmpty
+                  ? Text(
+                      _username.isNotEmpty ? _username[0].toUpperCase() : "S",
+                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary),
+                    )
+                  : null,
             ),
           ),
         ),

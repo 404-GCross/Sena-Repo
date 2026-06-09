@@ -9,6 +9,7 @@ import "dart:convert";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "beautify_screen.dart";
+import "profile_edit_screen.dart";
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -63,6 +64,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
           _menuItem(Icons.palette, "美化", "背景图片与主题色",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
+          _menuItem(Icons.person, "个人信息", "修改用户名、密码、头像",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
           const SizedBox(height: 32),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -32,6 +32,7 @@ class User(Base):
     salt = Column(String(64), nullable=False)
     is_admin = Column(Boolean, default=False)
     status = Column(String(16), default="active")  # active, pending, rejected
+    avatar_path = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

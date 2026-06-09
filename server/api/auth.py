@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -192,3 +192,88 @@ async def mark_all_read(session: AsyncSession = Depends(get_session)):
         note.read = True
     await session.commit()
     return {"ok": True}
+
+
+# ── Profile management ──
+
+class ProfileUpdate(BaseModel):
+    username: str | None = None
+    current_password: str | None = None
+    new_password: str | None = None
+
+
+@router.get("/profile/{user_id}")
+async def get_profile(user_id: int, session: AsyncSession = Depends(get_session)):
+    """Get user profile info."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "id": user.id, "username": user.username,
+        "is_admin": user.is_admin, "avatar_path": user.avatar_path,
+    }
+
+
+@router.put("/profile/{user_id}")
+async def update_profile(
+    user_id: int, body: ProfileUpdate, session: AsyncSession = Depends(get_session),
+):
+    """Update username and/or password."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.new_password:
+        if not body.current_password:
+            raise HTTPException(status_code=400, detail="需要当前密码")
+        if not verify_password(body.current_password, user.salt, user.password_hash):
+            raise HTTPException(status_code=403, detail="当前密码错误")
+        pw_hash, salt = hash_password(body.new_password)
+        user.password_hash = pw_hash
+        user.salt = salt
+
+    if body.username and body.username != user.username:
+        existing = await session.execute(
+            select(User).where(User.username == body.username)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="用户名已存在")
+        user.username = body.username
+
+    await session.commit()
+    return {"message": "更新成功", "username": user.username}
+
+
+@router.post("/profile/{user_id}/avatar")
+async def upload_avatar(
+    user_id: int,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upload or update user avatar."""
+    from pathlib import Path
+    from config import load_config
+
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    ext = Path(file.filename or "avatar.jpg").suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        raise HTTPException(status_code=403, detail="File type not allowed")
+
+    config = load_config()
+    avatars_dir = Path(config.data_path) / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    import uuid
+    name = f"{user_id}_{uuid.uuid4().hex[:8]}{ext}"
+    dest = avatars_dir / name
+    dest.write_bytes(await file.read())
+
+    user.avatar_path = str(dest)
+    await session.commit()
+    return {"avatar_path": str(dest), "url": f"/api/files/avatars/{name}"}
