@@ -2,9 +2,9 @@
 
 ## 📱 简介
 
-**Sena Repo** 是一款面向多平台的 Galgame/视觉小说私有库管理工具，适合管理部署在远程服务器（如 NAS）上的游戏库，让使用者能方便地浏览、搜索和下载自己的游戏收藏。
+**Sena Repo** 是一款面向多平台的视觉小说私有库管理工具，适合管理部署在远程服务器（如 NAS）上的游戏，让使用者能方便地浏览、搜索和下载并安装自己的游戏收藏。
 
-它的目标是把"游戏库管理、元数据刮削、快捷下载"整合到一个统一的界面中。
+它的目标是把"游戏库管理、元数据刮削、快捷下载与安装"整合到一个统一的界面中。
 
 通过 Docker 部署服务端，服务端负责扫描目录、清洗文件名、刮削元数据；客户端（Windows / Android / Linux）通过 HTTP 连接服务端，提供一体化的游戏库浏览和元数据编辑体验。
 
@@ -65,15 +65,17 @@
 
 ### 4. 刮削
 
-用游戏名 + 会社标签去刮削源匹配元数据。刮削源支持：
+用游戏名 + 会社标签去刮削源匹配元数据。所有刮削源均免认证：
 
 | 刮削源 | 说明 |
 |--------|------|
 | VNDB Kana v2 | 免认证，中文标题 |
-| Bangumi | 免认证，填 Token 提速率 |
+| VNDB Titles | 免认证，英文/日文标题 |
+| Bangumi | 免认证 |
 | Steam | 免认证 |
 | DLsite | 免认证（建议配日本代理） |
-| IGDB | 需要 Client ID / Secret |
+
+> IGDB 可选启用，需要配置 Client ID / Secret（从 [Twitch](https://dev.twitch.tv/console/apps) 获取）。
 
 ## 主要功能
 
@@ -140,14 +142,13 @@ docker run -d \
   sena-repo:latest
 ```
 
-> 刮削 API Key 通过环境变量传入（可选，不填也能用免认证源）：
+> 刮削 API Key 通过环境变量传入（全部可选，不填也能正常使用）：
 
 | 环境变量 | 对应刮削源 | 获取地址 |
 |---|---|---|
-| `SENA_BANGUMI_TOKEN` | Bangumi | https://bgm.tv/dev/app |
-| `SENA_VNDB_TOKEN` | VNDB | https://vndb.org/u/tokens |
-| `SENA_IGDB_CLIENT_ID` | IGDB | https://dev.twitch.tv/console/apps |
-| `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
+| `SENA_BANGUMI_TOKEN` | Bangumi（提速率） | https://bgm.tv/dev/app |
+| `SENA_IGDB_CLIENT_ID` | IGDB（可选启用） | https://dev.twitch.tv/console/apps |
+| `SENA_IGDB_CLIENT_SECRET` | IGDB（可选启用） | 同上 |
 
 **方式二：Docker Compose**
 
