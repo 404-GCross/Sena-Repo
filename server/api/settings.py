@@ -53,7 +53,6 @@ async def update_scan_settings(body: ScanSettings):
 class ScraperConfigOut(BaseModel):
     bangumi_token: str = ""
     vndb_token: str = ""
-    steamgriddb_key: str = ""
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
     proxy: str = ""
@@ -62,7 +61,6 @@ class ScraperConfigOut(BaseModel):
 class ScraperConfigUpdate(BaseModel):
     bangumi_token: str | None = None
     vndb_token: str | None = None
-    steamgriddb_key: str | None = None
     igdb_client_id: str | None = None
     igdb_client_secret: str | None = None
     proxy: str | None = None
@@ -83,7 +81,6 @@ async def get_scraper_config():
     return ScraperConfigOut(
         bangumi_token=_mask(s.bangumi_token),
         vndb_token=_mask(s.vndb_token),
-        steamgriddb_key=_mask(s.steamgriddb_key),
         igdb_client_id=_mask(s.igdb_client_id),
         igdb_client_secret=_mask(s.igdb_client_secret),
         proxy=config.proxy,
@@ -124,7 +121,7 @@ async def update_scraper_config(body: ScraperConfigUpdate):
     config = load_config()
     data = _read_scraper_config()
 
-    for key in ("bangumi_token", "vndb_token", "steamgriddb_key", "igdb_client_id", "igdb_client_secret", "proxy"):
+    for key in ("bangumi_token", "vndb_token", "igdb_client_id", "igdb_client_secret", "proxy"):
         val = getattr(body, key, None)
         if val is not None:
             setattr(config.scrapers, key, val) if key != "proxy" else setattr(config, "proxy", val)

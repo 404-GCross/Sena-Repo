@@ -24,11 +24,9 @@ custom_regex:
 # Scraper API keys (optional, fill in to enable)
 # Bangumi Token: https://bgm.tv/dev/app
 # VNDB Token: https://vndb.org/u/tokens
-# SteamGridDB Key: https://www.steamgriddb.com/profile/preferences/api
 # IGDB: https://dev.twitch.tv/console/apps
 scrapers:
   bangumi_token: ""
   vndb_token: ""
-  steamgriddb_key: ""
   igdb_client_id: ""
   igdb_client_secret: ""

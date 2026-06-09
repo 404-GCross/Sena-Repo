@@ -27,7 +27,6 @@ class CustomRegex:
 class ScraperConfig:
     bangumi_token: str = ""
     vndb_token: str = ""
-    steamgriddb_key: str = ""
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
 
@@ -117,8 +116,6 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.bangumi_token = os.environ["SENA_BANGUMI_TOKEN"]
     if os.environ.get("SENA_VNDB_TOKEN"):
         config.scrapers.vndb_token = os.environ["SENA_VNDB_TOKEN"]
-    if os.environ.get("SENA_STEAMGRIDDB_KEY"):
-        config.scrapers.steamgriddb_key = os.environ["SENA_STEAMGRIDDB_KEY"]
     if os.environ.get("SENA_IGDB_CLIENT_ID"):
         config.scrapers.igdb_client_id = os.environ["SENA_IGDB_CLIENT_ID"]
     if os.environ.get("SENA_IGDB_CLIENT_SECRET"):
