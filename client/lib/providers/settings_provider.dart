@@ -31,9 +31,10 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Use dart:io HttpClient for more reliable connection on all platforms
+      // Use dart:io HttpClient, bypass system proxy for direct LAN connection
       final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 5);
+      client.connectionTimeout = const Duration(seconds: 8);
+      client.findProxy = (url) => 'DIRECT';
       final request = await client.getUrl(Uri.parse("http://$host:$port/api/health"));
       final response = await request.close().timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) {
