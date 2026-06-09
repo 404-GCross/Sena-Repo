@@ -574,10 +574,17 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   );
                 })),
           ])),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, "retry"), child: const Text("重新选择来源")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          ],
         ));
       },
     );
+    if (picked == "retry") {
+      _downloadMetadata();
+      return;
+    }
     if (picked == null || !mounted) return;
 
     // Step 3: Per-field comparison (Playnite style)
@@ -653,7 +660,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
               }).toList())),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, {"retry": true}), child: const Text("重新选择来源")),
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
             FilledButton(onPressed: () => Navigator.pop(ctx, useSearch), child: const Text("应用所选")),
           ],
@@ -661,10 +667,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
       ),
     );
     if (confirmed == null || !mounted) return;
-    if (confirmed is Map && (confirmed as Map)["retry"] == true) {
-      _downloadMetadata();
-      return;
-    }
 
     if (confirmed is! Map<String, bool>) return;
     // Apply only selected fields
