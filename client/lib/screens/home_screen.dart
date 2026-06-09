@@ -275,18 +275,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: LinearProgressIndicator(value: _scrapeProgress / 100.0, backgroundColor: Colors.white10),
               ),
             Expanded(child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: pages[_currentTab],
+              duration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) => SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.04, 0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: KeyedSubtree(key: ValueKey(_currentTab), child: pages[_currentTab]),
             )),
           ]),
         ),
       ]),
-      floatingActionButton: _currentTab == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => _addNewGame(context, gameProvider),
-              icon: const Icon(Icons.add), label: const Text("新建条目"),
-            )
-          : null,
+      floatingActionButton: AnimatedScale(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        scale: _currentTab == 0 ? 1.0 : 0.0,
+        child: FloatingActionButton.extended(
+          onPressed: _currentTab == 0 ? () => _addNewGame(context, gameProvider) : null,
+          icon: const Icon(Icons.add), label: const Text("新建条目"),
+        ),
+      ),
       bottomNavigationBar: !_isWide(context)
           ? NavigationBar(
               selectedIndex: _currentTab,
