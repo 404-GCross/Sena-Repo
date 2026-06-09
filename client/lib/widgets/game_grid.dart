@@ -116,7 +116,7 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                         child: hasCover
                             ? Image.network(
                                 "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
-                                fit: BoxFit.contain,
+                                fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => _lunaPlaceholder(),
                                 loadingBuilder: (_, child, progress) =>
                                     progress == null ? child : _lunaPlaceholder(),
@@ -141,17 +141,17 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                     ],
                   ),
                 ),
-                // Meta
+                // Meta — dark gradient overlay for readability
                 Padding(
                   padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
                       Text(game.developer ?? game.companyName ?? "",
                           maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                          style: TextStyle(fontSize: 11, color: Colors.grey[300])),
                     ],
                   ),
                 ),
@@ -198,7 +198,7 @@ class _GameCard extends StatelessWidget {
           Expanded(flex: 3, child: Container(color: Colors.grey[850],
             child: hasCover
                 ? Image.network("$coverBaseUrl/api/files/covers${game.coverPath!}",
-                    fit: BoxFit.contain, errorBuilder: (_, __, ___) => _placeholder())
+                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
                 : _placeholder())),
           Expanded(flex: 1, child: Padding(padding: const EdgeInsets.all(8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.center, children: [
