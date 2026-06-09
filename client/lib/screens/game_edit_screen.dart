@@ -41,7 +41,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _steam = TextEditingController(text: g.steamId ?? "");
     _bgm = TextEditingController(text: g.bangumiId ?? "");
     _notes = TextEditingController();
-    _dirty = {};
   }
 
   Future<void> _save() async {
@@ -121,7 +120,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _dev.text = (picked["developer"] ?? "").toString();
       _desc.text = (picked["description"] ?? "").toString();
       _date.text = (picked["release_date"] ?? "").toString();
-      _dirty[source] = true;
     });
     _showMsg("已填入 $label 数据");
   }
