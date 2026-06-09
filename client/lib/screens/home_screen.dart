@@ -1,10 +1,12 @@
 /// Main home screen with bottom tab navigation.
 /// Steam patch tab is hidden on Android (PC-only feature).
 
-import "dart:io" show Platform;
+import "dart:io" show File, Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+
+import "../providers/theme_provider.dart";
 
 import "../providers/game_provider.dart";
 import "../widgets/game_grid.dart";
@@ -135,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final gameProvider = context.watch<GameProvider>();
+    final theme = context.watch<ThemeProvider>();
 
     // Build page list and nav destinations dynamically
     final pages = <Widget>[
@@ -144,7 +147,21 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
     final profileIdx = _showSteamTab ? 2 : 1;
 
-    return Scaffold(
+    return Stack(
+      children: [
+        // Background image
+        if (theme.backgroundUrl != null && theme.backgroundUrl!.isNotEmpty)
+          Positioned.fill(
+            child: theme.backgroundUrl!.startsWith("file://")
+                ? Image.file(File(theme.backgroundUrl!.replaceFirst("file://", "")),
+                    fit: BoxFit.cover, opacity: const AlwaysStoppedAnimation(0.15))
+                : Image.network(theme.backgroundUrl!,
+                    fit: BoxFit.cover, opacity: const AlwaysStoppedAnimation(0.15),
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          )
+        else if (theme.bgColor != null)
+          Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
+        Scaffold(
       appBar: AppBar(
         title: const Text("Sena Repo"),
         bottom: _scrapeProgress >= 0
@@ -253,7 +270,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             )
           : null,
-    );
+      ),
+    ]);
   }
 
 }
