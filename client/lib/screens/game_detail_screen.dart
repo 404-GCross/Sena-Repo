@@ -245,7 +245,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 onSubmitted: (v) async {
                   setD(() { searching = true; results = []; });
                   try {
-                    final r = await http.get(Uri.parse("$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
+                    final r = await http.get(Uri.parse("${_api.baseUrl}/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
                     results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
                   } catch (_) {}
                   setD(() => searching = false);
@@ -255,7 +255,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 onPressed: () async {
                   setD(() { searching = true; results = []; });
                   try {
-                    final r = await http.get(Uri.parse("$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
+                    final r = await http.get(Uri.parse("${_api.baseUrl}/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
                     results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
                   } catch (_) {}
                   setD(() => searching = false);
@@ -299,7 +299,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       return;
     }
     try {
-      await http.post(Uri.parse("$_baseUrl/api/games/${game.id}/scrape-apply"),
+      await http.post(Uri.parse("${_api.baseUrl}/api/games/${game.id}/scrape-apply"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"source_id": picked["source_id"] ?? "", "source": src, "cover_url": coverUrl, "title": picked["title"] ?? "", "developer": picked["developer"] ?? "", "description": picked["description"] ?? "", "release_date": picked["release_date"] ?? ""}));
       _load();

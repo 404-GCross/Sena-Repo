@@ -457,17 +457,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
 
+  @override
   void dispose() {
     _name.dispose(); _dev.dispose(); _desc.dispose(); _date.dispose();
     _vndb.dispose(); _steam.dispose(); _bgm.dispose(); _notes.dispose();
     super.dispose();
   }
-}
 
-InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText}) {
-  return InputDecoration(
-    filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
-    border: border, isDense: isDense,
-    contentPadding: contentPadding, hintText: hintText,
-  );
+  InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText, String? labelText}) {
+    return InputDecoration(
+      filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
+      border: border, isDense: isDense,
+      contentPadding: contentPadding, hintText: hintText, labelText: labelText,
+    );
+  }
 }
