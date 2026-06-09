@@ -8,12 +8,18 @@ class GameList extends StatelessWidget {
   final List<GameSummary> games;
   final void Function(GameSummary game) onTap;
   final String coverBaseUrl;
+  final Set<int> selectedIds;
+  final void Function(int id)? onSelect;
+  final bool multiSelect;
 
   const GameList({
     super.key,
     required this.games,
     required this.onTap,
     this.coverBaseUrl = "",
+    this.selectedIds = const {},
+    this.onSelect,
+    this.multiSelect = false,
   });
 
   @override
@@ -28,10 +34,29 @@ class GameList extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Wrap(
             spacing: 8, runSpacing: 4,
-            children: games.map((game) => SizedBox(
-              width: colWidth - (columns > 1 ? 8 : 0),
-              child: _GameListTile(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl),
-            )).toList(),
+            children: games.map((game) => Stack(children: [
+              SizedBox(
+                width: colWidth - (columns > 1 ? 8 : 0),
+                child: _GameListTile(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl),
+              ),
+              if (multiSelect)
+                Positioned(
+                  top: 10, left: 6,
+                  child: Container(
+                    width: 24, height: 24,
+                    decoration: BoxDecoration(
+                      color: selectedIds.contains(game.id)
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 2),
+                    ),
+                    child: selectedIds.contains(game.id)
+                        ? const Icon(Icons.check, size: 16, color: Colors.white)
+                        : null,
+                  ),
+                ),
+            ])).toList(),
           ),
         );
       },

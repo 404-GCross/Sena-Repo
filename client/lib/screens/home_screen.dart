@@ -35,6 +35,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isGridView = true;
   int _unreadCount = 0;
   int _scrapeProgress = -1; // -1 = none, 0-100 = %
+  bool _multiSelect = false;
+  final _selectedIds = <int>{};
   final _searchController = TextEditingController();
 
   bool _isWide(BuildContext ctx) => !Platform.isAndroid || MediaQuery.of(ctx).size.shortestSide > 600;
@@ -156,11 +158,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           games: gameProvider.games,
                           coverBaseUrl: gameProvider.api.baseUrl,
                           onTap: (game) => _openDetail(game),
+                          selectedIds: _selectedIds,
+                          onSelect: (id) => _toggleSelect(id),
+                          multiSelect: _multiSelect,
                         )
                       : GameList(
                           games: gameProvider.games,
                           coverBaseUrl: gameProvider.api.baseUrl,
                           onTap: (game) => _openDetail(game),
+                          selectedIds: _selectedIds,
+                          onSelect: (id) => _toggleSelect(id),
+                          multiSelect: _multiSelect,
                         ),
         ),
       ],
@@ -225,6 +233,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openDetail(game) async {
+    if (_multiSelect) {
+      _toggleSelect(game.id);
+      return;
+    }
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
@@ -232,6 +244,64 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       context.read<GameProvider>().loadGames();
     }
+  }
+
+  void _toggleSelect(int id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+        if (_selectedIds.isEmpty) _multiSelect = false;
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _toggleMultiSelect() {
+    setState(() {
+      _multiSelect = !_multiSelect;
+      if (!_multiSelect) _selectedIds.clear();
+    });
+  }
+
+  Future<void> _batchDelete() async {
+    final confirmed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text("批量删除"),
+      content: Text("确定删除 ${_selectedIds.length} 个游戏？不会删除本地文件。"),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("取消")),
+        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text("删除", style: TextStyle(color: Colors.red))),
+      ],
+    ));
+    if (confirmed != true || !mounted) return;
+    try {
+      final base = context.read<GameProvider>().api.baseUrl;
+      await http.post(Uri.parse("$base/api/games/batch-delete"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"game_ids": _selectedIds.toList()}));
+      await context.read<GameProvider>().loadGames();
+      setState(() { _selectedIds.clear(); _multiSelect = false; });
+    } catch (_) {}
+  }
+
+  Future<void> _batchScrape() async {
+    try {
+      final base = context.read<GameProvider>().api.baseUrl;
+      await http.post(Uri.parse("$base/api/scrape/batch"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"game_ids": _selectedIds.toList()}));
+      if (mounted) {
+        showDialog(context: context, builder: (c) => AlertDialog(
+          title: const Text("批量刮削"), content: Text("已触发 ${_selectedIds.length} 个游戏的刮削任务"),
+          actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
+        ));
+      }
+      setState(() { _selectedIds.clear(); _multiSelect = false; });
+    } catch (_) {}
+  }
+
+  void _batchClearSelection() {
+    setState(() { _selectedIds.clear(); _multiSelect = false; });
   }
 
   @override
@@ -302,6 +372,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   _sideBtn(_isGridView ? Icons.list : Icons.grid_view,
                       _isGridView ? "列表" : "网格",
                       () => setState(() => _isGridView = !_isGridView)),
+                  _sideBtn(
+                      _multiSelect ? Icons.check_box : Icons.check_box_outline_blank,
+                      "多选", _toggleMultiSelect),
                 ]),
               ),
             ),
@@ -338,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ]),
         ),
       ]),
-      floatingActionButton: AnimatedScale(
+      floatingActionButton: _multiSelect ? null : AnimatedScale(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeInOut,
         scale: _currentTab == 0 ? 1.0 : 0.0,
@@ -347,9 +420,44 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.add), label: const Text("新建条目"),
         ),
       ),
-      bottomNavigationBar: !_isWide(context)
-          ? NavigationBar(
-              selectedIndex: _currentTab,
+      bottomNavigationBar: _multiSelect && _selectedIds.isNotEmpty
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+              ),
+              child: Row(children: [
+                TextButton.icon(
+                  onPressed: _batchClearSelection,
+                  icon: const Icon(Icons.close, size: 18),
+                  label: Text("${_selectedIds.length} 项"),
+                  style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                ),
+                const Spacer(),
+                FilledButton.tonalIcon(
+                  onPressed: _batchScrape,
+                  icon: const Icon(Icons.image_search, size: 18),
+                  label: const Text("刮削"),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonalIcon(
+                  onPressed: _batchDelete,
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text("删除"),
+                  style: FilledButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  ),
+                ),
+              ]),
+            )
+          : (!_isWide(context)
+              ? NavigationBar(
+                  selectedIndex: _currentTab,
               onDestinationSelected: (i) => setState(() => _currentTab = i),
               destinations: [
                 const NavigationDestination(

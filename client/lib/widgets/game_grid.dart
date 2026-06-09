@@ -11,12 +11,18 @@ class GameGrid extends StatefulWidget {
   final List<GameSummary> games;
   final void Function(GameSummary game) onTap;
   final String coverBaseUrl;
+  final Set<int> selectedIds;
+  final void Function(int id)? onSelect;
+  final bool multiSelect;
 
   const GameGrid({
     super.key,
     required this.games,
     required this.onTap,
     this.coverBaseUrl = "",
+    this.selectedIds = const {},
+    this.onSelect,
+    this.multiSelect = false,
   });
 
   @override
@@ -52,7 +58,26 @@ class _GameGridState extends State<GameGrid> {
       itemCount: widget.games.length,
       itemBuilder: (context, index) {
         final game = widget.games[index];
-        return _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl);
+        return Stack(children: [
+          _GameCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl),
+          if (widget.multiSelect)
+            Positioned(
+              top: 6, left: 6,
+              child: Container(
+                width: 24, height: 24,
+                decoration: BoxDecoration(
+                  color: widget.selectedIds.contains(game.id)
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 2),
+                ),
+                child: widget.selectedIds.contains(game.id)
+                    ? const Icon(Icons.check, size: 16, color: Colors.white)
+                    : null,
+              ),
+            ),
+        ]);
       },
     );
   }
