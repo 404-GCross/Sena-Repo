@@ -210,6 +210,117 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
   }
 
+  Future<void> _scrapeCoverFlow(BuildContext context, game) async {
+    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "muyue": "muyueGalgame"};
+    final srcToId = {"vndb_kana": game.vndbId, "bangumi": game.bangumiId, "steam": game.steamId};
+
+    // Step 1: Pick source
+    final src = await showDialog<String>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("选择封面来源"),
+        content: Column(mainAxisSize: MainAxisSize.min,
+          children: sources.entries.map((e) => ListTile(
+            title: Text(e.value), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.pop(ctx, e.key),
+          )).toList()),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+      ),
+    );
+    if (src == null || !mounted) return;
+
+    // Step 2: Search
+    final hasId = srcToId[src] != null && srcToId[src]!.isNotEmpty;
+    final prefill = hasId ? srcToId[src]! : game.name;
+    final ctrl = TextEditingController(text: prefill);
+    var picked = await showDialog<Map<String, dynamic>>(
+      context: context, builder: (ctx) {
+        var results = <Map<String, dynamic>>[];
+        var searching = false;
+        return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+          title: Text("${sources[src]} — 搜索"),
+          content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Expanded(child: TextField(controller: ctrl, autofocus: true,
+                decoration: InputDecoration(labelText: hasId ? "已有 ID，可修改" : "名称或 ID", hintText: hasId ? "按已有 ID 搜索" : "输入游戏名或 ID", isDense: true),
+                onSubmitted: (v) async {
+                  setD(() { searching = true; results = []; });
+                  try {
+                    final r = await http.get(Uri.parse("$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
+                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                  } catch (_) {}
+                  setD(() => searching = false);
+                })),
+              const SizedBox(width: 8),
+              IconButton.filled(icon: const Icon(Icons.search, size: 18),
+                onPressed: () async {
+                  setD(() { searching = true; results = []; });
+                  try {
+                    final r = await http.get(Uri.parse("$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
+                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                  } catch (_) {}
+                  setD(() => searching = false);
+                }),
+            ]),
+            const SizedBox(height: 8),
+            if (searching) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
+            if (!searching && results.isEmpty)
+              const Padding(padding: EdgeInsets.all(16), child: Text("无结果", style: TextStyle(color: Colors.grey))),
+            if (results.isNotEmpty)
+              SizedBox(height: 320,
+                child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+                  final r = results[i];
+                  final cov = (r["cover_url"] ?? "").toString();
+                  return ListTile(
+                    leading: cov.isNotEmpty
+                        ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                            child: Image.network(cov, width: 50, height: 70,
+                                fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
+                        : _noCover(),
+                    title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
+                    subtitle: Text("${r["developer"] ?? ""} . ${r["release_date"] ?? ""}",
+                        maxLines: 2, style: const TextStyle(fontSize: 11)),
+                    onTap: () => Navigator.pop(ctx, r),
+                  );
+                })),
+          ])),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+        ));
+      },
+    );
+    if (picked == null || !mounted) return;
+
+    // Step 3: Apply
+    final coverUrl = (picked["cover_url"] ?? "").toString();
+    if (coverUrl.isEmpty) {
+      showDialog(context: context, builder: (ctx) => AlertDialog(
+        title: const Text("提示"), content: const Text("该结果没有封面图片"),
+        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+      ));
+      return;
+    }
+    try {
+      await http.post(Uri.parse("$_baseUrl/api/games/${game.id}/scrape-apply"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"source_id": picked["source_id"] ?? "", "source": src, "cover_url": coverUrl, "title": picked["title"] ?? "", "developer": picked["developer"] ?? "", "description": picked["description"] ?? "", "release_date": picked["release_date"] ?? ""}));
+      _load();
+      if (context.mounted) {
+        showDialog(context: context, builder: (ctx) => AlertDialog(
+          title: const Text("完成"), content: const Text("封面已更新"),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        showDialog(context: context, builder: (ctx) => AlertDialog(
+          title: const Text("错误"), content: Text("$e"),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭"))],
+        ));
+      }
+    }
+  }
+
+  Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -308,7 +419,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () => context.read<GameProvider>().scrapeGame(game.id),
+                  onPressed: () => _scrapeCoverFlow(context, game),
                   icon: const Icon(Icons.image_search),
                   label: const Text("刮削封面"),
                 ),
