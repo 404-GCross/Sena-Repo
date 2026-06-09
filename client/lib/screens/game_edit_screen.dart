@@ -312,29 +312,71 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (src == null || !mounted) return;
 
-    // Step 2: Search
+    // Step 2: Search (with inline loading + results)
     final ctrl = TextEditingController(text: _name.text);
-    final q = await showDialog<String>(
-      context: context, builder: (ctx) => AlertDialog(
-        title: Text("${sources[src]} — 搜索"),
-        content: TextField(controller: ctrl, autofocus: true,
-          decoration: _dec(labelText: "名称/ID", hintText: "游戏名 或 VNDB ID / Steam App ID / Bangumi ID")),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text("搜索")),
-        ],
-      ),
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context, builder: (ctx) {
+        List<Map<String, dynamic>> results = [];
+        bool searching = false;
+        String? error;
+        return StatefulBuilder(
+          builder: (ctx, setD) => AlertDialog(
+            title: Text("${sources[src]} — 搜索"),
+            content: SizedBox(width: 400,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Row(children: [
+                  Expanded(child: TextField(controller: ctrl, autofocus: true,
+                    decoration: _dec(labelText: "名称/ID", hintText: "游戏名 或 VNDB/Steam/Bangumi ID"),
+                    onSubmitted: (v) async {
+                      setD(() { searching = true; results = []; error = null; });
+                      try {
+                        final resp = await http.get(Uri.parse(
+                            "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
+                        results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                      } catch (e) { error = "$e"; }
+                      setD(() => searching = false);
+                    })),
+                  const SizedBox(width: 8),
+                  IconButton.filled(icon: const Icon(Icons.search, size: 18),
+                    onPressed: () async {
+                      setD(() { searching = true; results = []; error = null; });
+                      try {
+                        final resp = await http.get(Uri.parse(
+                            "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
+                        results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                      } catch (e) { error = "$e"; }
+                      setD(() => searching = false);
+                    }),
+                ]),
+                const SizedBox(height: 8),
+                if (searching) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
+                if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
+                if (!searching && results.isEmpty && error == null)
+                  const Padding(padding: EdgeInsets.all(16), child: Text("无结果", style: TextStyle(color: Colors.grey))),
+                if (results.isNotEmpty)
+                  SizedBox(height: 350,
+                    child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+                      final r = results[i];
+                      return ListTile(
+                        leading: (r["cover_url"] ?? "").toString().isNotEmpty
+                            ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                                child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
+                                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
+                            : _noCover(),
+                        title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
+                        subtitle: Text("${r["developer"] ?? ""} · ${r["release_date"] ?? ""}",
+                            maxLines: 2, style: const TextStyle(fontSize: 11)),
+                        onTap: () => Navigator.pop(ctx, r),
+                      );
+                    })),
+              ]),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+          ),
+        );
+      },
     );
-    if (q == null || q.isEmpty) return;
-
-    // Step 3: Show results
-    List<Map<String, dynamic>> results = [];
-    try {
-      final resp = await http.get(Uri.parse(
-          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$src"));
-      results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
-    } catch (_) { _showError("搜索失败"); return; }
-    if (results.isEmpty) { _showError("无结果"); return; }
+    if (picked == null || !mounted) return;
 
     final picked = await showDialog<Map<String, dynamic>>(
       context: context, builder: (ctx) => AlertDialog(
