@@ -744,7 +744,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
             Text("对比 - ${sources[src]}"),
           ]),
           content: SizedBox(width: 500,
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 480),
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (!anyDiff)
                   Padding(
@@ -904,8 +907,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ]),
                   ),
                 ],
-              ]),
-          ),
+              ]),),),),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
             FilledButton.icon(
