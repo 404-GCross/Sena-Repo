@@ -2,13 +2,12 @@
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-import "package:shared_preferences/shared_preferences.dart";
-import "package:http/http.dart" as http;
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
+import "package:shared_preferences/shared_preferences.dart";
 import "login_screen.dart";
 
 class ConnectScreen extends StatefulWidget {
@@ -31,43 +30,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (settings.serverHost.isNotEmpty) {
           _hostController.text = settings.serverHost;
           _portController.text = settings.serverPort.toString();
-          // Auto-login if we have saved credentials
-          _tryAutoLogin();
+          _tryAutoConnect();
         }
       });
     });
   }
 
-  Future<void> _tryAutoLogin() async {
+  Future<void> _tryAutoConnect() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("auth_token");
-    if (token == null || token.isEmpty) return;
-
-    final host = _hostController.text.trim();
-    final port = int.tryParse(_portController.text.trim()) ?? 11451;
-    if (host.isEmpty) return;
-
-    final games = context.read<GameProvider>();
-    final api = games.api;
-    try {
-      // Quick check if server is reachable
-      final resp = await http.get(Uri.parse("http://$host:$port/api/health"))
-          .timeout(const Duration(seconds: 3));
-      if (resp.statusCode == 200) {
-        games.connect(host, port);
-        final needsSetup = await api.checkSetupNeeded();
-        if (!needsSetup && mounted) {
-          await games.loadGames();
-          if (mounted) {
-            Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-          }
-        }
-      }
-    } catch (_) {
-      // Server not reachable, stay on connect screen
-    }
-  }
+    if (prefs.getString("auth_token")?.isNotEmpty == true) _connect();
   }
 
   Future<void> _connect() async {
@@ -83,11 +54,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       // Check if server needs setup
       final api = games.api;
-      // Save credentials for auto-login
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("saved_host", host);
-      await prefs.setInt("saved_port", port);
-
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
         final result = await Navigator.push<bool>(
