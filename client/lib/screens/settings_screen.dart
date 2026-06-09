@@ -9,6 +9,7 @@ import "dart:convert";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "beautify_screen.dart";
+import "log_screen.dart";
 import "profile_edit_screen.dart";
 
 class SettingsScreen extends StatefulWidget {
@@ -50,6 +51,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
             _menuItem(Icons.palette, Colors.pink, "美化", "背景图片与主题色",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
+            _menuItem(Icons.bug_report, Colors.grey, "日志", "查看客户端运行日志",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogScreen()))),
           ]),
           const SizedBox(height: 24),
           _sectionHeader("服务端", Icons.dns_outlined),

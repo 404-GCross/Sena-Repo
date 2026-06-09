@@ -4,6 +4,8 @@ import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
+import "../services/logger_service.dart";
+
 class SettingsProvider extends ChangeNotifier {
   String _serverHost = "";
   int _serverPort = 11451;
@@ -27,6 +29,7 @@ class SettingsProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
+    LoggerService().info("正在连接 $host:$port");
     try {
       final uri = Uri.parse("http://$host:$port/api/health");
       final resp = await http.get(uri).timeout(const Duration(seconds: 5));
@@ -34,6 +37,7 @@ class SettingsProvider extends ChangeNotifier {
         _errorMessage = "服务器返回错误: ${resp.statusCode}";
         _isLoading = false;
         notifyListeners();
+        LoggerService().warn("连接失败 $host:$port: HTTP ${resp.statusCode}");
         return false;
       }
 
@@ -45,16 +49,19 @@ class SettingsProvider extends ChangeNotifier {
       _serverPort = port;
       _isLoading = false;
       notifyListeners();
+      LoggerService().info("连接成功 $host:$port");
       return true;
-    } on http.ClientException {
+    } on http.ClientException catch (e) {
       _errorMessage = "无法连接到服务器，请检查地址和端口";
       _isLoading = false;
       notifyListeners();
+      LoggerService().error("连接失败 $host:$port", e);
       return false;
     } catch (e) {
       _errorMessage = "连接超时，请检查网络";
       _isLoading = false;
       notifyListeners();
+      LoggerService().error("连接超时 $host:$port", e);
       return false;
     }
   }

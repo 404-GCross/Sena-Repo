@@ -14,11 +14,13 @@ import "providers/game_provider.dart";
 import "providers/theme_provider.dart";
 import "screens/connect_screen.dart";
 import "services/tray_service.dart";
+import "services/logger_service.dart";
 
 final trayService = TrayService();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LoggerService().cleanOldLogs();
 
   if (Platform.isWindows || Platform.isLinux) {
     await windowManager.ensureInitialized();

@@ -4,6 +4,7 @@ import "package:flutter/material.dart";
 
 import "../models/game.dart";
 import "../services/api_client.dart";
+import "../services/logger_service.dart";
 
 class GameProvider extends ChangeNotifier {
   final ApiClient _api = ApiClient();
@@ -68,8 +69,10 @@ class GameProvider extends ChangeNotifier {
       _games = await _api.getGames();
       _tags = await _api.getTags();
       _error = null;
+      LoggerService().info("加载游戏库完成: ${_games.length} 款游戏");
     } catch (e) {
       _error = e.toString();
+      LoggerService().error("加载游戏库失败", e);
     }
     _isLoading = false;
     notifyListeners();
