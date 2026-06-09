@@ -401,41 +401,81 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (picked == null || !mounted) return;
 
-    // Step 4: Compare & confirm
-    final confirmed = await showDialog<bool>(
-      context: context, builder: (ctx) => AlertDialog(
-        title: const Text("对比并应用"),
-        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _compareRow("名称", _name.text, (picked["title"] ?? "").toString()),
-          _compareRow("开发商", _dev.text, (picked["developer"] ?? "").toString()),
-          _compareRow("日期", _date.text, (picked["release_date"] ?? "").toString()),
-          _compareRow("简介", _desc.text.isNotEmpty ? _desc.text.substring(0, _desc.text.length.clamp(0, 60)) : "",
-              (picked["description"] ?? "").toString().length > 60
-                  ? "${picked["description"].toString().substring(0, 60)}..."
-                  : (picked["description"] ?? "").toString()),
-          const SizedBox(height: 8),
-          Text("来源: ${sources[src]}", style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确认应用")),
-        ],
+    // Step 4: Per-field comparison (Playnite style)
+    final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
+    final incoming = {
+      "名称": (picked["title"] ?? "").toString(),
+      "开发商": (picked["developer"] ?? "").toString(),
+      "日期": (picked["release_date"] ?? "").toString(),
+      "简介": (picked["description"] ?? "").toString(),
+    };
+    final useSearch = <String, bool>{};
+    for (final f in fields.keys) {
+      useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
+    }
+    final confirmed = await showDialog<Map<String, bool>?>(
+      context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text("对比 — ${sources[src]}"),
+          content: SizedBox(width: 480, child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: fields.keys.map((f) {
+                final cur = fields[f]!.text;
+                final inc = incoming[f] ?? "";
+                final hasDiff = inc.isNotEmpty && inc != cur;
+                return Padding(padding: const EdgeInsets.only(bottom: 6),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(f, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                          Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 13,
+                              color: !useSearch[f]! || !hasDiff ? Colors.white : Colors.grey,
+                              decoration: useSearch[f]! && hasDiff ? TextDecoration.lineThrough : null)),
+                        ]),
+                      ),
+                      if (hasDiff) ...[
+                        const Padding(padding: EdgeInsets.symmetric(horizontal: 6),
+                            child: Icon(Icons.arrow_forward, size: 16, color: Colors.green)),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(sources[src]!, style: TextStyle(fontSize: 10, color: Colors.green[300])),
+                            Text(inc.length > 60 ? "${inc.substring(0, 60)}..." : inc,
+                                style: TextStyle(fontSize: 13, color: useSearch[f]! ? Colors.green : Colors.grey)),
+                          ]),
+                        ),
+                      ],
+                    ]),
+                    if (hasDiff)
+                      SwitchListTile(
+                        title: const Text("使用搜索结果", style: TextStyle(fontSize: 12)),
+                        value: useSearch[f] ?? false, dense: true, contentPadding: EdgeInsets.zero,
+                        onChanged: (v) => setD(() => useSearch[f] = v)),
+                  ]),
+                );
+              }).toList())),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(onPressed: () => Navigator.pop(ctx, useSearch), child: const Text("应用所选")),
+          ],
+        ),
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed == null || !mounted) return;
 
-    // Apply
+    // Apply only selected fields
     setState(() {
-      _name.text = (picked["title"] ?? "").toString();
-      _dev.text = (picked["developer"] ?? "").toString();
-      _desc.text = (picked["description"] ?? "").toString();
-      _date.text = (picked["release_date"] ?? "").toString();
+      if (confirmed["名称"] == true) _name.text = incoming["名称"]!;
+      if (confirmed["开发商"] == true) _dev.text = incoming["开发商"]!;
+      if (confirmed["日期"] == true) _date.text = incoming["日期"]!;
+      if (confirmed["简介"] == true) _desc.text = incoming["简介"]!;
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (picked["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = picked["source_id"].toString();
       }
     });
-    _showMsg("已应用元数据，核对后保存");
+    _showMsg("已应用所选字段，核对后保存");
   }
 
   Widget _compareRow(String label, String current, String incoming) {
