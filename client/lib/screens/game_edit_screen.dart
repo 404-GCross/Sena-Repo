@@ -178,15 +178,36 @@ class _GameEditScreenState extends State<GameEditScreen> {
               icon: const Icon(Icons.add, size: 16),
               label: const Text("创建新条目并移入"),
               onPressed: () async {
-                // Create new game with version filename as name
+                final nameCtrl = TextEditingController();
+                final newName = await showDialog<String>(
+                  context: ctx, builder: (c) => AlertDialog(
+                    title: const Text("新建游戏条目"),
+                    content: TextField(
+                      controller: nameCtrl,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: "游戏名称",
+                        hintText: "输入新游戏名称",
+                      ),
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(c), child: const Text("取消")),
+                      FilledButton(onPressed: () {
+                        final name = nameCtrl.text.trim();
+                        if (name.isEmpty) return;
+                        Navigator.pop(c, name);
+                      }, child: const Text("创建")),
+                    ],
+                  ),
+                );
+                if (newName == null || newName.isEmpty) return;
                 try {
                   final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
                     headers: {"Content-Type": "application/json"},
-                    body: jsonEncode({"name": searchCtrl.text.trim()}),
+                    body: jsonEncode({"name": newName}),
                   );
                   if (r.statusCode == 200) {
-                    final newId = jsonDecode(r.body)["id"] as int;
-                    Navigator.pop(ctx, newId);
+                    Navigator.pop(ctx, jsonDecode(r.body)["id"] as int);
                   }
                 } catch (_) {}
               },
