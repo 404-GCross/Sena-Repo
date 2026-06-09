@@ -53,10 +53,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final resp = await http.put(Uri.parse("$_baseUrl/api/games/${g.id}"),
           headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
       if (resp.statusCode != 200) { _showError("保存失败"); return; }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
-        Navigator.pop(context, true);
-      }
+      if (mounted) Navigator.pop(context, true);
     } catch (e) { _showError("$e"); }
     setState(() => _saving = false);
   }
@@ -127,8 +124,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _showMsg("已填入 $label 数据");
   }
 
-  void _showMsg(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
-  void _showError(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _showMsg(String m) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text("提示"), content: Text(m),
+      actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+    ));
+  }
+  void _showError(String m) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text("错误"), content: Text(m),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭"))],
+    ));
+  }
 
   Widget _field(String label, TextEditingController ctrl, {int maxLines = 1, String? sourceId}) {
     return Padding(
