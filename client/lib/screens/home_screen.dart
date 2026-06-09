@@ -77,40 +77,75 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildGameLibrary(GameProvider gameProvider) {
     return Column(
       children: [
+        // ── Search bar ──
         Padding(
-          padding: const EdgeInsets.all(8),
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: "搜索游戏...",
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        gameProvider.search("");
-                      },
-                    )
-                  : null,
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: SizedBox(
+            height: 44,
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: "搜索游戏...",
+                hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14),
+                prefixIcon: Icon(Icons.search, color: Colors.grey[500], size: 22),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 20),
+                        onPressed: () {
+                          _searchController.clear();
+                          gameProvider.search("");
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.06),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)),
+                ),
+              ),
+              style: const TextStyle(fontSize: 14),
+              onChanged: (v) => gameProvider.search(v),
             ),
-            onChanged: (v) => gameProvider.search(v),
           ),
         ),
+        // ── Game count ──
+        if (!gameProvider.isLoading)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+            child: Row(children: [
+              Text("共 ${gameProvider.games.length} 款游戏",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const Spacer(),
+              if (_searchController.text.isNotEmpty)
+                Text("筛选自 ${gameProvider.games.length} 条",
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ]),
+          ),
         Expanded(
           child: gameProvider.isLoading
               ? const Center(child: CircularProgressIndicator())
               : gameProvider.games.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.gamepad, size: 64, color: Colors.grey),
-                          SizedBox(height: 16),
+                          Icon(Icons.gamepad, size: 72, color: Colors.grey[700]),
+                          const SizedBox(height: 16),
                           Text("游戏库为空",
-                              style: TextStyle(color: Colors.grey, fontSize: 18)),
+                              style: TextStyle(color: Colors.grey[500], fontSize: 18)),
+                          const SizedBox(height: 4),
                           Text("请在服务端添加根目录并刷新",
-                              style: TextStyle(color: Colors.grey)),
+                              style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                         ],
                       ),
                     )
@@ -190,7 +225,21 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openDetail(game) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 250),
+        pageBuilder: (_, animation, __) => GameDetailScreen(gameId: game.id),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.03, 0),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 
