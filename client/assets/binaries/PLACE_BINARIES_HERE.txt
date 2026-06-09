@@ -1,0 +1,9 @@
+Place 7-Zip standalone binaries here:
+
+Windows: 7za.exe
+  Download from https://www.7-zip.org/a/7z2408-extra.7z
+  Extract and rename to 7za.exe
+
+Linux:   7zz
+  Download from https://www.7-zip.org/a/7z2408-linux-x64.tar.xz
+  Extract and rename to 7zz

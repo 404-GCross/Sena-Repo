@@ -6,6 +6,7 @@ import "dart:convert";
 import "dart:io";
 
 import "package:archive/archive_io.dart";
+import "package:flutter/services.dart" show rootBundle;
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
@@ -176,25 +177,50 @@ class DownloadService {
     await inputStream.close();
   }
 
+  String? _sevenZipPath;
+
+  Future<String> _getSevenZipPath() async {
+    if (_sevenZipPath != null) return _sevenZipPath!;
+    final dir = await getApplicationSupportDirectory();
+    final exeName = Platform.isWindows ? "7za.exe" : "7zz";
+    final dest = File("${dir.path}/$exeName");
+
+    if (!await dest.exists()) {
+      // Extract bundled binary from assets
+      try {
+        final data = await rootBundle.load("assets/binaries/$exeName");
+        await dest.writeAsBytes(data.buffer.asUint8List());
+        if (Platform.isLinux) {
+          await Process.run("chmod", ["+x", dest.path]);
+        }
+      } catch (_) {
+        throw Exception("解压组件未就绪，请手动安装 7-Zip");
+      }
+    }
+
+    _sevenZipPath = dest.path;
+    return _sevenZipPath!;
+  }
+
   Future<void> _extractWithSystemTool(String filePath, String outDir) async {
-    // Try 7z first, then unar
     try {
-      final result = await Process.run("7z", ["x", "-y", "-o$outDir", filePath]);
+      final sevenZip = await _getSevenZipPath();
+      final result = await Process.run(sevenZip, ["x", "-y", "-o$outDir", filePath]);
       if (result.exitCode != 0) {
         throw Exception(result.stderr.toString());
       }
-      return;
-    } catch (_) {}
-
-    try {
-      final result = await Process.run("unar", ["-o", outDir, filePath]);
-      if (result.exitCode != 0) {
-        throw Exception(result.stderr.toString());
-      }
-      return;
-    } catch (_) {}
-
-    throw Exception("未找到解压工具。请安装 7-Zip 或将文件拖入手动解压。");
+    } catch (e) {
+      // Fallback to system tools
+      try {
+        final result = await Process.run("7z", ["x", "-y", "-o$outDir", filePath]);
+        if (result.exitCode == 0) return;
+      } catch (_) {}
+      try {
+        final result = await Process.run("unar", ["-o", outDir, filePath]);
+        if (result.exitCode == 0) return;
+      } catch (_) {}
+      throw Exception("解压失败。请确保 assets/binaries/ 下有 7za.exe(Windows) 或 7zz(Linux)");
+    }
   }
 
   void removeTask(DownloadTask task) {
