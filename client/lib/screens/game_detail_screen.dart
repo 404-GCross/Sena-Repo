@@ -406,7 +406,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
             // Info
             if (game.companyName != null)
-              Text("制作: ${game.companyName}", style: const TextStyle(fontSize: 16)),
+              Text("制作: ${game.companyName}", style: const TextStyle(fontSize: 14)),
             if (game.developer != null)
               Text("开发商: ${game.developer}", style: const TextStyle(fontSize: 14)),
             if (game.releaseDate != null)
@@ -423,7 +423,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             ],
 
             // Versions
-            const Text("版本", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text("版本", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             ...game.versions.map((v) => Card(
                   child: ListTile(
