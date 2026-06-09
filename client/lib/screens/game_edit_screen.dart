@@ -664,6 +664,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (confirmed == null || !mounted) return;
 
     if (confirmed is! Map<String, bool>) return;
+    // Show loading while syncing
+    if (mounted) {
+      showDialog(context: context, barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()));
+    }
     // Apply only selected fields
     final apply = confirmed as Map<String, bool>;
     setState(() {
@@ -684,6 +689,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
     // Refresh game data to show updated cover
     await _reloadGame();
+    if (mounted) Navigator.of(context).pop(); // close loading
     _showMsg("已应用所选字段，核对后保存");
   }
 
