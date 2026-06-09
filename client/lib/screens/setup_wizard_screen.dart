@@ -28,6 +28,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   // Step 2: Game dirs
   final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
+  final _localDirCtrl = TextEditingController();
 
   // Step 3: Steam
   final _patchDirCtrl = TextEditingController(text: "/steam_patch");
@@ -85,10 +86,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
       // Save scraper keys
       await _saveScraperKeys();
-      // Persist Steam common dir for the Steam patch tab
+      // Persist Steam common dir and local download dir
+      final prefs = await SharedPreferences.getInstance();
       if (_steamCommonCtrl.text.trim().isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
         await prefs.setString("steam_common_dir", _steamCommonCtrl.text.trim());
+      }
+      if (_localDirCtrl.text.trim().isNotEmpty) {
+        await prefs.setString("local_download_dir", _localDirCtrl.text.trim());
       }
       // Trigger scan
       await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
@@ -209,7 +213,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     ),
   ];
 
+  Future<void> _pickLocalDir() async {
+    final dir = await FilePicker.platform.getDirectoryPath();
+    if (dir != null) _localDirCtrl.text = dir;
+  }
+
   List<Widget> _buildStep2() => [
+    const Text("服务端扫描目录", style: TextStyle(fontWeight: FontWeight.bold)),
     Text("每行一个路径，服务端将扫描这些目录下的游戏",
       style: TextStyle(fontSize: 12, color: Colors.grey[500])),
     const SizedBox(height: 8),
@@ -230,6 +240,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         IconButton.filled(icon: const Icon(Icons.add, size: 20), onPressed: _addDir),
       ]),
     )),
+    const SizedBox(height: 16),
+    const Text("本机下载目录", style: TextStyle(fontWeight: FontWeight.bold)),
+    Text("客户端下载游戏保存的位置", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    const SizedBox(height: 8),
+    Row(children: [
+      Expanded(child: TextField(controller: _localDirCtrl, decoration: const InputDecoration(hintText: "选择本机目录...", isDense: true))),
+      const SizedBox(width: 4),
+      IconButton.filled(icon: const Icon(Icons.folder_open, size: 20), onPressed: _pickLocalDir),
+    ]),
   ];
 
   Future<void> _pickSteamDir() async {
