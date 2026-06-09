@@ -536,10 +536,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       ],
                     ]),
                     if (hasDiff)
-                      Padding(padding: EdgeInsets.zero, child: SwitchListTile(
-                        title: const Text("使用搜索结果", style: TextStyle(fontSize: 12)),
-                        value: useSearch[f] ?? false, dense: true, contentPadding: EdgeInsets.zero,
-                        onChanged: (v) => setD(() => useSearch[f] = v))),
+                      Padding(padding: const EdgeInsets.only(top: 4),
+                        child: Row(children: [
+                          Text("使用搜索结果", style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                          const Spacer(),
+                          SizedBox(height: 24, child: Switch(
+                            value: useSearch[f] ?? false,
+                            onChanged: (v) => setD(() => useSearch[f] = v)),
+                          ),
+                        ])),
                   ]),
                 );
               }).toList())),
@@ -578,7 +583,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       } catch (_) {}
     }
     // Refresh game data to show updated cover
-    _reloadGame();
+    await _reloadGame();
     _showMsg("已应用所选字段，核对后保存");
   }
 

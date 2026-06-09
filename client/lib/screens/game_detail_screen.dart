@@ -48,14 +48,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     if (game == null) return Scaffold(appBar: AppBar(title: const Text("错误")), body: const Center(child: Text("游戏未找到")));
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
-    final hasBg = game.bgPath != null && game.bgPath!.isNotEmpty;
 
     return Scaffold(
-      extendBodyBehindAppBar: hasBg,
+      extendBodyBehindAppBar: hasCover,
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: hasBg ? Colors.transparent : null,
-        forceMaterialTransparency: hasBg,
+        backgroundColor: hasCover ? Colors.transparent : null,
+        forceMaterialTransparency: hasCover,
         title: Text(game.name),
         actions: [
           IconButton(icon: const Icon(Icons.search), tooltip: "搜索元数据", onPressed: () => _showSearchDialog(context, game)),
@@ -67,19 +66,19 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         ],
       ),
       body: Stack(children: [
-        // Background banner (Playnite style)
-        if (hasBg)
+        // Background banner (Playnite style — use cover as bg)
+        if (hasCover)
           Positioned(
-            top: 0, left: 0, right: 0, height: 400,
+            top: 0, left: 0, right: 0, height: 360,
             child: ShaderMask(
               shaderCallback: (rect) => const LinearGradient(
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Color(0x88000000), Color(0x44000000), Colors.transparent],
-                stops: [0.0, 0.3, 1.0],
+                colors: [Color(0x99000000), Color(0x55000000), Colors.transparent],
+                stops: [0.0, 0.35, 1.0],
               ).createShader(rect),
               blendMode: BlendMode.dstIn,
               child: Image.network(
-                "$_baseUrl/api/files/backgrounds${game.bgPath!}",
+                "$_baseUrl/api/files/covers${game.coverPath!}",
                 fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
