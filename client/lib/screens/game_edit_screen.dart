@@ -705,6 +705,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
           for (final f in fields.keys) {
             useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
           }
+          if (!useSearch.containsKey("封面")) useSearch["封面"] = false;
           return AlertDialog(
           title: Text("对比 - ${sources[src]}"),
           content: SizedBox(width: 480,
@@ -770,8 +771,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     visualDensity: VisualDensity.compact,
                   ),
                 ],
-                // Ensure cover key exists
-                if (!useSearch.containsKey("封面")) useSearch["封面"] = false,
               ]),
           ),
           actions: [
