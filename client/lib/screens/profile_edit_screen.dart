@@ -134,7 +134,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   child: Stack(children: [
                     Container(
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
+                        shape: const CircleBorder(),
                         border: Border.all(
                           color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                           width: 3,
@@ -165,7 +165,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       bottom: 0, right: 0,
                       child: Material(
                         color: Theme.of(context).colorScheme.primary,
-                        shape: BoxShape.circle,
+                        shape: const CircleBorder(),
                         child: InkWell(
                           onTap: _pickAvatar,
                           customBorder: const CircleBorder(),
