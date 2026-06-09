@@ -124,6 +124,55 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _showMsg("已填入 $label 数据");
   }
 
+  Future<void> _moveVersionDialog(version) async {
+    final ctrl = TextEditingController();
+    final targetId = await showDialog<int>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("移动到哪个游戏？"),
+        content: TextField(controller: ctrl, keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: "目标游戏 ID")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())), child: const Text("移动")),
+        ],
+      ),
+    );
+    if (targetId != null && targetId > 0) {
+      try {
+        final g = widget.game;
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/versions/${version.id}/move?to_game_id=$targetId"));
+        if (mounted) Navigator.pop(context, true);
+      } catch (e) { _showError("$e"); }
+    }
+  }
+
+  Future<void> _mergeGameDialog() async {
+    final ctrl = TextEditingController();
+    final targetId = await showDialog<int>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("合并到哪个游戏？"),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text("当前游戏的所有版本将移至目标游戏，当前游戏将被删除。",
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          const SizedBox(height: 8),
+          TextField(controller: ctrl, keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: "目标游戏 ID")),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())), child: const Text("合并")),
+        ],
+      ),
+    );
+    if (targetId != null && targetId > 0) {
+      try {
+        final g = widget.game;
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/merge/$targetId"));
+        if (mounted) Navigator.pop(context, true);
+      } catch (e) { _showError("$e"); }
+    }
+  }
+
   void _showMsg(String m) {
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("提示"), content: Text(m),
@@ -234,7 +283,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     _section("版本"),
                     if (g.versions.isEmpty)
                       Text("无", style: TextStyle(color: Colors.grey[500], fontSize: 13))
-                    else
+                    else ...[
                       ...g.versions.map((v) => Container(
                         margin: const EdgeInsets.only(bottom: 4),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -244,8 +293,24 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4)),
                             child: Text(v.platform, style: const TextStyle(fontSize: 11))),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 18),
+                            onSelected: (action) {
+                              if (action == "move") _moveVersionDialog(v);
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: "move", child: Text("移动到其他游戏...")),
+                            ],
+                          ),
                         ]),
                       )),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.merge, size: 16),
+                        label: const Text("合并到其他游戏..."),
+                        onPressed: _mergeGameDialog,
+                      ),
+                    ],
                   ]),
                 ),
                 const SizedBox(width: 24),
