@@ -223,6 +223,54 @@ async def mark_all_read(session: AsyncSession = Depends(get_session)):
     return {"ok": True}
 
 
+# ── Admin user management ──
+
+class AdminUserUpdate(BaseModel):
+    username: str | None = None
+    password: str | None = None
+    is_admin: bool | None = None
+
+
+@router.put("/users/{user_id}")
+async def admin_update_user(
+    user_id: int, body: AdminUserUpdate, session: AsyncSession = Depends(get_session),
+):
+    """Admin updates any user's info."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if body.username and body.username != user.username:
+        existing = await session.execute(
+            select(User).where(User.username == body.username)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="用户名已存在")
+        user.username = body.username
+    if body.password:
+        pw_hash, salt = hash_password(body.password)
+        user.password_hash = pw_hash
+        user.salt = salt
+    if body.is_admin is not None:
+        user.is_admin = body.is_admin
+    await session.commit()
+    return {"message": "更新成功"}
+
+
+@router.delete("/users/{user_id}")
+async def admin_delete_user(
+    user_id: int, session: AsyncSession = Depends(get_session),
+):
+    """Admin deletes a user."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    await session.delete(user)
+    await session.commit()
+    return {"message": "用户已删除"}
+
+
 # ── Profile management ──
 
 class ProfileUpdate(BaseModel):

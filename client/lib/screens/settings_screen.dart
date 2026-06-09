@@ -885,6 +885,87 @@ class _UserManagePageState extends State<_UserManagePage> {
     }
   }
 
+  Future<void> _editUser(Map<String, dynamic> u) async {
+    final nameCtrl = TextEditingController(text: u["username"] ?? "");
+    final passCtrl = TextEditingController();
+    bool isAdmin = u["is_admin"] == true;
+    final result = await showDialog<bool>(
+      context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text("编辑用户"),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: nameCtrl,
+              decoration: const InputDecoration(labelText: "用户名", isDense: true)),
+            const SizedBox(height: 10),
+            TextField(controller: passCtrl, obscureText: true,
+              decoration: const InputDecoration(labelText: "新密码（留空不修改）", isDense: true)),
+            const SizedBox(height: 4),
+            CheckboxListTile(
+              title: const Text("管理员"),
+              value: isAdmin,
+              onChanged: (v) => setD(() => isAdmin = v ?? false),
+              dense: true, contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(onPressed: () {
+              if (nameCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            }, child: const Text("保存")),
+          ],
+        ),
+      ),
+    );
+    if (result != true) return;
+    try {
+      final body = <String, dynamic>{"username": nameCtrl.text.trim()};
+      if (passCtrl.text.isNotEmpty) body["password"] = passCtrl.text;
+      body["is_admin"] = isAdmin;
+      final resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/auth/users/${u["id"]}"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
+      );
+      if (resp.statusCode == 200) {
+        _loadUsers();
+        if (mounted) _toast(context, "更新成功");
+      } else {
+        final data = jsonDecode(resp.body);
+        if (mounted) _toast(context, data["detail"] ?? "更新失败");
+      }
+    } catch (_) {
+      if (mounted) _toast(context, "更新失败");
+    }
+  }
+
+  Future<void> _deleteUser(int userId, String username) async {
+    final confirmed = await showDialog<bool>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("删除用户"),
+        content: Text("确定删除用户「$username」吗？此操作不可撤销。"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("删除", style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final resp = await http.delete(
+        Uri.parse("${widget.api.baseUrl}/api/auth/users/$userId"),
+      );
+      if (resp.statusCode == 200) {
+        _loadUsers();
+        if (mounted) _toast(context, "已删除");
+      }
+    } catch (_) {
+      if (mounted) _toast(context, "删除失败");
+    }
+  }
+
   String _statusLabel(String status) {
     switch (status) {
       case "active": return "已激活";
@@ -1038,7 +1119,19 @@ class _UserManagePageState extends State<_UserManagePage> {
                           onPressed: () => _approve(u["id"] as int, true),
                           child: const Text("通过"),
                         ),
-                      ],
+                      ] else
+                        PopupMenuButton<String>(
+                          icon: Icon(Icons.more_vert, size: 20, color: Colors.grey[500]),
+                          onSelected: (action) {
+                            if (action == "edit") _editUser(u);
+                            if (action == "delete") _deleteUser(u["id"] as int, username);
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(value: "edit", child: Text("编辑")),
+                            const PopupMenuItem(value: "delete",
+                              child: Text("删除", style: TextStyle(color: Colors.red))),
+                          ],
+                        ),
                     ]),
                   );
                 }),
