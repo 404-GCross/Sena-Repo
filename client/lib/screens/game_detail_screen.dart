@@ -89,7 +89,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       extendBodyBehindAppBar: hasCover,
-      backgroundColor: Colors.transparent,
+      backgroundColor: hasCover ? Colors.transparent : null,
       appBar: AppBar(
         backgroundColor: hasCover ? Colors.transparent : null,
         forceMaterialTransparency: hasCover,
