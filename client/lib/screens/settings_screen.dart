@@ -58,10 +58,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionHeader("服务端", Icons.dns_outlined),
           const SizedBox(height: 8),
           _menuCard([
-            _menuItem(Icons.manage_search, Colors.blue, "扫描设置", "根目录、扫描选项",
+            _menuItem(Icons.manage_search, Colors.blue, "扫描设置", "根目录、刮削源、扫描选项",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)))),
-            _menuItem(Icons.image_search, Colors.orange, "刮削源", "元数据来源与代理",
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => _ScraperPage(api: _api)))),
             _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户",
               () {
                 if (!_isAdmin) {
@@ -165,9 +163,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _loading = false;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
+  // Scraper sources
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "igdb": false};
+  final _keys = {"vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
-  void initState() { super.initState(); _loadRoots(); _checkActiveJob(); }
+  void initState() { super.initState(); _loadRoots(); _loadScraperSettings(); _checkActiveJob(); }
 
   Future<void> _loadRoots() async {
     setState(() => _loading = true);
@@ -464,6 +465,55 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ],
           ]),
         ),
+
+        // ── Scraper sources ──
+        const SizedBox(height: 24),
+        _sectionHeader("刮削源", Icons.image_search),
+        const SizedBox(height: 8),
+        _srcCard("VNDB Kana v2", "vndb_kana", "免认证，中文标题"),
+        _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
+        _srcCard("Steam", "steam", "免认证"),
+        _srcCard("DLsite", "dlsite", "免认证，建议配日本代理"),
+        _srcCard("IGDB", "igdb", "需要 Client ID / Secret", needsApi: true, key1: "igdb_client_id", key2: "igdb_client_secret"),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("HTTP 代理", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[400])),
+            Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: TextField(controller: _keys["proxy"],
+                  decoration: InputDecoration(hintText: "http://127.0.0.1:7890", isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(onPressed: _testProxy, child: const Text("测试"),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+              ),
+            ]),
+          ]),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: _saveScraperConfig,
+          icon: const Icon(Icons.save, size: 18),
+          label: const Text("保存刮削配置"),
+          style: FilledButton.styleFrom(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+        ),
       ],
     ),
   );
@@ -507,6 +557,92 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       case "failed": return "刮削失败";
       default: return status ?? "未知";
     }
+  }
+
+  // ── Scraper settings ──
+
+  Future<void> _loadScraperSettings() async {
+    try {
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        for (final k in _keys.keys) { _keys[k]?.text = data[k] ?? ""; }
+      }
+    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    for (final src in _sources.keys) {
+      final v = prefs.getBool("scrape_src_$src");
+      if (v != null) _sources[src] = v;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _saveScraperConfig() async {
+    final body = <String, String>{};
+    for (final k in _keys.keys) { body[k] = _keys[k]!.text; }
+    await http.put(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
+        headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
+    final prefs = await SharedPreferences.getInstance();
+    for (final src in _sources.keys) {
+      await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
+    }
+    if (mounted) _toast(context, "刮削源配置已保存");
+  }
+
+  Future<void> _testProxy() async {
+    try {
+      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"));
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) _toast(context, data["ok"] == true
+          ? "连接成功: ${data["latency_ms"]}ms"
+          : "连接失败: ${data["error"]}");
+    } catch (e) { if (mounted) _toast(context, "$e"); }
+  }
+
+  Widget _srcCard(String label, String src, String hint, {bool needsApi = false, String? key1, String? key2}) {
+    final enabled = _sources[src] ?? false;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: enabled ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(children: [
+        SwitchListTile(
+          title: Text(label, style: const TextStyle(fontSize: 14)),
+          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          value: enabled,
+          onChanged: (v) => setState(() => _sources[src] = v),
+          dense: true,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        if (enabled && needsApi) ...[
+          Divider(height: 1, indent: 56, color: Colors.white.withValues(alpha: 0.06)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
+            child: Column(children: [
+              if (key1 != null)
+                Padding(padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(controller: _keys[key1], decoration: InputDecoration(labelText: _kl(key1), isDense: true)),
+                ),
+              if (key2 != null)
+                TextField(controller: _keys[key2], decoration: InputDecoration(labelText: _kl(key2), isDense: true)),
+            ]),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  static const _keyLabels = {"igdb_client_id": "IGDB Client ID", "igdb_client_secret": "IGDB Client Secret"};
+  String _kl(String k) => _keyLabels[k] ?? k;
+
+  @override
+  void dispose() {
+    _dirCtrl.dispose();
+    for (final c in _keys.values) { c.dispose(); }
+    super.dispose();
   }
 }
 
