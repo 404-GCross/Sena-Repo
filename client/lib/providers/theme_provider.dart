@@ -4,13 +4,16 @@ import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 class ThemeProvider extends ChangeNotifier {
-  Color _accentColor = const Color(0xFF7C3AED); // Deep purple default
+  Color _accentColor = const Color(0xFF7C3AED);
   String? _backgroundUrl;
   Color? _bgColor;
+  ThemeMode _themeMode = ThemeMode.dark;
 
   Color get accentColor => _accentColor;
   String? get backgroundUrl => _backgroundUrl;
   Color? get bgColor => _bgColor;
+  ThemeMode get themeMode => _themeMode;
+  bool get isDark => _themeMode == ThemeMode.dark;
 
   ThemeProvider() {
     _load();
@@ -27,6 +30,17 @@ class ThemeProvider extends ChangeNotifier {
     if (bgHex != null) {
       _bgColor = Color(int.parse(bgHex));
     }
+    final mode = prefs.getString("theme_mode");
+    if (mode == "light") _themeMode = ThemeMode.light;
+    else if (mode == "system") _themeMode = ThemeMode.system;
+    else _themeMode = ThemeMode.dark;
+    notifyListeners();
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _themeMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("theme_mode", mode.name);
     notifyListeners();
   }
 

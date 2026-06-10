@@ -7,6 +7,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 
 import "../providers/game_provider.dart";
+import "../providers/theme_provider.dart";
 import "../services/api_client.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
@@ -1051,6 +1052,21 @@ class _DisplayPageState extends State<_DisplayPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("显示")),
     body: ListView(padding: const EdgeInsets.all(16), children: [
+      _sectionTitle("主题模式"),
+      const SizedBox(height: 8),
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: Column(children: [
+          _themeTile(ThemeMode.dark, "深色模式", Icons.dark_mode),
+          Divider(height: 1, indent: 48, color: Colors.white.withValues(alpha: 0.06)),
+          _themeTile(ThemeMode.light, "浅色模式", Icons.light_mode),
+        ]),
+      ),
+      const SizedBox(height: 24),
       _sectionTitle("封面大小"),
       const SizedBox(height: 8),
       Container(
@@ -1120,6 +1136,19 @@ class _DisplayPageState extends State<_DisplayPage> {
       ),
     ]),
   );
+
+  Widget _themeTile(ThemeMode mode, String label, IconData icon) {
+    final current = context.watch<ThemeProvider>().themeMode;
+    final active = current == mode;
+    return ListTile(
+      leading: Icon(icon, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+      title: Text(label, style: TextStyle(fontSize: 14,
+          color: active ? Theme.of(context).colorScheme.primary : null)),
+      trailing: active ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
+      onTap: () => context.read<ThemeProvider>().setThemeMode(mode),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    );
+  }
 
   Widget _sectionTitle(String t) => Padding(
     padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
