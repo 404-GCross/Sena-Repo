@@ -98,6 +98,7 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
         builder: (context, theme, _) {
           final base = ThemeData(useMaterial3: true);
           return MaterialApp(
+            key: ValueKey(theme.themeMode),
             title: "Sena Repo",
             debugShowCheckedModeBanner: false,
             themeMode: theme.themeMode,
