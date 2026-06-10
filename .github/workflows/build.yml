@@ -73,6 +73,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
           Copy-Item "7za920-Windows/7za.exe" client/assets/binaries/7za.exe
+          Copy-Item "7za920-Windows/license.txt" client/assets/binaries/LICENSE-7za.txt
+          Copy-Item "7za920-Windows/readme.txt" client/assets/binaries/README-7za.txt
 
       - name: Enable Windows + generate platform files
         run: |
