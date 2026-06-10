@@ -259,6 +259,11 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
     );
   }
 
+  Widget _sectionTitle(String t) => Padding(
+    padding: const EdgeInsets.only(bottom: 4, left: 4),
+    child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[400])),
+  );
+
   Widget _divider() => Divider(height: 1, indent: 48, color: Colors.white.withValues(alpha: 0.06));
 }
 
