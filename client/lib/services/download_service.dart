@@ -218,7 +218,7 @@ class DownloadService {
           await Process.run("chmod", ["+x", dest.path]);
         }
       } catch (_) {
-        // Fallback: try downloading 7za on first use
+        // Fallback: try downloading 7za on first use (ZIP format = extractable without 7z)
         try {
           final url = Platform.isWindows
               ? "https://www.7-zip.org/a/7za920.zip"
