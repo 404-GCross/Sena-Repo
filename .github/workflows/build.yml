@@ -73,7 +73,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
           choco install 7zip -y --no-progress | Out-Null
-          Copy-Item "C:\Program Files\7-Zip\7za.exe" client/assets/binaries/
+          Copy-Item "C:\Program Files\7-Zip\7z.exe" client/assets/binaries/7za.exe
 
       - name: Enable Windows + generate platform files
         run: |
