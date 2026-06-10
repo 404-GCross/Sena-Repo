@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+import asyncio
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +15,8 @@ from database import get_session
 from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.importer import import_from_root
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/roots", tags=["roots"])
 
@@ -76,7 +81,6 @@ async def delete_root(
 
 @router.post("/refresh-all", response_model=dict)
 async def refresh_all_roots(
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan ALL root directories and import/update games, then auto-scrape new games."""
@@ -91,7 +95,8 @@ async def refresh_all_roots(
         all_stats["total_games"] += stats.get("total_games", 0)
 
     # Auto-trigger batch scrape for new games without covers
-    background_tasks.add_task(_auto_scrape, config)
+    # Use asyncio.create_task to preserve async context for SQLAlchemy's greenlet proxy
+    asyncio.create_task(_auto_scrape(config))
 
     return all_stats
 
@@ -99,7 +104,6 @@ async def refresh_all_roots(
 @router.post("/{root_id}/refresh", response_model=dict)
 async def refresh_root(
     root_id: int,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan a root directory and import/update games, then auto-scrape."""
@@ -114,7 +118,8 @@ async def refresh_root(
     stats = await import_from_root(root_id, config, session)
 
     # Auto-trigger batch scrape for new games without covers
-    background_tasks.add_task(_auto_scrape, config)
+    # Use asyncio.create_task to preserve async context for SQLAlchemy's greenlet proxy
+    asyncio.create_task(_auto_scrape(config))
 
     return stats
 
@@ -132,7 +137,6 @@ async def _run_scan(config):
 
 async def _auto_scrape(config):
     """Background task: batch scrape all games without covers."""
-    import asyncio
     from database import _session_factory
     from models.scrape_job import JobStatus, ScrapeJob
     from services.scraper.orchestrator import run_batch_scrape
@@ -144,4 +148,4 @@ async def _auto_scrape(config):
             await session.commit()
             await run_batch_scrape(config, None, session, job)
     except Exception:
-        pass  # Don't fail the scan if scrape fails
+        logger.exception("Auto-scrape failed")

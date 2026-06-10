@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -215,7 +216,6 @@ async def scrape_game_cover(
 @router.post("/scrape/batch", response_model=dict)
 async def start_batch_scrape(
     body: BatchScrapeRequest,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     """Start a batch scrape job for games without covers.
@@ -231,7 +231,8 @@ async def start_batch_scrape(
     await session.commit()
     await session.refresh(job)
 
-    # Run in background
+    # Run in background — use asyncio.create_task to preserve async context
+    # for SQLAlchemy's greenlet proxy (BackgroundTasks doesn't guarantee this)
     async def _run():
         from database import _session_factory
         if _session_factory is None:
@@ -239,7 +240,7 @@ async def start_batch_scrape(
         async with _session_factory() as bg_session:
             await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
 
-    background_tasks.add_task(_run)
+    asyncio.create_task(_run())
 
     return {
         "job_id": job.id,
