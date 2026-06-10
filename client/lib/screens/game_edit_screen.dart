@@ -9,6 +9,7 @@ import "package:http/http.dart" as http;
 
 import "../models/game.dart";
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -372,9 +373,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
   Widget _fieldCard({required List<Widget> children}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Column(children: children),
   );
@@ -382,9 +383,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
   Widget _hintCard(String text) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Row(children: [
       Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
@@ -403,7 +404,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
-  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.08));
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
   @override
   Widget build(BuildContext context) {
@@ -595,20 +596,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Widget _coverPlaceholder() => Container(
     decoration: BoxDecoration(
-      color: Colors.grey[850],
+      color: placeholderBg(context),
       borderRadius: BorderRadius.circular(12),
     ),
     width: 200, height: 280,
-    child: Center(child: Icon(Icons.image, size: 64, color: Colors.grey[700])),
+    child: Center(child: Icon(Icons.image, size: 64, color: placeholderIcon(context))),
   );
 
   Widget _coverPlaceholderSmall() => Container(
     width: 90, height: 120,
     decoration: BoxDecoration(
-      color: Colors.grey[850],
+      color: placeholderBg(context),
       borderRadius: BorderRadius.circular(8),
     ),
-    child: Center(child: Icon(Icons.image, size: 32, color: Colors.grey[700])),
+    child: Center(child: Icon(Icons.image, size: 32, color: placeholderIcon(context))),
   );
 
   Widget _sourceBadge(String label, String? id) {
@@ -617,7 +618,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: active ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
+          color: active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: active ? Colors.green.withValues(alpha: 0.35) : Colors.white24)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -775,9 +776,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: hasDiff ? Colors.white.withValues(alpha: 0.04) : Colors.white.withValues(alpha: 0.02),
+                      color: hasDiff ? cardBg(context) : Colors.white.withValues(alpha: 0.02),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05)),
+                      border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : cardBorder(context)),
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
@@ -828,7 +829,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.03),
+                            color: cardBg(context),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14, color: Colors.grey[400])),
@@ -960,7 +961,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText, String? labelText}) {
     return InputDecoration(
-      filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
+      filled: true, fillColor: cardBg(context),
       border: border, isDense: isDense,
       contentPadding: contentPadding, hintText: hintText, labelText: labelText,
     );

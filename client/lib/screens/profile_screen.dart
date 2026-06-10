@@ -15,6 +15,7 @@ import "notification_screen.dart";
 import "connect_screen.dart";
 import "download_manager_screen.dart";
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -175,7 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _menuCard(List<Widget> children) => Container(
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(16),
       border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
     ),

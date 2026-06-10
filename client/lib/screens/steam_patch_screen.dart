@@ -7,6 +7,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 import "../services/steam_service.dart";
 
 class SteamPatchScreen extends StatefulWidget {

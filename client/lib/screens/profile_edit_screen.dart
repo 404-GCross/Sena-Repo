@@ -10,6 +10,7 @@ import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key});
@@ -228,9 +229,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.03),
+                    color: cardBg(context),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                    border: Border.all(color: cardBorder(context)),
                   ),
                   child: Column(children: [
                     TextField(
@@ -278,11 +279,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      borderSide: BorderSide(color: cardBorder(context)),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      borderSide: BorderSide(color: cardBorder(context)),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),

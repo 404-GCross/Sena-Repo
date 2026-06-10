@@ -5,6 +5,7 @@ import "dart:async";
 import "package:flutter/material.dart";
 
 import "../services/download_service.dart";
+import "../utils/theme_utils.dart";
 
 class DownloadManagerScreen extends StatefulWidget {
   const DownloadManagerScreen({super.key});
@@ -56,9 +57,9 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
+        color: cardBg(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: cardBorder(context)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -113,7 +114,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
             child: LinearProgressIndicator(
               value: t.progress,
               minHeight: 4,
-              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              backgroundColor: cardBorder(context),
               color: t.status == "paused" ? Colors.orange : null,
             ),
           ),

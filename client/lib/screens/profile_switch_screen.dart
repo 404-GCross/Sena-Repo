@@ -7,6 +7,7 @@ import "../services/profile_service.dart";
 import "connect_screen.dart";
 import "login_screen.dart";
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 import "dart:convert";
@@ -161,17 +162,17 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.04),
+                        color: cardBg(context),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: isActive
                             ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                            : Colors.white.withValues(alpha: 0.06)),
+                            : cardBorder(context)),
                       ),
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: isActive
                               ? Theme.of(context).colorScheme.primaryContainer
-                              : Colors.white.withValues(alpha: 0.06),
+                              : cardBorder(context),
                           child: Text(p.name[0].toUpperCase(),
                               style: TextStyle(fontWeight: FontWeight.w600,
                                   color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey[400])),
