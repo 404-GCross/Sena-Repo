@@ -72,9 +72,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
-          curl -fSL "https://www.7-zip.org/a/7za920.zip" -o 7za.zip
-          Expand-Archive -Path 7za.zip -DestinationPath client/assets/binaries
-          Remove-Item 7za.zip
+          choco install 7zip -y --no-progress | Out-Null
+          curl -fSL "https://www.7-zip.org/a/7z2409-extra.7z" -o 7z.7z
+          & "C:\Program Files\7-Zip\7z.exe" e 7z.7z "-oclient/assets/binaries" 7za.exe -y
+          Remove-Item 7z.7z
 
       - name: Enable Windows + generate platform files
         run: |
