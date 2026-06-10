@@ -401,7 +401,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
     final downloadUrl = "$_baseUrl/api/download/${game.id}/${v.id}";
-    DownloadService().startDownload(
+    final task = DownloadService().startDownload(
       gameId: game.id,
       versionId: v.id,
       fileName: v.filename,
@@ -410,19 +410,140 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       companyName: game.companyName ?? "",
     );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("${v.filename} 已添加下载"),
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: "查看",
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
-          ),
-        ),
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _DownloadProgressDialog(task: task),
       );
     }
   }
 
   Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
+}
+
+// ── Download progress dialog ──
+class _DownloadProgressDialog extends StatefulWidget {
+  final DownloadTask task;
+  const _DownloadProgressDialog({required this.task});
+
+  @override
+  State<_DownloadProgressDialog> createState() => _DownloadProgressDialogState();
+}
+
+class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
+  late DownloadTask _task;
+  var _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _task = widget.task;
+    _sub = DownloadService().tasks.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(children: [
+        _statusIcon(),
+        const SizedBox(width: 10),
+        Expanded(child: Text(_task.fileName,
+            style: const TextStyle(fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis)),
+      ]),
+      content: SizedBox(width: 360, child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text("${_task.companyName}/${_task.gameName}",
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          const SizedBox(height: 16),
+          _buildProgressSection(),
+        ],
+      )),
+      actions: [
+        if (_task.status == "done" || _task.status == "failed")
+          FilledButton(onPressed: () => Navigator.pop(context), child: const Text("完成")),
+        if (_task.status == "downloading" || _task.status == "extracting" || _task.status == "pending")
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
+      ],
+    );
+  }
+
+  Widget _statusIcon() {
+    switch (_task.status) {
+      case "downloading": return SizedBox(
+        width: 24, height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.blue[300])),
+      );
+      case "extracting": return Icon(Icons.folder_zip, size: 24, color: Colors.orange[300]);
+      case "done": return Icon(Icons.check_circle, size: 24, color: Colors.green[300]);
+      case "failed": return Icon(Icons.error, size: 24, color: Colors.red[300]);
+      default: return Icon(Icons.download, size: 24, color: Colors.grey[400]);
+    }
+  }
+
+  Widget _buildProgressSection() {
+    switch (_task.status) {
+      case "downloading":
+        return Column(children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.all(Radius.circular(4)),
+            child: LinearProgressIndicator(
+              value: _task.progress, minHeight: 8,
+              backgroundColor: Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text("${(_task.progress * 100).toStringAsFixed(0)}%",
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            Text("下载中...", style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+          ]),
+        ]);
+      case "extracting":
+        return Row(children: [
+          const SizedBox(width: 20, height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 12),
+          Text("正在解压...", style: TextStyle(fontSize: 14, color: Colors.orange[300])),
+        ]);
+      case "done":
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.check_circle, color: Colors.green[300], size: 20),
+            const SizedBox(width: 8),
+            Text("下载并解压完成", style: TextStyle(fontSize: 15, color: Colors.green[300])),
+          ]),
+          if (_task.outputPath != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(_task.outputPath!,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400], fontFamily: "monospace")),
+            ),
+          ],
+        ]);
+      default:
+        return Row(children: [
+          Icon(Icons.error, color: Colors.red[300], size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text(_task.error ?? "下载失败",
+              style: TextStyle(fontSize: 13, color: Colors.red[300]))),
+        ]);
+    }
+  }
 }

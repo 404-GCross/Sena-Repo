@@ -73,14 +73,14 @@ class DownloadService {
     await Directory(path).create(recursive: true);
   }
 
-  Future<DownloadTask> startDownload({
+  DownloadTask startDownload({
     required int gameId,
     required int versionId,
     required String fileName,
     required String downloadUrl,
     required String gameName,
     required String companyName,
-  }) async {
+  }) {
     final task = DownloadTask(
       gameId: gameId, versionId: versionId, fileName: fileName,
       downloadUrl: downloadUrl, gameName: gameName, companyName: companyName,
@@ -88,10 +88,15 @@ class DownloadService {
     _tasks.insert(0, task);
     _emit();
 
+    // Run download in background, return task immediately
+    _runDownload(task);
+    return task;
+  }
+
+  Future<void> _runDownload(DownloadTask task) async {
     try {
       final dir = await downloadDir;
 
-      // Step 1: Download
       task.status = "downloading";
       _emit();
 
@@ -101,13 +106,12 @@ class DownloadService {
         _emit();
       });
 
-      // Step 2: Extract
       task.status = "extracting";
       task.progress = 1.0;
       _emit();
 
-      final subDir = companyName.isNotEmpty ? companyName : "_unknown";
-      final gameDir = gameName.isNotEmpty ? gameName : task.fileName;
+      final subDir = task.companyName.isNotEmpty ? task.companyName : "_unknown";
+      final gameDir = task.gameName.isNotEmpty ? task.gameName : task.fileName;
       final outDir = "$dir/$subDir/$gameDir";
       await Directory(outDir).create(recursive: true);
 
@@ -122,8 +126,6 @@ class DownloadService {
       task.error = "$e";
       _emit();
     }
-
-    return task;
   }
 
   Future<void> _downloadFile(
