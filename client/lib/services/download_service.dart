@@ -488,22 +488,24 @@ class DownloadService {
     return _sevenZipPath!;
   }
 
-  /// Run a process, draining stdout to avoid pipe buffer deadlock,
-  /// and capturing at most 8KB of stderr for error messages.
+  /// Run a process, consuming stdout/stderr to avoid pipe buffer deadlock.
   /// Kills the process if it exceeds [timeoutSeconds] (default 30 min).
   Future<int> _runExtractor(String executable, List<String> args,
       {String? workingDirectory, int timeoutSeconds = 1800}) async {
     final process = await Process.start(executable, args,
         workingDirectory: workingDirectory);
     _extractionProcess = process;
-    // Drain stdout and stderr immediately — pipe buffer is limited
-    // and 7za will block if we don't consume it (especially on Windows).
-    final stdoutDrain = process.stdout.drain<void>();
+
+    // Consume stdout — discard all data (file listing can be huge).
+    // MUST subscribe; otherwise pipe buffer fills and 7za blocks on Windows.
+    final stdoutSub = process.stdout.listen((_) {});
+
+    // Capture up to 8KB of stderr for error messages
     final stderrBuf = StringBuffer();
-    final stderrDone = process.stderr
-        .transform(latin1.decoder)
-        .forEach((s) {
-      if (stderrBuf.length < 8192) stderrBuf.write(s);
+    final stderrSub = process.stderr.listen((chunk) {
+      if (stderrBuf.length < 8192) {
+        try { stderrBuf.write(String.fromCharCodes(chunk)); } catch (_) {}
+      }
     });
 
     // Wait for process exit with timeout
@@ -520,9 +522,10 @@ class DownloadService {
       process.kill();
       throw Exception("$executable 超时（${timeoutSeconds}秒），已强制终止");
     }
-    // Ensure streams are fully drained after process exits
-    await stdoutDrain;
-    await stderrDone;
+
+    // Clean up subscriptions after process exits
+    await stdoutSub.cancel();
+    await stderrSub.cancel();
     _extractionProcess = null;
 
     if (exitCode == -1) {
