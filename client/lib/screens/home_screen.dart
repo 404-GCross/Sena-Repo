@@ -1,6 +1,7 @@
 /// Main home screen with bottom tab navigation.
 /// Steam patch tab is hidden on Android (PC-only feature).
 
+import "dart:async";
 import "dart:io" show File, Platform;
 
 import "package:flutter/material.dart";
@@ -11,8 +12,10 @@ import "package:font_awesome_flutter/font_awesome_flutter.dart";
 import "../providers/theme_provider.dart";
 
 import "../providers/game_provider.dart";
+import "../services/download_service.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
+import "download_manager_screen.dart";
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
@@ -38,6 +41,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _multiSelect = false;
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
+  int _downloadCount = 0;
+  StreamSubscription? _downloadSub;
 
   bool _isWide(BuildContext ctx) => !Platform.isAndroid || MediaQuery.of(ctx).size.shortestSide > 600;
   bool _isMobile(BuildContext ctx) => Platform.isAndroid && MediaQuery.of(ctx).size.shortestSide <= 600;
@@ -46,6 +51,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _pollBackground();
+    _downloadSub = DownloadService().tasks.listen((tasks) {
+      final count = tasks.where((t) => t.status == "downloading" || t.status == "pending" || t.status == "paused" || t.status == "extracting").length;
+      if (mounted && count != _downloadCount) setState(() => _downloadCount = count);
+    });
   }
 
   void _pollBackground() {
@@ -435,6 +444,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  @override
+  void dispose() {
+    _downloadSub?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   void _batchClearSelection() {
     setState(() { _selectedIds.clear(); _multiSelect = false; });
   }
@@ -558,6 +574,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 } catch (_) {}
               },
               tooltip: "通知",
+            ),
+            // Download manager entry
+            IconButton(
+              icon: Badge(
+                isLabelVisible: _downloadCount > 0,
+                label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
+                child: const Icon(Icons.download_outlined, size: 22),
+              ),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
+              tooltip: "下载管理",
             ),
             // Action buttons (only on game library tab)
             AnimatedOpacity(
