@@ -530,6 +530,17 @@ class DownloadService {
   }
 
   Future<void> _extractWithSystemTool(String filePath, String outDir) async {
+    // Quick integrity check first — catches corrupted downloads
+    // that happen to have the right file size
+    try {
+      final sevenZip = await _getSevenZipPath();
+      final sevenZipDir = File(sevenZip).parent.path;
+      await _runExtractor(sevenZip, ["t", filePath],
+          workingDirectory: sevenZipDir, timeoutSeconds: 300);
+    } catch (e) {
+      throw Exception("文件校验失败，下载数据可能已损坏: $e");
+    }
+
     try {
       final sevenZip = await _getSevenZipPath();
       final sevenZipDir = File(sevenZip).parent.path;
