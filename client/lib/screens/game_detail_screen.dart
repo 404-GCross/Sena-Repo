@@ -1,5 +1,6 @@
 /// Game detail screen — Playnite-style layout with cover on right, metadata grid on left.
 
+import "dart:async";
 import "dart:convert";
 
 import "package:flutter/material.dart";
@@ -432,7 +433,7 @@ class _DownloadProgressDialog extends StatefulWidget {
 
 class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
   late DownloadTask _task;
-  var _sub;
+  StreamSubscription<List<DownloadTask>>? _sub;
 
   @override
   void initState() {
@@ -445,7 +446,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   @override
   void dispose() {
-    _sub.cancel();
+    _sub?.cancel();
     super.dispose();
   }
 
@@ -471,10 +472,16 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         ],
       )),
       actions: [
-        if (_task.status == "done" || _task.status == "failed")
-          FilledButton(onPressed: () => Navigator.pop(context), child: const Text("完成")),
+        if (_task.status == "done" || _task.status == "failed" || _task.status == "cancelled")
+          FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
         if (_task.status == "downloading" || _task.status == "extracting" || _task.status == "pending")
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
+          Row(children: [
+            TextButton(
+              onPressed: () { DownloadService().cancelTask(_task); },
+              child: const Text("取消下载", style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
+          ]),
       ],
     );
   }

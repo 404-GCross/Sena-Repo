@@ -18,11 +18,12 @@ class DownloadTask {
   final String downloadUrl;
   final String gameName;
   final String companyName;
-  String status; // pending, downloading, extracting, done, failed
+  String status; // pending, downloading, extracting, done, failed, cancelled
   double progress;
   String? error;
   String? outputPath;
   final DateTime startedAt;
+  http.Client? _client; // stored for cancellation
 
   DownloadTask({
     required this.gameId,
@@ -101,7 +102,7 @@ class DownloadService {
       _emit();
 
       final tmpFile = File("$dir/.tmp_${task.versionId}_${task.fileName}");
-      await _downloadFile(task.downloadUrl, tmpFile, (progress) {
+      await _downloadFile(task, tmpFile, (progress) {
         task.progress = progress;
         _emit();
       });
@@ -129,11 +130,12 @@ class DownloadService {
   }
 
   Future<void> _downloadFile(
-    String url, File dest, void Function(double) onProgress,
+    DownloadTask task, File dest, void Function(double) onProgress,
   ) async {
     final client = http.Client();
+    task._client = client;
     try {
-      final request = http.Request("GET", Uri.parse(url));
+      final request = http.Request("GET", Uri.parse(task.downloadUrl));
       final response = await client.send(request);
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
@@ -151,6 +153,7 @@ class DownloadService {
       await sink.close();
     } finally {
       client.close();
+      task._client = null;
     }
   }
 
@@ -229,9 +232,30 @@ class DownloadService {
     }
   }
 
+  void cancelTask(DownloadTask task) {
+    if (task.status == "downloading" || task.status == "pending") {
+      task._client?.close();
+      task._client = null;
+      task.status = "cancelled";
+      task.error = "已取消";
+      _emit();
+      // Clean up temp file
+      _cleanupTemp(task);
+    }
+  }
+
   void removeTask(DownloadTask task) {
+    cancelTask(task);
     _tasks.remove(task);
     _emit();
+  }
+
+  Future<void> _cleanupTemp(DownloadTask task) async {
+    try {
+      final dir = await downloadDir;
+      final tmp = File("$dir/.tmp_${task.versionId}_${task.fileName}");
+      if (await tmp.exists()) await tmp.delete();
+    } catch (_) {}
   }
 
   void _emit() {

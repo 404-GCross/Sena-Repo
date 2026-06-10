@@ -67,7 +67,12 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Expanded(
             child: Text(t.fileName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
           ),
-          if (t.status == "done" || t.status == "failed")
+          if (t.status == "downloading" || t.status == "pending")
+            TextButton(
+              onPressed: () => DownloadService().cancelTask(t),
+              child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
+            )
+          else if (t.status == "done" || t.status == "failed" || t.status == "cancelled")
             IconButton(
               icon: const Icon(Icons.close, size: 18),
               onPressed: () => DownloadService().removeTask(t),
@@ -110,6 +115,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       case "extracting": return Icon(Icons.folder_zip, size: 22, color: Colors.orange[300]);
       case "done": return Icon(Icons.check_circle, size: 22, color: Colors.green[300]);
       case "failed": return Icon(Icons.error, size: 22, color: Colors.red[300]);
+      case "cancelled": return Icon(Icons.cancel, size: 22, color: Colors.grey[500]);
       default: return Icon(Icons.help, size: 22, color: Colors.grey[500]);
     }
   }
