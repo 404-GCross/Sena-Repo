@@ -1,13 +1,12 @@
-"""Streaming file download API."""
+"""File download API — uses FileResponse for reliable async file serving."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/download", tags=["download"])
 
-CHUNK_SIZE = 1024 * 1024  # 1MB chunks
-
 
 @router.get("/{game_id}/{version_id}")
 async def download_game_version(
@@ -27,7 +24,14 @@ async def download_game_version(
     version_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """Download a specific game version archive file."""
+    """Download a specific game version archive file.
+
+    Uses FileResponse which handles:
+    - Non-blocking async file I/O via thread pool
+    - Content-Length, Content-Disposition, ETag
+    - Range requests (resumable downloads) automatically
+    - UTF-8 filenames with RFC 5987 encoding
+    """
     try:
         # Verify game exists and is not deleted
         result = await session.execute(
@@ -52,21 +56,10 @@ async def download_game_version(
         if not file_path.is_file():
             raise HTTPException(status_code=404, detail=f"File not found: {version.file_path}")
 
-        file_size = file_path.stat().st_size
-        safe_name = quote(version.filename)
-
-        async def file_stream():
-            with open(file_path, "rb") as f:
-                while chunk := f.read(CHUNK_SIZE):
-                    yield chunk
-
-        return StreamingResponse(
-            file_stream(),
+        return FileResponse(
+            path=str(file_path),
+            filename=version.filename,
             media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}",
-                "Content-Length": str(file_size),
-            },
         )
     except HTTPException:
         raise
