@@ -238,15 +238,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.sort, size: 16, color: gameProvider.sortBy != null
-                          ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+                          ? Theme.of(context).colorScheme.primary
+                          : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[600])),
                       const SizedBox(width: 4),
                       Text(_sortLabel(gameProvider.sortBy),
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500,
                               color: gameProvider.sortBy != null
-                                  ? Theme.of(context).colorScheme.primary : Colors.grey[500])),
+                                  ? Theme.of(context).colorScheme.primary
+                                  : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[700]))),
                       const SizedBox(width: 2),
                       Icon(Icons.arrow_drop_down, size: 18, color: gameProvider.sortBy != null
-                          ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+                          ? Theme.of(context).colorScheme.primary
+                          : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[600])),
                     ]),
                   ),
                 ),
@@ -509,6 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _filterChip(String label, IconData? icon, bool active, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: GestureDetector(
@@ -517,20 +521,24 @@ class _HomeScreenState extends State<HomeScreen> {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+            color: active
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
+                : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: active ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.06),
+              color: active
+                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
+                  : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.08)),
             ),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             if (icon != null) ...[
-              Icon(icon, size: 14, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+              Icon(icon, size: 14, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[600]),
               const SizedBox(width: 4),
             ],
             Text(label, style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w500,
-              color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400],
+              color: active ? Theme.of(context).colorScheme.primary : (isDark ? Colors.grey[400] : Colors.grey[600]),
             )),
           ]),
         ),
