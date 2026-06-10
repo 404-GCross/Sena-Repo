@@ -1126,19 +1126,6 @@ class _DisplayPageState extends State<_DisplayPage> {
     ]),
   );
 
-  Widget _themeTile(ThemeMode mode, String label, IconData icon) {
-    final current = context.watch<ThemeProvider>().themeMode;
-    final active = current == mode;
-    return ListTile(
-      leading: Icon(icon, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
-      title: Text(label, style: TextStyle(fontSize: 14,
-          color: active ? Theme.of(context).colorScheme.primary : null)),
-      trailing: active ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
-      onTap: () => context.read<ThemeProvider>().setThemeMode(mode),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-    );
-  }
-
   Widget _sectionTitle(String t) => Padding(
     padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
     child: Row(children: [
