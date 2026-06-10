@@ -142,31 +142,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ]),
         const SizedBox(height: 32),
 
-        // ── Switch user ──
+        // ── Switch user + Logout ──
         Center(
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              icon: const Icon(Icons.swap_horiz, size: 18),
+              label: const Text("切换用户"),
+              onPressed: _switchProfile,
             ),
-            icon: const Icon(Icons.swap_horiz, size: 18),
-            label: const Text("切换用户"),
-            onPressed: _switchProfile,
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // ── Logout ──
-        Center(
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text("退出登录"),
+              onPressed: _logout,
             ),
-            icon: const Icon(Icons.logout, size: 18),
-            label: const Text("退出登录"),
-            onPressed: _logout,
-          ),
+          ]),
         ),
         const SizedBox(height: 32),
       ],
