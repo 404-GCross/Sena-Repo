@@ -202,6 +202,13 @@ class DownloadService {
   }
 
   String? _sevenZipPath;
+  bool _userSkippedSetup = false;
+  Future<bool> Function()? _onSetupNeeded; // Callback to show setup dialog
+
+  /// Register a callback for showing the setup dialog. Returns true if setup proceeded.
+  void onSetupNeeded(Future<bool> Function() callback) {
+    _onSetupNeeded = callback;
+  }
 
   Future<String> _getSevenZipPath() async {
     if (_sevenZipPath != null) return _sevenZipPath!;
@@ -218,18 +225,30 @@ class DownloadService {
           await Process.run("chmod", ["+x", dest.path]);
         }
       } catch (_) {
-        // Fallback: try downloading 7za on first use (ZIP format = extractable without 7z)
-        try {
-          final url = Platform.isWindows
-              ? "https://www.7-zip.org/a/7za920.zip"
-              : "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
-          final tmp = File("${dir.path}/_7z_dl");
-          final client = http.Client();
+        // Show setup dialog to user
+        if (!_userSkippedSetup && _onSetupNeeded != null) {
+          final proceed = await _onSetupNeeded!();
+          if (!proceed) {
+            _userSkippedSetup = true;
+            throw Exception("用户取消了 7-Zip 安装。请手动安装 7-Zip 后再试。");
+          }
+          // Download 7za with progress
           try {
-            final resp = await client.send(http.Request("GET", Uri.parse(url)));
-            if (resp.statusCode == 200) {
+            final url = Platform.isWindows
+                ? "https://www.7-zip.org/a/7za920.zip"
+                : "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
+            final tmp = File("${dir.path}/_7z_dl");
+            final client = http.Client();
+            try {
+              final resp = await client.send(http.Request("GET", Uri.parse(url)));
+              if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
+              final total = resp.contentLength ?? 0;
+              var received = 0;
               final sink = tmp.openWrite();
-              await for (final chunk in resp.stream) { sink.add(chunk); }
+              await for (final chunk in resp.stream) {
+                sink.add(chunk);
+                received += chunk.length;
+              }
               await sink.flush(); await sink.close();
               if (Platform.isWindows) {
                 final archive = ZipDecoder().decodeBuffer(InputFileStream(tmp.path));
@@ -243,14 +262,18 @@ class DownloadService {
                 await Process.run("tar", ["-xf", tmp.path, "-C", dir.path]);
               }
               await tmp.delete();
-            }
-          } finally { client.close(); }
-        } catch (_) {}
+            } finally { client.close(); }
+          } catch (_) {
+            throw Exception("7-Zip 下载失败。请手动安装 7-Zip 后再试。");
+          }
+        } else {
+          throw Exception("解压组件未就绪。请安装 7-Zip 或手动放置 7za.exe 到 $dir");
+        }
       }
     }
 
     if (!await dest.exists()) {
-      throw Exception("解压组件未就绪。请安装 7-Zip 或将 7za.exe/7zz 放入 $dir");
+      throw Exception("解压组件未就绪。请安装 7-Zip 或手动放置 7za.exe 到 $dir");
     }
 
     _sevenZipPath = dest.path;

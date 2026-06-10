@@ -33,6 +33,37 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    DownloadService().onSetupNeeded(() => _show7zSetupDialog());
+  }
+
+  Future<bool> _show7zSetupDialog() async {
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.folder_zip, color: Colors.orange, size: 24),
+          SizedBox(width: 8),
+          Text("需要解压工具"),
+        ]),
+        content: const Text("首次下载 .rar/.7z 格式游戏需要安装 7-Zip 解压工具。\n\n是否现在下载？（约 600KB，仅需一次）",
+            style: TextStyle(fontSize: 14)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("跳过"),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text("下载"),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   Future<void> _load() async {
