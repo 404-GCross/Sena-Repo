@@ -133,6 +133,10 @@ class DownloadService {
     try {
       final request = http.Request("GET", Uri.parse(url));
       final response = await client.send(request);
+      if (response.statusCode != 200) {
+        final body = await response.stream.bytesToString();
+        throw Exception("下载失败 HTTP ${response.statusCode}: $body");
+      }
       final total = response.contentLength ?? 0;
       var received = 0;
       final sink = dest.openWrite();
