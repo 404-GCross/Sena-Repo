@@ -8,6 +8,7 @@ import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/settings_provider.dart";
+import "../utils/theme_utils.dart";
 import "../services/profile_service.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
@@ -15,6 +16,7 @@ import "notification_screen.dart";
 import "connect_screen.dart";
 import "download_manager_screen.dart";
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -116,7 +118,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Center(
           child: Text(
             "服务器: ${settings.serverHost}:${settings.serverPort}",
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            style: TextStyle(fontSize: 14, color: hintColor(context)),
           ),
         ),
         const SizedBox(height: 32),
@@ -175,9 +177,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _menuCard(List<Widget> children) => Container(
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Column(children: children),
   );
@@ -197,10 +199,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
+              color: cardBorder(context),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, size: 22, color: Colors.white70),
+            child: Icon(icon, size: 22, color: sectionTextColor(context)),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -209,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                 const SizedBox(height: 2),
-                Text(trailing, style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                Text(trailing, style: TextStyle(fontSize: 13, color: hintColor(context))),
               ],
             ),
           ),
@@ -219,7 +221,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _menuDivider() => Divider(height: 1, indent: 68, color: Colors.white.withValues(alpha: 0.06));
+  Widget _menuDivider() => Divider(height: 1, indent: 68, color: cardBorder(context));
 
   void _showAbout(BuildContext context) {
     showDialog(
@@ -236,9 +238,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Text("Sena Repo", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text("版本: 0.1.0", style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+            Text("版本: 0.1.0", style: TextStyle(fontSize: 14, color: hintColor(context))),
             const SizedBox(height: 12),
-            Text("GalGame 私人图书馆管理器", style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+            Text("GalGame 私人图书馆管理器", style: TextStyle(fontSize: 13, color: subTextColor(context))),
           ],
         ),
         actions: [
