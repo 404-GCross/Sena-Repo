@@ -7,6 +7,7 @@ import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../services/profile_service.dart";
 import "home_screen.dart";
+import "profile_switch_screen.dart";
 import "setup_wizard_screen.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "login_screen.dart";
@@ -83,6 +84,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
             await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
             await prefs.setString("username", loginResult["username"]?.toString() ?? "");
             await prefs.setBool("is_admin", loginResult["is_admin"] == true);
+            // Auto-save as profile
+            await ProfileService().saveCurrentAsProfile(loginResult["username"]?.toString() ?? "默认");
           }
         }
       }

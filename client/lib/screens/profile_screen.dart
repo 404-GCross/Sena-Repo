@@ -9,6 +9,7 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/settings_provider.dart";
 import "../services/profile_service.dart";
+import "profile_switch_screen.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
 import "connect_screen.dart";
@@ -34,76 +35,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserInfo();
   }
 
-  Future<void> _switchProfile() async {
-    final profiles = await ProfileService().loadProfiles();
-    final result = await showDialog<UserProfile>(
-      context: context, builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("切换用户"),
-        content: SizedBox(width: 320, child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (profiles.isEmpty)
-              Text("暂无保存的配置", style: TextStyle(color: Colors.grey[500])),
-            ...profiles.map((p) => ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                child: Text(p.name[0].toUpperCase()),
-              ),
-              title: Text(p.name),
-              subtitle: Text("${p.username}@${p.host}:${p.port}",
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-              trailing: const Icon(Icons.chevron_right, size: 18),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              onTap: () => Navigator.pop(ctx, p),
-            )),
-            const SizedBox(height: 8),
-            Text("已保存 ${profiles.length} 个配置",
-                style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-          ],
-        )),
-        actions: [
-          TextButton(
-            onPressed: () {
-              // Save current session as profile
-              showDialog(context: ctx, builder: (c) {
-                final nameCtrl = TextEditingController();
-                return AlertDialog(
-                  title: const Text("保存当前配置"),
-                  content: TextField(controller: nameCtrl,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: "配置名称", hintText: "如: 家里NAS")),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(c), child: const Text("取消")),
-                    FilledButton(onPressed: () async {
-                      if (nameCtrl.text.trim().isEmpty) return;
-                      await ProfileService().saveCurrentAsProfile(nameCtrl.text.trim());
-                      Navigator.pop(c);
-                      Navigator.pop(ctx);
-                    }, child: const Text("保存")),
-                  ],
-                );
-              });
-            },
-            child: const Text("保存当前"),
-          ),
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭")),
-        ],
-      ),
-    );
-    if (result == null || !mounted) return;
-    // Switch to selected profile
-    await ProfileService().applyProfile(result);
-    showDialog(context: context, builder: (c) => AlertDialog(
-      content: Text("已切换至「${result.name}」, 即将重新连接"),
-    ));
-    // Navigate back to connect screen
-    if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const ConnectScreen()),
-        (_) => false,
-      );
-    }
+  void _switchProfile() {
+    Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const ProfileSwitchScreen()));
   }
 
   Future<void> _loadUserInfo() async {
@@ -190,27 +124,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // ── Menu Items ──
         _menuCard([
           _menuItem(
-            icon: Icons.notifications_outlined,
-            title: "通知",
-            trailing: "查看通知",
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => NotificationScreen(
-                    api: context.read<GameProvider>().api))),
-          ),
-          _menuDivider(),
-          _menuItem(
             icon: Icons.swap_horiz,
             title: "切换用户",
             trailing: _username,
             onTap: _switchProfile,
-          ),
-          _menuDivider(),
-          _menuItem(
-            icon: Icons.download_outlined,
-            title: "下载管理",
-            trailing: "查看下载任务",
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
           ),
           _menuDivider(),
           _menuItem(
