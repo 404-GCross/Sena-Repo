@@ -10,6 +10,7 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../providers/game_provider.dart";
+import "download_manager_screen.dart";
 import "game_edit_screen.dart";
 
 class GameDetailScreen extends StatefulWidget {
@@ -400,7 +401,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
     final downloadUrl = "$_baseUrl/api/download/${game.id}/${v.id}";
-    await DownloadService().startDownload(
+    DownloadService().startDownload(
       gameId: game.id,
       versionId: v.id,
       fileName: v.filename,
@@ -409,11 +410,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       companyName: game.companyName ?? "",
     );
     if (mounted) {
-      showDialog(context: context, builder: (c) => AlertDialog(
-        title: const Text("下载已开始"),
-        content: Text("${v.filename} 正在后台下载"),
-        actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("${v.filename} 已添加下载"),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: "查看",
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
+          ),
+        ),
+      );
     }
   }
 
