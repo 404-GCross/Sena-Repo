@@ -275,18 +275,21 @@ class DownloadService {
 
   Future<void> _extractZip(String zipPath, String outDir) async {
     final inputStream = InputFileStream(zipPath);
-    final archive = ZipDecoder().decodeBuffer(inputStream);
-    for (final file in archive) {
-      final filePath = "$outDir/${file.name}";
-      if (file.isFile) {
-        final outFile = File(filePath);
-        await outFile.parent.create(recursive: true);
-        await outFile.writeAsBytes(file.content as List<int>);
-      } else {
-        await Directory(filePath).create(recursive: true);
+    try {
+      final archive = ZipDecoder().decodeStream(inputStream);
+      await for (final file in archive) {
+        final filePath = "$outDir/${file.name}";
+        if (file.isFile) {
+          final outFile = File(filePath);
+          await outFile.parent.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>);
+        } else {
+          await Directory(filePath).create(recursive: true);
+        }
       }
+    } finally {
+      await inputStream.close();
     }
-    await inputStream.close();
   }
 
   String? _sevenZipPath;
@@ -457,29 +460,48 @@ class DownloadService {
     return _sevenZipPath!;
   }
 
+  /// Run a process, draining stdout to avoid pipe buffer deadlock,
+  /// and capturing at most 8KB of stderr for error messages.
+  Future<int> _runExtractor(String executable, List<String> args,
+      {String? workingDirectory}) async {
+    final process = await Process.start(executable, args,
+        workingDirectory: workingDirectory);
+    // Drain stdout immediately — pipe buffer is limited and 7za
+    // will block if we don't consume it (especially on Windows).
+    final stdoutDrain = process.stdout.drain<void>();
+    final stderrBuf = StringBuffer();
+    final stderrDone = process.stderr
+        .transform(latin1.decoder)
+        .forEach((s) {
+      if (stderrBuf.length < 8192) stderrBuf.write(s);
+    });
+    final exitCode = await process.exitCode;
+    await stdoutDrain;
+    await stderrDone;
+    if (exitCode != 0) {
+      final err = stderrBuf.toString().trim();
+      throw Exception(err.isEmpty ? "$executable exit code: $exitCode" : err);
+    }
+    return exitCode;
+  }
+
   Future<void> _extractWithSystemTool(String filePath, String outDir) async {
     try {
       final sevenZip = await _getSevenZipPath();
       final sevenZipDir = File(sevenZip).parent.path;
-      final result = await Process.run(sevenZip, ["x", "-y", "-o$outDir", filePath],
+      await _runExtractor(sevenZip, ["x", "-y", "-o$outDir", filePath],
           workingDirectory: sevenZipDir);
-      if (result.exitCode != 0) {
-        final err = (result.stderr.toString() + result.stdout.toString()).trim();
-        throw Exception(err.isEmpty ? "7za exit code: ${result.exitCode}" : "7za: $err");
-      }
       return;
     } catch (e) {
       // Fallback to system tools
       try {
-        final result = await Process.run("7z", ["x", "-y", "-o$outDir", filePath]);
-        if (result.exitCode == 0) return;
-        if (result.stderr.toString().isNotEmpty) throw Exception("7z: ${result.stderr}");
-      } catch (e2) {
-        try {
-          final result = await Process.run("unar", ["-o", outDir, filePath]);
-          if (result.exitCode == 0) return;
-        } catch (_) {}
-      }
+        await _runExtractor("7z", ["x", "-y", "-o$outDir", filePath]);
+        return;
+      } catch (_) {}
+      try {
+        await _runExtractor("unar", ["-o", outDir, filePath]);
+        return;
+      } catch (_) {}
       throw Exception("解压失败: $e");
     }
   }
