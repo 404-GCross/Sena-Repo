@@ -154,6 +154,26 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Theme.of(context).colorScheme.primary)),
                 ),
                 const Spacer(),
+                // Action buttons moved from sidebar
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  onPressed: gameProvider.loadGames,
+                  tooltip: "刷新",
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  icon: Icon(_isGridView ? Icons.list : Icons.grid_view, size: 20),
+                  onPressed: () => setState(() => _isGridView = !_isGridView),
+                  tooltip: _isGridView ? "列表视图" : "网格视图",
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  icon: Icon(_multiSelect ? Icons.check_box : Icons.check_box_outline_blank, size: 20),
+                  onPressed: _toggleMultiSelect,
+                  tooltip: "多选",
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 4),
                 if (gameProvider.filterPlatform != null || gameProvider.filterHasCover != null || gameProvider.sortBy != null)
                   GestureDetector(
                     onTap: () => gameProvider.clearFilters(),
@@ -585,23 +605,6 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
               tooltip: "下载管理",
-            ),
-            // Action buttons (only on game library tab)
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: _currentTab == 0 ? 1.0 : 0.0,
-              child: IgnorePointer(
-                ignoring: _currentTab != 0,
-                child: Column(children: [
-                  _sideBtn(Icons.refresh, "刷新", gameProvider.loadGames),
-                  _sideBtn(_isGridView ? Icons.list : Icons.grid_view,
-                      _isGridView ? "列表" : "网格",
-                      () => setState(() => _isGridView = !_isGridView)),
-                  _sideBtn(
-                      _multiSelect ? Icons.check_box : Icons.check_box_outline_blank,
-                      "多选", _toggleMultiSelect),
-                ]),
-              ),
             ),
             const Spacer(),
             // Nav tabs centered
