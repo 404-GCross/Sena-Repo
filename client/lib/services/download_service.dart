@@ -210,28 +210,67 @@ class DownloadService {
     _onSetupNeeded = callback;
   }
 
+  /// Parse 7za/7zz version string. Returns null if parsing fails.
+  /// Version string example: "7-Zip (A) 26.01 Copyright (c) 1999-2026 Igor Pavlov"
+  Future<int?> _get7zaVersion(String sevenZipPath) async {
+    try {
+      final result = await Process.run(sevenZipPath, [],
+          stdoutEncoding: latin1, stderrEncoding: latin1);
+      final output = '${result.stdout}${result.stderr}';
+      final match = RegExp(r'7-Zip\b[^\d]*(\d+)\.(\d+)').firstMatch(output);
+      if (match != null) {
+        final major = int.parse(match.group(1)!);
+        final minor = int.parse(match.group(2)!);
+        return major * 100 + minor;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Minimum 7za version that supports RAR5 (15.06+ added RAR5).
+  static const int _min7zaVersion = 1600;
+
   Future<String> _getSevenZipPath() async {
     if (_sevenZipPath != null) return _sevenZipPath!;
     final dir = await getApplicationSupportDirectory();
     final exeName = Platform.isWindows ? "7za.exe" : "7zz";
     final dest = File("${dir.path}/$exeName");
 
+    // Check version of existing binary — replace if too old (< 16.00 = no RAR5)
+    if (await dest.exists()) {
+      final version = await _get7zaVersion(dest.path);
+      if (version != null && version < _min7zaVersion) {
+        // Delete all old 7za-related files so they get replaced
+        for (final name in ["7za.exe", "7za.dll", "7zxa.dll", "7zz"]) {
+          try {
+            await File("${dir.path}/$name").delete();
+          } catch (_) {}
+        }
+      }
+    }
+
     if (!await dest.exists()) {
-      // Try bundled asset first — extract exe + DLLs
+      // Try bundled asset first — extract exe + DLLs (overwrite always)
+      bool bundledOk = false;
       try {
         for (final name in ["7za.exe", "7za.dll", "7zxa.dll"]) {
           try {
             final data = await rootBundle.load("assets/binaries/$name");
             final f = File("${dir.path}/$name");
-            if (!await f.exists()) {
-              await f.writeAsBytes(data.buffer.asUint8List());
-            }
+            await f.writeAsBytes(data.buffer.asUint8List());
           } catch (_) {}
         }
         if (Platform.isLinux) {
           await Process.run("chmod", ["+x", dest.path]);
         }
-      } catch (_) {
+        if (await dest.exists()) {
+          bundledOk = true;
+        }
+      } catch (_) {}
+
+      if (!bundledOk) {
         // Show setup dialog to user
         if (!_userSkippedSetup && _onSetupNeeded != null) {
           final proceed = await _onSetupNeeded!();
@@ -239,48 +278,91 @@ class DownloadService {
             _userSkippedSetup = true;
             throw Exception("用户取消了 7-Zip 安装。请手动安装 7-Zip 后再试。");
           }
-          // Download 7za with progress
+          // Download 7za from official site
           try {
-            final url = Platform.isWindows
-                ? "https://www.7-zip.org/a/7z2601-extra.7z"
-                : "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
-            final tmp = File("${dir.path}/_7z_dl");
-            final client = http.Client();
-            try {
-              final resp = await client.send(http.Request("GET", Uri.parse(url)));
-              if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
-              final total = resp.contentLength ?? 0;
-              var received = 0;
-              final sink = tmp.openWrite();
-              await for (final chunk in resp.stream) {
-                sink.add(chunk);
-                received += chunk.length;
-              }
-              await sink.flush(); await sink.close();
-              if (Platform.isWindows) {
-                final archive = ZipDecoder().decodeBuffer(InputFileStream(tmp.path));
-                for (final f in archive) {
-                  if (f.isFile && (f.name == "7za.exe" || f.name.endsWith("/7za.exe"))) {
-                    await dest.writeAsBytes(f.content as List<int>);
-                    break;
+            if (Platform.isWindows) {
+              // Windows: 7z2601-extra.7z contains 7za.exe + DLLs.
+              // We can't extract .7z without 7za already present (chicken-and-egg),
+              // so download and run the official installer instead.
+              final installerUrl =
+                  "https://www.7-zip.org/a/7z2601-x64.exe";
+              final tmp = File("${dir.path}/_7z_installer.exe");
+              final client = http.Client();
+              try {
+                final resp = await client.send(
+                    http.Request("GET", Uri.parse(installerUrl)));
+                if (resp.statusCode != 200) {
+                  throw Exception("HTTP ${resp.statusCode}");
+                }
+                final sink = tmp.openWrite();
+                await for (final chunk in resp.stream) {
+                  sink.add(chunk);
+                }
+                await sink.flush();
+                await sink.close();
+                // Run installer silently, then copy 7za.exe from install dir
+                final result = await Process.run(tmp.path, ["/S"]);
+                if (result.exitCode == 0) {
+                  // Try to find 7za.exe from common install locations
+                  for (final progDir in [
+                    "C:/Program Files/7-Zip",
+                    r"C:\Program Files (x86)\7-Zip",
+                  ]) {
+                    final src = File("$progDir/7za.exe");
+                    if (await src.exists()) {
+                      await src.copy(dest.path);
+                      // Also copy DLLs
+                      for (final dll in ["7za.dll", "7zxa.dll"]) {
+                        try {
+                          await File("$progDir/$dll")
+                              .copy("${dir.path}/$dll");
+                        } catch (_) {}
+                      }
+                      break;
+                    }
                   }
                 }
-              } else {
-                await Process.run("tar", ["-xf", tmp.path, "-C", dir.path]);
+                await tmp.delete();
+              } finally {
+                client.close();
               }
-              await tmp.delete();
-            } finally { client.close(); }
+            } else {
+              // Linux: download tar.xz and extract with tar
+              final url = "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
+              final tmp = File("${dir.path}/_7z_dl");
+              final client = http.Client();
+              try {
+                final resp = await client.send(
+                    http.Request("GET", Uri.parse(url)));
+                if (resp.statusCode != 200) {
+                  throw Exception("HTTP ${resp.statusCode}");
+                }
+                final sink = tmp.openWrite();
+                await for (final chunk in resp.stream) {
+                  sink.add(chunk);
+                }
+                await sink.flush();
+                await sink.close();
+                await Process.run(
+                    "tar", ["-xf", tmp.path, "-C", dir.path]);
+                await tmp.delete();
+              } finally {
+                client.close();
+              }
+            }
           } catch (_) {
             throw Exception("7-Zip 下载失败。请手动安装 7-Zip 后再试。");
           }
         } else {
-          throw Exception("解压组件未就绪。请安装 7-Zip 或手动放置 7za.exe 到 $dir");
+          throw Exception(
+              "解压组件未就绪。请安装 7-Zip 或手动放置 $exeName 到 $dir");
         }
       }
     }
 
     if (!await dest.exists()) {
-      throw Exception("解压组件未就绪。请安装 7-Zip 或手动放置 7za.exe 到 $dir");
+      throw Exception(
+          "解压组件未就绪。请安装 7-Zip 或手动放置 $exeName 到 $dir");
     }
 
     _sevenZipPath = dest.path;
