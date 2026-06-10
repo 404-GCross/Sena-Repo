@@ -170,6 +170,15 @@ class DownloadService {
       }
       await sink.flush();
       await sink.close();
+
+      // Validate download completeness
+      if (task.totalBytes > 0 && received < task.totalBytes) {
+        throw Exception(
+          "下载不完整：预期 ${task.totalBytes} bytes，实收 $received bytes (${((1 - received / task.totalBytes) * 100).toStringAsFixed(1)}% 丢失)");
+      }
+      if (received == 0 && task.totalBytes == 0) {
+        throw Exception("下载失败：未收到任何数据，请检查服务器连接");
+      }
     } finally {
       client.close();
       task._client = null;
