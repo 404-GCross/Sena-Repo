@@ -39,3 +39,18 @@ Color placeholderBg(BuildContext context) => Theme.of(context).brightness == Bri
 Color placeholderIcon(BuildContext context) => Theme.of(context).brightness == Brightness.dark
     ? Colors.grey[700]!
     : Colors.grey[400]!;
+
+/// Subtitle/secondary text — readable in both modes
+Color subTextColor(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+    ? Colors.grey[400]!
+    : Colors.grey[600]!;
+
+/// Hint/muted text
+Color hintColor(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+    ? Colors.grey[500]!
+    : Colors.grey[600]!;
+
+/// Dim icon color
+Color dimIconColor(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+    ? Colors.grey[500]!
+    : Colors.grey[600]!;

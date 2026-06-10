@@ -10,8 +10,10 @@ import "package:provider/provider.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/theme_provider.dart";
+import "../utils/theme_utils.dart";
 
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 import "../services/download_service.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
@@ -99,8 +101,8 @@ class _HomeScreenState extends State<HomeScreen> {
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: "搜索游戏...",
-                hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14),
-                prefixIcon: Icon(Icons.search, color: Colors.grey[500], size: 22),
+                hintStyle: TextStyle(color: hintColor(context), fontSize: 14),
+                prefixIcon: Icon(Icons.search, color: hintColor(context), size: 22),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear, size: 20),
@@ -268,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Icon(Icons.gamepad, size: 72, color: Colors.grey[700]),
                           const SizedBox(height: 16),
                           Text("游戏库为空",
-                              style: TextStyle(color: Colors.grey[500], fontSize: 18)),
+                              style: TextStyle(color: hintColor(context), fontSize: 18)),
                           const SizedBox(height: 4),
                           Text("请在服务端添加根目录并刷新",
                               style: TextStyle(color: Colors.grey[600], fontSize: 13)),

@@ -42,7 +42,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.download_outlined, size: 64, color: Colors.grey[600]),
                 const SizedBox(height: 12),
-                Text("暂无下载任务", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
+                Text("暂无下载任务", style: TextStyle(fontSize: 16, color: hintColor(context))),
               ]))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
@@ -106,7 +106,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         ]),
         const SizedBox(height: 4),
         Text("${t.companyName}/${t.gameName}",
-            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            style: TextStyle(fontSize: 12, color: hintColor(context))),
         if (t.status == "downloading" || t.status == "paused") ...[
           const SizedBox(height: 8),
           ClipRRect(
@@ -121,14 +121,14 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           const SizedBox(height: 4),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text("${(t.progress * 100).toStringAsFixed(0)}%",
-                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                style: TextStyle(fontSize: 11, color: hintColor(context))),
             if (t.status == "paused")
               Text("已暂停", style: TextStyle(fontSize: 11, color: Colors.orange[300])),
           ]),
         ],
         if (t.status == "done" && t.outputPath != null)
           Text("已解压到: ${t.outputPath}",
-              style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              style: TextStyle(fontSize: 11, color: hintColor(context))),
         if (t.error != null)
           Text(t.error!, style: TextStyle(fontSize: 11, color: Colors.red[300])),
       ]),
@@ -137,7 +137,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
 
   Widget _statusIcon(String status) {
     switch (status) {
-      case "pending": return Icon(Icons.schedule, size: 22, color: Colors.grey[500]);
+      case "pending": return Icon(Icons.schedule, size: 22, color: hintColor(context));
       case "downloading": return SizedBox(
         width: 22, height: 22,
         child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.blue[300])),
@@ -146,8 +146,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       case "paused": return Icon(Icons.pause_circle, size: 22, color: Colors.orange[300]);
       case "done": return Icon(Icons.check_circle, size: 22, color: Colors.green[300]);
       case "failed": return Icon(Icons.error, size: 22, color: Colors.red[300]);
-      case "cancelled": return Icon(Icons.cancel, size: 22, color: Colors.grey[500]);
-      default: return Icon(Icons.help, size: 22, color: Colors.grey[500]);
+      case "cancelled": return Icon(Icons.cancel, size: 22, color: hintColor(context));
+      default: return Icon(Icons.help, size: 22, color: hintColor(context));
     }
   }
 }

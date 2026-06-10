@@ -131,7 +131,7 @@ class _GameListTileState extends State<_GameListTile> {
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     Text(game.developer ?? game.companyName ?? "",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        style: TextStyle(fontSize: 12, color: hintColor(context))),
                   ],
                 ),
               ),

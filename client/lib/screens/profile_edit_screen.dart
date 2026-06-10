@@ -270,7 +270,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Widget _section(String t) => Padding(
     padding: const EdgeInsets.only(left: 4, bottom: 4),
-    child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[400])),
+    child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: subTextColor(context))),
   );
 
   InputDecoration _dec(String hint) => InputDecoration(

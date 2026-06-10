@@ -117,7 +117,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Center(
           child: Text(
             "服务器: ${settings.serverHost}:${settings.serverPort}",
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            style: TextStyle(fontSize: 14, color: hintColor(context)),
           ),
         ),
         const SizedBox(height: 32),
@@ -210,7 +210,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                 const SizedBox(height: 2),
-                Text(trailing, style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                Text(trailing, style: TextStyle(fontSize: 13, color: hintColor(context))),
               ],
             ),
           ),
@@ -237,9 +237,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Text("Sena Repo", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text("版本: 0.1.0", style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+            Text("版本: 0.1.0", style: TextStyle(fontSize: 14, color: hintColor(context))),
             const SizedBox(height: 12),
-            Text("GalGame 私人图书馆管理器", style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+            Text("GalGame 私人图书馆管理器", style: TextStyle(fontSize: 13, color: subTextColor(context))),
           ],
         ),
         actions: [

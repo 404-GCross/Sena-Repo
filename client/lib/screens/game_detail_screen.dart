@@ -11,6 +11,7 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
 import "game_edit_screen.dart";
 
@@ -139,9 +140,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       if (game.companyName != null) ...[
                         const SizedBox(height: 6),
                         Row(children: [
-                          Icon(Icons.business, size: 16, color: Colors.grey[400]),
+                          Icon(Icons.business, size: 16, color: subTextColor(context)),
                           const SizedBox(width: 6),
-                          Text(game.companyName!, style: TextStyle(fontSize: 16, color: Colors.grey[400])),
+                          Text(game.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context))),
                         ]),
                       ],
                       const SizedBox(height: 16),
@@ -196,7 +197,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 child: Row(children: [
-                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
+                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
                                   const SizedBox(width: 10),
                                   Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
                                   const SizedBox(width: 12),
@@ -209,7 +210,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                     child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
                                   ),
                                   const SizedBox(width: 10),
-                                  Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                                  Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: hintColor(context))),
                                   const SizedBox(width: 8),
                                   IconButton(
                                     icon: const Icon(Icons.download, size: 20),
@@ -302,9 +303,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
     ),
     child: Row(children: [
-      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+      Text(text, style: TextStyle(fontSize: 14, color: hintColor(context))),
     ]),
   );
 
@@ -323,11 +324,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (icon != null) ...[
-          Icon(icon, size: 18, color: Colors.grey[500]),
+          Icon(icon, size: 18, color: hintColor(context)),
           const SizedBox(width: 8),
         ],
         SizedBox(width: 70, child: Padding(padding: const EdgeInsets.only(top: 1),
-          child: Text(label, style: TextStyle(fontSize: 14, color: Colors.grey[500])))),
+          child: Text(label, style: TextStyle(fontSize: 14, color: hintColor(context))))),
         Expanded(child: Text(value?.isNotEmpty == true ? value! : "—",
             style: TextStyle(fontSize: 15, color: value?.isNotEmpty == true ? null : Colors.grey[700]))),
       ]),
@@ -501,7 +502,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         children: [
           Text("${_task.companyName}/${_task.gameName}",
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              style: TextStyle(fontSize: 12, color: hintColor(context))),
           const SizedBox(height: 16),
           _buildProgressSection(),
         ],
@@ -546,7 +547,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       case "extracting": return Icon(Icons.folder_zip, size: 24, color: Colors.orange[300]);
       case "done": return Icon(Icons.check_circle, size: 24, color: Colors.green[300]);
       case "failed": return Icon(Icons.error, size: 24, color: Colors.red[300]);
-      default: return Icon(Icons.download, size: 24, color: Colors.grey[400]);
+      default: return Icon(Icons.download, size: 24, color: subTextColor(context));
     }
   }
 
@@ -565,7 +566,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text("${(_task.progress * 100).toStringAsFixed(0)}%",
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            Text("下载中...", style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+            Text("下载中...", style: TextStyle(fontSize: 13, color: subTextColor(context))),
           ]),
         ]);
       case "extracting":
@@ -591,7 +592,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(_task.outputPath!,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[400], fontFamily: "monospace")),
+                  style: TextStyle(fontSize: 12, color: subTextColor(context), fontFamily: "monospace")),
             ),
           ],
         ]);

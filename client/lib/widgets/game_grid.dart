@@ -232,7 +232,7 @@ class _GameCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(game.developer ?? game.companyName ?? "",
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.grey[400], fontSize: 11)),
+                  style: TextStyle(color: subTextColor(context), fontSize: 11)),
             ]))),
         ]),
       ),

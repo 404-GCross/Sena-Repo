@@ -118,7 +118,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ]),
             const SizedBox(height: 8),
             Text("选择 Steam 库的 steamapps/common 目录，自动匹配库内游戏的汉化补丁",
-                style: TextStyle(fontSize: 14, color: Colors.grey[400])),
+                style: TextStyle(fontSize: 14, color: subTextColor(context))),
           ]),
         ),
 
@@ -148,7 +148,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const SizedBox(width: 14),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text("Steam 库目录", style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                  Text("Steam 库目录", style: TextStyle(fontSize: 13, color: hintColor(context))),
                   const SizedBox(height: 2),
                   Text(
                     hasDir ? _commonDir! : "未选择",
@@ -263,7 +263,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       const SizedBox(height: 16),
       Text(
         _installedGames.isEmpty ? "选择 Steam 库目录并开始扫描" : "点击「检测补丁」查询可用补丁",
-        style: TextStyle(fontSize: 15, color: Colors.grey[500]),
+        style: TextStyle(fontSize: 15, color: hintColor(context)),
       ),
       const SizedBox(height: 4),
       Text(
@@ -306,7 +306,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const SizedBox(height: 3),
               Text(
                 available ? "${match.patchFilename}  ·  ${_formatSize(match.patchSize)}" : "暂无可用补丁",
-                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 13, color: hintColor(context)),
               ),
             ]),
           ),

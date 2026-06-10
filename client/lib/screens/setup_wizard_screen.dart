@@ -215,7 +215,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   List<Widget> _buildStep2() => [
     const Text("服务端扫描目录", style: TextStyle(fontWeight: FontWeight.bold)),
     Text("每行一个路径，服务端将扫描这些目录下的游戏",
-      style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+      style: TextStyle(fontSize: 12, color: hintColor(context))),
     const SizedBox(height: 8),
     ..._dirCtrls.asMap().entries.map((e) => Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -236,7 +236,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     )),
     const SizedBox(height: 16),
     const Text("本机下载目录", style: TextStyle(fontWeight: FontWeight.bold)),
-    Text("客户端下载游戏保存的位置", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    Text("客户端下载游戏保存的位置", style: TextStyle(fontSize: 12, color: hintColor(context))),
     const SizedBox(height: 8),
     Row(children: [
       Expanded(child: TextField(controller: _localDirCtrl, decoration: const InputDecoration(hintText: "选择本机目录...", isDense: true))),
@@ -272,7 +272,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       ),
     ),
     const SizedBox(height: 8),
-    Text("PC 端专属，可稍后在设置中配置", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    Text("PC 端专属，可稍后在设置中配置", style: TextStyle(fontSize: 12, color: hintColor(context))),
   ];
 
   Widget _buildScraperRow(String label, bool enabled, bool needsApi, VoidCallback onToggle, {Widget? apiFields}) {
@@ -292,7 +292,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   List<Widget> _buildStep4() => [
-    Text("选择刮削源，勾选后可用", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    Text("选择刮削源，勾选后可用", style: TextStyle(fontSize: 12, color: hintColor(context))),
     const SizedBox(height: 8),
     _buildScraperRow("VNDB Kana v2（免认证）", _useVndbKana, false,
         () => setState(() => _useVndbKana = !_useVndbKana)),
@@ -317,13 +317,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     const SizedBox(height: 16),
     const Text("代理服务器", style: TextStyle(fontWeight: FontWeight.bold)),
     const SizedBox(height: 4),
-    Text("刮削源走代理访问，如 http://127.0.0.1:7890", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    Text("刮削源走代理访问，如 http://127.0.0.1:7890", style: TextStyle(fontSize: 12, color: hintColor(context))),
     const SizedBox(height: 8),
     TextField(
       controller: _proxyCtrl,
       decoration: const InputDecoration(labelText: "HTTP 代理", hintText: "http://127.0.0.1:7890", isDense: true),
     ),
     const SizedBox(height: 8),
-    Text("可稍后在设置中修改", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+    Text("可稍后在设置中修改", style: TextStyle(fontSize: 12, color: hintColor(context))),
   ];
 }

@@ -149,7 +149,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
                   const SizedBox(height: 12),
-                  Text("暂无保存的配置", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
+                  Text("暂无保存的配置", style: TextStyle(fontSize: 16, color: hintColor(context))),
                   const SizedBox(height: 4),
                   Text("点击右下角按钮新增", style: TextStyle(fontSize: 13, color: Colors.grey[600])),
                 ]))
@@ -192,7 +192,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                           ],
                         ]),
                         subtitle: Text("${p.username}@${p.host}:${p.port}",
-                            style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                            style: TextStyle(fontSize: 13, color: hintColor(context))),
                         trailing: PopupMenuButton<String>(
                           onSelected: (action) {
                             if (action == "switch") _switchTo(p);

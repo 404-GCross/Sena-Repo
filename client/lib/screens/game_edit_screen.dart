@@ -171,7 +171,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             })),
           if (results.isEmpty && searchCtrl.text.isNotEmpty)
             Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
-                style: TextStyle(color: Colors.grey[500]))),
+                style: TextStyle(color: hintColor(context)))),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
@@ -233,7 +233,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         title: const Text("合并到哪个游戏？"),
         content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text("当前游戏的所有版本将移至目标游戏，当前游戏将被删除。",
-              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              style: TextStyle(fontSize: 12, color: hintColor(context))),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: TextField(controller: searchCtrl, autofocus: true,
@@ -269,7 +269,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             })),
           if (results.isEmpty && searchCtrl.text.isNotEmpty)
             Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
-                style: TextStyle(color: Colors.grey[500]))),
+                style: TextStyle(color: hintColor(context)))),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
@@ -331,12 +331,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (icon != null) ...[
           Padding(padding: const EdgeInsets.only(top: 8),
-            child: Icon(icon, size: 18, color: Colors.grey[500])),
+            child: Icon(icon, size: 18, color: hintColor(context))),
           const SizedBox(width: 8),
         ],
         SizedBox(width: 80,
           child: Padding(padding: const EdgeInsets.only(top: 10),
-            child: Text(label, style: TextStyle(color: Colors.grey[400], fontSize: 14)))),
+            child: Text(label, style: TextStyle(color: subTextColor(context), fontSize: 14)))),
         Expanded(
           child: TextField(controller: ctrl, maxLines: maxLines,
             decoration: _dec(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true,
@@ -388,9 +388,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       border: Border.all(color: cardBorder(context)),
     ),
     child: Row(children: [
-      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+      Text(text, style: TextStyle(fontSize: 14, color: hintColor(context))),
     ]),
   );
 
@@ -461,7 +461,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       decoration: _dec(border: InputBorder.none, isDense: true)),
                     const SizedBox(height: 6),
                     if (g.companyName != null && g.companyName!.isNotEmpty)
-                      Text(g.companyName!, style: TextStyle(fontSize: 16, color: Colors.grey[400]))
+                      Text(g.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context)))
                     else
                       Text("无公司信息", style: TextStyle(fontSize: 14, color: Colors.grey[600])),
                     const SizedBox(height: 12),
@@ -523,7 +523,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               child: Row(children: [
-                                Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
+                                Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
                                 const SizedBox(width: 10),
                                 Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
                                 Container(
@@ -696,7 +696,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 14)),
                     subtitle: Text([r["developer"], r["release_date"]]
                         .where((s) => s != null && s.toString().isNotEmpty).join(" · "),
-                        maxLines: 1, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        maxLines: 1, style: TextStyle(fontSize: 12, color: hintColor(context))),
                     trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: () => Navigator.pop(ctx, r),
                   );
@@ -763,9 +763,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Row(children: [
-                      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+                      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
                       const SizedBox(width: 8),
-                      Text("所有字段与现有数据一致，无需更新", style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                      Text("所有字段与现有数据一致，无需更新", style: TextStyle(fontSize: 13, color: hintColor(context))),
                     ]),
                   ),
                 ...fields.keys.map((f) {
@@ -805,7 +805,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(cur.isEmpty ? "(空)" : cur,
-                                  style: TextStyle(fontSize: 14, color: Colors.grey[500],
+                                  style: TextStyle(fontSize: 14, color: hintColor(context),
                                       decoration: TextDecoration.lineThrough)),
                             ),
                           ),
@@ -832,7 +832,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             color: cardBg(context),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14, color: Colors.grey[400])),
+                          child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14, color: subTextColor(context))),
                         ),
                       if (hasDiff)
                         Padding(
