@@ -16,31 +16,29 @@ class ThemeProvider extends ChangeNotifier {
   bool get isDark => _themeMode == ThemeMode.dark;
 
   ThemeProvider() {
-    _load();
+    WidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.getInstance().then((prefs) {
+      final accentHex = prefs.getString("theme_accent");
+      if (accentHex != null) {
+        _accentColor = Color(int.parse(accentHex));
+      }
+      _backgroundUrl = prefs.getString("theme_bg_url");
+      final bgHex = prefs.getString("theme_bg_color");
+      if (bgHex != null) {
+        _bgColor = Color(int.parse(bgHex));
+      }
+      final mode = prefs.getString("theme_mode");
+      if (mode == "light") _themeMode = ThemeMode.light;
+      else if (mode == "system") _themeMode = ThemeMode.system;
+      notifyListeners();
+    });
   }
 
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final accentHex = prefs.getString("theme_accent");
-    if (accentHex != null) {
-      _accentColor = Color(int.parse(accentHex));
-    }
-    _backgroundUrl = prefs.getString("theme_bg_url");
-    final bgHex = prefs.getString("theme_bg_color");
-    if (bgHex != null) {
-      _bgColor = Color(int.parse(bgHex));
-    }
-    final mode = prefs.getString("theme_mode");
-    if (mode == "light") _themeMode = ThemeMode.light;
-    else if (mode == "system") _themeMode = ThemeMode.system;
-    else _themeMode = ThemeMode.dark;
-    notifyListeners();
-  }
-
-  Future<void> setThemeMode(ThemeMode mode) async {
+  void setThemeMode(ThemeMode mode) {
     _themeMode = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("theme_mode", mode.name);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString("theme_mode", mode.name);
+    });
     notifyListeners();
   }
 
