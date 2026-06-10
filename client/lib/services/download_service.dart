@@ -1,15 +1,19 @@
-/// Download service — stream download with progress + zip extraction.
-/// Supports .zip via archive package, plus .rar/.7z via bundled 7z binary.
+/// Download service — stream download with progress + 7za extraction.
+/// One 7za binary handles all formats: ZIP, RAR, 7z.
+///
+/// Flow: download(tmp) → validate(disk size) → test(7za t) → extract(7za x) → done
 
 import "dart:async";
-import "dart:convert";
 import "dart:io";
 
-import "package:archive/archive_io.dart";
 import "package:flutter/services.dart" show rootBundle;
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
+
+// ────────────────────────────────────────────────────
+// DownloadTask
+// ────────────────────────────────────────────────────
 
 class DownloadTask {
   final int gameId;
@@ -18,14 +22,16 @@ class DownloadTask {
   final String downloadUrl;
   final String gameName;
   final String companyName;
-  String status; // pending, downloading, paused, extracting, done, failed, cancelled
+
+  String status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
   double progress;
-  int receivedBytes = 0;
-  int totalBytes = 0;
+  int receivedBytes;
+  int totalBytes;
   String? error;
   String? outputPath;
   final DateTime startedAt;
-  http.Client? _client; // stored for cancellation
+  http.Client? _client;
+  bool _cancelled = false;
 
   DownloadTask({
     required this.gameId,
@@ -36,17 +42,30 @@ class DownloadTask {
     required this.companyName,
     this.status = "pending",
     this.progress = 0,
+    this.receivedBytes = 0,
+    this.totalBytes = 0,
     this.error,
     this.outputPath,
   }) : startedAt = DateTime.now();
 
   Map<String, dynamic> toJson() => {
-    "gameId": gameId, "versionId": versionId, "fileName": fileName,
-    "downloadUrl": downloadUrl, "gameName": gameName, "companyName": companyName,
-    "status": status, "progress": progress, "error": error, "outputPath": outputPath,
+    "gameId": gameId,
+    "versionId": versionId,
+    "fileName": fileName,
+    "downloadUrl": downloadUrl,
+    "gameName": gameName,
+    "companyName": companyName,
+    "status": status,
+    "progress": progress,
+    "error": error,
+    "outputPath": outputPath,
     "startedAt": startedAt.toIso8601String(),
   };
 }
+
+// ────────────────────────────────────────────────────
+// DownloadService
+// ────────────────────────────────────────────────────
 
 class DownloadService {
   static final DownloadService _instance = DownloadService._();
@@ -55,11 +74,13 @@ class DownloadService {
 
   final List<DownloadTask> _tasks = [];
   final _controller = StreamController<List<DownloadTask>>.broadcast();
+
   Stream<List<DownloadTask>> get tasks => _controller.stream;
   List<DownloadTask> get currentTasks => List.unmodifiable(_tasks);
 
-  String? _downloadDir;
+  // ── download directory ──
 
+  String? _downloadDir;
   Future<String> get downloadDir async {
     if (_downloadDir != null) return _downloadDir!;
     final prefs = await SharedPreferences.getInstance();
@@ -76,6 +97,8 @@ class DownloadService {
     await Directory(path).create(recursive: true);
   }
 
+  // ── public API ──
+
   DownloadTask startDownload({
     required int gameId,
     required int versionId,
@@ -90,475 +113,8 @@ class DownloadService {
     );
     _tasks.insert(0, task);
     _emit();
-
-    // Run download in background, return task immediately
-    _runDownload(task);
+    _run(task);
     return task;
-  }
-
-  Future<void> _runDownload(DownloadTask task) async {
-    try {
-      final dir = await downloadDir;
-
-      task.status = "downloading";
-      _emit();
-
-      final tmpFile = File("$dir/.tmp_${task.versionId}_${task.fileName}");
-      await _downloadFile(task, tmpFile, (progress) {
-        task.progress = progress;
-        _emit();
-      });
-
-      task.status = "extracting";
-      task.progress = 1.0;
-      _emit();
-
-      final subDir = task.companyName.isNotEmpty ? task.companyName : "_unknown";
-      final gameDir = task.gameName.isNotEmpty ? task.gameName : task.fileName;
-      final outDir = "$dir/$subDir/$gameDir";
-      await Directory(outDir).create(recursive: true);
-
-      await _extractArchive(tmpFile.path, outDir);
-      await tmpFile.delete();
-
-      task.status = "done";
-      task.outputPath = outDir;
-      _emit();
-    } catch (e) {
-      // Don't overwrite paused/cancelled status — the user requested a stop
-      if (task.status == "paused" || task.status == "cancelled") {
-        return;
-      }
-      task.status = "failed";
-      task.error = "$e";
-      _emit();
-    }
-  }
-
-  /// Download file with automatic retry + resume on network errors.
-  /// Max 3 retries with exponential backoff (1s, 3s, 7s).
-  Future<void> _downloadFile(
-    DownloadTask task, File dest, void Function(double) onProgress,
-  ) async {
-    const maxRetries = 3;
-    const backoffMs = [1000, 3000, 7000];
-
-    for (int attempt = 0; attempt <= maxRetries; attempt++) {
-      // Stop if user paused or cancelled during backoff / before retry
-      if (task.status == "paused" || task.status == "cancelled") return;
-
-      // Validate temp file size matches our counter (crash recovery)
-      if (task.receivedBytes > 0 && await dest.exists()) {
-        final actualSize = await dest.length();
-        if (actualSize != task.receivedBytes) {
-          task.receivedBytes = actualSize;
-        }
-      } else if (task.receivedBytes > 0 && !await dest.exists()) {
-        // Temp file was deleted — start fresh
-        task.receivedBytes = 0;
-        task.totalBytes = 0;
-      }
-
-      final client = http.Client();
-      task._client = client;
-
-      try {
-        final request = http.Request("GET", Uri.parse(task.downloadUrl));
-
-        // Resume from where we left off
-        if (task.receivedBytes > 0 && await dest.exists()) {
-          request.headers["Range"] = "bytes=${task.receivedBytes}-";
-        }
-
-        final response = await client.send(request);
-
-        // Handle Range Not Satisfiable — file may already be complete
-        if (response.statusCode == 416) {
-          if (task.totalBytes > 0 && task.receivedBytes >= task.totalBytes) {
-            return; // Already fully downloaded
-          }
-          // Server doesn't support resume, or file changed — restart
-          task.receivedBytes = 0;
-          task.totalBytes = 0;
-          continue; // Retry without Range header
-        }
-
-        final isPartial = response.statusCode == 206;
-        if (response.statusCode != 200 && response.statusCode != 206) {
-          final body = await response.stream.bytesToString();
-          throw Exception("下载失败 HTTP ${response.statusCode}: $body");
-        }
-
-        // If server responded 200 to a Range request, it doesn't support resume
-        // — reset counter and start fresh
-        if (task.receivedBytes > 0 && !isPartial) {
-          task.receivedBytes = 0;
-          task.totalBytes = 0;
-        }
-
-        final int cl = response.contentLength ?? 0;
-        final int total = task.receivedBytes + cl;
-        task.totalBytes = total > 0 ? total : task.totalBytes;
-        int received = task.receivedBytes;
-        final sink = dest.openWrite(
-            mode: (isPartial || task.receivedBytes > 0)
-                ? FileMode.append
-                : FileMode.write);
-
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          received += chunk.length;
-          task.receivedBytes = received;
-          if (task.totalBytes > 0) {
-            task.progress = received / task.totalBytes;
-            onProgress(task.progress);
-          }
-        }
-        await sink.flush();
-        await sink.close();
-
-        // ── Validate against ACTUAL file size on disk ──
-        final fileSize = await dest.length();
-
-        // Guard 1: expected size known — must match exactly
-        if (task.totalBytes > 0 && fileSize != task.totalBytes) {
-          final expected = task.totalBytes;
-          task.receivedBytes = 0;
-          task.totalBytes = 0;
-          try { await dest.delete(); } catch (_) {}
-          throw Exception(
-              "文件不完整：预期 $expected bytes，磁盘 $fileSize bytes "
-              "(${((1 - fileSize / expected) * 100).toStringAsFixed(1)}% 丢失)");
-        }
-        // Guard 2: no Content-Length — at least check counter vs disk
-        if (task.totalBytes == 0 && received > 0 && fileSize < received) {
-          task.receivedBytes = 0;
-          try { await dest.delete(); } catch (_) {}
-          throw Exception(
-              "文件不完整：计数器 $received bytes，磁盘仅 $fileSize bytes "
-              "(${((1 - fileSize / received) * 100).toStringAsFixed(1)}% 丢失)");
-        }
-        // Guard 3: nothing received
-        if (fileSize == 0) {
-          throw Exception("下载失败：未收到任何数据，请检查服务器或网络连接");
-        }
-        // Sync counter to reality
-        if (received != fileSize) {
-          task.receivedBytes = fileSize;
-        }
-
-        return; // ✅ Success
-      } on http.ClientException catch (e) {
-        if (task.status == "paused" || task.status == "cancelled") return;
-        if (attempt < maxRetries) {
-          task.status = "retrying";
-          _emit();
-          await Future.delayed(Duration(milliseconds: backoffMs[attempt]));
-          if (task.status == "paused" || task.status == "cancelled") return;
-          task.status = "downloading";
-          _emit();
-          continue;
-        }
-        throw Exception("网络中断，已重试 $maxRetries 次仍失败: $e");
-      } on SocketException catch (e) {
-        if (task.status == "paused" || task.status == "cancelled") return;
-        if (attempt < maxRetries) {
-          task.status = "retrying";
-          _emit();
-          await Future.delayed(Duration(milliseconds: backoffMs[attempt]));
-          if (task.status == "paused" || task.status == "cancelled") return;
-          task.status = "downloading";
-          _emit();
-          continue;
-        }
-        throw Exception("网络连接失败，已重试 $maxRetries 次仍失败: $e");
-      } finally {
-        client.close();
-        task._client = null;
-      }
-    }
-  }
-
-  Future<void> _extractArchive(String filePath, String outDir) async {
-    final ext = filePath.toLowerCase();
-    if (ext.endsWith(".zip")) {
-      await _extractZip(filePath, outDir);
-    } else if (ext.endsWith(".7z") || ext.endsWith(".rar")) {
-      await _extractWithSystemTool(filePath, outDir);
-    } else {
-      // Unknown format — just copy
-      final f = File(filePath);
-      await f.copy("$outDir/${f.uri.pathSegments.last}");
-    }
-  }
-
-  Future<void> _extractZip(String zipPath, String outDir) async {
-    // Try system unzip first (avoids loading entire archive into memory)
-    try {
-      if (Platform.isWindows) {
-        await _runExtractor("powershell", [
-          "-Command", "Expand-Archive", "-Path", zipPath,
-          "-DestinationPath", outDir, "-Force"
-        ]);
-      } else {
-        await _runExtractor("unzip", ["-o", zipPath, "-d", outDir]);
-      }
-      return;
-    } catch (_) {
-      // Fallback to pure Dart decoder (loads into memory — ok for most ZIPs)
-    }
-    final inputStream = InputFileStream(zipPath);
-    try {
-      final archive = ZipDecoder().decodeBuffer(inputStream);
-      for (final file in archive) {
-        final filePath = "$outDir/${file.name}";
-        if (file.isFile) {
-          final outFile = File(filePath);
-          await outFile.parent.create(recursive: true);
-          await outFile.writeAsBytes(file.content as List<int>);
-        } else {
-          await Directory(filePath).create(recursive: true);
-        }
-      }
-    } finally {
-      await inputStream.close();
-    }
-  }
-
-  String? _sevenZipPath;
-  Process? _extractionProcess; // Track running extraction process for cancellation
-  bool _userSkippedSetup = false;
-  Future<bool> Function()? _onSetupNeeded; // Callback to show setup dialog
-
-  /// Register a callback for showing the setup dialog. Returns true if setup proceeded.
-  void onSetupNeeded(Future<bool> Function() callback) {
-    _onSetupNeeded = callback;
-  }
-
-  /// Parse 7za/7zz version string. Returns null if parsing fails.
-  /// Version string example: "7-Zip (A) 26.01 Copyright (c) 1999-2026 Igor Pavlov"
-  Future<int?> _get7zaVersion(String sevenZipPath) async {
-    try {
-      final result = await Process.run(sevenZipPath, [],
-          stdoutEncoding: latin1, stderrEncoding: latin1);
-      final output = '${result.stdout}${result.stderr}';
-      final match = RegExp(r'7-Zip\b[^\d]*(\d+)\.(\d+)').firstMatch(output);
-      if (match != null) {
-        final major = int.parse(match.group(1)!);
-        final minor = int.parse(match.group(2)!);
-        return major * 100 + minor;
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Minimum 7za version that supports RAR5 (15.06+ added RAR5).
-  static const int _min7zaVersion = 1600;
-
-  Future<String> _getSevenZipPath() async {
-    if (_sevenZipPath != null) return _sevenZipPath!;
-    final dir = await getApplicationSupportDirectory();
-    final exeName = Platform.isWindows ? "7za.exe" : "7zz";
-    final dest = File("${dir.path}/$exeName");
-
-    // Check version of existing binary — replace if too old (< 16.00 = no RAR5)
-    if (await dest.exists()) {
-      final version = await _get7zaVersion(dest.path);
-      if (version != null && version < _min7zaVersion) {
-        // Delete old binary so it gets replaced
-        try { await dest.delete(); } catch (_) {}
-      }
-    }
-
-    if (!await dest.exists()) {
-      // Try bundled asset first — extract exe (always overwrite)
-      bool bundledOk = false;
-      try {
-        final data = await rootBundle.load("assets/binaries/$exeName");
-        final f = File("${dir.path}/$exeName");
-        await f.writeAsBytes(data.buffer.asUint8List());
-        if (Platform.isLinux) {
-          await Process.run("chmod", ["+x", dest.path]);
-        }
-        if (await dest.exists()) {
-          bundledOk = true;
-        }
-      } catch (_) {}
-
-      if (!bundledOk) {
-        // Show setup dialog to user
-        if (!_userSkippedSetup && _onSetupNeeded != null) {
-          final proceed = await _onSetupNeeded!();
-          if (!proceed) {
-            _userSkippedSetup = true;
-            throw Exception("用户取消了 7-Zip 安装。请手动安装 7-Zip 后再试。");
-          }
-          // Download 7za from official site
-          try {
-            if (Platform.isWindows) {
-              // Windows: 7z2601-extra.7z contains 7za.exe + DLLs.
-              // We can't extract .7z without 7za already present (chicken-and-egg),
-              // so download and run the official installer instead.
-              final installerUrl =
-                  "https://www.7-zip.org/a/7z2601-x64.exe";
-              final tmp = File("${dir.path}/_7z_installer.exe");
-              final client = http.Client();
-              try {
-                final resp = await client.send(
-                    http.Request("GET", Uri.parse(installerUrl)));
-                if (resp.statusCode != 200) {
-                  throw Exception("HTTP ${resp.statusCode}");
-                }
-                final sink = tmp.openWrite();
-                await for (final chunk in resp.stream) {
-                  sink.add(chunk);
-                }
-                await sink.flush();
-                await sink.close();
-                // Run installer silently, then copy 7za.exe from install dir
-                final result = await Process.run(tmp.path, ["/S"]);
-                if (result.exitCode == 0) {
-                  // Try to find 7za.exe from common install locations
-                  for (final progDir in [
-                    "C:/Program Files/7-Zip",
-                    r"C:\Program Files (x86)\7-Zip",
-                  ]) {
-                    final src = File("$progDir/7za.exe");
-                    if (await src.exists()) {
-                      await src.copy(dest.path);
-                      break;
-                    }
-                  }
-                }
-                await tmp.delete();
-              } finally {
-                client.close();
-              }
-            } else {
-              // Linux: download tar.xz and extract with tar
-              final url = "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
-              final tmp = File("${dir.path}/_7z_dl");
-              final client = http.Client();
-              try {
-                final resp = await client.send(
-                    http.Request("GET", Uri.parse(url)));
-                if (resp.statusCode != 200) {
-                  throw Exception("HTTP ${resp.statusCode}");
-                }
-                final sink = tmp.openWrite();
-                await for (final chunk in resp.stream) {
-                  sink.add(chunk);
-                }
-                await sink.flush();
-                await sink.close();
-                await Process.run(
-                    "tar", ["-xf", tmp.path, "-C", dir.path]);
-                await tmp.delete();
-              } finally {
-                client.close();
-              }
-            }
-          } catch (_) {
-            throw Exception("7-Zip 下载失败。请手动安装 7-Zip 后再试。");
-          }
-        } else {
-          throw Exception(
-              "解压组件未就绪。请安装 7-Zip 或手动放置 $exeName 到 $dir");
-        }
-      }
-    }
-
-    if (!await dest.exists()) {
-      throw Exception(
-          "解压组件未就绪。请安装 7-Zip 或手动放置 $exeName 到 $dir");
-    }
-
-    _sevenZipPath = dest.path;
-    return _sevenZipPath!;
-  }
-
-  /// Run a process, consuming stdout/stderr to avoid pipe buffer deadlock.
-  /// Kills the process if it exceeds [timeoutSeconds] (default 30 min).
-  Future<int> _runExtractor(String executable, List<String> args,
-      {String? workingDirectory, int timeoutSeconds = 1800}) async {
-    final process = await Process.start(executable, args,
-        workingDirectory: workingDirectory);
-    _extractionProcess = process;
-
-    // Consume stdout — discard all data (file listing can be huge).
-    // MUST subscribe; otherwise pipe buffer fills and 7za blocks on Windows.
-    final stdoutSub = process.stdout.listen((_) {});
-
-    // Capture up to 8KB of stderr for error messages
-    final stderrBuf = StringBuffer();
-    final stderrSub = process.stderr.listen((chunk) {
-      if (stderrBuf.length < 8192) {
-        try { stderrBuf.write(String.fromCharCodes(chunk)); } catch (_) {}
-      }
-    });
-
-    // Wait for process exit with timeout
-    int exitCode;
-    try {
-      exitCode = await process.exitCode.timeout(
-        Duration(seconds: timeoutSeconds),
-        onTimeout: () {
-          process.kill();
-          return -1;
-        },
-      );
-    } catch (_) {
-      process.kill();
-      throw Exception("$executable 超时（${timeoutSeconds}秒），已强制终止");
-    }
-
-    // Clean up subscriptions after process exits
-    await stdoutSub.cancel();
-    await stderrSub.cancel();
-    _extractionProcess = null;
-
-    if (exitCode == -1) {
-      throw Exception("$executable 超时（${timeoutSeconds}秒），已强制终止");
-    }
-    if (exitCode != 0) {
-      final err = stderrBuf.toString().trim();
-      throw Exception(err.isEmpty ? "$executable exit code: $exitCode" : err);
-    }
-    return exitCode;
-  }
-
-  Future<void> _extractWithSystemTool(String filePath, String outDir) async {
-    // Quick integrity check first — catches corrupted downloads
-    // that happen to have the right file size
-    try {
-      final sevenZip = await _getSevenZipPath();
-      final sevenZipDir = File(sevenZip).parent.path;
-      await _runExtractor(sevenZip, ["t", filePath],
-          workingDirectory: sevenZipDir, timeoutSeconds: 300);
-    } catch (e) {
-      throw Exception("文件校验失败，下载数据可能已损坏: $e");
-    }
-
-    try {
-      final sevenZip = await _getSevenZipPath();
-      final sevenZipDir = File(sevenZip).parent.path;
-      await _runExtractor(sevenZip, ["x", "-y", "-o$outDir", filePath],
-          workingDirectory: sevenZipDir);
-      return;
-    } catch (e) {
-      // Fallback to system tools
-      try {
-        await _runExtractor("7z", ["x", "-y", "-o$outDir", filePath]);
-        return;
-      } catch (_) {}
-      try {
-        await _runExtractor("unar", ["-o", outDir, filePath]);
-        return;
-      } catch (_) {}
-      throw Exception("解压失败: $e");
-    }
   }
 
   void pauseTask(DownloadTask task) {
@@ -568,8 +124,7 @@ class DownloadService {
       task.status = "paused";
       _emit();
     } else if (task.status == "extracting") {
-      _extractionProcess?.kill();
-      _extractionProcess = null;
+      _killExtractor();
       task.status = "paused";
       _emit();
     }
@@ -579,7 +134,7 @@ class DownloadService {
     if (task.status == "paused") {
       task.status = "pending";
       _emit();
-      _runDownload(task);
+      _run(task);
     }
   }
 
@@ -589,20 +144,20 @@ class DownloadService {
       task.error = null;
       task.progress = task.totalBytes > 0 ? task.receivedBytes / task.totalBytes : 0;
       _emit();
-      _runDownload(task);
+      _run(task);
     }
   }
 
   void cancelTask(DownloadTask task) {
-    if (task.status == "downloading" || task.status == "pending" || task.status == "retrying" || task.status == "extracting") {
+    if (task.status == "downloading" || task.status == "pending" ||
+        task.status == "retrying" || task.status == "extracting") {
       task._client?.close();
       task._client = null;
-      _extractionProcess?.kill();
-      _extractionProcess = null;
+      _killExtractor();
+      task._cancelled = true;
       task.status = "cancelled";
       task.error = "已取消";
       _emit();
-      // Clean up temp file
       _cleanupTemp(task);
     }
   }
@@ -613,15 +168,323 @@ class DownloadService {
     _emit();
   }
 
-  Future<void> _cleanupTemp(DownloadTask task) async {
+  // ── binary management ──
+
+  String? _sevenZipPath;
+  Process? _extractionProcess;
+  bool _userSkippedSetup = false;
+  Future<bool> Function()? onSetupNeeded;
+
+  static const int _min7zaVersion = 1600; // 16.00 = first RAR5 support
+
+  Future<int?> _get7zaVersion(String path) async {
+    try {
+      final r = await Process.run(path, []);
+      final m = RegExp(r'(\d+)\.(\d+)').firstMatch("${r.stdout}${r.stderr}");
+      if (m != null) { return int.parse(m.group(1)!) * 100 + int.parse(m.group(2)!); }
+      return null;
+    } catch (_) { return null; }
+  }
+
+  Future<String> _getSevenZipPath() async {
+    if (_sevenZipPath != null) return _sevenZipPath!;
+
+    final dir = await getApplicationSupportDirectory();
+    final exeName = Platform.isWindows ? "7za.exe" : "7zz";
+    final dest = File("${dir.path}/$exeName");
+
+    // Replace old (<16.00) binary
+    if (await dest.exists()) {
+      final v = await _get7zaVersion(dest.path);
+      if (v != null && v < _min7zaVersion) {
+        try { await dest.delete(); } catch (_) {}
+      }
+    }
+
+    if (!await dest.exists()) {
+      // Extract from bundled assets
+      bool ok = false;
+      try {
+        final data = await rootBundle.load("assets/binaries/$exeName");
+        await dest.writeAsBytes(data.buffer.asUint8List());
+        if (Platform.isLinux) await Process.run("chmod", ["+x", dest.path]);
+        if (await dest.exists()) ok = true;
+      } catch (_) {}
+
+      // Download fallback
+      if (!ok && onSetupNeeded != null && !_userSkippedSetup) {
+        if (!await onSetupNeeded!()) {
+          _userSkippedSetup = true;
+          throw Exception("需要 7-Zip 才能解压。请安装后再试。");
+        }
+        await _downloadBinary(dest, dir.path);
+      }
+
+      if (!await dest.exists()) {
+        throw Exception("解压组件未就绪。请将 $exeName 放到 ${dir.path}");
+      }
+    }
+
+    _sevenZipPath = dest.path;
+    return _sevenZipPath!;
+  }
+
+  Future<void> _downloadBinary(File dest, String dir) async {
+    if (Platform.isWindows) {
+      // Download installer, run silently, copy 7za.exe
+      final tmp = File("$dir/_7z_installer.exe");
+      final client = http.Client();
+      try {
+        final resp = await client.send(http.Request("GET",
+            Uri.parse("https://www.7-zip.org/a/7z2601-x64.exe")));
+        if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
+        final sink = tmp.openWrite();
+        await for (final c in resp.stream) sink.add(c);
+        await sink.close();
+        await Process.run(tmp.path, ["/S"]);
+        for (final d in ["C:/Program Files/7-Zip", r"C:\Program Files (x86)\7-Zip"]) {
+          final src = File("$d/7za.exe");
+          if (await src.exists()) { await src.copy(dest.path); break; }
+        }
+        await tmp.delete();
+      } finally { client.close(); }
+    } else {
+      // Linux: extract from tar.xz
+      final tmp = File("$dir/_7z_dl");
+      final client = http.Client();
+      try {
+        final resp = await client.send(http.Request("GET",
+            Uri.parse("https://www.7-zip.org/a/7z2409-linux-x64.tar.xz")));
+        if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
+        final sink = tmp.openWrite();
+        await for (final c in resp.stream) sink.add(c);
+        await sink.close();
+        await Process.run("tar", ["-xf", tmp.path, "-C", dir]);
+        await tmp.delete();
+      } finally { client.close(); }
+    }
+  }
+
+  // ── core run loop ──
+
+  Future<void> _run(DownloadTask t) async {
     try {
       final dir = await downloadDir;
-      final tmp = File("$dir/.tmp_${task.versionId}_${task.fileName}");
-      if (await tmp.exists()) await tmp.delete();
+      t._cancelled = false;
+
+      // Phase 1: download
+      t.status = "downloading";
+      _emit();
+      final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
+      await _download(t, tmp);
+
+      // Phase 2: extract
+      t.status = "extracting";
+      t.progress = 1.0;
+      _emit();
+      final outDir = _outDir(t, dir);
+      await Directory(outDir).create(recursive: true);
+      await _extract(tmp.path, outDir);
+      await tmp.delete();
+
+      // Phase 3: done
+      t.status = "done";
+      t.outputPath = outDir;
+      _emit();
+    } catch (e) {
+      if (t._cancelled || t.status == "paused") return;
+      t.status = "failed";
+      t.error = "$e";
+      _emit();
+    }
+  }
+
+  // ── download ──
+
+  static const _maxRetries = 3;
+  static const _retryDelays = [1, 3, 7]; // seconds
+
+  Future<void> _download(DownloadTask t, File dest) async {
+    for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+      if (_stopped(t)) return;
+
+      // Sync counter with disk (crash recovery)
+      if (t.receivedBytes > 0 && await dest.exists()) {
+        final sz = await dest.length();
+        if (sz != t.receivedBytes) t.receivedBytes = sz;
+      }
+
+      // Already complete?
+      if (t.totalBytes > 0 && t.receivedBytes >= t.totalBytes) return;
+
+      try {
+        await _attempt(t, dest);
+        return; // success
+      } on http.ClientException catch (e) {
+        if (_stopped(t)) return;
+        if (attempt >= _maxRetries) throw Exception("网络中断（重试${_maxRetries}次后仍失败）: $e");
+        _setStatus(t, "retrying");
+        await Future.delayed(Duration(seconds: _retryDelays[attempt]));
+        _setStatus(t, "downloading");
+      } on SocketException catch (e) {
+        if (_stopped(t)) return;
+        if (attempt >= _maxRetries) throw Exception("网络不通（重试${_maxRetries}次后仍失败）: $e");
+        _setStatus(t, "retrying");
+        await Future.delayed(Duration(seconds: _retryDelays[attempt]));
+        _setStatus(t, "downloading");
+      }
+    }
+  }
+
+  Future<void> _attempt(DownloadTask t, File dest) async {
+    final client = http.Client();
+    t._client = client;
+    try {
+      final req = http.Request("GET", Uri.parse(t.downloadUrl));
+
+      // Range for resume
+      if (t.receivedBytes > 0 && await dest.exists()) {
+        req.headers["Range"] = "bytes=${t.receivedBytes}-";
+      }
+
+      final resp = await client.send(req);
+
+      // 416 = Range not satisfiable → already complete
+      if (resp.statusCode == 416) {
+        if (t.totalBytes > 0 && t.receivedBytes >= t.totalBytes) return;
+        // Reset and retry
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        throw http.ClientException("Range not satisfiable");
+      }
+
+      if (resp.statusCode != 200 && resp.statusCode != 206) {
+        throw Exception("HTTP ${resp.statusCode}");
+      }
+
+      // Server doesn't support Range → reset
+      if (t.receivedBytes > 0 && resp.statusCode != 206) {
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+      }
+
+      // Track total size
+      final int cl = (resp.contentLength ?? 0) as int;
+      final int total = t.receivedBytes + cl;
+      if (total > 0) t.totalBytes = total;
+
+      // Stream to file
+      int received = t.receivedBytes;
+      final sink = dest.openWrite(
+          mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write);
+
+      await for (final chunk in resp.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        t.receivedBytes = received;
+        if (t.totalBytes > 0) {
+          t.progress = received / t.totalBytes;
+          _emit();
+        }
+      }
+      await sink.close();
+
+      // Validate disk
+      final fileSize = await dest.length();
+      if (t.totalBytes > 0 && fileSize != t.totalBytes) {
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        try { await dest.delete(); } catch (_) {}
+        throw Exception("文件不完整: 预期${t.totalBytes}B 实际${fileSize}B");
+      }
+      if (fileSize == 0) {
+        throw Exception("未收到任何数据");
+      }
+      // Sync counter
+      if (t.receivedBytes != fileSize) t.receivedBytes = fileSize;
+    } finally {
+      client.close();
+      t._client = null;
+    }
+  }
+
+  // ── extract ──
+
+  Future<void> _extract(String filePath, String outDir) async {
+    final exe = await _getSevenZipPath();
+    final wd = File(exe).parent.path;
+
+    // Step 1: test archive integrity (5 min timeout)
+    try {
+      await _runTool(exe, ["t", filePath], wd, timeout: 300);
+    } catch (e) {
+      throw Exception("文件损坏，请重试下载: $e");
+    }
+
+    // Step 2: extract (30 min timeout)
+    await _runTool(exe, ["x", "-y", "-o$outDir", filePath], wd);
+  }
+
+  Future<void> _runTool(String exe, List<String> args, String cwd,
+      {int timeout = 1800}) async {
+    final proc = await Process.start(exe, args, workingDirectory: cwd);
+    _extractionProcess = proc;
+
+    // Consume stdout/stderr without buffering (prevents pipe deadlock)
+    final stdoutSub = proc.stdout.listen((_) {});
+    final stderrChunks = <int>[];
+    final stderrSub = proc.stderr.listen((d) {
+      if (stderrChunks.length < 8192) stderrChunks.addAll(d);
+    });
+
+    // Wait with timeout
+    int exitCode = -1;
+    try {
+      exitCode = await proc.exitCode.timeout(Duration(seconds: timeout));
+    } on TimeoutException {
+      proc.kill();
+      await stdoutSub.cancel();
+      await stderrSub.cancel();
+      _extractionProcess = null;
+      throw Exception("超时（${timeout}s）");
+    } catch (e) {
+      proc.kill();
+      throw Exception("$e");
+    }
+
+    await stdoutSub.cancel();
+    await stderrSub.cancel();
+    _extractionProcess = null;
+
+    if (exitCode != 0) {
+      final err = String.fromCharCodes(stderrChunks).trim();
+      throw Exception(err.isNotEmpty ? err : "exit code $exitCode");
+    }
+  }
+
+  // ── helpers ──
+
+  String _outDir(DownloadTask t, String dir) {
+    final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";
+    final game = t.gameName.isNotEmpty ? t.gameName : t.fileName;
+    return "$dir/$sub/$game";
+  }
+
+  bool _stopped(DownloadTask t) => t._cancelled || t.status == "paused";
+
+  void _setStatus(DownloadTask t, String s) { t.status = s; _emit(); }
+
+  void _killExtractor() {
+    _extractionProcess?.kill();
+    _extractionProcess = null;
+  }
+
+  Future<void> _cleanupTemp(DownloadTask t) async {
+    try {
+      final dir = await downloadDir;
+      await File("$dir/.tmp_${t.versionId}_${t.fileName}").delete();
     } catch (_) {}
   }
 
-  void _emit() {
-    _controller.add(List.unmodifiable(_tasks));
-  }
+  void _emit() => _controller.add(List.unmodifiable(_tasks));
 }
