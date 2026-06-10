@@ -68,39 +68,6 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
     if (Platform.isWindows || Platform.isLinux) {
       windowManager.addListener(this);
       _initTray();
-      _check7zOnStartup();
-    }
-  }
-
-  Future<void> _check7zOnStartup() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool("7z_checked") == true) return;
-    if (!await _check7zAvailable()) {
-      await prefs.setBool("7z_checked", true);
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(children: [
-              Icon(Icons.folder_zip, color: Colors.orange, size: 22),
-              SizedBox(width: 8),
-              Text("缺少解压工具"),
-            ]),
-            content: const Text(
-              "下载 .rar / .7z 格式游戏需要 7-Zip 解压工具。\n\n"
-              "Windows: winget install 7zip.7zip\n"
-              "Linux: sudo apt install p7zip-full",
-              style: TextStyle(fontSize: 14),
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("知道了"),
-              ),
-            ],
-          ),
-        );
-      }
     }
   }
 

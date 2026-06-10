@@ -33,37 +33,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
-    DownloadService().onSetupNeeded(() => _show7zSetupDialog());
-  }
-
-  Future<bool> _show7zSetupDialog() async {
-    if (!mounted) return false;
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(children: [
-          Icon(Icons.folder_zip, color: Colors.orange, size: 24),
-          SizedBox(width: 8),
-          Text("需要解压工具"),
-        ]),
-        content: const Text("首次下载 .rar/.7z 格式游戏需要安装 7-Zip 解压工具。\n\n是否现在下载？（约 600KB，仅需一次）",
-            style: TextStyle(fontSize: 14)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("跳过"),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(ctx, true),
-            icon: const Icon(Icons.download, size: 18),
-            label: const Text("下载"),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
   }
 
   Future<void> _load() async {
@@ -139,9 +108,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       if (game.companyName != null) ...[
                         const SizedBox(height: 6),
                         Row(children: [
-                          Icon(Icons.business, size: 16, color: Colors.grey[400]),
+                          Icon(Icons.business, size: 16, color: subTextColor(context)),
                           const SizedBox(width: 6),
-                          Text(game.companyName!, style: TextStyle(fontSize: 16, color: Colors.grey[400])),
+                          Text(game.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context))),
                         ]),
                       ],
                       const SizedBox(height: 16),
@@ -196,7 +165,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 child: Row(children: [
-                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
+                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
                                   const SizedBox(width: 10),
                                   Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
                                   const SizedBox(width: 12),
@@ -209,7 +178,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                     child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
                                   ),
                                   const SizedBox(width: 10),
-                                  Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                                  Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: hintColor(context))),
                                   const SizedBox(width: 8),
                                   IconButton(
                                     icon: const Icon(Icons.download, size: 20),
@@ -230,9 +199,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         Wrap(spacing: 8, runSpacing: 6, children: game.tags.map((t) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.06),
+                            color: cardBorder(context),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                            border: Border.all(color: cardBorder(context)),
                           ),
                           child: Text(t.name, style: const TextStyle(fontSize: 13)),
                         )).toList()),
@@ -248,9 +217,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       Container(
                         padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.04),
+                          color: cardBg(context),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                          border: Border.all(color: cardBorder(context)),
                         ),
                         child: Text(
                           game.description?.isNotEmpty == true ? game.description! : "暂无简介",
@@ -277,19 +246,19 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     padding: const EdgeInsets.only(bottom: 8, top: 4),
     child: Row(children: [
       if (icon != null) ...[
-        Icon(icon, size: 18, color: Colors.white60),
+        Icon(icon, size: 18, color: sectionIconColor(context)),
         const SizedBox(width: 6),
       ],
-      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
     ]),
   );
 
   Widget _fieldCard({required List<Widget> children}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Column(children: children),
   );
@@ -297,14 +266,14 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   Widget _hintCard(String text) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Row(children: [
-      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+      Text(text, style: TextStyle(fontSize: 14, color: hintColor(context))),
     ]),
   );
 
@@ -323,18 +292,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (icon != null) ...[
-          Icon(icon, size: 18, color: Colors.grey[500]),
+          Icon(icon, size: 18, color: hintColor(context)),
           const SizedBox(width: 8),
         ],
         SizedBox(width: 70, child: Padding(padding: const EdgeInsets.only(top: 1),
-          child: Text(label, style: TextStyle(fontSize: 14, color: Colors.grey[500])))),
+          child: Text(label, style: TextStyle(fontSize: 14, color: hintColor(context))))),
         Expanded(child: Text(value?.isNotEmpty == true ? value! : "—",
             style: TextStyle(fontSize: 15, color: value?.isNotEmpty == true ? null : Colors.grey[700]))),
       ]),
     );
   }
 
-  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06));
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
   Widget _sourceBadge(String label, String? id) {
     final active = id != null && id.isNotEmpty;
@@ -342,7 +311,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: active ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
+          color: active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: active ? Colors.green.withValues(alpha: 0.35) : Colors.white24)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -501,7 +470,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         children: [
           Text("${_task.companyName}/${_task.gameName}",
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              style: TextStyle(fontSize: 12, color: hintColor(context))),
           const SizedBox(height: 16),
           _buildProgressSection(),
         ],
@@ -546,7 +515,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       case "extracting": return Icon(Icons.folder_zip, size: 24, color: Colors.orange[300]);
       case "done": return Icon(Icons.check_circle, size: 24, color: Colors.green[300]);
       case "failed": return Icon(Icons.error, size: 24, color: Colors.red[300]);
-      default: return Icon(Icons.download, size: 24, color: Colors.grey[400]);
+      default: return Icon(Icons.download, size: 24, color: subTextColor(context));
     }
   }
 
@@ -558,14 +527,14 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             borderRadius: const BorderRadius.all(Radius.circular(4)),
             child: LinearProgressIndicator(
               value: _task.progress, minHeight: 8,
-              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              backgroundColor: cardBorder(context),
             ),
           ),
           const SizedBox(height: 8),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text("${(_task.progress * 100).toStringAsFixed(0)}%",
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            Text("下载中...", style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+            Text("下载中...", style: TextStyle(fontSize: 13, color: subTextColor(context))),
           ]),
         ]);
       case "extracting":
@@ -587,11 +556,11 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: cardBg(context),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(_task.outputPath!,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[400], fontFamily: "monospace")),
+                  style: TextStyle(fontSize: 12, color: subTextColor(context), fontFamily: "monospace")),
             ),
           ],
         ]);
