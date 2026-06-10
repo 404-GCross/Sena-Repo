@@ -241,7 +241,7 @@ python main.py --host 0.0.0.0 --port 11451 --games-path /path/to/your/games --da
 
 ### Steam 补丁注入
 
-在设置中选择 Steam 游戏安装目录下的 `steamapps/common` 目录，客户端自动匹配库内游戏对应的补丁。
+在设置中选择 Steam 游戏安装目录下的 `steamapps` 目录，客户端自动匹配库内游戏对应的补丁。
 
 ---
 
@@ -249,7 +249,7 @@ python main.py --host 0.0.0.0 --port 11451 --games-path /path/to/your/games --da
 
 本项目仅用于合法用途。
 
-> ⚠️ 本项目主要由 vibe-coding 完成，作者并未完全掌握全部代码逻辑。项目安全性未经审计，可能存在未知漏洞。服务端部署到公网前，请自行加固安全措施。
+> ⚠️ 本项目由 vibe-coding 完成，作者并未完全掌握全部代码逻辑，项目安全性未经审计，可能存在未知漏洞。服务端部署到公网前，请自行加固安全措施。
 
 作者不对以下情况负责：
 
@@ -268,6 +268,9 @@ python main.py --host 0.0.0.0 --port 11451 --games-path /path/to/your/games --da
 - 任何违规用途的支持
 
 请确保你仅用于管理和下载你有权使用的游戏资源。
+
+作者仍在不断地测试更新项目，可能会出现无法保数据更新的情况，感谢你的谅解
+
 
 ---
 
