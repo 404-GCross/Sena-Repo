@@ -146,7 +146,20 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               onPressed: () => DownloadService().cancelTask(t),
               child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
             )
-          else if (t.status == "done" || t.status == "failed" || t.status == "cancelled")
+          else if (t.status == "failed")
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              FilledButton(
+                onPressed: () => DownloadService().retryTask(t),
+                child: const Text("重试", style: TextStyle(fontSize: 12)),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => DownloadService().removeTask(t),
+                visualDensity: VisualDensity.compact,
+              ),
+            ])
+          else if (t.status == "done" || t.status == "cancelled")
             IconButton(
               icon: const Icon(Icons.close, size: 18),
               onPressed: () => DownloadService().removeTask(t),

@@ -449,7 +449,16 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         ],
       )),
       actions: [
-        if (_task.status == "done" || _task.status == "failed" || _task.status == "cancelled")
+        if (_task.status == "failed")
+          Row(children: [
+            FilledButton(
+              onPressed: () => DownloadService().retryTask(_task),
+              child: const Text("重试"),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+          ])
+        else if (_task.status == "done" || _task.status == "cancelled")
           FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
         if (_task.status == "paused")
           Row(children: [

@@ -501,6 +501,16 @@ class DownloadService {
     }
   }
 
+  void retryTask(DownloadTask task) {
+    if (task.status == "failed") {
+      task.status = "pending";
+      task.error = null;
+      task.progress = task.totalBytes > 0 ? task.receivedBytes / task.totalBytes : 0;
+      _emit();
+      _runDownload(task);
+    }
+  }
+
   void cancelTask(DownloadTask task) {
     if (task.status == "downloading" || task.status == "pending" || task.status == "retrying") {
       task._client?.close();
