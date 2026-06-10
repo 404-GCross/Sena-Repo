@@ -235,7 +235,7 @@ class DownloadService {
           // Download 7za with progress
           try {
             final url = Platform.isWindows
-                ? "https://www.7-zip.org/a/7za920.zip"
+                ? "https://www.7-zip.org/a/7z2601-extra.7z"
                 : "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
             final tmp = File("${dir.path}/_7z_dl");
             final client = http.Client();
