@@ -1052,21 +1052,6 @@ class _DisplayPageState extends State<_DisplayPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("显示")),
     body: ListView(padding: const EdgeInsets.all(16), children: [
-      _sectionTitle("主题模式"),
-      const SizedBox(height: 8),
-      Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-        ),
-        child: Column(children: [
-          _themeTile(ThemeMode.dark, "深色模式", Icons.dark_mode),
-          Divider(height: 1, indent: 48, color: Colors.white.withValues(alpha: 0.06)),
-          _themeTile(ThemeMode.light, "浅色模式", Icons.light_mode),
-        ]),
-      ),
-      const SizedBox(height: 24),
       _sectionTitle("封面大小"),
       const SizedBox(height: 8),
       Container(

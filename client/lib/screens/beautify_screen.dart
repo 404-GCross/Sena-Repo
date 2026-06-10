@@ -6,6 +6,7 @@ import "package:flutter/material.dart";
 import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 
+import "../providers/game_provider.dart";
 import "../providers/theme_provider.dart";
 
 class BeautifyScreen extends StatefulWidget {
@@ -60,6 +61,22 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ── Theme Mode ──
+          const Text("主题模式", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
+            ),
+            child: Column(children: [
+              _themeTile(ThemeMode.dark, "深色模式", Icons.dark_mode),
+              Divider(height: 1, indent: 48, color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
+              _themeTile(ThemeMode.light, "浅色模式", Icons.light_mode),
+            ]),
+          ),
+          const SizedBox(height: 24),
+
           // ── Accent Color ──
           const Text("主题色", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -192,6 +209,19 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _themeTile(ThemeMode mode, String label, IconData icon) {
+    final current = context.watch<ThemeProvider>().themeMode;
+    final active = current == mode;
+    return ListTile(
+      leading: Icon(icon, color: active ? Theme.of(context).colorScheme.primary : Colors.grey),
+      title: Text(label, style: TextStyle(fontSize: 14,
+          color: active ? Theme.of(context).colorScheme.primary : null)),
+      trailing: active ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
+      onTap: () => context.read<ThemeProvider>().setThemeMode(mode),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     );
   }
 }
