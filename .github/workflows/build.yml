@@ -90,7 +90,10 @@ jobs:
         shell: pwsh
         run: |
           mkdir -p dist
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "dist/Sena-Repo_Windows_v${env:VERSION}.zip"
+          $pkg="Sena-Repo_Windows_v${env:VERSION}"
+          New-Item -ItemType Directory -Path $pkg | Out-Null
+          Copy-Item -Path build/windows/x64/runner/Release/* -Destination $pkg/ -Recurse
+          Compress-Archive -Path $pkg -DestinationPath "dist/$pkg.zip"
 
       - name: Upload Windows
         uses: actions/upload-artifact@v4
