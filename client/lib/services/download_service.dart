@@ -125,6 +125,10 @@ class DownloadService {
       task.outputPath = outDir;
       _emit();
     } catch (e) {
+      // Don't overwrite paused/cancelled status — the user requested a stop
+      if (task.status == "paused" || task.status == "cancelled") {
+        return;
+      }
       task.status = "failed";
       task.error = "$e";
       _emit();
