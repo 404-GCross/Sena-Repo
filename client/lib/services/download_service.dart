@@ -285,19 +285,22 @@ class DownloadService {
       final sevenZip = await _getSevenZipPath();
       final result = await Process.run(sevenZip, ["x", "-y", "-o$outDir", filePath]);
       if (result.exitCode != 0) {
-        throw Exception(result.stderr.toString());
+        throw Exception("7za error: ${result.stderr}".trim());
       }
+      return;
     } catch (e) {
       // Fallback to system tools
       try {
         final result = await Process.run("7z", ["x", "-y", "-o$outDir", filePath]);
         if (result.exitCode == 0) return;
-      } catch (_) {}
-      try {
-        final result = await Process.run("unar", ["-o", outDir, filePath]);
-        if (result.exitCode == 0) return;
-      } catch (_) {}
-      throw Exception("解压失败。请确保 assets/binaries/ 下有 7za.exe(Windows) 或 7zz(Linux)");
+        if (result.stderr.toString().isNotEmpty) throw Exception("7z: ${result.stderr}");
+      } catch (e2) {
+        try {
+          final result = await Process.run("unar", ["-o", outDir, filePath]);
+          if (result.exitCode == 0) return;
+        } catch (_) {}
+      }
+      throw Exception("解压失败: $e");
     }
   }
 
