@@ -108,7 +108,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
           decoration: BoxDecoration(
             color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-            border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06))),
+            border: Border(bottom: BorderSide(color: cardBorder(context))),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
@@ -278,9 +278,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     return Container(
       margin: EdgeInsets.only(bottom: isLast ? 20 : 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: cardBg(context),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+        border: Border.all(color: cardBorder(context)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),

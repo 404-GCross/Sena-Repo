@@ -363,10 +363,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
     padding: const EdgeInsets.only(bottom: 8, top: 4),
     child: Row(children: [
       if (icon != null) ...[
-        Icon(icon, size: 18, color: Colors.white60),
+        Icon(icon, size: 18, color: sectionIconColor(context)),
         const SizedBox(width: 6),
       ],
-      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
     ]),
   );
 

@@ -54,3 +54,13 @@ Color hintColor(BuildContext context) => Theme.of(context).brightness == Brightn
 Color dimIconColor(BuildContext context) => Theme.of(context).brightness == Brightness.dark
     ? Colors.grey[500]!
     : Colors.grey[600]!;
+
+/// Section header text (was Colors.white70)
+Color sectionTextColor(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+    ? Colors.white70
+    : Colors.black87;
+
+/// Section header icon (was Colors.white60)
+Color sectionIconColor(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+    ? Colors.white60
+    : Colors.black54;

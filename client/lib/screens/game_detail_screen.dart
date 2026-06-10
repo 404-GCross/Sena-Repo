@@ -231,7 +231,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         Wrap(spacing: 8, runSpacing: 6, children: game.tags.map((t) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.06),
+                            color: cardBorder(context),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                           ),
@@ -249,9 +249,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       Container(
                         padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.03),
+                          color: cardBg(context),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                          border: Border.all(color: cardBorder(context)),
                         ),
                         child: Text(
                           game.description?.isNotEmpty == true ? game.description! : "暂无简介",
@@ -278,19 +278,19 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     padding: const EdgeInsets.only(bottom: 8, top: 4),
     child: Row(children: [
       if (icon != null) ...[
-        Icon(icon, size: 18, color: Colors.white60),
+        Icon(icon, size: 18, color: sectionIconColor(context)),
         const SizedBox(width: 6),
       ],
-      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
     ]),
   );
 
   Widget _fieldCard({required List<Widget> children}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Column(children: children),
   );
@@ -298,9 +298,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   Widget _hintCard(String text) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Row(children: [
       Icon(Icons.info_outline, size: 18, color: hintColor(context)),
@@ -588,7 +588,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
+                color: cardBg(context),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(_task.outputPath!,

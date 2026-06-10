@@ -178,7 +178,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     decoration: BoxDecoration(
       color: cardBg(context),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Column(children: children),
   );
@@ -198,10 +198,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
+              color: cardBorder(context),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, size: 22, color: Colors.white70),
+            child: Icon(icon, size: 22, color: sectionTextColor(context)),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -220,7 +220,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _menuDivider() => Divider(height: 1, indent: 68, color: Colors.white.withValues(alpha: 0.06));
+  Widget _menuDivider() => Divider(height: 1, indent: 68, color: cardBorder(context));
 
   void _showAbout(BuildContext context) {
     showDialog(

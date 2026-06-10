@@ -113,7 +113,7 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
         child: Container(
           decoration: BoxDecoration(
             color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.white.withValues(alpha: 0.06)
+                ? cardBorder(context)
                 : Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
@@ -174,10 +174,12 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                              color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87)),
                       Text(game.developer ?? game.companyName ?? "",
                           maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11, color: Colors.grey[300])),
+                          style: TextStyle(fontSize: 11,
+                              color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.grey[600])),
                     ],
                   ),
                 ),
@@ -190,15 +192,19 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
   }
 
   Widget _lunaPlaceholder() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [Colors.grey[800]!, Colors.grey[850]!],
+          colors: isDark
+              ? [Colors.grey[800]!, Colors.grey[850]!]
+              : [Colors.grey[300]!, Colors.grey[350]!],
         ),
       ),
       child: Center(
-        child: Icon(Icons.image_not_supported_outlined, size: 36, color: Colors.grey[600]),
+        child: Icon(Icons.image_not_supported_outlined, size: 36,
+            color: isDark ? Colors.grey[600] : Colors.grey[400]),
       ),
     );
   }

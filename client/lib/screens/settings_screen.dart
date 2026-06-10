@@ -81,7 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
+                color: cardBg(context),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -98,10 +98,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   static Color _cardBg(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? Colors.white.withValues(alpha: 0.03)
+      ? cardBg(context)
       : Colors.grey.withValues(alpha: 0.08);
   static Color _cardBorder(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? Colors.white.withValues(alpha: 0.06)
+      ? cardBorder(context)
       : Colors.grey.withValues(alpha: 0.15);
   static Color _dimColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
       ? Colors.white60
@@ -193,9 +193,9 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.03),
+              color: cardBg(context),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: cardBorder(context)),
             ),
             child: Column(children: [
               _radioTile("missing", "缺失封面的游戏", Icons.broken_image_outlined, "只刮削没有封面的游戏"),
@@ -211,9 +211,9 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.03),
+              color: cardBg(context),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: cardBorder(context)),
             ),
             child: Column(children:
               _sources.keys.map((src) {
@@ -280,7 +280,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
     child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: subTextColor(context))),
   );
 
-  Widget _divider() => Divider(height: 1, indent: 48, color: Colors.white.withValues(alpha: 0.06));
+  Widget _divider() => Divider(height: 1, indent: 48, color: cardBorder(context));
 }
 
 // ── Scan Settings Sub-Page ──
@@ -411,7 +411,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: cardBorder(context)),
             ),
             child: Row(children: [
               Icon(Icons.folder, size: 20, color: hintColor(context)),
@@ -499,9 +499,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.03),
+              color: cardBg(context),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: cardBorder(context)),
             ),
             child: Column(children: [
               Row(children: [
@@ -557,9 +557,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
+            color: cardBg(context),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            border: Border.all(color: cardBorder(context)),
           ),
           child: Column(children: [
             ListTile(
@@ -625,9 +625,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
+            color: cardBg(context),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            border: Border.all(color: cardBorder(context)),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text("HTTP 代理", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: subTextColor(context))),
@@ -665,17 +665,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   );
 
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
-    Icon(icon, size: 18, color: Colors.white60),
+    Icon(icon, size: 18, color: sectionIconColor(context)),
     const SizedBox(width: 6),
-    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
   ]);
 
   Widget _hintCard(String text) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: cardBg(context),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: cardBorder(context)),
     ),
     child: Row(children: [
       Icon(Icons.info_outline, size: 18, color: hintColor(context)),
@@ -684,7 +684,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     ]),
   );
 
-  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06));
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
   Widget _jobStatusIcon(String? status) {
     switch (status) {
@@ -771,9 +771,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: cardBg(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: enabled ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: enabled ? Colors.green.withValues(alpha: 0.15) : cardBorder(context)),
       ),
       child: Column(children: [
         SwitchListTile(
@@ -785,7 +785,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
         if (enabled && needsApi) ...[
-          Divider(height: 1, indent: 56, color: Colors.white.withValues(alpha: 0.06)),
+          Divider(height: 1, indent: 56, color: cardBorder(context)),
           Padding(
             padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
             child: Column(children: [
@@ -925,9 +925,9 @@ class _ScraperPageState extends State<_ScraperPage> {
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
+          color: cardBg(context),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          border: Border.all(color: cardBorder(context)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: hintColor(context))),
@@ -976,11 +976,11 @@ class _ScraperPageState extends State<_ScraperPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: cardBg(context),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: enabled
             ? Colors.green.withValues(alpha: 0.2)
-            : Colors.white.withValues(alpha: 0.06)),
+            : cardBorder(context)),
       ),
       child: Column(children: [
         SwitchListTile(
@@ -992,7 +992,7 @@ class _ScraperPageState extends State<_ScraperPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
         if (enabled && needsApi) ...[
-          Divider(height: 1, indent: 56, color: Colors.white.withValues(alpha: 0.06)),
+          Divider(height: 1, indent: 56, color: cardBorder(context)),
           Padding(
             padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
             child: Column(children: [
@@ -1031,9 +1031,9 @@ class _ScraperPageState extends State<_ScraperPage> {
   }
 
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
-    Icon(icon, size: 18, color: Colors.white60),
+    Icon(icon, size: 18, color: sectionIconColor(context)),
     const SizedBox(width: 6),
-    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
   ]);
 
   // Remove old _row method, replaced by _srcCard
@@ -1072,9 +1072,9 @@ class _DisplayPageState extends State<_DisplayPage> {
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
+          color: cardBg(context),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          border: Border.all(color: cardBorder(context)),
         ),
         child: Column(children: [
           Row(children: [
@@ -1094,7 +1094,7 @@ class _DisplayPageState extends State<_DisplayPage> {
             Container(
               width: 32, height: 44,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.06),
+                color: cardBorder(context),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -1119,9 +1119,9 @@ class _DisplayPageState extends State<_DisplayPage> {
       const SizedBox(height: 8),
       Container(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
+          color: cardBg(context),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          border: Border.all(color: cardBorder(context)),
         ),
         child: SwitchListTile(
           title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
@@ -1160,7 +1160,7 @@ class _DisplayPageState extends State<_DisplayPage> {
         ),
       ),
       const SizedBox(width: 8),
-      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
     ]),
   );
 }

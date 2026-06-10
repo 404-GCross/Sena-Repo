@@ -113,7 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       )
                     : null,
                 filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.06),
+                fillColor: cardBorder(context),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -139,9 +139,9 @@ class _HomeScreenState extends State<HomeScreen> {
             margin: const EdgeInsets.fromLTRB(12, 4, 12, 6),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.03),
+              color: cardBg(context),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: cardBorder(context)),
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
@@ -236,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: gameProvider.sortBy != null
                           ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
-                          : Colors.white.withValues(alpha: 0.06)),
+                          : cardBorder(context)),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.sort, size: 16, color: gameProvider.sortBy != null
@@ -530,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen> {
             border: Border.all(
               color: active
                   ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                  : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.08)),
+                  : (isDark ? cardBorder(context) : Colors.black.withValues(alpha: 0.08)),
             ),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
