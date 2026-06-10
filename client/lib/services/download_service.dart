@@ -18,8 +18,10 @@ class DownloadTask {
   final String downloadUrl;
   final String gameName;
   final String companyName;
-  String status; // pending, downloading, extracting, done, failed, cancelled
+  String status; // pending, downloading, paused, extracting, done, failed, cancelled
   double progress;
+  int receivedBytes = 0;
+  int totalBytes = 0;
   String? error;
   String? outputPath;
   final DateTime startedAt;
@@ -136,18 +138,31 @@ class DownloadService {
     task._client = client;
     try {
       final request = http.Request("GET", Uri.parse(task.downloadUrl));
+      // Resume from where we left off
+      if (task.receivedBytes > 0 && await dest.exists()) {
+        request.headers["Range"] = "bytes=${task.receivedBytes}-";
+      }
       final response = await client.send(request);
-      if (response.statusCode != 200) {
+
+      final isPartial = response.statusCode == 206;
+      if (response.statusCode != 200 && response.statusCode != 206) {
         final body = await response.stream.bytesToString();
         throw Exception("下载失败 HTTP ${response.statusCode}: $body");
       }
-      final total = response.contentLength ?? 0;
-      var received = 0;
-      final sink = dest.openWrite();
+
+      final cl = response.contentLength ?? 0;
+      final total = task.receivedBytes + cl.toInt();
+      task.totalBytes = total > 0 ? total : task.totalBytes;
+      var received = task.receivedBytes;
+      final sink = dest.openWrite(mode: isPartial ? FileMode.append : FileMode.write);
       await for (final chunk in response.stream) {
         sink.add(chunk);
         received += chunk.length;
-        if (total > 0) onProgress(received / total);
+        task.receivedBytes = received;
+        if (task.totalBytes > 0) {
+          task.progress = received / task.totalBytes;
+          onProgress(task.progress);
+        }
       }
       await sink.flush();
       await sink.close();
@@ -229,6 +244,23 @@ class DownloadService {
         if (result.exitCode == 0) return;
       } catch (_) {}
       throw Exception("解压失败。请确保 assets/binaries/ 下有 7za.exe(Windows) 或 7zz(Linux)");
+    }
+  }
+
+  void pauseTask(DownloadTask task) {
+    if (task.status == "downloading") {
+      task._client?.close();
+      task._client = null;
+      task.status = "paused";
+      _emit();
+    }
+  }
+
+  void resumeTask(DownloadTask task) {
+    if (task.status == "paused") {
+      task.status = "pending";
+      _emit();
+      _runDownload(task);
     }
   }
 

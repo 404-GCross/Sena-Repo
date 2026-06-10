@@ -474,11 +474,27 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       actions: [
         if (_task.status == "done" || _task.status == "failed" || _task.status == "cancelled")
           FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+        if (_task.status == "paused")
+          Row(children: [
+            FilledButton(
+              onPressed: () => DownloadService().resumeTask(_task),
+              child: const Text("继续下载"),
+              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
+            ),
+            TextButton(
+              onPressed: () { DownloadService().cancelTask(_task); },
+              child: const Text("取消", style: TextStyle(color: Colors.red)),
+            ),
+          ]),
         if (_task.status == "downloading" || _task.status == "extracting" || _task.status == "pending")
           Row(children: [
             TextButton(
+              onPressed: () { DownloadService().pauseTask(_task); },
+              child: const Text("暂停"),
+            ),
+            TextButton(
               onPressed: () { DownloadService().cancelTask(_task); },
-              child: const Text("取消下载", style: TextStyle(color: Colors.red)),
+              child: const Text("取消", style: TextStyle(color: Colors.red)),
             ),
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
           ]),

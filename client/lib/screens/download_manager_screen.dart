@@ -67,7 +67,31 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Expanded(
             child: Text(t.fileName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
           ),
-          if (t.status == "downloading" || t.status == "pending")
+          if (t.status == "downloading")
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              TextButton(
+                onPressed: () => DownloadService().pauseTask(t),
+                child: const Text("暂停", style: TextStyle(fontSize: 12)),
+              ),
+              TextButton(
+                onPressed: () => DownloadService().cancelTask(t),
+                child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
+              ),
+            ])
+          else if (t.status == "paused")
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              FilledButton(
+                onPressed: () => DownloadService().resumeTask(t),
+                child: const Text("继续", style: TextStyle(fontSize: 12)),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
+              ),
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () => DownloadService().cancelTask(t),
+                child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
+              ),
+            ])
+          else if (t.status == "pending")
             TextButton(
               onPressed: () => DownloadService().cancelTask(t),
               child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
@@ -82,7 +106,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         const SizedBox(height: 4),
         Text("${t.companyName}/${t.gameName}",
             style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-        if (t.status == "downloading") ...[
+        if (t.status == "downloading" || t.status == "paused") ...[
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
@@ -90,11 +114,16 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               value: t.progress,
               minHeight: 4,
               backgroundColor: Colors.white.withValues(alpha: 0.08),
+              color: t.status == "paused" ? Colors.orange : null,
             ),
           ),
           const SizedBox(height: 4),
-          Text("${(t.progress * 100).toStringAsFixed(0)}%",
-              style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text("${(t.progress * 100).toStringAsFixed(0)}%",
+                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            if (t.status == "paused")
+              Text("已暂停", style: TextStyle(fontSize: 11, color: Colors.orange[300])),
+          ]),
         ],
         if (t.status == "done" && t.outputPath != null)
           Text("已解压到: ${t.outputPath}",
@@ -113,6 +142,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.blue[300])),
       );
       case "extracting": return Icon(Icons.folder_zip, size: 22, color: Colors.orange[300]);
+      case "paused": return Icon(Icons.pause_circle, size: 22, color: Colors.orange[300]);
       case "done": return Icon(Icons.check_circle, size: 22, color: Colors.green[300]);
       case "failed": return Icon(Icons.error, size: 22, color: Colors.red[300]);
       case "cancelled": return Icon(Icons.cancel, size: 22, color: Colors.grey[500]);
