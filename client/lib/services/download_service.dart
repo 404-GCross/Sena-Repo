@@ -217,28 +217,34 @@ class DownloadService {
         await sink.flush();
         await sink.close();
 
-        // ── Validate against ACTUAL file size on disk (not just in-memory counter) ──
+        // ── Validate against ACTUAL file size on disk ──
         final fileSize = await dest.length();
 
-        // Server told us the expected size — validate disk file matches
-        if (task.totalBytes > 0 && fileSize < task.totalBytes) {
+        // Guard 1: expected size known — must match exactly
+        if (task.totalBytes > 0 && fileSize != task.totalBytes) {
           final expected = task.totalBytes;
           task.receivedBytes = 0;
           task.totalBytes = 0;
           try { await dest.delete(); } catch (_) {}
           throw Exception(
-              "文件写入不完整：预期 $expected bytes，"
-              "磁盘实际 $fileSize bytes "
+              "文件不完整：预期 $expected bytes，磁盘 $fileSize bytes "
               "(${((1 - fileSize / expected) * 100).toStringAsFixed(1)}% 丢失)");
         }
-        // In-memory counter should match disk too
-        if (received != fileSize) {
-          // Counter drifted — trust the disk
-          task.receivedBytes = fileSize;
-          received = fileSize;
+        // Guard 2: no Content-Length — at least check counter vs disk
+        if (task.totalBytes == 0 && received > 0 && fileSize < received) {
+          task.receivedBytes = 0;
+          try { await dest.delete(); } catch (_) {}
+          throw Exception(
+              "文件不完整：计数器 $received bytes，磁盘仅 $fileSize bytes "
+              "(${((1 - fileSize / received) * 100).toStringAsFixed(1)}% 丢失)");
         }
-        if (fileSize == 0 && task.totalBytes == 0) {
-          throw Exception("下载失败：未收到任何数据，请检查服务器连接");
+        // Guard 3: nothing received
+        if (fileSize == 0) {
+          throw Exception("下载失败：未收到任何数据，请检查服务器或网络连接");
+        }
+        // Sync counter to reality
+        if (received != fileSize) {
+          task.receivedBytes = fileSize;
         }
 
         return; // ✅ Success
