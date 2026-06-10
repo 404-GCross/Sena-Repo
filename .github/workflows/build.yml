@@ -73,8 +73,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
           Copy-Item "../7z/Windows/7za.exe" assets/binaries/7za.exe
-          Copy-Item "../7z/Windows/7za.dll" assets/binaries/7za.dll
-          Copy-Item "../7z/Windows/7zxa.dll" assets/binaries/7zxa.dll
           Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7za.txt
           Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7za.txt
 

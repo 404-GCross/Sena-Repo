@@ -361,26 +361,18 @@ class DownloadService {
     if (await dest.exists()) {
       final version = await _get7zaVersion(dest.path);
       if (version != null && version < _min7zaVersion) {
-        // Delete all old 7za-related files so they get replaced
-        for (final name in ["7za.exe", "7za.dll", "7zxa.dll", "7zz"]) {
-          try {
-            await File("${dir.path}/$name").delete();
-          } catch (_) {}
-        }
+        // Delete old binary so it gets replaced
+        try { await dest.delete(); } catch (_) {}
       }
     }
 
     if (!await dest.exists()) {
-      // Try bundled asset first — extract exe + DLLs (overwrite always)
+      // Try bundled asset first — extract exe (always overwrite)
       bool bundledOk = false;
       try {
-        for (final name in ["7za.exe", "7za.dll", "7zxa.dll"]) {
-          try {
-            final data = await rootBundle.load("assets/binaries/$name");
-            final f = File("${dir.path}/$name");
-            await f.writeAsBytes(data.buffer.asUint8List());
-          } catch (_) {}
-        }
+        final data = await rootBundle.load("assets/binaries/$exeName");
+        final f = File("${dir.path}/$exeName");
+        await f.writeAsBytes(data.buffer.asUint8List());
         if (Platform.isLinux) {
           await Process.run("chmod", ["+x", dest.path]);
         }
@@ -430,13 +422,6 @@ class DownloadService {
                     final src = File("$progDir/7za.exe");
                     if (await src.exists()) {
                       await src.copy(dest.path);
-                      // Also copy DLLs
-                      for (final dll in ["7za.dll", "7zxa.dll"]) {
-                        try {
-                          await File("$progDir/$dll")
-                              .copy("${dir.path}/$dll");
-                        } catch (_) {}
-                      }
                       break;
                     }
                   }
