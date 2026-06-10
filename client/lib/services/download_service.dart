@@ -217,14 +217,27 @@ class DownloadService {
         await sink.flush();
         await sink.close();
 
-        // Validate download completeness
-        if (task.totalBytes > 0 && received < task.totalBytes) {
+        // ── Validate against ACTUAL file size on disk (not just in-memory counter) ──
+        final fileSize = await dest.length();
+
+        // Server told us the expected size — validate disk file matches
+        if (task.totalBytes > 0 && fileSize < task.totalBytes) {
+          final expected = task.totalBytes;
+          task.receivedBytes = 0;
+          task.totalBytes = 0;
+          try { await dest.delete(); } catch (_) {}
           throw Exception(
-              "下载不完整：预期 ${task.totalBytes} bytes，"
-              "实收 $received bytes "
-              "(${((1 - received / task.totalBytes) * 100).toStringAsFixed(1)}% 丢失)");
+              "文件写入不完整：预期 $expected bytes，"
+              "磁盘实际 $fileSize bytes "
+              "(${((1 - fileSize / expected) * 100).toStringAsFixed(1)}% 丢失)");
         }
-        if (received == 0 && task.totalBytes == 0) {
+        // In-memory counter should match disk too
+        if (received != fileSize) {
+          // Counter drifted — trust the disk
+          task.receivedBytes = fileSize;
+          received = fileSize;
+        }
+        if (fileSize == 0 && task.totalBytes == 0) {
           throw Exception("下载失败：未收到任何数据，请检查服务器连接");
         }
 
