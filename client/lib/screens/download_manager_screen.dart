@@ -2,6 +2,7 @@
 
 import "dart:async";
 
+import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 
 import "../services/download_service.dart";
@@ -17,6 +18,7 @@ class DownloadManagerScreen extends StatefulWidget {
 class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   List<DownloadTask> _tasks = [];
   StreamSubscription? _sub;
+  String _downloadDir = "";
 
   @override
   void initState() {
@@ -25,6 +27,22 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     _sub = DownloadService().tasks.listen((t) {
       if (mounted) setState(() => _tasks = t);
     });
+    _loadDir();
+  }
+
+  Future<void> _loadDir() async {
+    final dir = await DownloadService().downloadDir;
+    if (mounted) setState(() => _downloadDir = dir);
+  }
+
+  Future<void> _changeDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: "选择下载目录",
+    );
+    if (result != null) {
+      await DownloadService().setDownloadDir(result);
+      if (mounted) setState(() => _downloadDir = result);
+    }
   }
 
   @override
@@ -37,18 +55,49 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("下载管理")),
-      body: _tasks.isEmpty
-          ? Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.download_outlined, size: 64, color: Colors.grey[600]),
-                const SizedBox(height: 12),
-                Text("暂无下载任务", style: TextStyle(fontSize: 16, color: hintColor(context))),
-              ]))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _tasks.length,
-              itemBuilder: (_, i) => _taskCard(_tasks[i]),
+      body: Column(children: [
+        // ── Download directory ──
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          decoration: BoxDecoration(
+            color: cardBg(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: Row(children: [
+            Icon(Icons.folder_outlined, size: 20, color: sectionIconColor(context)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(_downloadDir.isEmpty ? "加载中..." : _downloadDir,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: subTextColor(context))),
             ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed: _changeDir,
+              icon: const Icon(Icons.edit, size: 16),
+              label: const Text("更改", style: TextStyle(fontSize: 12)),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+            ),
+          ]),
+        ),
+        // ── Task list ──
+        Expanded(
+          child: _tasks.isEmpty
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.download_outlined, size: 64, color: Colors.grey[600]),
+                    const SizedBox(height: 12),
+                    Text("暂无下载任务", style: TextStyle(fontSize: 16, color: hintColor(context))),
+                  ]))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _tasks.length,
+                  itemBuilder: (_, i) => _taskCard(_tasks[i]),
+                ),
+          ),
+        ]),
     );
   }
 
