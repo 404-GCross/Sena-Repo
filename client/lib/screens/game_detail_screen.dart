@@ -85,6 +85,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       extendBodyBehindAppBar: hasCover,
       backgroundColor: Colors.transparent,
@@ -107,9 +108,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           Positioned(
             top: 0, left: 0, right: 0, height: 420,
             child: ShaderMask(
-              shaderCallback: (rect) => const LinearGradient(
+              shaderCallback: (rect) => LinearGradient(
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Color(0xCC000000), Color(0x66000000), Colors.transparent],
+                colors: isDark
+                    ? [const Color(0xCC000000), const Color(0x66000000), Colors.transparent]
+                    : [const Color(0xCCFFFFFF), const Color(0x66FFFFFF), Colors.transparent],
                 stops: [0.0, 0.4, 1.0],
               ).createShader(rect),
               blendMode: BlendMode.dstIn,
@@ -352,11 +355,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Widget _coverPlaceholder() => Container(
     decoration: BoxDecoration(
-      color: Colors.grey[850],
+      color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[850] : Colors.grey[200],
       borderRadius: BorderRadius.circular(12),
     ),
     width: 200, height: 280,
-    child: Center(child: Icon(Icons.image, size: 64, color: Colors.grey[700])),
+    child: Center(child: Icon(Icons.image, size: 64,
+        color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[700] : Colors.grey[400])),
   );
 
   String _formatSize(int bytes) {
