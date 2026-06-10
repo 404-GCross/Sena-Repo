@@ -166,7 +166,7 @@ jobs:
           Version:        ${VERSION}
           Release:        ${RELEASE}%{?dist}
           Summary:        GalGame Private Library Manager
-          License:        GPL-2.0
+          License:        GPL-3.0
           URL:            https://github.com/404-GCross/Sena-Repo
           BuildArch:      ${ARCH}
 
@@ -218,7 +218,7 @@ jobs:
           packager = Sena Repo CI
           size = $(du -sb "$PKG" | cut -f1)
           arch = x86_64
-          license = GPL-2.0
+          license = GPL-3.0
           PKGINFO
 
           # .MTREE (required by pacman)

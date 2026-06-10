@@ -276,13 +276,13 @@ python main.py --host 0.0.0.0 --port 11451 --games-path /path/to/your/games --da
 
 ## 开源协议
 
-本项目采用 **GNU General Public License v2.0 (GPL-2.0)** 开源。
+本项目采用 **GNU General Public License v3.0 (GPL-3.0)** 开源。
 
 你可以：
 
 - 自由使用
 - 自由修改
 - 自由分发
-- 在 GPL-2.0 约束下进行二次开发
+- 在 GPL-3.0 约束下进行二次开发
 
-请在遵守 GPL-2.0 协议的前提下使用本项目源码。
+请在遵守 GPL-3.0 协议的前提下使用本项目源码。
