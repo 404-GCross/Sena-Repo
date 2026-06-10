@@ -2,7 +2,7 @@
 ///
 /// Cross-platform client for Windows, Android, and Linux.
 
-import "dart:io" show InternetAddress, Platform, ServerSocket, exit;
+import "dart:io" show InternetAddress, Platform, Process, ServerSocket, exit;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -15,6 +15,16 @@ import "providers/theme_provider.dart";
 import "screens/connect_screen.dart";
 import "services/tray_service.dart";
 import "services/logger_service.dart";
+
+Future<bool> _check7zAvailable() async {
+  try {
+    final exe = Platform.isWindows ? "7z" : "7z";
+    final result = await Process.run(exe, ["--help"]);
+    return result.exitCode == 0 || result.exitCode == 7;
+  } catch (_) {
+    return false;
+  }
+}
 
 final trayService = TrayService();
 
@@ -58,6 +68,39 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
     if (Platform.isWindows || Platform.isLinux) {
       windowManager.addListener(this);
       _initTray();
+      _check7zOnStartup();
+    }
+  }
+
+  Future<void> _check7zOnStartup() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool("7z_checked") == true) return;
+    if (!await _check7zAvailable()) {
+      await prefs.setBool("7z_checked", true);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(children: [
+              Icon(Icons.folder_zip, color: Colors.orange, size: 22),
+              SizedBox(width: 8),
+              Text("缺少解压工具"),
+            ]),
+            content: const Text(
+              "下载 .rar / .7z 格式游戏需要 7-Zip 解压工具。\n\n"
+              "Windows: winget install 7zip.7zip\n"
+              "Linux: sudo apt install p7zip-full",
+              style: TextStyle(fontSize: 14),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("知道了"),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
