@@ -147,6 +147,121 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
+// ── Batch scrape config dialog ──
+class _BatchScrapeDialog extends StatefulWidget {
+  @override State<_BatchScrapeDialog> createState() => _BatchScrapeDialogState();
+}
+
+class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
+  String _scope = "missing"; // missing, all, filtered
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true};
+
+  static const _sourceLabels = {
+    "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
+    "steam": "Steam", "dlsite": "DLsite",
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Row(children: [
+        Icon(Icons.image_search, color: Colors.orange, size: 22),
+        SizedBox(width: 8),
+        Text("批量刮削"),
+      ]),
+      content: SizedBox(width: 380, child: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // Scope selection
+          _sectionTitle("刮削范围"),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Column(children: [
+              _radioTile("missing", "缺失封面的游戏", Icons.broken_image_outlined, "只刮削没有封面的游戏"),
+              _divider(),
+              _radioTile("all", "全部游戏", Icons.select_all, "重刮所有游戏，覆盖已有封面"),
+              _divider(),
+              _radioTile("filtered", "当前筛选结果", Icons.filter_list, "只刮当前筛选出的游戏"),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          // Source selection
+          _sectionTitle("刮削来源"),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Column(children:
+              _sources.keys.map((src) {
+                final isLast = src == _sources.keys.last;
+                return Column(children: [
+                  CheckboxListTile(
+                    title: Text(_sourceLabels[src] ?? src, style: const TextStyle(fontSize: 14)),
+                    value: _sources[src],
+                    onChanged: (v) => setState(() => _sources[src] = v ?? false),
+                    dense: true,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  if (!isLast) _divider(),
+                ]);
+              }).toList(),
+            ),
+          ),
+        ]),
+      )),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.pop(context, {
+              "scope": _scope,
+              "sources": _sources.entries.where((e) => e.value).map((e) => e.key).toList(),
+            });
+          },
+          icon: const Icon(Icons.play_arrow, size: 18),
+          label: const Text("开始刮削"),
+        ),
+      ],
+    );
+  }
+
+  Widget _radioTile(String value, String title, IconData icon, String subtitle) {
+    final active = _scope == value;
+    return InkWell(
+      onTap: () => setState(() => _scope = value),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: active ? Colors.orange.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 20, color: active ? Colors.orange[300] : Colors.grey[500]),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: TextStyle(fontSize: 14, fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
+            Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          ])),
+          Radio<String>(value: value, groupValue: _scope, onChanged: (v) => setState(() => _scope = v!)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _divider() => Divider(height: 1, indent: 48, color: Colors.white.withValues(alpha: 0.06));
+}
+
 // ── Scan Settings Sub-Page ──
 class _ScanSettingsPage extends StatefulWidget {
   final ApiClient api;
@@ -218,10 +333,16 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _scrapeNow() async {
+    // Show batch scrape config dialog
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _BatchScrapeDialog(),
+    );
+    if (result == null || !mounted) return;
     setState(() => _scraping = true);
     try {
       final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
-          headers: {"Content-Type": "application/json"}, body: jsonEncode({}));
+          headers: {"Content-Type": "application/json"}, body: jsonEncode(result));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final jobId = data["job_id"] as int;
@@ -375,9 +496,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                   ]),
                 ),
-                if (_scrapeJob!["status"] == "running")
-                  const SizedBox(width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2)),
+                if (_scrapeJob!["status"] == "running" || _scrapeJob!["status"] == "pending")
+                  TextButton(
+                    onPressed: () => _cancelJob(_scrapeJob!["id"] as int),
+                    child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
+                  ),
               ]),
               if (_scrapeJob!["total_games"] != null && (_scrapeJob!["total_games"] as int) > 0) ...[
                 const SizedBox(height: 12),
@@ -391,15 +514,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text("${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text("${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                  if (_scrapeJob!["failed_games"] != null && (_scrapeJob!["failed_games"] as int) > 0)
+                    Text("失败: ${_scrapeJob!["failed_games"]}",
+                        style: TextStyle(fontSize: 12, color: Colors.red[300])),
+                ]),
               ],
-              if (_scrapeJob!["status"] == "completed" && _scrapeJob!["failed_games"] != null && (_scrapeJob!["failed_games"] as int) > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text("${_scrapeJob!["failed_games"]} 个刮削失败",
-                      style: TextStyle(fontSize: 12, color: Colors.red[300])),
-                ),
+              // Completed summary
+              if (_scrapeJob!["status"] == "completed")
+                _buildCompletedSummary(),
             ]),
           ),
         ],
@@ -547,6 +672,27 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       case "failed": return Icon(Icons.error, size: 24, color: Colors.red[300]);
       default: return Icon(Icons.schedule, size: 24, color: Colors.grey[400]);
     }
+  }
+
+  Future<void> _cancelJob(int jobId) async {
+    try {
+      await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId/cancel"));
+      setState(() => _scraping = false);
+    } catch (_) {}
+  }
+
+  Widget _buildCompletedSummary() {
+    final failed = (_scrapeJob!["failed_games"] ?? 0) as int;
+    final total = (_scrapeJob!["total_games"] ?? 0) as int;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(children: [
+        Icon(Icons.check_circle, size: 16, color: Colors.green[300]),
+        const SizedBox(width: 6),
+        Text("${total - failed} 成功, $failed 失败",
+            style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+      ]),
+    );
   }
 
   String _jobStatusLabel(String? status) {

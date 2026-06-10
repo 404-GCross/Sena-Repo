@@ -160,6 +160,7 @@ async def run_batch_scrape(
     game_ids: list[int] | None,
     session: AsyncSession,
     job: ScrapeJob,
+    sources: list[str] | None = None,
 ) -> dict:
     """Run batch scraping for specified games (or all without covers).
 
@@ -203,6 +204,8 @@ async def run_batch_scrape(
     await session.commit()
 
     scrapers = _build_scrapers(config)
+    if sources:
+        scrapers = [s for s in scrapers if s.source_name in sources]
     covers_dir = config.covers_path
     completed = 0
     failed = 0

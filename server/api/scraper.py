@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api", tags=["scraper"])
 
 class BatchScrapeRequest(BaseModel):
     game_ids: list[int] | None = None
+    sources: list[str] | None = None
 
 
 class JobStatusOut(BaseModel):
@@ -236,7 +237,7 @@ async def start_batch_scrape(
         if _session_factory is None:
             raise RuntimeError("Database not initialized")
         async with _session_factory() as bg_session:
-            await run_batch_scrape(config, body.game_ids, bg_session, job)
+            await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
 
     background_tasks.add_task(_run)
 
@@ -245,6 +246,21 @@ async def start_batch_scrape(
         "status": "started",
         "message": f"Batch scrape started for {job.total_games or 'all missing'} games",
     }
+
+
+@router.post("/scrape/jobs/{job_id}/cancel")
+async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session)):
+    """Cancel a running scrape job."""
+    result = await session.execute(select(ScrapeJob).where(ScrapeJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+        raise HTTPException(status_code=400, detail="Job is not active")
+    job.status = JobStatus.FAILED
+    job.log = (job.log or "") + " [已取消]"
+    await session.commit()
+    return {"message": "Job cancelled"}
 
 
 @router.get("/scrape/jobs", response_model=list[JobStatusOut])
