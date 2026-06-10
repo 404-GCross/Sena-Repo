@@ -717,18 +717,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
-    // Pre-fetch cover image with loading indicator
-    final coverUrl = (r["cover_url"] ?? "").toString();
-    if (coverUrl.isNotEmpty && mounted) {
-      showDialog(context: context, barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()));
-      try {
-        await http.get(Uri.parse(coverUrl)).timeout(const Duration(seconds: 8));
-      } catch (_) {}
-      if (mounted) Navigator.of(context).pop();
-    }
-
     // Step 3: Per-field comparison
+    final coverUrl = (r["cover_url"] ?? "").toString();
     final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
     final incoming = {
       "名称": (r["title"] ?? "").toString(),
