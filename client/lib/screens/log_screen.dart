@@ -5,6 +5,7 @@ import "dart:io";
 import "package:flutter/material.dart";
 
 import "../services/logger_service.dart";
+import "../utils/theme_utils.dart";
 
 class LogScreen extends StatefulWidget {
   const LogScreen({super.key});

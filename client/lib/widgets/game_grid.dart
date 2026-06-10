@@ -6,6 +6,7 @@ import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
+import "../utils/theme_utils.dart";
 
 class GameGrid extends StatefulWidget {
   final List<GameSummary> games;

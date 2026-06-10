@@ -3,6 +3,7 @@
 import "package:flutter/material.dart";
 
 import "../models/game.dart";
+import "../utils/theme_utils.dart";
 
 class GameList extends StatelessWidget {
   final List<GameSummary> games;

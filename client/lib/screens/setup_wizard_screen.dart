@@ -7,6 +7,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 
 import "../services/api_client.dart";
+import "../utils/theme_utils.dart";
 
 class SetupWizardScreen extends StatefulWidget {
   final ApiClient api;
