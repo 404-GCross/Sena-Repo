@@ -128,15 +128,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.04),
+              color: cardBg(context),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              border: Border.all(color: cardBorder(context)),
             ),
             child: Row(children: [
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: hasDir ? Colors.blue.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
+                  color: hasDir ? Colors.blue.withValues(alpha: 0.15) : cardBg(context),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -255,7 +255,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.04),
+          color: cardBg(context),
           shape: BoxShape.circle,
         ),
         child: Icon(Icons.videogame_asset_outlined, size: 56, color: Colors.grey[600]),
@@ -289,7 +289,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           Container(
             width: 42, height: 42,
             decoration: BoxDecoration(
-              color: available ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
+              color: available ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(

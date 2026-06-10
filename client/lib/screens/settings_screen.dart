@@ -259,7 +259,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: active ? Colors.orange.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
+              color: active ? Colors.orange.withValues(alpha: 0.15) : cardBg(context),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, size: 20, color: active ? Colors.orange[300] : Colors.grey[500]),
@@ -409,7 +409,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             margin: const EdgeInsets.only(bottom: 6),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.04),
+              color: cardBg(context),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: cardBorder(context)),
             ),
@@ -436,11 +436,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                  borderSide: BorderSide(color: cardBorder(context)),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                  borderSide: BorderSide(color: cardBorder(context)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -531,7 +531,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     value: ((_scrapeJob!["completed_games"] ?? 0) as int) /
                         ((_scrapeJob!["total_games"] as int)).clamp(1, 99999),
                     minHeight: 6,
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                    backgroundColor: cardBorder(context),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -942,11 +942,11 @@ class _ScraperPageState extends State<_ScraperPage> {
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                    borderSide: BorderSide(color: cardBorder(context)),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                    borderSide: BorderSide(color: cardBorder(context)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -1006,7 +1006,7 @@ class _ScraperPageState extends State<_ScraperPage> {
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                        borderSide: BorderSide(color: cardBorder(context)),
                       ),
                     ),
                   ),
@@ -1019,7 +1019,7 @@ class _ScraperPageState extends State<_ScraperPage> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                      borderSide: BorderSide(color: cardBorder(context)),
                     ),
                   ),
                 ),
@@ -1395,9 +1395,9 @@ class _UserManagePageState extends State<_UserManagePage> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.04),
+                      color: cardBg(context),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                      border: Border.all(color: cardBorder(context)),
                     ),
                     child: Row(children: [
                       CircleAvatar(

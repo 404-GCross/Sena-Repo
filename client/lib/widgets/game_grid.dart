@@ -119,7 +119,7 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
             border: Border.all(
               color: _hovered
                   ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                  : Colors.white.withValues(alpha: 0.08),
+                  : cardBorder(context),
               width: 1,
             ),
             boxShadow: _hovered
@@ -157,7 +157,7 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                             child: Container(
                               width: 44, height: 44,
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.25),
+                                color: cardBorder(context),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.info_outline, color: Colors.white, size: 22),

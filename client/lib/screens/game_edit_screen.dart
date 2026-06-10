@@ -776,7 +776,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: hasDiff ? cardBg(context) : Colors.white.withValues(alpha: 0.02),
+                      color: hasDiff ? cardBg(context) : cardBg(context),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : cardBorder(context)),
                     ),

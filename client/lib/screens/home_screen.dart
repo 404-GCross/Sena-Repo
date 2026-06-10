@@ -117,11 +117,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                  borderSide: BorderSide(color: cardBorder(context)),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                  borderSide: BorderSide(color: cardBorder(context)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -206,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     () => _togglePlatformFilter("Ty")),
                 _filterChip("直装", Icons.phone_iphone, gameProvider.filterPlatform == "直装",
                     () => _togglePlatformFilter("直装")),
-                Container(width: 1, height: 18, color: Colors.white.withValues(alpha: 0.08)),
+                Container(width: 1, height: 18, color: cardBorder(context)),
                 const SizedBox(width: 6),
                 _filterChip("有封面", Icons.image, gameProvider.filterHasCover == true,
                     () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == true ? null : true)),
@@ -232,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     decoration: BoxDecoration(
                       color: gameProvider.sortBy != null
                           ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
-                          : Colors.white.withValues(alpha: 0.04),
+                          : cardBg(context),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: gameProvider.sortBy != null
                           ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
@@ -430,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+          border: Border(top: BorderSide(color: cardBorder(context))),
         ),
         child: Row(children: [
           TextButton.icon(
@@ -525,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: active
                 ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
-                : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04)),
+                : (isDark ? cardBg(context) : Colors.black.withValues(alpha: 0.04)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: active

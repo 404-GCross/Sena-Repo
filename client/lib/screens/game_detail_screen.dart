@@ -233,7 +233,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                           decoration: BoxDecoration(
                             color: cardBorder(context),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                            border: Border.all(color: cardBorder(context)),
                           ),
                           child: Text(t.name, style: const TextStyle(fontSize: 13)),
                         )).toList()),
@@ -335,7 +335,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     );
   }
 
-  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.08));
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
   Widget _sourceBadge(String label, String? id) {
     final active = id != null && id.isNotEmpty;
@@ -343,7 +343,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: active ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
+          color: active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: active ? Colors.green.withValues(alpha: 0.35) : Colors.white24)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -559,7 +559,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             borderRadius: const BorderRadius.all(Radius.circular(4)),
             child: LinearProgressIndicator(
               value: _task.progress, minHeight: 8,
-              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              backgroundColor: cardBorder(context),
             ),
           ),
           const SizedBox(height: 8),
