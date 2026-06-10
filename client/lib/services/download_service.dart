@@ -274,10 +274,24 @@ class DownloadService {
   }
 
   Future<void> _extractZip(String zipPath, String outDir) async {
+    // Try system unzip first (avoids loading entire archive into memory)
+    try {
+      if (Platform.isWindows) {
+        await _runExtractor("powershell", [
+          "-Command", "Expand-Archive", "-Path", zipPath,
+          "-DestinationPath", outDir, "-Force"
+        ]);
+      } else {
+        await _runExtractor("unzip", ["-o", zipPath, "-d", outDir]);
+      }
+      return;
+    } catch (_) {
+      // Fallback to pure Dart decoder (loads into memory — ok for most ZIPs)
+    }
     final inputStream = InputFileStream(zipPath);
     try {
-      final archive = ZipDecoder().decodeStream(inputStream);
-      await for (final file in archive) {
+      final archive = ZipDecoder().decodeBuffer(inputStream);
+      for (final file in archive) {
         final filePath = "$outDir/${file.name}";
         if (file.isFile) {
           final outFile = File(filePath);
