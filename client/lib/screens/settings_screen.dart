@@ -7,7 +7,6 @@ import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 
 import "../providers/game_provider.dart";
-import "../utils/theme_utils.dart";
 import "../providers/theme_provider.dart";
 import "../services/api_client.dart";
 import "beautify_screen.dart";
@@ -80,7 +79,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: cardBg(context),
+                color: Colors.white.withValues(alpha: 0.04),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -96,18 +95,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  static Color _cardBg(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? cardBg(c)
-      : Colors.grey.withValues(alpha: 0.08);
-  static Color _cardBorder(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? cardBorder(c)
-      : Colors.grey.withValues(alpha: 0.15);
-  static Color _dimColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? Colors.white60
-      : Colors.black54;
-  static Color _boldColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? Colors.white70
-      : Colors.black87;
+  static Color _dimColor(BuildContext c) => Colors.white60;
+  static Color _boldColor(BuildContext c) => Colors.white70;
 
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
     Icon(icon, size: 18, color: _dimColor(context)),
@@ -117,16 +106,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _menuCard(List<Widget> children) => Container(
     decoration: BoxDecoration(
-      color: _cardBg(context),
+      color: Colors.white.withValues(alpha: 0.04),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: _cardBorder(context)),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
     ),
     child: Column(
       children: children.asMap().entries.map((e) {
         final isLast = e.key == children.length - 1;
         return Column(children: [
           e.value,
-          if (!isLast) Divider(height: 1, indent: 60, color: _cardBorder(context)),
+          if (!isLast) Divider(height: 1, indent: 60, color: Colors.white.withValues(alpha: 0.06)),
         ]);
       }).toList(),
     ),
@@ -152,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
-              Text(subtitle, style: TextStyle(fontSize: 12, color: hintColor(context))),
+              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
             ]),
           ),
           Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
@@ -192,9 +181,9 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
-              color: cardBg(context),
+              color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: Column(children: [
               _radioTile("missing", "缺失封面的游戏", Icons.broken_image_outlined, "只刮削没有封面的游戏"),
@@ -210,9 +199,9 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
-              color: cardBg(context),
+              color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: Column(children:
               _sources.keys.map((src) {
@@ -258,7 +247,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: active ? Colors.orange.withValues(alpha: 0.15) : cardBg(context),
+              color: active ? Colors.orange.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, size: 20, color: active ? Colors.orange[300] : Colors.grey[500]),
@@ -266,7 +255,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title, style: TextStyle(fontSize: 14, fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
-            Text(subtitle, style: TextStyle(fontSize: 12, color: hintColor(context))),
+            Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           ])),
           Radio<String>(value: value, groupValue: _scope, onChanged: (v) => setState(() => _scope = v!)),
         ]),
@@ -276,10 +265,10 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
 
   Widget _sectionTitle(String t) => Padding(
     padding: const EdgeInsets.only(bottom: 4, left: 4),
-    child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: subTextColor(context))),
+    child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[400])),
   );
 
-  Widget _divider() => Divider(height: 1, indent: 48, color: cardBorder(context));
+  Widget _divider() => Divider(height: 1, indent: 48, color: Colors.white.withValues(alpha: 0.06));
 }
 
 // ── Scan Settings Sub-Page ──
@@ -408,12 +397,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             margin: const EdgeInsets.only(bottom: 6),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: cardBg(context),
+              color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cardBorder(context)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: Row(children: [
-              Icon(Icons.folder, size: 20, color: hintColor(context)),
+              Icon(Icons.folder, size: 20, color: Colors.grey[500]),
               const SizedBox(width: 10),
               Expanded(child: Text(r["path"] ?? "", style: const TextStyle(fontSize: 14))),
               IconButton(
@@ -435,11 +424,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: cardBorder(context)),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: cardBorder(context)),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -498,9 +487,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: cardBg(context),
+              color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: Column(children: [
               Row(children: [
@@ -513,7 +502,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     if (_scrapeJob!["current_game"] != null)
                       Text("正在处理: ${_scrapeJob!["current_game"]}",
                           maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: hintColor(context))),
+                          style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                   ]),
                 ),
                 if (_scrapeJob!["status"] == "running" || _scrapeJob!["status"] == "pending")
@@ -530,13 +519,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     value: ((_scrapeJob!["completed_games"] ?? 0) as int) /
                         ((_scrapeJob!["total_games"] as int)).clamp(1, 99999),
                     minHeight: 6,
-                    backgroundColor: cardBorder(context),
+                    backgroundColor: Colors.white.withValues(alpha: 0.06),
                   ),
                 ),
                 const SizedBox(height: 6),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   Text("${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
-                      style: TextStyle(fontSize: 12, color: hintColor(context))),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                   if (_scrapeJob!["failed_games"] != null && (_scrapeJob!["failed_games"] as int) > 0)
                     Text("失败: ${_scrapeJob!["failed_games"]}",
                         style: TextStyle(fontSize: 12, color: Colors.red[300])),
@@ -556,16 +545,16 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: cardBg(context),
+            color: Colors.white.withValues(alpha: 0.04),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cardBorder(context)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
           ),
           child: Column(children: [
             ListTile(
               title: const Text("目录结构", style: TextStyle(fontSize: 14)),
               subtitle: Text(
                 _structure == "company_game" ? "会社 / 游戏" : _structure == "game_only" ? "仅游戏" : "扁平",
-                style: TextStyle(fontSize: 13, color: hintColor(context)),
+                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
               ),
               trailing: DropdownButton<String>(
                 value: _structure, underline: const SizedBox(),
@@ -581,7 +570,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             SwitchListTile(
               title: const Text("自动扫描", style: TextStyle(fontSize: 14)),
               subtitle: Text(_autoScan ? "每 $_interval 小时" : "关闭",
-                  style: TextStyle(fontSize: 13, color: hintColor(context))),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500])),
               value: _autoScan,
               onChanged: (v) => setState(() => _autoScan = v),
               dense: true,
@@ -624,12 +613,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: cardBg(context),
+            color: Colors.white.withValues(alpha: 0.04),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cardBorder(context)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("HTTP 代理", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: subTextColor(context))),
+            Text("HTTP 代理", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[400])),
             Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             const SizedBox(height: 8),
             Row(children: [
@@ -664,33 +653,33 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   );
 
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
-    Icon(icon, size: 18, color: sectionIconColor(context)),
+    Icon(icon, size: 18, color: Colors.white60),
     const SizedBox(width: 6),
-    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
   ]);
 
   Widget _hintCard(String text) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: cardBg(context),
+      color: Colors.white.withValues(alpha: 0.04),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
     ),
     child: Row(children: [
-      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(fontSize: 14, color: hintColor(context))),
+      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
     ]),
   );
 
-  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06));
 
   Widget _jobStatusIcon(String? status) {
     switch (status) {
       case "running": return Icon(Icons.sync, size: 24, color: Colors.blue[300]);
       case "completed": return Icon(Icons.check_circle, size: 24, color: Colors.green[300]);
       case "failed": return Icon(Icons.error, size: 24, color: Colors.red[300]);
-      default: return Icon(Icons.schedule, size: 24, color: subTextColor(context));
+      default: return Icon(Icons.schedule, size: 24, color: Colors.grey[400]);
     }
   }
 
@@ -710,7 +699,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         Icon(Icons.check_circle, size: 16, color: Colors.green[300]),
         const SizedBox(width: 6),
         Text("${total - failed} 成功, $failed 失败",
-            style: TextStyle(fontSize: 12, color: subTextColor(context))),
+            style: TextStyle(fontSize: 12, color: Colors.grey[400])),
       ]),
     );
   }
@@ -770,21 +759,21 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: cardBg(context),
+        color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: enabled ? Colors.green.withValues(alpha: 0.15) : cardBorder(context)),
+        border: Border.all(color: enabled ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.06)),
       ),
       child: Column(children: [
         SwitchListTile(
           title: Text(label, style: const TextStyle(fontSize: 14)),
-          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: hintColor(context))),
+          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           value: enabled,
           onChanged: (v) => setState(() => _sources[src] = v),
           dense: true,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
         if (enabled && needsApi) ...[
-          Divider(height: 1, indent: 56, color: cardBorder(context)),
+          Divider(height: 1, indent: 56, color: Colors.white.withValues(alpha: 0.06)),
           Padding(
             padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
             child: Column(children: [
@@ -924,12 +913,12 @@ class _ScraperPageState extends State<_ScraperPage> {
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: cardBg(context),
+          color: Colors.white.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cardBorder(context)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: hintColor(context))),
+          Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
@@ -941,11 +930,11 @@ class _ScraperPageState extends State<_ScraperPage> {
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: cardBorder(context)),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: cardBorder(context)),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -975,23 +964,23 @@ class _ScraperPageState extends State<_ScraperPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: cardBg(context),
+        color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: enabled
             ? Colors.green.withValues(alpha: 0.2)
-            : cardBorder(context)),
+            : Colors.white.withValues(alpha: 0.06)),
       ),
       child: Column(children: [
         SwitchListTile(
           title: Text(label, style: const TextStyle(fontSize: 14)),
-          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: hintColor(context))),
+          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           value: enabled,
           onChanged: (v) => setState(() => _sources[src] = v),
           dense: true,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
         if (enabled && needsApi) ...[
-          Divider(height: 1, indent: 56, color: cardBorder(context)),
+          Divider(height: 1, indent: 56, color: Colors.white.withValues(alpha: 0.06)),
           Padding(
             padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
             child: Column(children: [
@@ -1005,7 +994,7 @@ class _ScraperPageState extends State<_ScraperPage> {
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: cardBorder(context)),
+                        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                       ),
                     ),
                   ),
@@ -1018,7 +1007,7 @@ class _ScraperPageState extends State<_ScraperPage> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: cardBorder(context)),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                     ),
                   ),
                 ),
@@ -1030,9 +1019,9 @@ class _ScraperPageState extends State<_ScraperPage> {
   }
 
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
-    Icon(icon, size: 18, color: sectionIconColor(context)),
+    Icon(icon, size: 18, color: Colors.white60),
     const SizedBox(width: 6),
-    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
   ]);
 
   // Remove old _row method, replaced by _srcCard
@@ -1071,9 +1060,9 @@ class _DisplayPageState extends State<_DisplayPage> {
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: cardBg(context),
+          color: Colors.white.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cardBorder(context)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Column(children: [
           Row(children: [
@@ -1088,12 +1077,12 @@ class _DisplayPageState extends State<_DisplayPage> {
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text("${_coverSize.round()} px", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-              Text("网格封面尺寸", style: TextStyle(fontSize: 12, color: hintColor(context))),
+              Text("网格封面尺寸", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
             ])),
             Container(
               width: 32, height: 44,
               decoration: BoxDecoration(
-                color: cardBorder(context),
+                color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -1118,14 +1107,14 @@ class _DisplayPageState extends State<_DisplayPage> {
       const SizedBox(height: 8),
       Container(
         decoration: BoxDecoration(
-          color: cardBg(context),
+          color: Colors.white.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cardBorder(context)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: SwitchListTile(
           title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
           subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
-              style: TextStyle(fontSize: 12, color: hintColor(context))),
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           value: _trayEnabled,
           onChanged: (v) async {
             setState(() => _trayEnabled = v);
@@ -1159,7 +1148,7 @@ class _DisplayPageState extends State<_DisplayPage> {
         ),
       ),
       const SizedBox(width: 8),
-      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
     ]),
   );
 }
@@ -1380,7 +1369,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
                   const SizedBox(height: 12),
-                  Text("暂无用户", style: TextStyle(fontSize: 16, color: hintColor(context))),
+                  Text("暂无用户", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
                 ]))
             : ListView(padding: const EdgeInsets.all(16), children: [
                 Text("全部用户 (${_users.length})", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -1394,9 +1383,9 @@ class _UserManagePageState extends State<_UserManagePage> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: cardBg(context),
+                      color: Colors.white.withValues(alpha: 0.04),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: cardBorder(context)),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
                     ),
                     child: Row(children: [
                       CircleAvatar(
@@ -1430,7 +1419,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                               ),
                             ),
                             const SizedBox(width: 5),
-                            Text(_statusLabel(status), style: TextStyle(fontSize: 13, color: hintColor(context))),
+                            Text(_statusLabel(status), style: TextStyle(fontSize: 13, color: Colors.grey[500])),
                           ]),
                         ]),
                       ),
@@ -1446,7 +1435,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                         ),
                       ] else
                         PopupMenuButton<String>(
-                          icon: Icon(Icons.more_vert, size: 20, color: hintColor(context)),
+                          icon: Icon(Icons.more_vert, size: 20, color: Colors.grey[500]),
                           onSelected: (action) {
                             if (action == "edit") _editUser(u);
                             if (action == "delete") _deleteUser(u["id"] as int, username);

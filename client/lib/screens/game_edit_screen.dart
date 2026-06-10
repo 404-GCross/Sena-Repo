@@ -9,7 +9,6 @@ import "package:http/http.dart" as http;
 
 import "../models/game.dart";
 import "../providers/game_provider.dart";
-import "../utils/theme_utils.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -171,7 +170,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             })),
           if (results.isEmpty && searchCtrl.text.isNotEmpty)
             Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
-                style: TextStyle(color: hintColor(context)))),
+                style: TextStyle(color: Colors.grey[500]))),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
@@ -233,7 +232,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         title: const Text("合并到哪个游戏？"),
         content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text("当前游戏的所有版本将移至目标游戏，当前游戏将被删除。",
-              style: TextStyle(fontSize: 12, color: hintColor(context))),
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: TextField(controller: searchCtrl, autofocus: true,
@@ -269,7 +268,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             })),
           if (results.isEmpty && searchCtrl.text.isNotEmpty)
             Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
-                style: TextStyle(color: hintColor(context)))),
+                style: TextStyle(color: Colors.grey[500]))),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
@@ -331,12 +330,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (icon != null) ...[
           Padding(padding: const EdgeInsets.only(top: 8),
-            child: Icon(icon, size: 18, color: hintColor(context))),
+            child: Icon(icon, size: 18, color: Colors.grey[500])),
           const SizedBox(width: 8),
         ],
         SizedBox(width: 80,
           child: Padding(padding: const EdgeInsets.only(top: 10),
-            child: Text(label, style: TextStyle(color: subTextColor(context), fontSize: 14)))),
+            child: Text(label, style: TextStyle(color: Colors.grey[400], fontSize: 14)))),
         Expanded(
           child: TextField(controller: ctrl, maxLines: maxLines,
             decoration: _dec(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true,
@@ -363,19 +362,19 @@ class _GameEditScreenState extends State<GameEditScreen> {
     padding: const EdgeInsets.only(bottom: 8, top: 4),
     child: Row(children: [
       if (icon != null) ...[
-        Icon(icon, size: 18, color: sectionIconColor(context)),
+        Icon(icon, size: 18, color: Colors.white60),
         const SizedBox(width: 6),
       ],
-      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
     ]),
   );
 
   Widget _fieldCard({required List<Widget> children}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     decoration: BoxDecoration(
-      color: cardBg(context),
+      color: Colors.white.withValues(alpha: 0.04),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
     ),
     child: Column(children: children),
   );
@@ -383,14 +382,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
   Widget _hintCard(String text) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: cardBg(context),
+      color: Colors.white.withValues(alpha: 0.04),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
     ),
     child: Row(children: [
-      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(fontSize: 14, color: hintColor(context))),
+      Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[500])),
     ]),
   );
 
@@ -404,7 +403,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
-  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06));
 
   @override
   Widget build(BuildContext context) {
@@ -461,7 +460,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       decoration: _dec(border: InputBorder.none, isDense: true)),
                     const SizedBox(height: 6),
                     if (g.companyName != null && g.companyName!.isNotEmpty)
-                      Text(g.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context)))
+                      Text(g.companyName!, style: TextStyle(fontSize: 16, color: Colors.grey[400]))
                     else
                       Text("无公司信息", style: TextStyle(fontSize: 14, color: Colors.grey[600])),
                     const SizedBox(height: 12),
@@ -523,7 +522,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               child: Row(children: [
-                                Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
+                                Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[500]),
                                 const SizedBox(width: 10),
                                 Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
                                 Container(
@@ -596,20 +595,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Widget _coverPlaceholder() => Container(
     decoration: BoxDecoration(
-      color: placeholderBg(context),
+      color: Colors.grey[850]!,
       borderRadius: BorderRadius.circular(12),
     ),
     width: 200, height: 280,
-    child: Center(child: Icon(Icons.image, size: 64, color: placeholderIcon(context))),
+    child: Center(child: Icon(Icons.image, size: 64, color: Colors.grey[700]!)),
   );
 
   Widget _coverPlaceholderSmall() => Container(
     width: 90, height: 120,
     decoration: BoxDecoration(
-      color: placeholderBg(context),
+      color: Colors.grey[850]!,
       borderRadius: BorderRadius.circular(8),
     ),
-    child: Center(child: Icon(Icons.image, size: 32, color: placeholderIcon(context))),
+    child: Center(child: Icon(Icons.image, size: 32, color: Colors.grey[700]!)),
   );
 
   Widget _sourceBadge(String label, String? id) {
@@ -618,7 +617,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
+          color: active ? Colors.green.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: active ? Colors.green.withValues(alpha: 0.35) : Colors.white24)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -696,7 +695,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 14)),
                     subtitle: Text([r["developer"], r["release_date"]]
                         .where((s) => s != null && s.toString().isNotEmpty).join(" · "),
-                        maxLines: 1, style: TextStyle(fontSize: 12, color: hintColor(context))),
+                        maxLines: 1, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                     trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: () => Navigator.pop(ctx, r),
                   );
@@ -763,9 +762,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Row(children: [
-                      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+                      Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
                       const SizedBox(width: 8),
-                      Text("所有字段与现有数据一致，无需更新", style: TextStyle(fontSize: 13, color: hintColor(context))),
+                      Text("所有字段与现有数据一致，无需更新", style: TextStyle(fontSize: 13, color: Colors.grey[500])),
                     ]),
                   ),
                 ...fields.keys.map((f) {
@@ -776,9 +775,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: hasDiff ? cardBg(context) : cardBg(context),
+                      color: hasDiff ? Colors.white.withValues(alpha: 0.04) : Colors.white.withValues(alpha: 0.04),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : cardBorder(context)),
+                      border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.06)),
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
@@ -805,7 +804,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(cur.isEmpty ? "(空)" : cur,
-                                  style: TextStyle(fontSize: 14, color: hintColor(context),
+                                  style: TextStyle(fontSize: 14, color: Colors.grey[500],
                                       decoration: TextDecoration.lineThrough)),
                             ),
                           ),
@@ -829,10 +828,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: cardBg(context),
+                            color: Colors.white.withValues(alpha: 0.04),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14, color: subTextColor(context))),
+                          child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(fontSize: 14, color: Colors.grey[400])),
                         ),
                       if (hasDiff)
                         Padding(
@@ -961,7 +960,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText, String? labelText}) {
     return InputDecoration(
-      filled: true, fillColor: cardBg(context),
+      filled: true, fillColor: Colors.white.withValues(alpha: 0.04),
       border: border, isDense: isDense,
       contentPadding: contentPadding, hintText: hintText, labelText: labelText,
     );

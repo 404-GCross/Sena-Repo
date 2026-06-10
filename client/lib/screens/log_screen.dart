@@ -49,7 +49,7 @@ class _LogScreenState extends State<LogScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _files.isEmpty
-              ? Center(child: Text("暂无日志", style: TextStyle(color: hintColor(context), fontSize: 15)))
+              ? Center(child: Text("暂无日志", style: TextStyle(color: Colors.grey[500], fontSize: 15)))
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: _files.length,

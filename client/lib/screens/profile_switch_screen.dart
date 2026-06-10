@@ -7,7 +7,6 @@ import "../services/profile_service.dart";
 import "connect_screen.dart";
 import "login_screen.dart";
 import "../providers/game_provider.dart";
-import "../utils/theme_utils.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 import "dart:convert";
@@ -149,7 +148,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
                   const SizedBox(height: 12),
-                  Text("暂无保存的配置", style: TextStyle(fontSize: 16, color: hintColor(context))),
+                  Text("暂无保存的配置", style: TextStyle(fontSize: 16, color: Colors.grey[500])),
                   const SizedBox(height: 4),
                   Text("点击右下角按钮新增", style: TextStyle(fontSize: 13, color: Colors.grey[600])),
                 ]))
@@ -162,17 +161,17 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(
-                        color: cardBg(context),
+                        color: Colors.white.withValues(alpha: 0.04),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: isActive
                             ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                            : cardBorder(context)),
+                            : Colors.white.withValues(alpha: 0.06)),
                       ),
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: isActive
                               ? Theme.of(context).colorScheme.primaryContainer
-                              : cardBorder(context),
+                              : Colors.white.withValues(alpha: 0.06),
                           child: Text(p.name[0].toUpperCase(),
                               style: TextStyle(fontWeight: FontWeight.w600,
                                   color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey[400])),
@@ -192,7 +191,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                           ],
                         ]),
                         subtitle: Text("${p.username}@${p.host}:${p.port}",
-                            style: TextStyle(fontSize: 13, color: hintColor(context))),
+                            style: TextStyle(fontSize: 13, color: Colors.grey[500])),
                         trailing: PopupMenuButton<String>(
                           onSelected: (action) {
                             if (action == "switch") _switchTo(p);

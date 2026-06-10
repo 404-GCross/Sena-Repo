@@ -95,27 +95,18 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
       child: Consumer<ThemeProvider>(
-        builder: (context, theme, _) {
-          final base = ThemeData(useMaterial3: true);
-          return MaterialApp(
-            title: "Sena Repo",
-            debugShowCheckedModeBanner: false,
-            themeMode: theme.themeMode,
-            darkTheme: base.copyWith(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: theme.accentColor,
-                brightness: Brightness.dark,
-              ),
+        builder: (context, theme, _) => MaterialApp(
+          title: "Sena Repo",
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: theme.accentColor,
+              brightness: Brightness.light,
             ),
-            theme: base.copyWith(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: theme.accentColor,
-                brightness: Brightness.light,
-              ),
-            ),
-            home: const ConnectScreen(),
-          );
-        },
+            useMaterial3: true,
+          ),
+          home: const ConnectScreen(),
+        ),
       ),
     );
   }

@@ -7,13 +7,10 @@ class ThemeProvider extends ChangeNotifier {
   Color _accentColor = const Color(0xFF7C3AED);
   String? _backgroundUrl;
   Color? _bgColor;
-  ThemeMode _themeMode = ThemeMode.dark;
 
   Color get accentColor => _accentColor;
   String? get backgroundUrl => _backgroundUrl;
   Color? get bgColor => _bgColor;
-  ThemeMode get themeMode => _themeMode;
-  bool get isDark => _themeMode == ThemeMode.dark;
 
   ThemeProvider() {
     WidgetsFlutterBinding.ensureInitialized();
@@ -27,19 +24,8 @@ class ThemeProvider extends ChangeNotifier {
       if (bgHex != null) {
         _bgColor = Color(int.parse(bgHex));
       }
-      final mode = prefs.getString("theme_mode");
-      if (mode == "light") _themeMode = ThemeMode.light;
-      else if (mode == "system") _themeMode = ThemeMode.system;
       notifyListeners();
     });
-  }
-
-  void setThemeMode(ThemeMode mode) {
-    _themeMode = mode;
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString("theme_mode", mode.name);
-    });
-    notifyListeners();
   }
 
   Future<void> setAccentColor(Color color) async {

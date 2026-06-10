@@ -3,7 +3,6 @@
 import "package:flutter/material.dart";
 
 import "../models/game.dart";
-import "../utils/theme_utils.dart";
 
 class GameList extends StatelessWidget {
   final List<GameSummary> games;
@@ -132,7 +131,7 @@ class _GameListTileState extends State<_GameListTile> {
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     Text(game.developer ?? game.companyName ?? "",
-                        style: TextStyle(fontSize: 12, color: hintColor(context))),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                   ],
                 ),
               ),

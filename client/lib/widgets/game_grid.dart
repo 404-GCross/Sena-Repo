@@ -6,7 +6,6 @@ import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
-import "../utils/theme_utils.dart";
 
 class GameGrid extends StatefulWidget {
   final List<GameSummary> games;
@@ -113,13 +112,13 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
         child: Container(
           decoration: BoxDecoration(
             color: Theme.of(context).brightness == Brightness.dark
-                ? cardBorder(context)
+                ? Colors.white.withValues(alpha: 0.06)
                 : Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: _hovered
                   ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                  : cardBorder(context),
+                  : Colors.white.withValues(alpha: 0.06),
               width: 1,
             ),
             boxShadow: _hovered
@@ -157,7 +156,7 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                             child: Container(
                               width: 44, height: 44,
                               decoration: BoxDecoration(
-                                color: cardBorder(context),
+                                color: Colors.white.withValues(alpha: 0.06),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.info_outline, color: Colors.white, size: 22),
@@ -239,7 +238,7 @@ class _GameCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(game.developer ?? game.companyName ?? "",
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: subTextColor(context), fontSize: 11)),
+                  style: TextStyle(color: Colors.grey[400], fontSize: 11)),
             ]))),
         ]),
       ),
