@@ -1,13 +1,32 @@
-/// Theme-aware color helpers — light mode.
+/// Theme color helpers using Material 3 ColorScheme tokens.
+/// Reference: PiliPlus uses semantic tokens (onSurface, onSurfaceVariant, outline, etc.)
+/// instead of hardcoded Colors.grey[N]. This automatically adapts to brightness.
 
 import "package:flutter/material.dart";
 
-Color cardBg(BuildContext context) => Colors.grey.withValues(alpha: 0.06);
-Color cardBorder(BuildContext context) => Colors.grey.withValues(alpha: 0.12);
-Color sectionTextColor(BuildContext context) => Colors.black87;
-Color sectionIconColor(BuildContext context) => Colors.black54;
-Color subTextColor(BuildContext context) => Colors.grey[600]!;
-Color hintColor(BuildContext context) => Colors.grey[600]!;
-Color dimIconColor(BuildContext context) => Colors.grey[600]!;
-Color placeholderBg(BuildContext context) => Colors.grey[200]!;
-Color placeholderIcon(BuildContext context) => Colors.grey[400]!;
+Color cardBg(BuildContext context) =>
+    Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4);
+
+Color cardBorder(BuildContext context) =>
+    Theme.of(context).colorScheme.outlineVariant;
+
+Color sectionTextColor(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurface;
+
+Color sectionIconColor(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
+
+Color subTextColor(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
+
+Color hintColor(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
+
+Color dimIconColor(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
+
+Color placeholderBg(BuildContext context) =>
+    Theme.of(context).colorScheme.surfaceContainerHighest;
+
+Color placeholderIcon(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
