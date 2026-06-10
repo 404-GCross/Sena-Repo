@@ -366,7 +366,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         Icon(icon, size: 18, color: sectionIconColor(context)),
         const SizedBox(width: 6),
       ],
-      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
     ]),
   );
 

@@ -9,7 +9,6 @@ import "dart:convert";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../providers/theme_provider.dart";
-import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
@@ -98,10 +97,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   static Color _cardBg(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? cardBg(context)
+      ? cardBg(c)
       : Colors.grey.withValues(alpha: 0.08);
   static Color _cardBorder(BuildContext c) => Theme.of(c).brightness == Brightness.dark
-      ? cardBorder(context)
+      ? cardBorder(c)
       : Colors.grey.withValues(alpha: 0.15);
   static Color _dimColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
       ? Colors.white60
@@ -667,7 +666,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
     Icon(icon, size: 18, color: sectionIconColor(context)),
     const SizedBox(width: 6),
-    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
   ]);
 
   Widget _hintCard(String text) => Container(
@@ -1033,7 +1032,7 @@ class _ScraperPageState extends State<_ScraperPage> {
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
     Icon(icon, size: 18, color: sectionIconColor(context)),
     const SizedBox(width: 6),
-    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
   ]);
 
   // Remove old _row method, replaced by _srcCard
@@ -1160,7 +1159,7 @@ class _DisplayPageState extends State<_DisplayPage> {
         ),
       ),
       const SizedBox(width: 8),
-      Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
     ]),
   );
 }
