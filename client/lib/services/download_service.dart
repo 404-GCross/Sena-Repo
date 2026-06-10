@@ -217,10 +217,17 @@ class DownloadService {
     final dest = File("${dir.path}/$exeName");
 
     if (!await dest.exists()) {
-      // Try bundled asset first
+      // Try bundled asset first — extract exe + DLLs
       try {
-        final data = await rootBundle.load("assets/binaries/$exeName");
-        await dest.writeAsBytes(data.buffer.asUint8List());
+        for (final name in ["7za.exe", "7za.dll", "7zxa.dll"]) {
+          try {
+            final data = await rootBundle.load("assets/binaries/$name");
+            final f = File("${dir.path}/$name");
+            if (!await f.exists()) {
+              await f.writeAsBytes(data.buffer.asUint8List());
+            }
+          } catch (_) {}
+        }
         if (Platform.isLinux) {
           await Process.run("chmod", ["+x", dest.path]);
         }
@@ -283,9 +290,12 @@ class DownloadService {
   Future<void> _extractWithSystemTool(String filePath, String outDir) async {
     try {
       final sevenZip = await _getSevenZipPath();
-      final result = await Process.run(sevenZip, ["x", "-y", "-o$outDir", filePath]);
+      final sevenZipDir = File(sevenZip).parent.path;
+      final result = await Process.run(sevenZip, ["x", "-y", "-o$outDir", filePath],
+          workingDirectory: sevenZipDir);
       if (result.exitCode != 0) {
-        throw Exception("7za error: ${result.stderr}".trim());
+        final err = (result.stderr.toString() + result.stdout.toString()).trim();
+        throw Exception(err.isEmpty ? "7za exit code: ${result.exitCode}" : "7za: $err");
       }
       return;
     } catch (e) {
