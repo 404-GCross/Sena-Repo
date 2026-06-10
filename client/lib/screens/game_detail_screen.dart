@@ -53,16 +53,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
 
-    final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight;
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      extendBodyBehindAppBar: hasCover,
-      backgroundColor: hasCover ? Colors.transparent : null,
       appBar: AppBar(
-        backgroundColor: hasCover ? Colors.transparent : null,
-        forceMaterialTransparency: hasCover,
-        title: hasCover ? const Text("") : Text(game.name),
+        title: Text(game.name),
         actions: [
           IconButton(icon: const Icon(Icons.search), tooltip: "搜索元数据", onPressed: () => _showSearchDialog(context, game)),
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
@@ -72,27 +65,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             }),
         ],
       ),
-      body: Stack(children: [
-        // Background banner (use cover as bg with gradient fade)
-        if (hasCover)
-          Positioned(
-            top: 0, left: 0, right: 0, height: 420,
-            child: ShaderMask(
-              shaderCallback: (rect) => LinearGradient(
-                begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: isDark
-                    ? [const Color(0xCC000000), const Color(0x66000000), Colors.transparent]
-                    : [const Color(0xCCFFFFFF), const Color(0x66FFFFFF), Colors.transparent],
-                stops: [0.0, 0.4, 1.0],
-              ).createShader(rect),
-              blendMode: BlendMode.dstIn,
-              child: Image.network(
-                "$_baseUrl/api/files/covers${game.coverPath!}",
-                fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-              ),
-            ),
-          ),
-        SingleChildScrollView(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Center(
           child: ConstrainedBox(
@@ -100,7 +73,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             child: Column(children: [
               // ── Header: cover right, name left ──
               Padding(
-                padding: EdgeInsets.fromLTRB(32, hasCover ? topPadding + 12 : 20, 32, 0),
+                padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -239,7 +212,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           ),
         ),
       ),
-    ]),
     );
   }
 
