@@ -95,24 +95,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  static Color _cardBg(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.03)
+      : Colors.grey.withValues(alpha: 0.08);
+  static Color _cardBorder(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.06)
+      : Colors.grey.withValues(alpha: 0.15);
+  static Color _dimColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+      ? Colors.white60
+      : Colors.black54;
+  static Color _boldColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+      ? Colors.white70
+      : Colors.black87;
+
   Widget _sectionHeader(String title, IconData icon) => Row(children: [
-    Icon(icon, size: 18, color: Colors.white60),
+    Icon(icon, size: 18, color: _dimColor(context)),
     const SizedBox(width: 6),
-    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70)),
+    Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: _boldColor(context))),
   ]);
 
   Widget _menuCard(List<Widget> children) => Container(
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: _cardBg(context),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      border: Border.all(color: _cardBorder(context)),
     ),
     child: Column(
       children: children.asMap().entries.map((e) {
         final isLast = e.key == children.length - 1;
         return Column(children: [
           e.value,
-          if (!isLast) Divider(height: 1, indent: 60, color: Colors.white.withValues(alpha: 0.06)),
+          if (!isLast) Divider(height: 1, indent: 60, color: _cardBorder(context)),
         ]);
       }).toList(),
     ),
