@@ -210,7 +210,7 @@ class DownloadService {
     final dest = File("${dir.path}/$exeName");
 
     if (!await dest.exists()) {
-      // Extract bundled binary from assets
+      // Try bundled asset first
       try {
         final data = await rootBundle.load("assets/binaries/$exeName");
         await dest.writeAsBytes(data.buffer.asUint8List());
@@ -218,8 +218,39 @@ class DownloadService {
           await Process.run("chmod", ["+x", dest.path]);
         }
       } catch (_) {
-        throw Exception("解压组件未就绪，请手动安装 7-Zip");
+        // Fallback: try downloading 7za on first use
+        try {
+          final url = Platform.isWindows
+              ? "https://www.7-zip.org/a/7za920.zip"
+              : "https://www.7-zip.org/a/7z2409-linux-x64.tar.xz";
+          final tmp = File("${dir.path}/_7z_dl");
+          final client = http.Client();
+          try {
+            final resp = await client.send(http.Request("GET", Uri.parse(url)));
+            if (resp.statusCode == 200) {
+              final sink = tmp.openWrite();
+              await for (final chunk in resp.stream) { sink.add(chunk); }
+              await sink.flush(); await sink.close();
+              if (Platform.isWindows) {
+                final archive = ZipDecoder().decodeBuffer(InputFileStream(tmp.path));
+                for (final f in archive) {
+                  if (f.isFile && (f.name == "7za.exe" || f.name.endsWith("/7za.exe"))) {
+                    await dest.writeAsBytes(f.content as List<int>);
+                    break;
+                  }
+                }
+              } else {
+                await Process.run("tar", ["-xf", tmp.path, "-C", dir.path]);
+              }
+              await tmp.delete();
+            }
+          } finally { client.close(); }
+        } catch (_) {}
       }
+    }
+
+    if (!await dest.exists()) {
+      throw Exception("解压组件未就绪。请安装 7-Zip 或将 7za.exe/7zz 放入 $dir");
     }
 
     _sevenZipPath = dest.path;
