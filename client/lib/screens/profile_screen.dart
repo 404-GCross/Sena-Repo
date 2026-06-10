@@ -124,13 +124,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // ── Menu Items ──
         _menuCard([
           _menuItem(
-            icon: Icons.swap_horiz,
-            title: "切换用户",
-            trailing: _username,
-            onTap: _switchProfile,
-          ),
-          _menuDivider(),
-          _menuItem(
             icon: Icons.settings,
             title: "设置",
             trailing: "服务器、刮削源、显示",
@@ -148,6 +141,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ]),
         const SizedBox(height: 32),
+
+        // ── Switch user ──
+        Center(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            icon: const Icon(Icons.swap_horiz, size: 18),
+            label: const Text("切换用户"),
+            onPressed: _switchProfile,
+          ),
+        ),
+        const SizedBox(height: 12),
 
         // ── Logout ──
         Center(
