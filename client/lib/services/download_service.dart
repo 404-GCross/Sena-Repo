@@ -307,6 +307,7 @@ class DownloadService {
   }
 
   String? _sevenZipPath;
+  Process? _extractionProcess; // Track running extraction process for cancellation
   bool _userSkippedSetup = false;
   Future<bool> Function()? _onSetupNeeded; // Callback to show setup dialog
 
@@ -476,12 +477,14 @@ class DownloadService {
 
   /// Run a process, draining stdout to avoid pipe buffer deadlock,
   /// and capturing at most 8KB of stderr for error messages.
+  /// Kills the process if it exceeds [timeoutSeconds] (default 30 min).
   Future<int> _runExtractor(String executable, List<String> args,
-      {String? workingDirectory}) async {
+      {String? workingDirectory, int timeoutSeconds = 1800}) async {
     final process = await Process.start(executable, args,
         workingDirectory: workingDirectory);
-    // Drain stdout immediately — pipe buffer is limited and 7za
-    // will block if we don't consume it (especially on Windows).
+    _extractionProcess = process;
+    // Drain stdout and stderr immediately — pipe buffer is limited
+    // and 7za will block if we don't consume it (especially on Windows).
     final stdoutDrain = process.stdout.drain<void>();
     final stderrBuf = StringBuffer();
     final stderrDone = process.stderr
@@ -489,9 +492,29 @@ class DownloadService {
         .forEach((s) {
       if (stderrBuf.length < 8192) stderrBuf.write(s);
     });
-    final exitCode = await process.exitCode;
+
+    // Wait for process exit with timeout
+    int exitCode;
+    try {
+      exitCode = await process.exitCode.timeout(
+        Duration(seconds: timeoutSeconds),
+        onTimeout: () {
+          process.kill();
+          return -1;
+        },
+      );
+    } catch (_) {
+      process.kill();
+      throw Exception("$executable 超时（${timeoutSeconds}秒），已强制终止");
+    }
+    // Ensure streams are fully drained after process exits
     await stdoutDrain;
     await stderrDone;
+    _extractionProcess = null;
+
+    if (exitCode == -1) {
+      throw Exception("$executable 超时（${timeoutSeconds}秒），已强制终止");
+    }
     if (exitCode != 0) {
       final err = stderrBuf.toString().trim();
       throw Exception(err.isEmpty ? "$executable exit code: $exitCode" : err);
@@ -526,6 +549,11 @@ class DownloadService {
       task._client = null;
       task.status = "paused";
       _emit();
+    } else if (task.status == "extracting") {
+      _extractionProcess?.kill();
+      _extractionProcess = null;
+      task.status = "paused";
+      _emit();
     }
   }
 
@@ -548,9 +576,11 @@ class DownloadService {
   }
 
   void cancelTask(DownloadTask task) {
-    if (task.status == "downloading" || task.status == "pending" || task.status == "retrying") {
+    if (task.status == "downloading" || task.status == "pending" || task.status == "retrying" || task.status == "extracting") {
       task._client?.close();
       task._client = null;
+      _extractionProcess?.kill();
+      _extractionProcess = null;
       task.status = "cancelled";
       task.error = "已取消";
       _emit();
