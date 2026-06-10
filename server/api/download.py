@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_session
 from models.game import Game, GameVersion
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/download", tags=["download"])
 
@@ -24,41 +28,48 @@ async def download_game_version(
     session: AsyncSession = Depends(get_session),
 ):
     """Download a specific game version archive file."""
-    # Verify game exists and is not deleted
-    result = await session.execute(
-        select(Game).where(Game.id == game_id, Game.is_deleted == False)
-    )
-    game = result.scalar_one_or_none()
-    if game is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    # Get version
-    result = await session.execute(
-        select(GameVersion).where(
-            GameVersion.id == version_id,
-            GameVersion.game_id == game_id,
+    try:
+        # Verify game exists and is not deleted
+        result = await session.execute(
+            select(Game).where(Game.id == game_id, Game.is_deleted == False)
         )
-    )
-    version = result.scalar_one_or_none()
-    if version is None:
-        raise HTTPException(status_code=404, detail="Version not found")
+        game = result.scalar_one_or_none()
+        if game is None:
+            raise HTTPException(status_code=404, detail="Game not found")
 
-    file_path = Path(version.file_path)
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found on server")
+        # Get version
+        result = await session.execute(
+            select(GameVersion).where(
+                GameVersion.id == version_id,
+                GameVersion.game_id == game_id,
+            )
+        )
+        version = result.scalar_one_or_none()
+        if version is None:
+            raise HTTPException(status_code=404, detail="Version not found")
 
-    file_size = file_path.stat().st_size
+        file_path = Path(version.file_path)
+        if not file_path.is_file():
+            raise HTTPException(status_code=404, detail=f"File not found: {version.file_path}")
 
-    async def file_stream():
-        with open(file_path, "rb") as f:
-            while chunk := f.read(CHUNK_SIZE):
-                yield chunk
+        file_size = file_path.stat().st_size
+        safe_name = quote(version.filename)
 
-    return StreamingResponse(
-        file_stream(),
-        media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="{version.filename}"',
-            "Content-Length": str(file_size),
-        },
-    )
+        async def file_stream():
+            with open(file_path, "rb") as f:
+                while chunk := f.read(CHUNK_SIZE):
+                    yield chunk
+
+        return StreamingResponse(
+            file_stream(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}",
+                "Content-Length": str(file_size),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download failed gid={game_id} vid={version_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
