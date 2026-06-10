@@ -135,53 +135,128 @@ class DownloadService {
     }
   }
 
+  /// Download file with automatic retry + resume on network errors.
+  /// Max 3 retries with exponential backoff (1s, 3s, 7s).
   Future<void> _downloadFile(
     DownloadTask task, File dest, void Function(double) onProgress,
   ) async {
-    final client = http.Client();
-    task._client = client;
-    try {
-      final request = http.Request("GET", Uri.parse(task.downloadUrl));
-      // Resume from where we left off
+    const maxRetries = 3;
+    const backoffMs = [1000, 3000, 7000];
+
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+      // Stop if user paused or cancelled during backoff / before retry
+      if (task.status == "paused" || task.status == "cancelled") return;
+
+      // Validate temp file size matches our counter (crash recovery)
       if (task.receivedBytes > 0 && await dest.exists()) {
-        request.headers["Range"] = "bytes=${task.receivedBytes}-";
-      }
-      final response = await client.send(request);
-
-      final isPartial = response.statusCode == 206;
-      if (response.statusCode != 200 && response.statusCode != 206) {
-        final body = await response.stream.bytesToString();
-        throw Exception("下载失败 HTTP ${response.statusCode}: $body");
-      }
-
-      final cl = response.contentLength ?? 0;
-      final total = task.receivedBytes + cl.toInt();
-      task.totalBytes = total > 0 ? total : task.totalBytes;
-      var received = task.receivedBytes;
-      final sink = dest.openWrite(mode: isPartial ? FileMode.append : FileMode.write);
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        task.receivedBytes = received;
-        if (task.totalBytes > 0) {
-          task.progress = received / task.totalBytes;
-          onProgress(task.progress);
+        final actualSize = await dest.length();
+        if (actualSize != task.receivedBytes) {
+          task.receivedBytes = actualSize;
         }
+      } else if (task.receivedBytes > 0 && !await dest.exists()) {
+        // Temp file was deleted — start fresh
+        task.receivedBytes = 0;
+        task.totalBytes = 0;
       }
-      await sink.flush();
-      await sink.close();
 
-      // Validate download completeness
-      if (task.totalBytes > 0 && received < task.totalBytes) {
-        throw Exception(
-          "下载不完整：预期 ${task.totalBytes} bytes，实收 $received bytes (${((1 - received / task.totalBytes) * 100).toStringAsFixed(1)}% 丢失)");
+      final client = http.Client();
+      task._client = client;
+
+      try {
+        final request = http.Request("GET", Uri.parse(task.downloadUrl));
+
+        // Resume from where we left off
+        if (task.receivedBytes > 0 && await dest.exists()) {
+          request.headers["Range"] = "bytes=${task.receivedBytes}-";
+        }
+
+        final response = await client.send(request);
+
+        // Handle Range Not Satisfiable — file may already be complete
+        if (response.statusCode == 416) {
+          if (task.totalBytes > 0 && task.receivedBytes >= task.totalBytes) {
+            return; // Already fully downloaded
+          }
+          // Server doesn't support resume, or file changed — restart
+          task.receivedBytes = 0;
+          task.totalBytes = 0;
+          continue; // Retry without Range header
+        }
+
+        final isPartial = response.statusCode == 206;
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          final body = await response.stream.bytesToString();
+          throw Exception("下载失败 HTTP ${response.statusCode}: $body");
+        }
+
+        // If server responded 200 to a Range request, it doesn't support resume
+        // — reset counter and start fresh
+        if (task.receivedBytes > 0 && !isPartial) {
+          task.receivedBytes = 0;
+          task.totalBytes = 0;
+        }
+
+        final int cl = response.contentLength ?? 0;
+        final int total = task.receivedBytes + cl;
+        task.totalBytes = total > 0 ? total : task.totalBytes;
+        int received = task.receivedBytes;
+        final sink = dest.openWrite(
+            mode: (isPartial || task.receivedBytes > 0)
+                ? FileMode.append
+                : FileMode.write);
+
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          received += chunk.length;
+          task.receivedBytes = received;
+          if (task.totalBytes > 0) {
+            task.progress = received / task.totalBytes;
+            onProgress(task.progress);
+          }
+        }
+        await sink.flush();
+        await sink.close();
+
+        // Validate download completeness
+        if (task.totalBytes > 0 && received < task.totalBytes) {
+          throw Exception(
+              "下载不完整：预期 ${task.totalBytes} bytes，"
+              "实收 $received bytes "
+              "(${((1 - received / task.totalBytes) * 100).toStringAsFixed(1)}% 丢失)");
+        }
+        if (received == 0 && task.totalBytes == 0) {
+          throw Exception("下载失败：未收到任何数据，请检查服务器连接");
+        }
+
+        return; // ✅ Success
+      } on http.ClientException catch (e) {
+        if (task.status == "paused" || task.status == "cancelled") return;
+        if (attempt < maxRetries) {
+          task.status = "retrying";
+          _emit();
+          await Future.delayed(Duration(milliseconds: backoffMs[attempt]));
+          if (task.status == "paused" || task.status == "cancelled") return;
+          task.status = "downloading";
+          _emit();
+          continue;
+        }
+        throw Exception("网络中断，已重试 $maxRetries 次仍失败: $e");
+      } on SocketException catch (e) {
+        if (task.status == "paused" || task.status == "cancelled") return;
+        if (attempt < maxRetries) {
+          task.status = "retrying";
+          _emit();
+          await Future.delayed(Duration(milliseconds: backoffMs[attempt]));
+          if (task.status == "paused" || task.status == "cancelled") return;
+          task.status = "downloading";
+          _emit();
+          continue;
+        }
+        throw Exception("网络连接失败，已重试 $maxRetries 次仍失败: $e");
+      } finally {
+        client.close();
+        task._client = null;
       }
-      if (received == 0 && task.totalBytes == 0) {
-        throw Exception("下载失败：未收到任何数据，请检查服务器连接");
-      }
-    } finally {
-      client.close();
-      task._client = null;
     }
   }
 
@@ -410,7 +485,7 @@ class DownloadService {
   }
 
   void pauseTask(DownloadTask task) {
-    if (task.status == "downloading") {
+    if (task.status == "downloading" || task.status == "retrying") {
       task._client?.close();
       task._client = null;
       task.status = "paused";
@@ -427,7 +502,7 @@ class DownloadService {
   }
 
   void cancelTask(DownloadTask task) {
-    if (task.status == "downloading" || task.status == "pending") {
+    if (task.status == "downloading" || task.status == "pending" || task.status == "retrying") {
       task._client?.close();
       task._client = null;
       task.status = "cancelled";
