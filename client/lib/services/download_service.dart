@@ -240,6 +240,7 @@ class DownloadService {
         if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
         final sink = tmp.openWrite();
         await for (final c in resp.stream) sink.add(c);
+        await sink.flush();
         await sink.close();
         await Process.run(tmp.path, ["/S"]);
         for (final d in ["C:/Program Files/7-Zip", r"C:\Program Files (x86)\7-Zip"]) {
@@ -272,20 +273,43 @@ class DownloadService {
       final dir = await downloadDir;
       t._cancelled = false;
 
-      // Phase 1: download
-      t.status = "downloading";
-      _emit();
       final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
-      await _download(t, tmp);
-
-      // Phase 2: extract
-      t.status = "extracting";
-      t.progress = 1.0;
-      _emit();
       final outDir = _outDir(t, dir);
       await Directory(outDir).create(recursive: true);
-      await _extract(tmp.path, outDir);
-      await tmp.delete();
+
+      // Download + extract with extract-level retry
+      const maxExtractRetries = 2;
+      for (int retry = 0; retry <= maxExtractRetries; retry++) {
+        if (_stopped(t)) return;
+
+        // Phase 1: download
+        t.status = "downloading";
+        _emit();
+        await _download(t, tmp);
+
+        // Phase 2: extract
+        t.status = "extracting";
+        t.progress = 1.0;
+        _emit();
+        try {
+          await _extract(tmp.path, outDir);
+          await tmp.delete();
+          break; // success
+        } catch (e) {
+          if (_stopped(t)) return;
+          if (retry < maxExtractRetries) {
+            // Corrupted file — delete and re-download
+            try { await tmp.delete(); } catch (_) {}
+            t.receivedBytes = 0;
+            t.totalBytes = 0;
+            t.status = "retrying";
+            _emit();
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+          rethrow;
+        }
+      }
 
       // Phase 3: done
       t.status = "done";
@@ -387,6 +411,7 @@ class DownloadService {
           _emit();
         }
       }
+      await sink.flush();
       await sink.close();
 
       // Validate disk
@@ -412,22 +437,23 @@ class DownloadService {
 
   Future<void> _extract(String filePath, String outDir) async {
     final exe = await _getSevenZipPath();
-    final wd = File(exe).parent.path;
 
-    // Step 1: test archive integrity (5 min timeout)
+    // Step 1: test archive integrity
     try {
-      await _runTool(exe, ["t", filePath], wd, timeout: 300);
+      await _runTool(exe, ["t", filePath], timeout: 300);
     } catch (e) {
-      throw Exception("文件损坏，请重试下载: $e");
+      final size = await File(filePath).length();
+      throw Exception(
+          "文件损坏（${size}B），请检查服务端源文件或重新下载: $e");
     }
 
     // Step 2: extract (30 min timeout)
-    await _runTool(exe, ["x", "-y", "-o$outDir", filePath], wd);
+    await _runTool(exe, ["x", "-y", "-o$outDir", filePath]);
   }
 
-  Future<void> _runTool(String exe, List<String> args, String cwd,
+  Future<void> _runTool(String exe, List<String> args,
       {int timeout = 1800}) async {
-    final proc = await Process.start(exe, args, workingDirectory: cwd);
+    final proc = await Process.start(exe, args);
     _extractionProcess = proc;
 
     // Consume stdout/stderr without buffering (prevents pipe deadlock)
