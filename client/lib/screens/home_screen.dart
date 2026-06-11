@@ -551,6 +551,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = context.watch<ThemeProvider>();
     final wide = _isWide(context);
     final showSteam = !Platform.isAndroid || wide;
+    final cs = Theme.of(context).colorScheme;
 
     // Build page list and nav destinations dynamically
     final pages = <Widget>[
@@ -580,46 +581,33 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Row(children: [
         // ── Left Sidebar (desktop/wide only) ──
         if (wide) ...[
-          SizedBox(
-            width: 72,
+          Container(
+            width: 76,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow.withValues(alpha: 0.5),
+              border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5))),
+            ),
             child: Column(children: [
-              const SizedBox(height: 12),
-              IconButton(
-                icon: Badge(
-                  isLabelVisible: _unreadCount > 0,
-                  label: Text("$_unreadCount", style: const TextStyle(fontSize: 10)),
-                  child: const Icon(Icons.notifications_outlined, size: 22),
-                ),
-                onPressed: () async {
-                  await Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
-                  try {
-                    final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
-                    if (r.statusCode == 200 && mounted) {
-                      setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
-                    }
-                  } catch (_) {}
-                },
-                tooltip: "通知",
-              ),
-              IconButton(
-                icon: Badge(
-                  isLabelVisible: _downloadCount > 0,
-                  label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
-                  child: const Icon(Icons.download_outlined, size: 22),
-                ),
-                onPressed: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
-                tooltip: "下载管理",
-              ),
+              const SizedBox(height: 16),
+              _sideBtn(Icons.notifications_outlined, "通知", () async {
+                await Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
+                try {
+                  final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
+                  if (r.statusCode == 200 && mounted) {
+                    setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
+                  }
+                } catch (_) {}
+              }),
+              _sideBtn(Icons.download_outlined, "下载", () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const DownloadManagerScreen()))),
               const Spacer(),
-              _navTab(Icons.gamepad, Icons.gamepad_outlined, "游戏库", 0),
+              _navTab(Icons.gamepad_rounded, Icons.gamepad_outlined, "游戏库", 0),
               if (showSteam) _navTab(FontAwesomeIcons.steam, FontAwesomeIcons.steam, "Steam", 1),
-              _navTab(Icons.person, Icons.person_outlined, "我的", showSteam ? 2 : 1),
+              _navTab(Icons.person_rounded, Icons.person_outlined, "我的", showSteam ? 2 : 1),
               const Spacer(),
             ]),
           ),
-          const VerticalDivider(width: 1),
         ],
         // ── Content ──
         Expanded(
