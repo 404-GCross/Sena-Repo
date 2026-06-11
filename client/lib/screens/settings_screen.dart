@@ -299,9 +299,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final jobId = data["job_id"] as int;
         if (mounted) _pollJob(jobId);
+      } else {
+        final body = resp.body;
+        if (mounted) _toast(context, "刮削启动失败: $body");
+        setState(() => _scraping = false);
       }
-    } catch (_) {
-      if (mounted) _toast(context, "刮削启动失败");
+    } catch (e) {
+      if (mounted) _toast(context, "刮削启动失败: $e");
       setState(() => _scraping = false);
     }
   }
