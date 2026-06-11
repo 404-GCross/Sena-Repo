@@ -52,6 +52,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     if (game == null) return Scaffold(appBar: AppBar(title: const Text("错误")), body: const Center(child: Text("游戏未找到")));
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
+    final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -96,18 +97,22 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                     ]),
                   ),
                   const SizedBox(width: 24),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
-                      ),
-                      child: SizedBox(width: 200, height: 280,
-                        child: hasCover
-                            ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
-                                fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                            : _coverPlaceholder()),
+                  Container(
+                    width: 200, height: 280,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: cs.primary.withValues(alpha: 0.3), blurRadius: 24, offset: const Offset(0, 12)),
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 4)),
+                      ],
+                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
                     ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: hasCover
+                          ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                              fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
+                          : _coverPlaceholder()),
                   ),
                 ]),
               ),
