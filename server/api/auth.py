@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,40 @@ from models.user import User, Notification, hash_password, verify_password
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+# ── Auth dependencies ──
+
+async def get_current_user(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    """Validate Bearer token and return current user."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="未登录")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="无效的认证格式")
+    token = authorization.removeprefix("Bearer ")
+    try:
+        user_id = int(token)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="无效的令牌")
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    if user.status != "active":
+        raise HTTPException(status_code=403, detail="账户未激活或被禁用")
+    return user
+
+
+async def require_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    """Require admin privileges."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
 
 
 class LoginRequest(BaseModel):
@@ -100,7 +134,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
 
 
 @router.get("/users")
-async def list_users(session: AsyncSession = Depends(get_session)):
+async def list_users(_admin: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """List all users."""
     result = await session.execute(
         select(User).order_by(User.created_at.desc())
@@ -116,7 +150,7 @@ class CreateUserRequest(BaseModel):
 
 
 @router.post("/users")
-async def create_user(body: CreateUserRequest, session: AsyncSession = Depends(get_session)):
+async def create_user(body: CreateUserRequest, _admin: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """Admin creates a user directly (pre-approved)."""
     existing = await session.execute(
         select(User).where(User.username == body.username)
@@ -139,7 +173,7 @@ async def create_user(body: CreateUserRequest, session: AsyncSession = Depends(g
 
 
 @router.get("/pending")
-async def list_pending(session: AsyncSession = Depends(get_session)):
+async def list_pending(_admin: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """List users pending approval (admin only)."""
     result = await session.execute(
         select(User).where(User.status == "pending").order_by(User.created_at.desc())
@@ -149,7 +183,7 @@ async def list_pending(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/approve")
-async def approve_user(body: ApproveRequest, session: AsyncSession = Depends(get_session)):
+async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """Approve or reject a pending user."""
     result = await session.execute(select(User).where(User.id == body.user_id))
     user = result.scalar_one_or_none()
@@ -233,7 +267,7 @@ class AdminUserUpdate(BaseModel):
 
 @router.put("/users/{user_id}")
 async def admin_update_user(
-    user_id: int, body: AdminUserUpdate, session: AsyncSession = Depends(get_session),
+    user_id: int, body: AdminUserUpdate, _admin: User = Depends(require_admin), session: AsyncSession = Depends(get_session),
 ):
     """Admin updates any user's info."""
     result = await session.execute(select(User).where(User.id == user_id))
@@ -259,7 +293,7 @@ async def admin_update_user(
 
 @router.delete("/users/{user_id}")
 async def admin_delete_user(
-    user_id: int, session: AsyncSession = Depends(get_session),
+    user_id: int, _admin: User = Depends(require_admin), session: AsyncSession = Depends(get_session),
 ):
     """Admin deletes a user."""
     result = await session.execute(select(User).where(User.id == user_id))

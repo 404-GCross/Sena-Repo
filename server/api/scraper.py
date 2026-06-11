@@ -333,9 +333,9 @@ async def update_game_cover(
         cover_path = covers_dir / f"{game_id}_manual{ext}"
 
         client_kwargs = {"timeout": httpx.Timeout(30.0)}
-    if config.proxy:
-        client_kwargs["proxy"] = config.proxy
-    async with httpx.AsyncClient(**client_kwargs) as client:
+        if config.proxy:
+            client_kwargs["proxy"] = config.proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
             try:
                 resp = await client.get(cover_url)
                 resp.raise_for_status()
@@ -392,9 +392,9 @@ async def update_game_background(
         bg_path = bg_dir / f"{game_id}_bg{ext}"
 
         client_kwargs = {"timeout": httpx.Timeout(30.0)}
-    if config.proxy:
-        client_kwargs["proxy"] = config.proxy
-    async with httpx.AsyncClient(**client_kwargs) as client:
+        if config.proxy:
+            client_kwargs["proxy"] = config.proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
             try:
                 resp = await client.get(bg_url)
                 resp.raise_for_status()
