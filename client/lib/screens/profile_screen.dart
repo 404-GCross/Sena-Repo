@@ -16,7 +16,6 @@ import "notification_screen.dart";
 import "connect_screen.dart";
 import "download_manager_screen.dart";
 import "../providers/game_provider.dart";
-import "../utils/theme_utils.dart";
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
