@@ -96,14 +96,14 @@ class _LoginScreenState extends State<LoginScreen> {
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
-        backgroundColor: Colors.transparent,
         body: Center(
         child: SizedBox(
           width: 400,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
+          child: Stack(children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.lock, size: 48,
@@ -174,6 +174,19 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
+            // Back button — top left of card
+            Positioned(
+              left: 0, top: 0,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, size: 20),
+                tooltip: "返回",
+                onPressed: () => Navigator.pop(context),
+                style: IconButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+                ),
+              ),
+            ),
+          ]),
         ),
       ),
     ),
