@@ -128,8 +128,8 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
       onExit: (_) => _setHovered(false),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AnimatedBuilder(
-          animation: _scale,
+        child: _ScaleBuilder(
+          listenable: _scale,
           builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
           child: Container(
             decoration: BoxDecoration(
@@ -238,16 +238,15 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
 
 // ── Helpers ──
 
-class AnimatedBuilder extends AnimatedWidget {
+class _ScaleBuilder extends AnimatedWidget {
   final Widget? child;
   final Widget Function(BuildContext, Widget?) builder;
 
-  const AnimatedBuilder({
-    super.key,
+  const _ScaleBuilder({
     required super.listenable,
     required this.builder,
     this.child,
-  }) : assert(listenable != null);
+  });
 
   @override
   Widget build(BuildContext context) => builder(context, child);
