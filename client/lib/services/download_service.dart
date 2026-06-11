@@ -315,9 +315,6 @@ class DownloadService {
           t.progress = 1.0;
           _emit();
 
-          // Auto-flatten: if archive contains a single folder, move contents up
-          await _flatten(outDir);
-
           await tmp.delete();
           break; // success
         } catch (e) {
@@ -483,46 +480,6 @@ class DownloadService {
     } catch (_) {}
 
     throw Exception("无法解压此格式。请安装 7-Zip 以支持 RAR 解压。");
-  }
-
-  /// Auto-flatten: if outDir contains a single folder and no files,
-  /// copy that folder's children up one level, then delete the folder.
-  Future<void> _flatten(String outDir) async {
-    final dir = Directory(outDir);
-    final entries = await dir.list().toList();
-    if (entries.length != 1) return;
-    final single = entries.first;
-    if (single is! Directory) return;
-
-    // Copy children up to outDir, then delete the now-empty subdirectory
-    try {
-      final children = await single.list().toList();
-      for (final child in children) {
-        final name = child.uri.pathSegments.last;
-        final dest = "$outDir/$name";
-        if (child is Directory) {
-          await _copyDir(child.path, dest);
-        } else if (child is File) {
-          await child.copy(dest);
-        }
-      }
-    } finally {
-      // Always clean up the now-empty subdirectory
-      try { await single.delete(recursive: true); } catch (_) {}
-    }
-  }
-
-  Future<void> _copyDir(String from, String to) async {
-    final target = Directory(to);
-    if (!await target.exists()) await target.create(recursive: true);
-    await for (final child in Directory(from).list()) {
-      final name = child.uri.pathSegments.last;
-      if (child is Directory) {
-        await _copyDir(child.path, "$to/$name");
-      } else if (child is File) {
-        await child.copy("$to/$name");
-      }
-    }
   }
 
   Future<void> _runTool(String exe, List<String> args,
