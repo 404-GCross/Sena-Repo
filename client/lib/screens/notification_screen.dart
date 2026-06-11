@@ -7,6 +7,7 @@ import "dart:convert";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/api_client.dart";
+import "../utils/theme_utils.dart";
 
 class NotificationScreen extends StatefulWidget {
   final ApiClient api;

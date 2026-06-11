@@ -199,8 +199,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         ),
                         child: Text(
                           game.description?.isNotEmpty == true ? game.description! : "暂无简介",
-                          style: TextStyle(
-                            AppText.body,
+                          style: AppText.body.copyWith(
                             height: 1.7,
                             color: game.description?.isNotEmpty == true ? null : Colors.grey[500],
                           ),

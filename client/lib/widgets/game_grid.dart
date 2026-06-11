@@ -184,8 +184,8 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                         children: [
                           Text(game.name,
                             maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              AppText.bodySmall, fontWeight: FontWeight.w700,
+                            style: AppText.bodySmall.copyWith(
+                              fontWeight: FontWeight.w700,
                               color: Colors.white, height: 1.2,
                             ),
                           ),
@@ -193,8 +193,8 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                           Text(
                             game.developer ?? game.companyName ?? "",
                             maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              AppText.caption, color: Colors.white70, height: 1.2,
+                            style: AppText.caption.copyWith(
+                              color: Colors.white70, height: 1.2,
                             ),
                           ),
                         ],

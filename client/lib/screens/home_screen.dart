@@ -540,8 +540,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Icon(icon, size: 14, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[600]),
               const SizedBox(width: 4),
             ],
-            Text(label, style: TextStyle(
-              AppText.caption, fontWeight: FontWeight.w500,
+            Text(label, style: AppText.caption.copyWith(
+              fontWeight: FontWeight.w500,
               color: active ? Theme.of(context).colorScheme.primary : (isDark ? Colors.grey[400] : Colors.grey[600]),
             )),
           ]),
