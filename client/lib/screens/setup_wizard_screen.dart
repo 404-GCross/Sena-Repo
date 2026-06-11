@@ -121,6 +121,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       appBar: AppBar(title: Text("初次设置 (${_step + 1}/4)")),
       body: Center(
         child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.all(24),
           child: SizedBox(
             width: 480,

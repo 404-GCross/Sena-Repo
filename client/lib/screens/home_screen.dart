@@ -561,8 +561,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Stack(
       children: [
-        // Background image
-        if (theme.backgroundUrl != null && theme.backgroundUrl!.isNotEmpty)
+        // Background image (desktop only — covered by opaque widgets on mobile)
+        if (wide && theme.backgroundUrl != null && theme.backgroundUrl!.isNotEmpty)
           Positioned.fill(
             child: Opacity(
               opacity: 0.2,
