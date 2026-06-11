@@ -126,9 +126,9 @@ async def refresh_root(
 
 async def _run_scan(config):
     """Internal helper for auto-scan. Runs refresh-all without HTTP."""
-    from database import _session_factory
+    import database
     from sqlalchemy import select
-    async with _session_factory() as session:
+    async with database._session_factory() as session:
         result = await session.execute(select(RootDirectory))
         roots = result.scalars().all()
         for root in roots:
@@ -137,12 +137,12 @@ async def _run_scan(config):
 
 async def _auto_scrape(config):
     """Background task: batch scrape all games without covers."""
-    from database import _session_factory
+    import database
     from models.scrape_job import JobStatus, ScrapeJob
     from services.scraper.orchestrator import run_batch_scrape
 
     try:
-        async with _session_factory() as session:
+        async with database._session_factory() as session:
             job = ScrapeJob(status=JobStatus.PENDING)
             session.add(job)
             await session.commit()
