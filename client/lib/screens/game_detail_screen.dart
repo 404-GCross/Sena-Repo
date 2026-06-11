@@ -89,11 +89,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         ]),
                       ],
                       const SizedBox(height: 16),
-                      Row(children: [
-                        _sourceBadge("VNDB", game.vndbId),
-                        _sourceBadge("Steam", game.steamId),
-                        _sourceBadge("Bangumi", game.bangumiId),
-                      ]),
+                      if (game.versions.isNotEmpty)
+                        FilledButton.icon(
+                          onPressed: () => _showDownloadDialog(game),
+                          icon: const Icon(Icons.download, size: 18),
+                          label: const Text("下载游戏"),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          ),
+                        ),
                     ]),
                   ),
                   const SizedBox(width: 24),
@@ -158,13 +162,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                   ),
                                   const SizedBox(width: 10),
                                   Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: hintColor(context))),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    icon: const Icon(Icons.download, size: 20),
-                                    tooltip: "下载",
-                                    onPressed: () => _startDownload(game, v),
-                                    visualDensity: VisualDensity.compact,
-                                  ),
                                 ]),
                               ),
                               if (!isLast) _divider(),
@@ -380,6 +377,60 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   void _showDialog(BuildContext ctx, String title, String msg) {
     showDialog(context: ctx, builder: (c) => AlertDialog(title: Text(title), content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
+  }
+
+  Future<void> _showDownloadDialog(GameDetail game) async {
+    final v = await showDialog<dynamic>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.download, size: 22, color: Colors.blue),
+          SizedBox(width: 8),
+          Text("选择版本"),
+        ]),
+        content: SizedBox(
+          width: 400,
+          child: Column(mainAxisSize: MainAxisSize.min, children:
+            game.versions.map((v) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(ctx, v),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(children: [
+                    Icon(Icons.insert_drive_file_outlined, size: 20, color: subTextColor(context)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(v.filename, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 2),
+                        Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: hintColor(context))),
+                      ],
+                    )),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: _platformColor(v.platform).withValues(alpha: 0.12),
+                      ),
+                      child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500,
+                          color: _platformColor(v.platform))),
+                    ),
+                  ]),
+                ),
+              ),
+            )).toList(),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+      ),
+    );
+    if (v == null || !mounted) return;
+    _startDownload(game, v);
   }
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
