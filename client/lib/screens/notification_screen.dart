@@ -57,7 +57,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
         body: jsonEncode({"user_id": userId, "approve": approve}),
       );
       await _load();
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("操作失败: $e")));
+    }
   }
 
   @override
