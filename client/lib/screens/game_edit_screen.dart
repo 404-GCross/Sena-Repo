@@ -839,7 +839,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Text(f, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[300])),
+                        Text(f, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: subTextColor(context))),
                         const Spacer(),
                         if (hasDiff)
                           Container(
@@ -924,7 +924,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Text("封面", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[300])),
+                        Text("封面", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: subTextColor(context))),
                         const Spacer(),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
