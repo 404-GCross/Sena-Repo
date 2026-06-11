@@ -303,10 +303,11 @@ class DownloadService {
         _emit();
         await _download(t, tmp);
 
-        // Phase 2: extract
+        // Phase 2: extract — yield to let UI show extracting state first
         t.status = "extracting";
         t.progress = 0.0;
         _emit();
+        await Future.delayed(const Duration(milliseconds: 100));
         try {
           await _extract(tmp.path, outDir, (p) {
             if (p > t.progress) { t.progress = p; _emit(); }
