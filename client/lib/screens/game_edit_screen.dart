@@ -1,6 +1,7 @@
 /// Full-screen game metadata editor — Playnite style.
 /// Layout: cover right header, left metadata panel, right description, inline download buttons.
 
+import "dart:async";
 import "dart:convert";
 
 import "package:flutter/material.dart";
@@ -716,8 +717,39 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
-    // Step 3: Per-field comparison
+    // Step 3: Preload cover image before showing comparison
     final coverUrl = (r["cover_url"] ?? "").toString();
+    if (coverUrl.isNotEmpty) {
+      final preloadDone = Completer<void>();
+      showDialog(context: context, barrierDismissible: false,
+        builder: (_) => PopScope(canPop: false, child: AlertDialog(
+          title: const Text("加载中..."),
+          content: SizedBox(
+            width: 200, height: 100,
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Image.network(coverUrl, width: 90, height: 120, fit: BoxFit.cover,
+                loadingBuilder: (_, child, progress) {
+                  if (progress == null) { preloadDone.complete(); return child; }
+                  return Column(mainAxisSize: MainAxisSize.min, children: [
+                    CircularProgressIndicator(
+                      value: progress.expectedTotalBytes != null
+                          ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                          : null),
+                    const SizedBox(height: 8),
+                    Text("${(progress.cumulativeBytesLoaded / 1024).toStringAsFixed(0)} KB",
+                        style: const TextStyle(fontSize: 12)),
+                  ]);
+                },
+                errorBuilder: (_, __, ___) { preloadDone.complete(); return const SizedBox.shrink(); }),
+            ]),
+          ),
+        )),
+      );
+      await preloadDone.future;
+      if (mounted) Navigator.pop(context);
+    }
+
+    // Step 4: Per-field comparison
     final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
     final incoming = {
       "名称": (r["title"] ?? "").toString(),
