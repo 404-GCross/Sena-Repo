@@ -529,18 +529,21 @@ class DownloadService {
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
 
-    // Parse stdout for progress (7z outputs lines like " 45% 123 - name")
-    final stdoutSub = proc.stdout.listen(onProgress != null ? (chunk) {
-      final s = String.fromCharCodes(chunk);
-      final m = RegExp(r'\s+(\d+)%').allMatches(s);
-      for (final match in m) {
-        onProgress(int.parse(match.group(1)!) / 100.0);
-      }
-    } : (_) {});
+    // 7z outputs progress (e.g. " 45%") to stderr, not stdout.
+    // Parse stderr for both progress and error messages.
     final stderrChunks = <int>[];
     final stderrSub = proc.stderr.listen((d) {
       if (stderrChunks.length < 8192) stderrChunks.addAll(d);
+      if (onProgress != null) {
+        final s = String.fromCharCodes(d);
+        final m = RegExp(r'\s+(\d+)%').firstMatch(s);
+        if (m != null) {
+          onProgress(int.parse(m.group(1)!) / 100.0);
+        }
+      }
     });
+    // Drain stdout (file listing, not useful for progress)
+    final stdoutSub = proc.stdout.listen((_) {});
 
     // Wait with timeout
     int exitCode = -1;
