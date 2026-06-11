@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from config import Config
 from models.game import Game
@@ -179,12 +180,14 @@ async def run_batch_scrape(
     # Get games to scrape
     if game_ids:
         result = await session.execute(
-            select(Game).where(Game.id.in_(game_ids), Game.is_deleted == False)
+            select(Game).options(selectinload(Game.company))
+            .where(Game.id.in_(game_ids), Game.is_deleted == False)
         )
     else:
         # All games without covers
         result = await session.execute(
-            select(Game).where(
+            select(Game).options(selectinload(Game.company))
+            .where(
                 Game.is_deleted == False,
                 Game.cover_path == None,
             ).order_by(Game.imported_at.desc())
