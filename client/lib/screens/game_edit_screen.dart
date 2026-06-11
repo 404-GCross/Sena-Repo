@@ -945,7 +945,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
     // Download cover then auto-save
     if (apply["封面"] == true && coverUrl.isNotEmpty) {
       try {
-        await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
+        final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body) as Map<String, dynamic>;
+          final newPath = data["cover_path"];
+          if (newPath != null) setState(() => _coverPath = newPath.toString());
+        }
       } catch (_) {}
     }
     await _save(popOnSave: false);

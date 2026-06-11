@@ -345,7 +345,7 @@ async def update_game_cover(
                 cover_path.write_bytes(resp.content)
                 game.cover_path = str(cover_path)
                 await session.commit()
-                return MessageResponse(message="Cover updated from URL")
+                return {"message": "Cover updated", "cover_path": game.cover_path}
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Failed to download cover: {type(e).__name__}: {e}")
 
