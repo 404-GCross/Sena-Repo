@@ -2,7 +2,7 @@
 ///
 /// Cross-platform client for Windows, Android, and Linux.
 
-import "dart:io" show InternetAddress, Platform, Process, ServerSocket, exit;
+import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Process, SecurityContext, ServerSocket, exit;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -39,8 +39,17 @@ Future<bool> _acquireSingleInstanceLock() async {
   }
 }
 
+class _AllowAllCertificates extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (_, __, ___) => true;
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = _AllowAllCertificates();
   LoggerService().cleanOldLogs();
 
   if (Platform.isWindows || Platform.isLinux) {
