@@ -127,20 +127,8 @@ class SteamScraper(BaseScraper):
             developer = devs[0] if devs else ""
             description = (details.get("short_description") or "")[:500]
 
-            # Cover URL: try multiple CDN formats (myGal approach)
-            cover_url = ""
-            for fmt in [
-                f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg",
-                f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.png",
-                f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg",
-            ]:
-                try:
-                    r = await client.head(fmt)
-                    if r.status_code == 200:
-                        cover_url = fmt
-                        break
-                except Exception:
-                    continue
+            # Cover URL: use primary CDN format directly (HEAD check often blocked in CN)
+            cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
 
             # Ratings and genres
             rating = 0.0

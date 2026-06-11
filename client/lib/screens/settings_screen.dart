@@ -923,6 +923,12 @@ class _UserManagePageState extends State<_UserManagePage> {
   bool _loading = true;
   int _currentUserId = 0;
 
+  Future<Map<String, String>> get _authHeaders async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("auth_token") ?? "";
+    return {"Authorization": "Bearer $token", "Content-Type": "application/json"};
+  }
+
   @override
   void initState() { super.initState(); _loadCurrentUser(); _loadUsers(); }
 
@@ -935,7 +941,7 @@ class _UserManagePageState extends State<_UserManagePage> {
   Future<void> _loadUsers() async {
     setState(() => _loading = true);
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/users"));
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/users"), headers: await _authHeaders);
       if (resp.statusCode == 200) {
         _users = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
       }
@@ -947,7 +953,7 @@ class _UserManagePageState extends State<_UserManagePage> {
     try {
       await http.post(
         Uri.parse("${widget.api.baseUrl}/api/auth/approve"),
-        headers: {"Content-Type": "application/json"},
+        headers: await _authHeaders,
         body: jsonEncode({"user_id": userId, "approve": approve}),
       );
       _loadUsers();
@@ -997,7 +1003,7 @@ class _UserManagePageState extends State<_UserManagePage> {
       body["is_admin"] = isAdmin;
       final resp = await http.put(
         Uri.parse("${widget.api.baseUrl}/api/auth/users/${u["id"]}"),
-        headers: {"Content-Type": "application/json"},
+        headers: await _authHeaders,
         body: jsonEncode(body),
       );
       if (resp.statusCode == 200) {
@@ -1028,6 +1034,7 @@ class _UserManagePageState extends State<_UserManagePage> {
     try {
       final resp = await http.delete(
         Uri.parse("${widget.api.baseUrl}/api/auth/users/$userId"),
+        headers: await _authHeaders,
       );
       if (resp.statusCode == 200) {
         _loadUsers();
@@ -1093,7 +1100,7 @@ class _UserManagePageState extends State<_UserManagePage> {
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/auth/users"),
-        headers: {"Content-Type": "application/json"},
+        headers: await _authHeaders,
         body: jsonEncode({
           "username": nameCtrl.text.trim(),
           "password": passCtrl.text,
