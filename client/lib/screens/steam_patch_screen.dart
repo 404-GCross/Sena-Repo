@@ -118,7 +118,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ]),
             const SizedBox(height: 8),
             Text("选择 Steam 库的 steamapps/common 目录，自动匹配库内游戏的汉化补丁",
-                style: TextStyle(fontSize: 14, color: subTextColor(context))),
+                style: TextStyle(AppText.bodyMedium, color: subTextColor(context))),
           ]),
         ),
 
@@ -148,12 +148,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const SizedBox(width: 14),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text("Steam 库目录", style: TextStyle(fontSize: 13, color: hintColor(context))),
+                  Text("Steam 库目录", style: TextStyle(AppText.bodySmall, color: hintColor(context))),
                   const SizedBox(height: 2),
                   Text(
                     hasDir ? _commonDir! : "未选择",
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 14, color: hasDir ? null : Colors.grey[600]),
+                    style: TextStyle(AppText.bodyMedium, color: hasDir ? null : Colors.grey[600]),
                   ),
                 ]),
               ),
@@ -206,7 +206,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               child: Row(children: [
                 Icon(Icons.info_outline, size: 18, color: Colors.blue[300]),
                 const SizedBox(width: 8),
-                Expanded(child: Text(_status!, style: TextStyle(fontSize: 13, color: Colors.blue[200]))),
+                Expanded(child: Text(_status!, style: TextStyle(AppText.bodySmall, color: Colors.blue[200]))),
               ]),
             ),
           ),
@@ -263,12 +263,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       const SizedBox(height: 16),
       Text(
         _installedGames.isEmpty ? "选择 Steam 库目录并开始扫描" : "点击「检测补丁」查询可用补丁",
-        style: TextStyle(fontSize: 15, color: hintColor(context)),
+        style: TextStyle(AppText.body, color: hintColor(context)),
       ),
       const SizedBox(height: 4),
       Text(
         "支持自动匹配库内游戏的汉化/修正补丁",
-        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+        style: TextStyle(AppText.bodySmall, color: Colors.grey[600]),
       ),
     ]),
   );
@@ -302,11 +302,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           // Info
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(match.gameName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              Text(match.gameName, style: const TextStyle(AppText.body, fontWeight: FontWeight.w600)),
               const SizedBox(height: 3),
               Text(
                 available ? "${match.patchFilename}  ·  ${_formatSize(match.patchSize)}" : "暂无可用补丁",
-                style: TextStyle(fontSize: 13, color: hintColor(context)),
+                style: TextStyle(AppText.bodySmall, color: hintColor(context)),
               ),
             ]),
           ),

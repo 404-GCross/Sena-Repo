@@ -147,7 +147,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       subtitle: Text(n["body"] ?? "", maxLines: 2),
                       trailing: Text(
                         _fmtTime(n["created_at"]),
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        style: const TextStyle(AppText.caption, color: Colors.grey),
                       ),
                     )),
               ],

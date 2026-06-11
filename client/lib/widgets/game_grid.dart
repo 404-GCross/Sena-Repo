@@ -185,7 +185,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                           Text(game.name,
                             maxLines: 1, overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w700,
+                              AppText.bodySmall, fontWeight: FontWeight.w700,
                               color: Colors.white, height: 1.2,
                             ),
                           ),
@@ -194,7 +194,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                             game.developer ?? game.companyName ?? "",
                             maxLines: 1, overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 11, color: Colors.white70, height: 1.2,
+                              AppText.caption, color: Colors.white70, height: 1.2,
                             ),
                           ),
                         ],
@@ -229,7 +229,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
           const SizedBox(height: 8),
           Text(widget.game.name, maxLines: 2, overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5))),
+            style: TextStyle(AppText.label, color: cs.onSurface.withValues(alpha: 0.5))),
         ]),
       ),
     );

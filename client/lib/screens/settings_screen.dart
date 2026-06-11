@@ -140,9 +140,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              Text(title, style: const TextStyle(AppText.body, fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
-              Text(subtitle, style: TextStyle(fontSize: 12, color: hintColor(context))),
+              Text(subtitle, style: TextStyle(AppText.label, color: hintColor(context))),
             ]),
           ),
           Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
@@ -176,7 +176,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
       ]),
       content: SizedBox(width: 320, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const Text("选择刮削来源（一次只能选一种）",
-            style: TextStyle(fontSize: 13, color: Colors.grey)),
+            style: TextStyle(AppText.bodySmall, color: Colors.grey)),
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(
@@ -366,7 +366,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               controller: _dirCtrl,
               decoration: InputDecoration(
                 hintText: "添加路径，如 /mnt/nas/games",
-                hintStyle: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                hintStyle: TextStyle(AppText.bodySmall, color: Colors.grey[600]),
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 border: OutlineInputBorder(
@@ -445,17 +445,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(_jobStatusLabel(_scrapeJob!["status"]),
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                        style: const TextStyle(AppText.body, fontWeight: FontWeight.w600)),
                     if (_scrapeJob!["current_game"] != null)
                       Text("正在处理: ${_scrapeJob!["current_game"]}",
                           maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: hintColor(context))),
+                          style: TextStyle(AppText.label, color: hintColor(context))),
                   ]),
                 ),
                 if (_scrapeJob!["status"] == "running" || _scrapeJob!["status"] == "pending")
                   TextButton(
                     onPressed: () => _cancelJob(_scrapeJob!["id"] as int),
-                    child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
+                    child: const Text("取消", style: TextStyle(AppText.label, color: Colors.red)),
                   ),
               ]),
               if (_scrapeJob!["total_games"] != null && (_scrapeJob!["total_games"] as int) > 0) ...[
@@ -472,10 +472,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 const SizedBox(height: 6),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   Text("${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
-                      style: TextStyle(fontSize: 12, color: hintColor(context))),
+                      style: TextStyle(AppText.label, color: hintColor(context))),
                   if (_scrapeJob!["failed_games"] != null && (_scrapeJob!["failed_games"] as int) > 0)
                     Text("失败: ${_scrapeJob!["failed_games"]}",
-                        style: TextStyle(fontSize: 12, color: Colors.red[300])),
+                        style: TextStyle(AppText.label, color: Colors.red[300])),
                 ]),
               ],
               // Completed summary
@@ -501,7 +501,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               title: const Text("目录结构", style: TextStyle(fontSize: 14)),
               subtitle: Text(
                 _structure == "company_game" ? "会社 / 游戏" : _structure == "game_only" ? "仅游戏" : "扁平",
-                style: TextStyle(fontSize: 13, color: hintColor(context)),
+                style: TextStyle(AppText.bodySmall, color: hintColor(context)),
               ),
               trailing: DropdownButton<String>(
                 value: _structure, underline: const SizedBox(),
@@ -517,7 +517,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             SwitchListTile(
               title: const Text("自动扫描", style: TextStyle(fontSize: 14)),
               subtitle: Text(_autoScan ? "每 $_interval 小时" : "关闭",
-                  style: TextStyle(fontSize: 13, color: hintColor(context))),
+                  style: TextStyle(AppText.bodySmall, color: hintColor(context))),
               value: _autoScan,
               onChanged: (v) => setState(() => _autoScan = v),
               dense: true,
@@ -565,8 +565,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             border: Border.all(color: cardBorder(context)),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("HTTP 代理", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: subTextColor(context))),
-            Text("刮削源通过代理访问，如日本代理", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text("HTTP 代理", style: TextStyle(AppText.bodySmall, fontWeight: FontWeight.w600, color: subTextColor(context))),
+            Text("刮削源通过代理访问，如日本代理", style: TextStyle(AppText.label, color: Colors.grey[600])),
             const SizedBox(height: 8),
             Row(children: [
               Expanded(
@@ -615,7 +615,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     child: Row(children: [
       Icon(Icons.info_outline, size: 18, color: hintColor(context)),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(fontSize: 14, color: hintColor(context))),
+      Text(text, style: TextStyle(AppText.bodyMedium, color: hintColor(context))),
     ]),
   );
 
@@ -646,7 +646,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         Icon(Icons.check_circle, size: 16, color: Colors.green[300]),
         const SizedBox(width: 6),
         Text("${total - failed} 成功, $failed 失败",
-            style: TextStyle(fontSize: 12, color: subTextColor(context))),
+            style: TextStyle(AppText.label, color: subTextColor(context))),
       ]),
     );
   }
@@ -713,7 +713,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       child: Column(children: [
         SwitchListTile(
           title: Text(label, style: const TextStyle(fontSize: 14)),
-          subtitle: Text(hint, style: TextStyle(fontSize: 12, color: hintColor(context))),
+          subtitle: Text(hint, style: TextStyle(AppText.label, color: hintColor(context))),
           value: enabled,
           onChanged: (v) => setState(() => _sources[src] = v),
           dense: true,
@@ -794,7 +794,7 @@ class _DisplayPageState extends State<_DisplayPage> {
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text("${_coverSize.round()} px", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-              Text("网格封面尺寸", style: TextStyle(fontSize: 12, color: hintColor(context))),
+              Text("网格封面尺寸", style: TextStyle(AppText.label, color: hintColor(context))),
             ])),
             Container(
               width: 32, height: 44,
@@ -814,8 +814,8 @@ class _DisplayPageState extends State<_DisplayPage> {
             },
           ),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text("100", style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-            Text("300", style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            Text("100", style: TextStyle(AppText.caption, color: Colors.grey[600])),
+            Text("300", style: TextStyle(AppText.caption, color: Colors.grey[600])),
           ]),
         ]),
       ),
@@ -831,7 +831,7 @@ class _DisplayPageState extends State<_DisplayPage> {
         child: SwitchListTile(
           title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
           subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
-              style: TextStyle(fontSize: 12, color: hintColor(context))),
+              style: TextStyle(AppText.label, color: hintColor(context))),
           value: _trayEnabled,
           onChanged: (v) async {
             setState(() => _trayEnabled = v);
@@ -1109,7 +1109,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Row(children: [
-                            Text(username, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                            Text(username, style: const TextStyle(AppText.body, fontWeight: FontWeight.w500)),
                             const SizedBox(width: 8),
                             if (isAdmin)
                               Container(
@@ -1118,7 +1118,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                                   color: Colors.purple.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: Text("管理员", style: TextStyle(fontSize: 10, color: Colors.purple[200])),
+                                child: Text("管理员", style: TextStyle(AppText.badge, color: Colors.purple[200])),
                               ),
                           ]),
                           const SizedBox(height: 3),
@@ -1130,7 +1130,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                               ),
                             ),
                             const SizedBox(width: 5),
-                            Text(_statusLabel(status), style: TextStyle(fontSize: 13, color: hintColor(context))),
+                            Text(_statusLabel(status), style: TextStyle(AppText.bodySmall, color: hintColor(context))),
                           ]),
                         ]),
                       ),

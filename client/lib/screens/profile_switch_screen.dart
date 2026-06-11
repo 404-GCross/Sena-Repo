@@ -151,7 +151,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                   const SizedBox(height: 12),
                   Text("暂无保存的配置", style: TextStyle(fontSize: 16, color: hintColor(context))),
                   const SizedBox(height: 4),
-                  Text("点击右下角按钮新增", style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                  Text("点击右下角按钮新增", style: TextStyle(AppText.bodySmall, color: Colors.grey[600])),
                 ]))
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
@@ -178,7 +178,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                                   color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey[400])),
                         ),
                         title: Row(children: [
-                          Text(p.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                          Text(p.name, style: const TextStyle(AppText.body, fontWeight: FontWeight.w500)),
                           if (isActive) ...[
                             const SizedBox(width: 8),
                             Container(
@@ -187,12 +187,12 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                                 color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: Text("当前", style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary)),
+                              child: Text("当前", style: TextStyle(AppText.badge, color: Theme.of(context).colorScheme.primary)),
                             ),
                           ],
                         ]),
                         subtitle: Text("${p.username}@${p.host}:${p.port}",
-                            style: TextStyle(fontSize: 13, color: hintColor(context))),
+                            style: TextStyle(AppText.bodySmall, color: hintColor(context))),
                         trailing: PopupMenuButton<String>(
                           onSelected: (action) {
                             if (action == "switch") _switchTo(p);

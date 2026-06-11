@@ -287,7 +287,7 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text("首次使用需要设置以下目录，稍后可在设置中修改",
-              style: TextStyle(fontSize: 13, color: Colors.grey)),
+              style: TextStyle(AppText.bodySmall, color: Colors.grey)),
           const SizedBox(height: 20),
           _dirCard(Icons.download, "游戏下载目录", _downloadDir, _pickDownloadDir),
           const SizedBox(height: 12),
@@ -315,10 +315,10 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
         Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(label, style: const TextStyle(AppText.bodySmall, fontWeight: FontWeight.w500)),
           const SizedBox(height: 2),
           Text(path.isEmpty ? "未设置" : path,
-              style: TextStyle(fontSize: 12, color: path.isEmpty ? Colors.red[300] : Colors.grey[600])),
+              style: TextStyle(AppText.label, color: path.isEmpty ? Colors.red[300] : Colors.grey[600])),
         ])),
         TextButton(onPressed: onPick, child: Text(path.isEmpty ? "选择" : "更换", style: const TextStyle(fontSize: 12))),
       ]),

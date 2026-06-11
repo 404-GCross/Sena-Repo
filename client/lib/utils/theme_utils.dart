@@ -36,22 +36,31 @@ Color placeholderIcon(BuildContext context) =>
 class AppText {
   AppText._();
 
-  /// 11px — tiny labels, badges
+  /// 9px — tab labels
+  static const TextStyle tabLabel = TextStyle(fontSize: 9);
+  /// 10px — badge counts
+  static const TextStyle badge = TextStyle(fontSize: 10);
+  /// 11px — tiny labels
   static const TextStyle caption = TextStyle(fontSize: 11);
-
-  /// 13px — metadata, secondary text, tags
+  /// 12px — secondary metadata
+  static const TextStyle label = TextStyle(fontSize: 12);
+  /// 13px — metadata, tags
   static const TextStyle bodySmall = TextStyle(fontSize: 13);
-
+  /// 14px — list / button text
+  static const TextStyle bodyMedium = TextStyle(fontSize: 14);
   /// 15px — normal body text
   static const TextStyle body = TextStyle(fontSize: 15);
-
-  /// 17px — card titles, section headers
+  /// 16px — section headers
+  static const TextStyle section = TextStyle(fontSize: 16, fontWeight: FontWeight.w600);
+  /// 17px — card titles
   static const TextStyle title = TextStyle(fontSize: 17, fontWeight: FontWeight.w600);
-
-  /// 22px — page titles, dialog headers
+  /// 18px — content titles
+  static const TextStyle subtitle = TextStyle(fontSize: 18);
+  /// 22px — page / dialog titles
   static const TextStyle headline = TextStyle(fontSize: 22, fontWeight: FontWeight.bold);
-
-  /// 28px — hero / large display
+  /// 24px — large page titles
+  static const TextStyle pageTitle = TextStyle(fontSize: 24, fontWeight: FontWeight.bold);
+  /// 28px — hero display
   static const TextStyle display = TextStyle(fontSize: 28, fontWeight: FontWeight.bold);
 }
 
