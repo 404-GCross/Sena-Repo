@@ -14,6 +14,7 @@ import "../providers/theme_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/download_service.dart";
+import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
 import "game_detail_screen.dart";
@@ -261,17 +262,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ? const Center(child: CircularProgressIndicator())
               : gameProvider.games.isEmpty
                   ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.gamepad, size: 72, color: Colors.grey[700]),
-                          const SizedBox(height: 16),
-                          Text("游戏库为空",
-                              style: TextStyle(color: hintColor(context), fontSize: 18)),
-                          const SizedBox(height: 4),
-                          Text("请在服务端添加根目录并刷新",
-                              style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-                        ],
+                      child: EmptyState(
+                        icon: Icons.gamepad,
+                        title: "游戏库为空",
+                        subtitle: "请在服务端添加根目录并刷新",
                       ),
                     )
                   : _isGridView
@@ -321,7 +315,9 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         await provider.loadGames();
         if (ctx.mounted) showDialog(context: ctx, builder: (d) => AlertDialog(content: const Text("已创建"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
-      } catch (_) {}
+      } catch (e) {
+        if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text("创建失败: $e")));
+      }
     }
   }
 
@@ -402,7 +398,9 @@ class _HomeScreenState extends State<HomeScreen> {
           body: jsonEncode({"game_ids": _selectedIds.toList()}));
       await context.read<GameProvider>().loadGames();
       setState(() { _selectedIds.clear(); _multiSelect = false; });
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("删除失败: $e")));
+    }
   }
 
   Future<void> _batchScrape() async {
@@ -418,7 +416,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ));
       }
       setState(() { _selectedIds.clear(); _multiSelect = false; });
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("刮削失败: $e")));
+    }
   }
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {

@@ -6,6 +6,7 @@ import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 
 import "../services/download_service.dart";
+import "../widgets/empty_state.dart";
 import "../utils/theme_utils.dart";
 
 class DownloadManagerScreen extends StatefulWidget {
@@ -85,12 +86,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         // ── Task list ──
         Expanded(
           child: _tasks.isEmpty
-              ? Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.download_outlined, size: 64, color: Colors.grey[600]),
-                    const SizedBox(height: 12),
-                    Text("暂无下载任务", style: TextStyle(fontSize: 16, color: hintColor(context))),
-                  ]))
+              ? EmptyState(icon: Icons.download_outlined, title: "暂无下载任务")
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: _tasks.length,
