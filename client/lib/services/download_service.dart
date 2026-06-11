@@ -316,9 +316,6 @@ class DownloadService {
           t.progress = 1.0;
           _emit();
 
-          // Flatten: if archive extracted a single folder with same name as outDir parent
-          await _flattenSameName(outDir);
-
           await tmp.delete();
           break; // success
         } catch (e) {
@@ -468,52 +465,69 @@ class DownloadService {
 
   // ── extract ──
 
-  Future<void> _extract(String filePath, String outDir,
-      [void Function(double)? onProgress]) async {
-    // Primary: bundled 7z (supports all formats incl. RAR via 7z.dll)
+  /// Parse `7z l` output to get top-level entries in the archive.
+  /// Returns null if parsing fails.
+  Future<List<String>?> _listTopLevel(String filePath) async {
     try {
       final exe = await _getSevenZipPath();
-      try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
-      await _runTool(exe, ["x", "-y", "-o$outDir", filePath], onProgress: onProgress);
-      return;
-    } catch (_) { /* fall through to system tools */ }
+      final proc = await Process.start(exe, ["l", filePath]);
+      final out = <int>[];
+      proc.stdout.listen((d) => out.addAll(d));
+      proc.stderr.drain<void>();
+      await proc.exitCode.timeout(const Duration(seconds: 30));
 
-    // Fallback 1: system 7z
-    try {
-      await _runTool("7z", ["x", "-y", "-o$outDir", filePath], onProgress: onProgress, timeout: 1800);
-      return;
-    } catch (_) {}
-
-    // Fallback 2: unar
-    try {
-      await _runTool("unar", ["-o", outDir, filePath], onProgress: onProgress, timeout: 1800);
-      return;
-    } catch (_) {}
-
-    throw Exception("无法解压此格式。请安装 7-Zip 以支持 RAR 解压。");
+      final text = String.fromCharCodes(out);
+      final lines = text.split("\n");
+      final entries = <String>{};
+      bool inList = false;
+      for (final line in lines) {
+        // Detect the separator line before file listing
+        if (line.contains("---") && line.contains("-")) { inList = true; continue; }
+        if (!inList || line.trim().isEmpty) continue;
+        // Parse the name column (last field after spaces)
+        final fields = line.trim().split(RegExp(r'\s{2,}'));
+        if (fields.length < 3) continue;
+        final name = fields.last.trim();
+        if (name.isEmpty) continue;
+        // Only top-level: no path separator
+        if (!name.contains("\\") && !name.contains("/")) {
+          entries.add(name);
+        }
+      }
+      return entries.isEmpty ? null : entries.toList();
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// Flatten only when archive extracted a single folder with the same name
-  /// as the parent directory. Fixes "会社/游戏名/游戏名" double-nesting without
-  /// destroying intentional directory structures.
-  Future<void> _flattenSameName(String outDir) async {
-    final dir = Directory(outDir);
-    final entries = await dir.list().toList();
-    if (entries.length != 1) return;
-    final single = entries.first;
-    if (single is! Directory) return;
-    // Only flatten if names match
-    final childName = single.uri.pathSegments.last;
-    final parentName = outDir.split(Platform.pathSeparator).last;
-    if (childName != parentName) return;
+  Future<void> _extract(String filePath, String outDir,
+      [void Function(double)? onProgress]) async {
+    final exe = await _getSevenZipPath();
 
-    try {
-      for (final child in await single.list().toList()) {
-        final name = child.uri.pathSegments.last;
-        await child.rename("$outDir/$name");
+    // Pre-scan: if archive contains one top-level folder, extract to parent
+    // to eliminate double-nesting (e.g. 会社/游戏名/游戏名 → 会社/游戏名)
+    final topLevel = await _listTopLevel(filePath);
+    final extParent = File(outDir).parent.path;
+    if (topLevel != null && topLevel.length == 1) {
+      // Single folder at root — extract one level up, then rename if needed
+      final archiveFolder = topLevel.first;
+      final expectedName = outDir.split(Platform.pathSeparator).last;
+      await _runTool(exe, ["x", "-y", "-o$extParent", filePath],
+          onProgress: onProgress);
+      // Rename if archive folder name differs from expected
+      if (archiveFolder != expectedName) {
+        try {
+          await Directory("$extParent/$archiveFolder")
+              .rename("$extParent/$expectedName");
+        } catch (_) {}
       }
-      await single.delete();
-    } catch (_) {}
+      return;
+    }
+
+    // Multiple top-level items — extract to outDir as normal
+    try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+    await _runTool(exe, ["x", "-y", "-o$outDir", filePath],
+        onProgress: onProgress);
   }
 
   Future<void> _runTool(String exe, List<String> args,
