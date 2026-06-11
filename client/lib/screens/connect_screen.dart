@@ -38,6 +38,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _hostController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
+
   Future<void> _tryAutoConnect() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString("auth_token")?.isNotEmpty == true) _connect();

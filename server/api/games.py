@@ -250,18 +250,27 @@ async def batch_delete_games(
     session: AsyncSession = Depends(get_session),
 ):
     """Soft-delete multiple games at once."""
+    if not body.game_ids:
+        return MessageResponse(message="没有要删除的游戏")
+    # Single query for all games
+    result = await session.execute(
+        select(Game).where(Game.id.in_(body.game_ids)))
+    games = result.scalars().all()
+    paths = {g.folder_path for g in games if g.folder_path}
+    # Batch check ignore list
+    if paths:
+        ignored = await session.execute(
+            select(IgnoreList.path).where(IgnoreList.path.in_(paths)))
+        ignored_paths = {row[0] for row in ignored.all()}
+    else:
+        ignored_paths = set()
     deleted = 0
-    for game_id in body.game_ids:
-        result = await session.execute(select(Game).where(Game.id == game_id))
-        game = result.scalar_one_or_none()
-        if game is None:
-            continue
+    for game in games:
         game.is_deleted = True
         game.updated_at = datetime.utcnow()
-        existing = await session.execute(
-            select(IgnoreList).where(IgnoreList.path == game.folder_path))
-        if existing.scalar_one_or_none() is None:
+        if game.folder_path and game.folder_path not in ignored_paths:
             session.add(IgnoreList(path=game.folder_path))
+            ignored_paths.add(game.folder_path)
         deleted += 1
     await session.commit()
     return MessageResponse(message=f"已删除 {deleted} 个游戏")

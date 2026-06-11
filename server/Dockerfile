@@ -17,4 +17,11 @@ EXPOSE 11451
 ENV SENA_GAMES_PATH=/games
 ENV SENA_DATA_PATH=/data
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:11451/api/health')" || exit 1
+
+# Run as non-root for security
+RUN useradd -m -s /bin/bash sena && chown -R sena:sena /app /games /data
+USER sena
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "11451"]
