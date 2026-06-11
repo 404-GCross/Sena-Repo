@@ -296,13 +296,13 @@ class DownloadService {
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
       for (int retry = 0; retry <= maxExtractRetries; retry++) {
-        if (_stopped(t)) return;
+        if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
 
         // Phase 1: download
         t.status = "downloading";
         _emit();
         await _download(t, tmp);
-        if (_stopped(t)) return;
+        if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
 
         // Phase 2: extract — yield to let UI show extracting state first
         t.status = "extracting";
@@ -322,7 +322,10 @@ class DownloadService {
           await tmp.delete();
           break; // success
         } catch (e) {
-          if (_stopped(t)) return;
+          if (_stopped(t)) {
+            try { await tmp.delete(); } catch (_) {}
+            return;
+          }
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
             try { await tmp.delete(); } catch (_) {}
@@ -342,7 +345,11 @@ class DownloadService {
       t.outputPath = outDir;
       _emit();
     } catch (e) {
-      if (t._cancelled || t.status == "paused") return;
+      if (t._cancelled || t.status == "paused") {
+        try { await tmp.delete(); } catch (_) {}
+        return;
+      }
+      try { await tmp.delete(); } catch (_) {}
       t.status = "failed";
       t.error = "$e";
       _emit();
