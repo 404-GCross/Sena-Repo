@@ -158,8 +158,7 @@ class _BatchScrapeDialog extends StatefulWidget {
 }
 
 class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
-  String _scope = "missing"; // missing, all, filtered
-  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true};
+  String _source = "vndb_kana";
 
   static const _sourceLabels = {
     "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
@@ -172,63 +171,39 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Row(children: [
         Icon(Icons.image_search, color: Colors.orange, size: 22),
-        SizedBox(width: 8),
+        const SizedBox(width: 8),
         Text("批量刮削"),
       ]),
-      content: SizedBox(width: 380, child: SingleChildScrollView(
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          // Scope selection
-          _sectionTitle("刮削范围"),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Column(children: [
-              _radioTile("missing", "缺失封面的游戏", Icons.broken_image_outlined, "只刮削没有封面的游戏"),
-              _divider(),
-              _radioTile("all", "全部游戏", Icons.select_all, "重刮所有游戏，覆盖已有封面"),
-              _divider(),
-              _radioTile("filtered", "当前筛选结果", Icons.filter_list, "只刮当前筛选出的游戏"),
-            ]),
+      content: SizedBox(width: 320, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text("选择刮削来源（一次只能选一种）",
+            style: TextStyle(fontSize: 13, color: Colors.grey)),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardBorder(context)),
           ),
-          const SizedBox(height: 16),
-          // Source selection
-          _sectionTitle("刮削来源"),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Column(children:
-              _sources.keys.map((src) {
-                final isLast = src == _sources.keys.last;
-                return Column(children: [
-                  CheckboxListTile(
-                    title: Text(_sourceLabels[src] ?? src, style: const TextStyle(fontSize: 14)),
-                    value: _sources[src],
-                    onChanged: (v) => setState(() => _sources[src] = v ?? false),
-                    dense: true,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  if (!isLast) _divider(),
-                ]);
-              }).toList(),
-            ),
+          child: Column(children:
+            _sourceLabels.entries.map((e) {
+              return RadioListTile<String>(
+                title: Text(e.value, style: const TextStyle(fontSize: 14)),
+                value: e.key,
+                groupValue: _source,
+                onChanged: (v) => setState(() => _source = v!),
+                dense: true,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              );
+            }).toList(),
           ),
-        ]),
-      )),
+        ),
+      ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
         FilledButton.icon(
           onPressed: () {
             Navigator.pop(context, {
-              "scope": _scope,
-              "sources": _sources.entries.where((e) => e.value).map((e) => e.key).toList(),
+              "sources": [_source],
             });
           },
           icon: const Icon(Icons.play_arrow, size: 18),
@@ -237,39 +212,6 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
       ],
     );
   }
-
-  Widget _radioTile(String value, String title, IconData icon, String subtitle) {
-    final active = _scope == value;
-    return InkWell(
-      onTap: () => setState(() => _scope = value),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: active ? Colors.orange.withValues(alpha: 0.15) : cardBg(context),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 20, color: active ? Colors.orange[300] : Colors.grey[500]),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: TextStyle(fontSize: 14, fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
-            Text(subtitle, style: TextStyle(fontSize: 12, color: hintColor(context))),
-          ])),
-          Radio<String>(value: value, groupValue: _scope, onChanged: (v) => setState(() => _scope = v!)),
-        ]),
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String t) => Padding(
-    padding: const EdgeInsets.only(bottom: 4, left: 4),
-    child: Text(t, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: subTextColor(context))),
-  );
-
-  Widget _divider() => Divider(height: 1, indent: 48, color: cardBorder(context));
 }
 
 // ── Scan Settings Sub-Page ──
