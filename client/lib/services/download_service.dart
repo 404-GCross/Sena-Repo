@@ -473,40 +473,50 @@ class DownloadService {
     await _runTool(exe, ["x", "-y", "-o$outDir", filePath],
         onProgress: onProgress);
 
-    // Flatten if archive has a single same-name wrapper folder
-    await _flattenSameName(outDir);
+    // Fix structure: if archive scattered files, wrap in game folder
+    await _fixLayout(outDir);
   }
 
-  /// If outDir contains exactly one subfolder with the same name as outDir itself,
-  /// copy its contents up and delete it. Fixes "会社/游戏名/游戏名" double-nesting.
-  Future<void> _flattenSameName(String outDir) async {
-    final dir = Directory(outDir);
+  /// Ensure outDir has clean structure.
+  /// - Single folder with same name as parent → flatten (same-name wrapper)
+  /// - Multiple items → wrap in game-named folder
+  Future<void> _fixLayout(String outDir) async {
+    final gameName = outDir.split(Platform.pathSeparator).last;
     List<FileSystemEntity> entries;
-    try { entries = await dir.list().toList(); } catch (_) { return; }
-    if (entries.length != 1) return;
-    final single = entries.first;
-    if (single is! Directory) return;
-    final childName = single.uri.pathSegments.last;
-    final parentName = outDir.split(Platform.pathSeparator).last;
-    if (childName != parentName) return;
+    try { entries = await Directory(outDir).list().toList(); } catch (_) { return; }
+    if (entries.isEmpty) return;
 
-    // Copy everything up, then delete the now-empty folder
-    try {
-      await _copyDirUp(single.path, outDir);
-      await single.delete(recursive: true);
-    } catch (_) {
-      // Last resort: use shell command
+    // Case 1: single folder with same name → flatten it
+    if (entries.length == 1 && entries.first is Directory) {
+      final childName = entries.first.uri.pathSegments.last;
+      if (childName == gameName) {
+        try {
+          await _copyDirUp(entries.first.path, outDir);
+          await (entries.first as Directory).delete(recursive: true);
+        } catch (_) {}
+      }
+      return;
+    }
+
+    // Case 2: multiple items, no game-named folder → wrap them
+    final hasGameFolder = entries.any((e) =>
+        e is Directory && e.uri.pathSegments.last == gameName);
+    if (!hasGameFolder) {
+      final wrap = "$outDir/$gameName";
       try {
-        await Process.run(
-          Platform.isWindows ? "cmd" : "sh",
-          Platform.isWindows
-              ? ["/c", "move", "${single.path}\\*", outDir, ">nul", "&&", "rmdir", "/s", "/q", single.path]
-              : ["-c", "mv '${single.path}'/* '$outDir/' && rmdir '${single.path}'"],
-        );
+        await Directory(wrap).create();
+        for (final e in entries) {
+          final name = e.uri.pathSegments.last;
+          if (name != gameName) {
+            try { await e.rename("$wrap/$name"); } catch (_) {}
+          }
+        }
       } catch (_) {}
     }
   }
 
+  /// If outDir contains exactly one subfolder with the same name as outDir itself,
+  /// copy its contents up and delete it. Fixes "会社/游戏名/游戏名" double-nesting.
   Future<void> _copyDirUp(String from, String to) async {
     await for (final child in Directory(from).list()) {
       final name = child.uri.pathSegments.last;
@@ -570,8 +580,8 @@ class DownloadService {
 
   String _outDir(DownloadTask t, String dir) {
     final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";
-    final game = t.gameName.isNotEmpty ? t.gameName : t.fileName;
-    return "$dir/$sub/$game";
+    // Extract directly to 会社/, letting archive folder name be the game folder
+    return "$dir/$sub";
   }
 
   bool _stopped(DownloadTask t) => t._cancelled || t.status == "paused";
