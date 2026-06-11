@@ -285,12 +285,11 @@ class DownloadService {
   // ── core run loop ──
 
   Future<void> _run(DownloadTask t) async {
+    final dir = await downloadDir;
+    final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
+    final outDir = _outDir(t, dir);
     try {
-      final dir = await downloadDir;
       t._cancelled = false;
-
-      final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
-      final outDir = _outDir(t, dir);
       await Directory(outDir).create(recursive: true);
 
       // Download + extract with extract-level retry
