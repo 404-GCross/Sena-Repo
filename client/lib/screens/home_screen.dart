@@ -58,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _pollBackground() {
     Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 8));
+      await Future.delayed(const Duration(seconds: 30));
       if (!mounted) return false;
       try {
         final base = context.read<GameProvider>().api.baseUrl;
