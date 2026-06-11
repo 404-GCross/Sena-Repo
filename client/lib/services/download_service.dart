@@ -464,76 +464,21 @@ class DownloadService {
 
   // ── extract ──
 
-  /// Parse `7z l` output to get top-level entries in the archive.
-  /// Returns null if parsing fails.
-  Future<List<String>?> _listTopLevel(String filePath) async {
-    try {
-      final exe = await _getSevenZipPath();
-      final proc = await Process.start(exe, ["l", filePath]);
-      final out = <int>[];
-      proc.stdout.listen((d) => out.addAll(d));
-      proc.stderr.drain<void>();
-      await proc.exitCode.timeout(const Duration(seconds: 60));
-
-      final text = String.fromCharCodes(out);
-      final lines = text.split("\n");
-      final entries = <String>{};
-      bool inList = false;
-      for (final line in lines) {
-        // Detect the separator line before file listing
-        if (line.contains("---") && line.contains("-")) { inList = true; continue; }
-        if (!inList || line.trim().isEmpty) continue;
-        // Parse the name column (last field after spaces)
-        final fields = line.trim().split(RegExp(r'\s{2,}'));
-        if (fields.length < 3) continue;
-        final name = fields.last.trim();
-        if (name.isEmpty) continue;
-        // Only top-level: no path separator
-        if (!name.contains("\\") && !name.contains("/")) {
-          entries.add(name);
-        }
-      }
-      return entries.isEmpty ? null : entries.toList();
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _extract(String filePath, String outDir,
       [void Function(double)? onProgress]) async {
     final exe = await _getSevenZipPath();
 
-    // Pre-scan: if archive contains one top-level folder, extract to parent
-    // to eliminate double-nesting (e.g. 会社/游戏名/游戏名 → 会社/游戏名)
-    final topLevel = await _listTopLevel(filePath);
-    final extParent = File(outDir).parent.path;
-    if (topLevel != null && topLevel.length == 1) {
-      // Single folder at root — extract one level up, then rename if needed
-      final archiveFolder = topLevel.first;
-      final expectedName = outDir.split(Platform.pathSeparator).last;
-      await _runTool(exe, ["x", "-y", "-o$extParent", filePath],
-          onProgress: onProgress);
-      // Rename if archive folder name differs from expected
-      if (archiveFolder != expectedName) {
-        try {
-          await Directory("$extParent/$archiveFolder")
-              .rename("$extParent/$expectedName");
-        } catch (_) {}
-      }
-      return;
-    }
-
-    // Multiple top-level items (or pre-scan failed) — extract to outDir as normal
+    // Extract to outDir
     try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
     await _runTool(exe, ["x", "-y", "-o$outDir", filePath],
         onProgress: onProgress);
 
-    // Safety net: flatten if archive created a single same-name subfolder
+    // Flatten if archive has a single same-name wrapper folder
     await _flattenSameName(outDir);
   }
 
   /// If outDir contains exactly one subfolder with the same name as outDir itself,
-  /// move its contents up and delete it. Fixes "会社/游戏名/游戏名" double-nesting.
+  /// copy its contents up and delete it. Fixes "会社/游戏名/游戏名" double-nesting.
   Future<void> _flattenSameName(String outDir) async {
     final dir = Directory(outDir);
     List<FileSystemEntity> entries;
@@ -545,12 +490,34 @@ class DownloadService {
     final parentName = outDir.split(Platform.pathSeparator).last;
     if (childName != parentName) return;
 
+    // Copy everything up, then delete the now-empty folder
     try {
-      for (final child in await single.list().toList()) {
-        await child.rename("$outDir/${child.uri.pathSegments.last}");
+      await _copyDirUp(single.path, outDir);
+      await single.delete(recursive: true);
+    } catch (_) {
+      // Last resort: use shell command
+      try {
+        await Process.run(
+          Platform.isWindows ? "cmd" : "sh",
+          Platform.isWindows
+              ? ["/c", "move", "${single.path}\\*", outDir, ">nul", "&&", "rmdir", "/s", "/q", single.path]
+              : ["-c", "mv '${single.path}'/* '$outDir/' && rmdir '${single.path}'"],
+        );
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _copyDirUp(String from, String to) async {
+    await for (final child in Directory(from).list()) {
+      final name = child.uri.pathSegments.last;
+      if (child is Directory) {
+        await _copyDirUp(child.path, "$to/$name");
+        await child.delete(recursive: true);
+      } else if (child is File) {
+        await child.copy("$to/$name");
+        await child.delete();
       }
-      await single.delete();
-    } catch (_) {}
+    }
   }
 
   Future<void> _runTool(String exe, List<String> args,
