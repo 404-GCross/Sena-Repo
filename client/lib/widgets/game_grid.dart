@@ -174,11 +174,12 @@ class _LunaBoxCardState extends State<_LunaBoxCard> {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                          style: AppText.bodySmall.copyWith(
+                              fontWeight: FontWeight.w700,
                               color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87)),
                       Text(game.developer ?? game.companyName ?? "",
                           maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11,
+                          style: AppText.caption.copyWith(
                               color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.grey[600])),
                     ],
                   ),
@@ -232,14 +233,14 @@ class _GameCard extends StatelessWidget {
                 ? Image.network("$coverBaseUrl/api/files/covers${game.coverPath!}",
                     fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholder())
                 : _placeholder())),
-          Expanded(flex: 1, child: Padding(padding: const EdgeInsets.all(8),
+          Expanded(flex: 1, child: Padding(padding: const EdgeInsets.all(AppGap.sm),
             child: Column(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.center, children: [
               Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              const SizedBox(height: 2),
+                  style: AppText.bodySmall.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: AppGap.xs),
               Text(game.developer ?? game.companyName ?? "",
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: subTextColor(context), fontSize: 11)),
+                  style: AppText.caption.copyWith(color: subTextColor(context))),
             ]))),
         ]),
       ),

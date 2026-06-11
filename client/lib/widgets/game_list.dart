@@ -29,15 +29,15 @@ class GameList extends StatelessWidget {
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         final columns = w > 1600 ? 3 : w > 1000 ? 2 : 1;
-        final colWidth = (w - 16) / columns;
+        final colWidth = (w - AppGap.lg) / columns;
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: AppGap.sm),
           child: Wrap(
-            spacing: 8, runSpacing: 4,
+            spacing: AppGap.sm, runSpacing: AppGap.xs,
             children: games.map((game) => Stack(children: [
               SizedBox(
-                width: colWidth - (columns > 1 ? 8 : 0),
+                width: colWidth - (columns > 1 ? AppGap.sm : 0),
                 child: _GameListTile(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl),
               ),
               if (multiSelect)
@@ -95,7 +95,7 @@ class _GameListTileState extends State<_GameListTile> {
               ? (Matrix4.identity()..translate(0.0, -1.0))
               : Matrix4.identity(),
           margin: const EdgeInsets.symmetric(vertical: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: AppGap.md, vertical: AppGap.sm),
           decoration: BoxDecoration(
             color: _hovered
                 ? Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
@@ -107,7 +107,6 @@ class _GameListTileState extends State<_GameListTile> {
           ),
           child: Row(
             children: [
-              // Cover thumbnail
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: SizedBox(
@@ -121,8 +120,7 @@ class _GameListTileState extends State<_GameListTile> {
                       : _placeholder(),
                 ),
               ),
-              const SizedBox(width: 12),
-              // Info
+              const SizedBox(width: AppGap.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -132,25 +130,24 @@ class _GameListTileState extends State<_GameListTile> {
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     Text(game.developer ?? game.companyName ?? "",
-                        style: TextStyle(fontSize: 12, color: hintColor(context))),
+                        style: AppText.bodySmall.copyWith(color: hintColor(context))),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              // Tags
+              const SizedBox(width: AppGap.sm),
               if (game.tagNames.isNotEmpty)
                 ...game.tagNames.take(3).map((t) => Padding(
-                      padding: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.only(right: AppGap.xs),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: AppGap.sm, vertical: 2),
                         decoration: BoxDecoration(
                           color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(t, style: const TextStyle(fontSize: 11)),
+                        child: Text(t, style: AppText.caption),
                       ),
                     )),
-              const SizedBox(width: 4),
+              const SizedBox(width: AppGap.xs),
               Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
             ],
           ),
