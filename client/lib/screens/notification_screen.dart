@@ -131,12 +131,19 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       title: Text(n["title"] ?? ""),
                       subtitle: Text(n["body"] ?? "", maxLines: 2),
                       trailing: Text(
-                        (n["created_at"] ?? "").toString().substring(0, 16).replaceAll("T", " "),
+                        _fmtTime(n["created_at"]),
                         style: const TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                     )),
               ],
             ),
     );
+  }
+
+  String _fmtTime(dynamic ts) {
+    if (ts == null) return "";
+    final s = ts.toString();
+    final end = s.length >= 16 ? 16 : s.length;
+    return s.substring(0, end).replaceAll("T", " ");
   }
 }

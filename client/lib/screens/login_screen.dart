@@ -24,6 +24,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _regAsAdmin = false;
 
   Future<void> _login() async {
+    if (_userCtrl.text.trim().isEmpty || _passCtrl.text.isEmpty) {
+      setState(() => _error = "请输入用户名和密码");
+      return;
+    }
     setState(() { _loading = true; _error = null; });
     try {
       final resp = await http.post(
@@ -47,6 +51,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _register() async {
+    if (_userCtrl.text.trim().isEmpty) {
+      setState(() => _error = "请输入用户名");
+      return;
+    }
+    if (_passCtrl.text.isEmpty || _passCtrl.text.length < 4) {
+      setState(() => _error = "密码至少4位");
+      return;
+    }
     if (_passCtrl.text != _passConfirmCtrl.text) {
       setState(() => _error = "两次密码不一致");
       return;

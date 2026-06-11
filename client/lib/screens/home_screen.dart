@@ -581,50 +581,49 @@ class _HomeScreenState extends State<HomeScreen> {
           Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
         Scaffold(
       body: Row(children: [
-        // ── Left Sidebar ──
-        SizedBox(
-          width: 72,
-          child: Column(children: [
-            const SizedBox(height: 12),
-            // Notification (always first, doesn't shift)
-            IconButton(
-              icon: Badge(
-                isLabelVisible: _unreadCount > 0,
-                label: Text("$_unreadCount", style: const TextStyle(fontSize: 10)),
-                child: const Icon(Icons.notifications_outlined, size: 22),
+        // ── Left Sidebar (desktop/wide only) ──
+        if (wide) ...[
+          SizedBox(
+            width: 72,
+            child: Column(children: [
+              const SizedBox(height: 12),
+              IconButton(
+                icon: Badge(
+                  isLabelVisible: _unreadCount > 0,
+                  label: Text("$_unreadCount", style: const TextStyle(fontSize: 10)),
+                  child: const Icon(Icons.notifications_outlined, size: 22),
+                ),
+                onPressed: () async {
+                  await Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
+                  try {
+                    final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
+                    if (r.statusCode == 200 && mounted) {
+                      setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
+                    }
+                  } catch (_) {}
+                },
+                tooltip: "通知",
               ),
-              onPressed: () async {
-                await Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
-                try {
-                  final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
-                  if (r.statusCode == 200 && mounted) {
-                    setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
-                  }
-                } catch (_) {}
-              },
-              tooltip: "通知",
-            ),
-            // Download manager entry
-            IconButton(
-              icon: Badge(
-                isLabelVisible: _downloadCount > 0,
-                label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
-                child: const Icon(Icons.download_outlined, size: 22),
+              IconButton(
+                icon: Badge(
+                  isLabelVisible: _downloadCount > 0,
+                  label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
+                  child: const Icon(Icons.download_outlined, size: 22),
+                ),
+                onPressed: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
+                tooltip: "下载管理",
               ),
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
-              tooltip: "下载管理",
-            ),
-            const Spacer(),
-            // Nav tabs centered
-            _navTab(Icons.gamepad, Icons.gamepad_outlined, "游戏库", 0),
-            if (showSteam) _navTab(FontAwesomeIcons.steam, FontAwesomeIcons.steam, "Steam", 1),
-            _navTab(Icons.person, Icons.person_outlined, "我的", showSteam ? 2 : 1),
-            const Spacer(),
-          ]),
-        ),
-        const VerticalDivider(width: 1),
+              const Spacer(),
+              _navTab(Icons.gamepad, Icons.gamepad_outlined, "游戏库", 0),
+              if (showSteam) _navTab(FontAwesomeIcons.steam, FontAwesomeIcons.steam, "Steam", 1),
+              _navTab(Icons.person, Icons.person_outlined, "我的", showSteam ? 2 : 1),
+              const Spacer(),
+            ]),
+          ),
+          const VerticalDivider(width: 1),
+        ],
         // ── Content ──
         Expanded(
           child: Column(children: [
