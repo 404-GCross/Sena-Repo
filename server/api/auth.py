@@ -335,6 +335,18 @@ class ProfileUpdate(BaseModel):
     new_password: str | None = None
 
 
+@router.get("/profile/me")
+async def get_my_profile(
+    current: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get current user profile from token."""
+    return {
+        "id": current.id, "username": current.username,
+        "is_admin": current.is_admin, "avatar_path": current.avatar_path,
+    }
+
+
 @router.get("/profile/{user_id}")
 async def get_profile(user_id: int, session: AsyncSession = Depends(get_session)):
     """Get user profile info."""

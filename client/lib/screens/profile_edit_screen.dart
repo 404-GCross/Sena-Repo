@@ -32,6 +32,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
+  Future<Map<String, String>> get _authHeaders async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("auth_token") ?? "";
+    return {"Authorization": "Bearer $token", "Content-Type": "application/json"};
+  }
+
   @override
   void initState() {
     super.initState();
@@ -39,18 +45,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _loadUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("auth_token");
-    if (token == null) return;
-    _userId = int.tryParse(token) ?? 0;
-
     try {
-      final resp = await http.get(Uri.parse("$_baseUrl/api/auth/profile/$_userId"));
+      final resp = await http.get(
+        Uri.parse("$_baseUrl/api/auth/profile/me"),
+        headers: await _authHeaders);
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         if (mounted) setState(() {
           _userCtrl.text = data["username"] ?? "";
           _avatarPath = data["avatar_path"];
+          _userId = data["id"] ?? 0;
           _loading = false;
         });
       }
@@ -74,7 +78,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       if (body.isNotEmpty) {
         final resp = await http.put(
           Uri.parse("$_baseUrl/api/auth/profile/$_userId"),
-          headers: {"Content-Type": "application/json"},
+          headers: await _authHeaders,
           body: jsonEncode(body),
         );
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -105,6 +109,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     try {
       final uri = Uri.parse("$_baseUrl/api/auth/profile/$_userId/avatar");
       final request = http.MultipartRequest("POST", uri);
+      final h = await _authHeaders;
+      request.headers.addAll(h);
       request.files.add(await http.MultipartFile.fromPath("file", result.files.single.path!));
       final resp = await request.send();
       if (resp.statusCode == 200) {
