@@ -473,7 +473,7 @@ class DownloadService {
       final out = <int>[];
       proc.stdout.listen((d) => out.addAll(d));
       proc.stderr.drain<void>();
-      await proc.exitCode.timeout(const Duration(seconds: 30));
+      await proc.exitCode.timeout(const Duration(seconds: 60));
 
       final text = String.fromCharCodes(out);
       final lines = text.split("\n");
@@ -523,10 +523,34 @@ class DownloadService {
       return;
     }
 
-    // Multiple top-level items — extract to outDir as normal
+    // Multiple top-level items (or pre-scan failed) — extract to outDir as normal
     try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
     await _runTool(exe, ["x", "-y", "-o$outDir", filePath],
         onProgress: onProgress);
+
+    // Safety net: flatten if archive created a single same-name subfolder
+    await _flattenSameName(outDir);
+  }
+
+  /// If outDir contains exactly one subfolder with the same name as outDir itself,
+  /// move its contents up and delete it. Fixes "会社/游戏名/游戏名" double-nesting.
+  Future<void> _flattenSameName(String outDir) async {
+    final dir = Directory(outDir);
+    List<FileSystemEntity> entries;
+    try { entries = await dir.list().toList(); } catch (_) { return; }
+    if (entries.length != 1) return;
+    final single = entries.first;
+    if (single is! Directory) return;
+    final childName = single.uri.pathSegments.last;
+    final parentName = outDir.split(Platform.pathSeparator).last;
+    if (childName != parentName) return;
+
+    try {
+      for (final child in await single.list().toList()) {
+        await child.rename("$outDir/${child.uri.pathSegments.last}");
+      }
+      await single.delete();
+    } catch (_) {}
   }
 
   Future<void> _runTool(String exe, List<String> args,
