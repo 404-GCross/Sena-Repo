@@ -393,9 +393,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed != true || !mounted) return;
     try {
       final base = context.read<GameProvider>().api.baseUrl;
-      await http.post(Uri.parse("$base/api/games/batch-delete"),
+      final resp = await http.post(Uri.parse("$base/api/games/batch-delete"),
           headers: {"Content-Type": "application/json"},
           body: jsonEncode({"game_ids": _selectedIds.toList()}));
+      if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       await context.read<GameProvider>().loadGames();
       setState(() { _selectedIds.clear(); _multiSelect = false; });
     } catch (e) {
@@ -406,9 +407,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _batchScrape() async {
     try {
       final base = context.read<GameProvider>().api.baseUrl;
-      await http.post(Uri.parse("$base/api/scrape/batch"),
+      final resp = await http.post(Uri.parse("$base/api/scrape/batch"),
           headers: {"Content-Type": "application/json"},
           body: jsonEncode({"game_ids": _selectedIds.toList()}));
+      if (resp.statusCode != 200) {
+        throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
+      }
       if (mounted) {
         showDialog(context: context, builder: (c) => AlertDialog(
           title: const Text("批量刮削"), content: Text("已触发 ${_selectedIds.length} 个游戏的刮削任务"),
