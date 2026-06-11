@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import get_current_user
 from database import get_session
+from models.user import User
 from models.game import Game, GameTag
 from models.tag import Tag
 from schemas.common import MessageResponse

@@ -8,7 +8,9 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from api.auth import get_current_user
 from database import get_session
+from models.user import User
 from models.game import Company, Game, GameVersion, GameTag
 from models.ignore_list import IgnoreList
 from models.tag import Tag
@@ -214,6 +216,7 @@ async def get_game(
 @router.delete("/{game_id}", response_model=MessageResponse)
 async def delete_game(
     game_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Soft-delete a game: mark as deleted and add folder to ignore list."""
@@ -247,6 +250,7 @@ class BatchDeleteRequest(BaseModel):
 @router.post("/batch-delete", response_model=MessageResponse)
 async def batch_delete_games(
     body: BatchDeleteRequest,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Soft-delete multiple games at once."""
@@ -283,6 +287,7 @@ class QuickCreate(BaseModel):
 @router.put("/quick-create")
 async def quick_create_game(
     body: QuickCreate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Quick-create a minimal game entry (for version moving)."""
@@ -308,6 +313,7 @@ class GameUpdate(BaseModel):
 async def update_game(
     game_id: int,
     body: GameUpdate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Edit game metadata."""
@@ -353,6 +359,7 @@ async def move_version(
 async def merge_games(
     from_id: int,
     to_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Merge game A into game B: move all versions and delete game A."""
