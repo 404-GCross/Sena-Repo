@@ -6,21 +6,30 @@ import hashlib
 import secrets
 from datetime import datetime
 
+import bcrypt
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 
 from database import Base
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
-    """Hash a password with a random salt. Returns (hash, salt)."""
+    """Hash a password with bcrypt (preferred) or SHA-256 (legacy)."""
     if salt is None:
-        salt = secrets.token_hex(16)
-    h = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-    return h, salt
+        # bcrypt: salt is embedded in the hash, use placeholder
+        h = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        return h, "bcrypt"
+    else:
+        # Legacy SHA-256 path (migration)
+        h = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        return h, salt
 
 
 def verify_password(password: str, salt: str, stored_hash: str) -> bool:
-    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == stored_hash
+    """Verify password, supporting both bcrypt and legacy SHA-256."""
+    if salt == "bcrypt":
+        return bcrypt.checkpw(password.encode(), stored_hash.encode())
+    else:
+        return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == stored_hash
 
 
 class User(Base):
@@ -28,10 +37,11 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(128), nullable=False, unique=True)
-    password_hash = Column(String(128), nullable=False)
+    password_hash = Column(String(256), nullable=False)  # 256 for bcrypt
     salt = Column(String(64), nullable=False)
     is_admin = Column(Boolean, default=False)
     status = Column(String(16), default="active")  # active, pending, rejected
+    token = Column(String(64), nullable=True, unique=True)  # random auth token
     avatar_path = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

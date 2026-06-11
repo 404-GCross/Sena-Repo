@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
@@ -20,22 +22,37 @@ async def get_current_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    """Validate Bearer token and return current user."""
+    """Validate Bearer token and return current user.
+
+    Supports both legacy tokens (plain user ID) and new random tokens.
+    """
     if not authorization:
         raise HTTPException(status_code=401, detail="未登录")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="无效的认证格式")
     token = authorization.removeprefix("Bearer ")
+
+    # Try new random token first
+    result = await session.execute(
+        select(User).where(User.token == token, User.status == "active"))
+    user = result.scalar_one_or_none()
+    if user is not None:
+        return user
+
+    # Fallback: legacy token = plain user ID
     try:
         user_id = int(token)
     except ValueError:
         raise HTTPException(status_code=401, detail="无效的令牌")
-    result = await session.execute(select(User).where(User.id == user_id))
+    result = await session.execute(
+        select(User).where(User.id == user_id, User.status == "active"))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
-    if user.status != "active":
-        raise HTTPException(status_code=403, detail="账户未激活或被禁用")
+    # Upgrade legacy token to random token
+    if user.token is None:
+        user.token = secrets.token_hex(32)
+        await session.commit()
     return user
 
 
@@ -82,8 +99,12 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
     if user.status == "rejected":
         raise HTTPException(status_code=403, detail="账户已被拒绝")
 
+    # Generate random token if not set (migration)
+    if user.token is None:
+        user.token = secrets.token_hex(32)
+        await session.commit()
     return LoginResponse(
-        token=str(user.id),
+        token=user.token,
         is_admin=user.is_admin,
         username=user.username,
     )
@@ -109,9 +130,9 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         salt=salt,
         is_admin=is_first or body.is_admin,
         status="active" if is_first else "pending",
+        token=secrets.token_hex(32),
     )
     session.add(user)
-    await session.flush()
 
     if not is_first:
         # Notify all admins about this registration
@@ -165,6 +186,7 @@ async def create_user(body: CreateUserRequest, _admin: User = Depends(require_ad
         salt=salt,
         is_admin=body.is_admin,
         status="active",
+        token=secrets.token_hex(32),
     )
     session.add(user)
     await session.commit()
@@ -328,13 +350,15 @@ async def get_profile(user_id: int, session: AsyncSession = Depends(get_session)
 
 @router.put("/profile/{user_id}")
 async def update_profile(
-    user_id: int, body: ProfileUpdate, session: AsyncSession = Depends(get_session),
+    user_id: int, body: ProfileUpdate, current: User = Depends(get_current_user), session: AsyncSession = Depends(get_session),
 ):
     """Update username and/or password."""
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if current.id != user.id and not current.is_admin:
+        raise HTTPException(status_code=403, detail="只能修改自己的资料")
 
     if body.new_password:
         if not body.current_password:
@@ -361,6 +385,7 @@ async def update_profile(
 async def upload_avatar(
     user_id: int,
     file: UploadFile = File(...),
+    current: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Upload or update user avatar."""
@@ -371,6 +396,12 @@ async def upload_avatar(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if current.id != user.id and not current.is_admin:
+        raise HTTPException(status_code=403, detail="只能修改自己的头像")
+
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:  # 5 MB limit
+        raise HTTPException(status_code=400, detail="文件过大，最大 5MB")
 
     ext = Path(file.filename or "avatar.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
@@ -383,7 +414,7 @@ async def upload_avatar(
     import uuid
     name = f"{user_id}_{uuid.uuid4().hex[:8]}{ext}"
     dest = avatars_dir / name
-    dest.write_bytes(await file.read())
+    dest.write_bytes(contents)
 
     user.avatar_path = str(dest)
     await session.commit()

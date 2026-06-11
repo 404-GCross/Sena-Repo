@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import ipaddress
+from urllib.parse import urlparse
 from datetime import datetime
 
 import httpx
@@ -25,6 +27,20 @@ from services.scraper.orchestrator import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["scraper"])
+
+
+def _validate_public_url(url: str) -> None:
+    """Reject non-HTTP(S) and internal/private URLs (SSRF prevention)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="仅支持 HTTP/HTTPS URL")
+    if parsed.hostname:
+        try:
+            ip = ipaddress.ip_address(parsed.hostname)
+            if ip.is_loopback or ip.is_private or ip.is_link_local:
+                raise HTTPException(status_code=400, detail="不允许使用内网地址")
+        except ValueError:
+            pass  # Hostname (not IP) is fine
 
 
 class BatchScrapeRequest(BaseModel):
@@ -94,6 +110,7 @@ async def scrape_apply(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if cover_url:
+        _validate_public_url(cover_url)
         config = load_config()
         client_kwargs = {"timeout": httpx.Timeout(30.0)}
         if config.proxy:
@@ -334,6 +351,7 @@ async def update_game_cover(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if cover_url:
+        _validate_public_url(cover_url)
         config = load_config()
         covers_dir = config.covers_path
         covers_dir.mkdir(parents=True, exist_ok=True)
