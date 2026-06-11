@@ -885,6 +885,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: Image.network(coverUrl, width: 90, height: 120, fit: BoxFit.cover,
+                              loadingBuilder: (_, child, progress) {
+                                if (progress == null) return child;
+                                return Container(width: 90, height: 120,
+                                  color: Colors.grey.withValues(alpha: 0.15),
+                                  child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                                    value: progress.expectedTotalBytes != null
+                                        ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                        : null)));
+                              },
                               errorBuilder: (_, __, ___) => _coverPlaceholderSmall()),
                         ),
                       ]),
