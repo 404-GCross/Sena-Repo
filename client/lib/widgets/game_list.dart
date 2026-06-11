@@ -129,7 +129,7 @@ class _GameListTileState extends State<_GameListTile> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(AppText.body, fontWeight: FontWeight.w600)),
+                      style: const AppText.body.copyWith( fontWeight: FontWeight.w600)),
                   const SizedBox(height: 3),
                   Text(game.developer ?? game.companyName ?? "",
                       maxLines: 1, overflow: TextOverflow.ellipsis,

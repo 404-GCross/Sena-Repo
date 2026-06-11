@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from config import load_config
@@ -90,6 +91,26 @@ async def list_patches():
             })
 
     return {"patches": patches, "count": len(patches)}
+
+
+@router.get("/patches/{app_id}/download")
+async def download_patch(app_id: str):
+    """Download a patch file for the given Steam App ID."""
+    config = load_config()
+    patches_dir = Path(config.data_path) / "steam_patches"
+
+    if not patches_dir.exists():
+        raise HTTPException(status_code=404, detail="补丁目录不存在")
+
+    patch_file = _find_patch(patches_dir, app_id)
+    if patch_file is None:
+        raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁文件")
+
+    return FileResponse(
+        path=str(patch_file),
+        filename=patch_file.name,
+        media_type="application/octet-stream",
+    )
 
 
 def _find_patch(patches_dir: Path, app_id: str) -> Path | None:

@@ -237,7 +237,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         title: const Text("合并到哪个游戏？"),
         content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text("当前游戏的所有版本将移至目标游戏，当前游戏将被删除。",
-              style: TextStyle(AppText.label, color: hintColor(context))),
+              style: AppText.label.copyWith( color: hintColor(context))),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: TextField(controller: searchCtrl, autofocus: true,
@@ -394,7 +394,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     child: Row(children: [
       Icon(Icons.info_outline, size: 18, color: hintColor(context)),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(AppText.bodyMedium, color: hintColor(context))),
+      Text(text, style: AppText.bodyMedium.copyWith( color: hintColor(context))),
     ]),
   );
 
@@ -467,7 +467,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     if (g.companyName != null && g.companyName!.isNotEmpty)
                       Text(g.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context)))
                     else
-                      Text("无公司信息", style: TextStyle(AppText.bodyMedium, color: Colors.grey[600])),
+                      Text("无公司信息", style: AppText.bodyMedium.copyWith( color: Colors.grey[600])),
                     const SizedBox(height: 12),
                     Row(children: [
                       _sourceBadge("VNDB", g.vndbId),
@@ -548,7 +548,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                     color: _platformColor(v.platform).withValues(alpha: 0.15),
                                   ),
-                                  child: Text(v.platform, style: TextStyle(AppText.label, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
+                                  child: Text(v.platform, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
                                 ),
                                 PopupMenuButton<String>(
                                   icon: const Icon(Icons.more_vert, size: 18),
@@ -584,14 +584,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       decoration: _dec(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         hintText: "游戏简介..."),
-                      style: const TextStyle(AppText.body, height: 1.6)),
+                      style: const AppText.body.copyWith( height: 1.6)),
                     const SizedBox(height: 20),
                     _section("备注", Icons.note_outlined),
                     TextField(controller: _notes, maxLines: 4,
                       decoration: _dec(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         hintText: "个人备注..."),
-                      style: const TextStyle(AppText.body, height: 1.6)),
+                      style: const AppText.body.copyWith( height: 1.6)),
                     const SizedBox(height: 20),
                     _section("背景图 URL", Icons.image_outlined),
                     const SizedBox(height: 4),
@@ -641,7 +641,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
           if (active)
             Padding(padding: const EdgeInsets.only(right: 4),
               child: Icon(Icons.check_circle, size: 12, color: Colors.green[300])),
-          Text(label, style: TextStyle(AppText.label, fontWeight: FontWeight.w500, color: active ? Colors.green[300] : Colors.grey)),
+          Text(label, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: active ? Colors.green[300] : Colors.grey)),
         ])));
   }
 
@@ -732,7 +732,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 14)),
                     subtitle: Text([r["developer"], r["release_date"]]
                         .where((s) => s != null && s.toString().isNotEmpty).join(" · "),
-                        maxLines: 1, style: TextStyle(AppText.label, color: hintColor(context))),
+                        maxLines: 1, style: AppText.label.copyWith( color: hintColor(context))),
                     trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: () => Navigator.pop(ctx, r),
                   );
@@ -822,7 +822,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     child: Row(children: [
                       Icon(Icons.info_outline, size: 18, color: hintColor(context)),
                       const SizedBox(width: 8),
-                      Text("所有字段与现有数据一致，无需更新", style: TextStyle(AppText.bodySmall, color: hintColor(context))),
+                      Text("所有字段与现有数据一致，无需更新", style: AppText.bodySmall.copyWith( color: hintColor(context))),
                     ]),
                   ),
                 ...fields.keys.map((f) {
@@ -839,7 +839,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Text(f, style: TextStyle(AppText.bodySmall, fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        Text(f, style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
                         const Spacer(),
                         if (hasDiff)
                           Container(
@@ -848,7 +848,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                               color: Colors.green.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Text("有变更", style: TextStyle(AppText.caption, color: Colors.green[300])),
+                            child: Text("有变更", style: AppText.caption.copyWith( color: Colors.green[300])),
                           ),
                       ]),
                       const SizedBox(height: 10),
@@ -862,7 +862,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(cur.isEmpty ? "(空)" : cur,
-                                  style: TextStyle(AppText.bodyMedium, color: hintColor(context),
+                                  style: AppText.bodyMedium.copyWith( color: hintColor(context),
                                       decoration: TextDecoration.lineThrough)),
                             ),
                           ),
@@ -878,7 +878,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(inc.length > 80 ? "${inc.substring(0, 80)}..." : inc,
-                                  style: const TextStyle(AppText.bodyMedium, color: Colors.green)),
+                                  style: const AppText.bodyMedium.copyWith( color: Colors.green)),
                             ),
                           ),
                         ])
@@ -889,7 +889,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             color: cardBg(context),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(cur.isEmpty ? "(空)" : cur, style: TextStyle(AppText.bodyMedium, color: subTextColor(context))),
+                          child: Text(cur.isEmpty ? "(空)" : cur, style: AppText.bodyMedium.copyWith( color: subTextColor(context))),
                         ),
                       if (hasDiff)
                         Padding(
@@ -924,7 +924,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Text("封面", style: TextStyle(AppText.bodySmall, fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        Text("封面", style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
                         const Spacer(),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -932,7 +932,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             color: Colors.green.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text("有变更", style: TextStyle(AppText.caption, color: Colors.green[300])),
+                          child: Text("有变更", style: AppText.caption.copyWith( color: Colors.green[300])),
                         ),
                       ]),
                       const SizedBox(height: 10),

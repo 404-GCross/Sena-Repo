@@ -158,10 +158,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                       borderRadius: BorderRadius.circular(12),
                                       color: _platformColor(v.platform).withValues(alpha: 0.15),
                                     ),
-                                    child: Text(v.platform, style: TextStyle(AppText.label, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
+                                    child: Text(v.platform, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
                                   ),
                                   const SizedBox(width: 10),
-                                  Text(_formatSize(v.fileSize), style: TextStyle(AppText.label, color: hintColor(context))),
+                                  Text(_formatSize(v.fileSize), style: AppText.label.copyWith( color: hintColor(context))),
                                 ]),
                               ),
                               if (!isLast) _divider(),
@@ -248,7 +248,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     child: Row(children: [
       Icon(Icons.info_outline, size: 18, color: hintColor(context)),
       const SizedBox(width: 8),
-      Text(text, style: TextStyle(AppText.bodyMedium, color: hintColor(context))),
+      Text(text, style: AppText.bodyMedium.copyWith( color: hintColor(context))),
     ]),
   );
 
@@ -271,9 +271,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           const SizedBox(width: 8),
         ],
         SizedBox(width: 70, child: Padding(padding: const EdgeInsets.only(top: 1),
-          child: Text(label, style: TextStyle(AppText.bodyMedium, color: hintColor(context))))),
+          child: Text(label, style: AppText.bodyMedium.copyWith( color: hintColor(context))))),
         Expanded(child: Text(value?.isNotEmpty == true ? value! : "—",
-            style: TextStyle(AppText.body, color: value?.isNotEmpty == true ? null : Colors.grey[700]))),
+            style: AppText.body.copyWith( color: value?.isNotEmpty == true ? null : Colors.grey[700]))),
       ]),
     );
   }
@@ -293,7 +293,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           if (active)
             Padding(padding: const EdgeInsets.only(right: 4),
               child: Icon(Icons.check_circle, size: 12, color: Colors.green[300])),
-          Text(label, style: TextStyle(AppText.label, fontWeight: FontWeight.w500, color: active ? Colors.green[300] : Colors.grey)),
+          Text(label, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: active ? Colors.green[300] : Colors.grey)),
         ])));
   }
 
@@ -406,9 +406,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                     Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(v.filename, style: const TextStyle(AppText.bodyMedium, fontWeight: FontWeight.w500)),
+                        Text(v.filename, style: const AppText.bodyMedium.copyWith( fontWeight: FontWeight.w500)),
                         const SizedBox(height: 2),
-                        Text(_formatSize(v.fileSize), style: TextStyle(AppText.label, color: hintColor(context))),
+                        Text(_formatSize(v.fileSize), style: AppText.label.copyWith( color: hintColor(context))),
                       ],
                     )),
                     Container(
@@ -417,7 +417,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         borderRadius: BorderRadius.circular(10),
                         color: _platformColor(v.platform).withValues(alpha: 0.12),
                       ),
-                      child: Text(v.platform, style: TextStyle(AppText.label, fontWeight: FontWeight.w500,
+                      child: Text(v.platform, style: AppText.label.copyWith( fontWeight: FontWeight.w500,
                           color: _platformColor(v.platform))),
                     ),
                   ]),
@@ -499,7 +499,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         children: [
           Text("${_task.companyName}/${_task.gameName}",
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(AppText.label, color: hintColor(context))),
+              style: AppText.label.copyWith( color: hintColor(context))),
           const SizedBox(height: 16),
           _buildProgressSection(),
         ],
@@ -571,8 +571,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           const SizedBox(height: 8),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text("${(_task.progress * 100).toStringAsFixed(0)}%",
-                style: TextStyle(AppText.bodyMedium, fontWeight: FontWeight.w600)),
-            Text("下载中...", style: TextStyle(AppText.bodySmall, color: subTextColor(context))),
+                style: AppText.bodyMedium.copyWith( fontWeight: FontWeight.w600)),
+            Text("下载中...", style: AppText.bodySmall.copyWith( color: subTextColor(context))),
           ]),
         ]);
       case "extracting":
@@ -580,14 +580,14 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           const SizedBox(width: 20, height: 20,
               child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: 12),
-          Text("正在解压...", style: TextStyle(AppText.bodyMedium, color: Colors.orange[300])),
+          Text("正在解压...", style: AppText.bodyMedium.copyWith( color: Colors.orange[300])),
         ]);
       case "done":
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(Icons.check_circle, color: Colors.green[300], size: 20),
             const SizedBox(width: 8),
-            Text("下载并解压完成", style: TextStyle(AppText.body, color: Colors.green[300])),
+            Text("下载并解压完成", style: AppText.body.copyWith( color: Colors.green[300])),
           ]),
           if (_task.outputPath != null) ...[
             const SizedBox(height: 8),
@@ -598,7 +598,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(_task.outputPath!,
-                  style: TextStyle(AppText.label, color: subTextColor(context), fontFamily: "monospace")),
+                  style: AppText.label.copyWith( color: subTextColor(context), fontFamily: "monospace")),
             ),
           ],
         ]);
@@ -607,7 +607,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           Icon(Icons.error, color: Colors.red[300], size: 20),
           const SizedBox(width: 8),
           Expanded(child: Text(_task.error ?? "下载失败",
-              style: TextStyle(AppText.bodySmall, color: Colors.red[300]))),
+              style: AppText.bodySmall.copyWith( color: Colors.red[300]))),
         ]);
     }
   }

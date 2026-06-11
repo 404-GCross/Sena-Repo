@@ -229,7 +229,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
           const SizedBox(height: 8),
           Text(widget.game.name, maxLines: 2, overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: TextStyle(AppText.label, color: cs.onSurface.withValues(alpha: 0.5))),
+            style: AppText.label.copyWith( color: cs.onSurface.withValues(alpha: 0.5))),
         ]),
       ),
     );

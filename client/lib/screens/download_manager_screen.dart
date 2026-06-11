@@ -72,7 +72,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
             Expanded(
               child: Text(_downloadDir.isEmpty ? "加载中..." : _downloadDir,
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(AppText.bodySmall, color: subTextColor(context))),
+                  style: AppText.bodySmall.copyWith( color: subTextColor(context))),
             ),
             const SizedBox(width: 8),
             TextButton.icon(
@@ -111,7 +111,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           _statusIcon(t.status),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(t.fileName, style: const TextStyle(AppText.bodyMedium, fontWeight: FontWeight.w500)),
+            child: Text(t.fileName, style: const AppText.bodyMedium.copyWith( fontWeight: FontWeight.w500)),
           ),
           if (t.status == "downloading" || t.status == "extracting")
             Row(mainAxisSize: MainAxisSize.min, children: [
@@ -122,7 +122,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                 ),
               TextButton(
                 onPressed: () => DownloadService().cancelTask(t),
-                child: const Text("取消", style: TextStyle(AppText.label, color: Colors.red)),
+                child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
               ),
             ])
           else if (t.status == "paused")
@@ -135,13 +135,13 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               const SizedBox(width: 4),
               TextButton(
                 onPressed: () => DownloadService().cancelTask(t),
-                child: const Text("取消", style: TextStyle(AppText.label, color: Colors.red)),
+                child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
               ),
             ])
           else if (t.status == "pending")
             TextButton(
               onPressed: () => DownloadService().cancelTask(t),
-              child: const Text("取消", style: TextStyle(AppText.label, color: Colors.red)),
+              child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
             )
           else if (t.status == "failed")
             Row(mainAxisSize: MainAxisSize.min, children: [
@@ -165,7 +165,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         ]),
         const SizedBox(height: 4),
         Text("${t.companyName}/${t.gameName}",
-            style: TextStyle(AppText.label, color: hintColor(context))),
+            style: AppText.label.copyWith( color: hintColor(context))),
         if (t.status == "downloading" || t.status == "paused" || t.status == "extracting") ...[
           const SizedBox(height: 8),
           ClipRRect(
@@ -180,16 +180,16 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           const SizedBox(height: 4),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(t.status == "extracting" ? "解压中..." : "${(t.progress * 100).toStringAsFixed(0)}%",
-                style: TextStyle(AppText.caption, color: hintColor(context))),
+                style: AppText.caption.copyWith( color: hintColor(context))),
             if (t.status == "paused")
-              Text("已暂停", style: TextStyle(AppText.caption, color: Colors.orange[300])),
+              Text("已暂停", style: AppText.caption.copyWith( color: Colors.orange[300])),
           ]),
         ],
         if (t.status == "done" && t.outputPath != null)
           Text("已解压到: ${t.outputPath}",
-              style: TextStyle(AppText.caption, color: hintColor(context))),
+              style: AppText.caption.copyWith( color: hintColor(context))),
         if (t.error != null)
-          Text(t.error!, style: TextStyle(AppText.caption, color: Colors.red[300])),
+          Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
     );
   }

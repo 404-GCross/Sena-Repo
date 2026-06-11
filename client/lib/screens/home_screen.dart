@@ -150,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text("${gameProvider.games.length} 款游戏",
-                      style: TextStyle(AppText.label, fontWeight: FontWeight.w600,
+                      style: AppText.label.copyWith( fontWeight: FontWeight.w600,
                           color: Theme.of(context).colorScheme.primary)),
                 ),
                 const Spacer(),
@@ -186,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         Icon(Icons.close, size: 14, color: Colors.red[300]),
                         const SizedBox(width: 4),
-                        Text("清除", style: TextStyle(AppText.caption, color: Colors.red[300])),
+                        Text("清除", style: AppText.caption.copyWith( color: Colors.red[300])),
                       ]),
                     ),
                   ),
@@ -242,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[600])),
                       const SizedBox(width: 4),
                       Text(_sortLabel(gameProvider.sortBy),
-                          style: TextStyle(AppText.label, fontWeight: FontWeight.w500,
+                          style: AppText.label.copyWith( fontWeight: FontWeight.w500,
                               color: gameProvider.sortBy != null
                                   ? Theme.of(context).colorScheme.primary
                                   : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[700]))),
@@ -342,7 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             Icon(selected ? icon : outlined, size: 22,
                 color: selected ? Theme.of(context).colorScheme.primary : null),
-            Text(label, style: TextStyle(AppText.tabLabel, color: selected ? Theme.of(context).colorScheme.primary : null)),
+            Text(label, style: AppText.tabLabel.copyWith( color: selected ? Theme.of(context).colorScheme.primary : null)),
           ]),
         ),
       ),
