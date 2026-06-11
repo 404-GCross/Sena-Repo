@@ -17,13 +17,19 @@ logger = logging.getLogger(__name__)
 # Simple in-memory throttle to prevent hammering APIs
 _last_request_time: float = 0
 _throttle_lock: asyncio.Lock | None = None
+_throttle_lock_loop_id: int | None = None
 
 
 def _get_throttle_lock() -> asyncio.Lock:
-    """Lazy-init lock bound to current event loop."""
-    global _throttle_lock
-    if _throttle_lock is None:
+    """Return a lock bound to the current event loop (creates new one if loop changed)."""
+    global _throttle_lock, _throttle_lock_loop_id
+    try:
+        current_loop_id = id(asyncio.get_running_loop())
+    except RuntimeError:
+        return asyncio.Lock()  # No running loop, just create one
+    if _throttle_lock is None or _throttle_lock_loop_id != current_loop_id:
         _throttle_lock = asyncio.Lock()
+        _throttle_lock_loop_id = current_loop_id
     return _throttle_lock
 
 
