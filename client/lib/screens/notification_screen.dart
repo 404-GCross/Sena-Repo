@@ -4,6 +4,8 @@ import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "dart:convert";
 
+import "package:shared_preferences/shared_preferences.dart";
+
 import "../services/api_client.dart";
 
 class NotificationScreen extends StatefulWidget {
@@ -19,6 +21,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
   List<dynamic> _pendingUsers = [];
   bool _loading = true;
 
+  Future<Map<String, String>> get _authHeaders async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("auth_token") ?? "";
+    return {"Authorization": "Bearer $token", "Content-Type": "application/json"};
+  }
+
   @override
   void initState() {
     super.initState();
@@ -33,7 +41,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _loadNotifications() async {
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/notifications"));
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/auth/notifications"),
+        headers: await _authHeaders);
       if (resp.statusCode == 200) {
         _notifications = jsonDecode(resp.body) as List<dynamic>;
       }
@@ -42,7 +52,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _loadPending() async {
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/auth/pending"));
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/auth/pending"),
+        headers: await _authHeaders);
       if (resp.statusCode == 200) {
         _pendingUsers = jsonDecode(resp.body) as List<dynamic>;
       }
@@ -53,7 +65,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     try {
       await http.post(
         Uri.parse("${widget.api.baseUrl}/api/auth/approve"),
-        headers: {"Content-Type": "application/json"},
+        headers: await _authHeaders,
         body: jsonEncode({"user_id": userId, "approve": approve}),
       );
       await _load();
@@ -70,7 +82,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
           icon: const Icon(Icons.done_all),
           tooltip: "全部已读",
           onPressed: () async {
-            await http.post(Uri.parse("${widget.api.baseUrl}/api/auth/notifications/read-all"));
+            await http.post(Uri.parse("${widget.api.baseUrl}/api/auth/notifications/read-all"),
+                headers: await _authHeaders);
             _load();
           },
         ),
