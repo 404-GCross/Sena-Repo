@@ -305,10 +305,18 @@ class DownloadService {
 
         // Phase 2: extract
         t.status = "extracting";
-        t.progress = 1.0;
+        t.progress = 0.0;
         _emit();
         try {
-          await _extract(tmp.path, outDir);
+          await _extract(tmp.path, outDir, (p) {
+            if (p > t.progress) { t.progress = p; _emit(); }
+          });
+          t.progress = 1.0;
+          _emit();
+
+          // Auto-flatten: if archive contains a single folder, move contents up
+          await _flatten(outDir);
+
           await tmp.delete();
           break; // success
         } catch (e) {
@@ -451,37 +459,62 @@ class DownloadService {
 
   // ── extract ──
 
-  Future<void> _extract(String filePath, String outDir) async {
+  Future<void> _extract(String filePath, String outDir,
+      [void Function(double)? onProgress]) async {
     // Primary: bundled 7z (supports all formats incl. RAR via 7z.dll)
     try {
       final exe = await _getSevenZipPath();
-      try { await _runTool(exe, ["t", filePath], timeout: 300); } catch (_) {}
-      await _runTool(exe, ["x", "-y", "-o$outDir", filePath]);
+      try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+      await _runTool(exe, ["x", "-y", "-o$outDir", filePath], onProgress: onProgress);
       return;
     } catch (_) { /* fall through to system tools */ }
 
-    // Fallback 1: system 7z (handles RAR if 7-Zip GUI is installed)
+    // Fallback 1: system 7z
     try {
-      await _runTool("7z", ["x", "-y", "-o$outDir", filePath], timeout: 1800);
+      await _runTool("7z", ["x", "-y", "-o$outDir", filePath], onProgress: onProgress, timeout: 1800);
       return;
     } catch (_) {}
 
-    // Fallback 2: unar (cross-platform, many formats)
+    // Fallback 2: unar
     try {
-      await _runTool("unar", ["-o", outDir, filePath], timeout: 1800);
+      await _runTool("unar", ["-o", outDir, filePath], onProgress: onProgress, timeout: 1800);
       return;
     } catch (_) {}
 
     throw Exception("无法解压此格式。请安装 7-Zip 以支持 RAR 解压。");
   }
 
+  /// Auto-flatten: if outDir contains a single folder and no files,
+  /// move that folder's contents up one level.
+  Future<void> _flatten(String outDir) async {
+    final dir = Directory(outDir);
+    final entries = await dir.list().toList();
+    if (entries.length != 1) return;
+    final single = entries.first;
+    if (single is! Directory) return;
+    // Move children of single dir up to outDir
+    final tmp = "${outDir}_tmp";
+    await single.rename(tmp);
+    final children = await Directory(tmp).list().toList();
+    for (final child in children) {
+      await child.rename("$outDir/${child.uri.pathSegments.last}");
+    }
+    await Directory(tmp).delete(recursive: true);
+  }
+
   Future<void> _runTool(String exe, List<String> args,
-      {int timeout = 1800}) async {
+      {void Function(double)? onProgress, int timeout = 1800}) async {
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
 
-    // Consume stdout/stderr without buffering (prevents pipe deadlock)
-    final stdoutSub = proc.stdout.listen((_) {});
+    // Parse stdout for progress (7z outputs lines like " 45% 123 - name")
+    final stdoutSub = proc.stdout.listen(onProgress != null ? (chunk) {
+      final s = String.fromCharCodes(chunk);
+      final m = RegExp(r'\s+(\d+)%').allMatches(s);
+      for (final match in m) {
+        onProgress(int.parse(match.group(1)!) / 100.0);
+      }
+    } : (_) {});
     final stderrChunks = <int>[];
     final stderrSub = proc.stderr.listen((d) {
       if (stderrChunks.length < 8192) stderrChunks.addAll(d);
