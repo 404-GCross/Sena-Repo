@@ -72,6 +72,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         final savedToken = prefs.getString("auth_token");
         if (savedToken != null && savedToken.isNotEmpty) {
           // Token exists, skip login
+          api.setToken(savedToken);
         } else {
           // No token → show login
           final loginResult = await Navigator.push(
@@ -81,9 +82,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
           if (loginResult == null) return; // user went back
           // Save token for auto-login
           if (loginResult is Map) {
-            await prefs.setString("auth_token", loginResult["token"]?.toString() ?? "");
+            final token = loginResult["token"]?.toString() ?? "";
+            await prefs.setString("auth_token", token);
             await prefs.setString("username", loginResult["username"]?.toString() ?? "");
             await prefs.setBool("is_admin", loginResult["is_admin"] == true);
+            api.setToken(token);
             // Auto-save as profile
             await ProfileService().saveCurrentAsProfile(loginResult["username"]?.toString() ?? "默认");
           }

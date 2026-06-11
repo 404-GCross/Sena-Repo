@@ -10,9 +10,21 @@ import "../models/game.dart";
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
+  String? _token;
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
+  bool get isLoggedIn => _token != null;
+
+  Map<String, String> get headers {
+    if (_token != null && _token!.isNotEmpty) {
+      return {"Authorization": "Bearer $_token"};
+    }
+    // Fall back to reading from prefs for backward compat
+    return {};
+  }
+
+  void setToken(String? token) => _token = token;
 
   void connect(String host, {int port = 11451}) {
     _baseUrl = "http://$host:$port";
@@ -37,7 +49,7 @@ class ApiClient {
     if (rootId != null) params["root_id"] = rootId.toString();
 
     final uri = Uri.parse("$baseUrl/api/games").replace(queryParameters: params);
-    final resp = await _client.get(uri);
+    final resp = await _client.get(uri, headers: headers);
     if (resp.statusCode != 200) throw HttpException("Failed to load games");
 
     final List<dynamic> data = jsonDecode(resp.body);
@@ -46,20 +58,20 @@ class ApiClient {
 
 
   Future<GameDetail> getGame(int id) async {
-    final resp = await _client.get(Uri.parse("$baseUrl/api/games/$id"));
+    final resp = await _client.get(Uri.parse("$baseUrl/api/games/$id"), headers: headers);
     if (resp.statusCode != 200) throw HttpException("Game not found");
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   Future<void> deleteGame(int id) async {
-    final resp = await _client.delete(Uri.parse("$baseUrl/api/games/$id"));
+    final resp = await _client.delete(Uri.parse("$baseUrl/api/games/$id"), headers: headers);
     if (resp.statusCode != 200) throw HttpException("Failed to delete game");
   }
 
   // --- Tags ---
 
   Future<List<Tag>> getTags() async {
-    final resp = await _client.get(Uri.parse("$baseUrl/api/tags"));
+    final resp = await _client.get(Uri.parse("$baseUrl/api/tags"), headers: headers);
     if (resp.statusCode != 200) throw HttpException("Failed to load tags");
     final List<dynamic> data = jsonDecode(resp.body);
     return data.map((j) => Tag.fromJson(j as Map<String, dynamic>)).toList();
@@ -73,13 +85,13 @@ class ApiClient {
 
 
   Future<Map<String, dynamic>> refreshRoot(int id) async {
-    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/$id/refresh"));
+    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/$id/refresh"), headers: headers);
     if (resp.statusCode != 200) throw HttpException("Refresh failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> refreshAllRoots() async {
-    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/refresh-all"));
+    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/refresh-all"), headers: headers);
     if (resp.statusCode != 200) throw HttpException("Refresh all failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
@@ -89,7 +101,7 @@ class ApiClient {
   Future<bool> checkSetupNeeded() async {
     try {
       final resp = await _client
-          .get(Uri.parse("$baseUrl/api/setup/status"))
+          .get(Uri.parse("$baseUrl/api/setup/status"), headers: headers)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -104,6 +116,7 @@ class ApiClient {
   Future<Map<String, dynamic>> scrapeGame(int gameId) async {
     final resp = await _client.post(
       Uri.parse("$baseUrl/api/games/$gameId/scrape"),
+      headers: headers,
     );
     if (resp.statusCode != 200) throw HttpException("Scrape failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
