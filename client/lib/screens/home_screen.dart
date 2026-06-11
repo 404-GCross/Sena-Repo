@@ -501,7 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Text(label, style: AppText.bodySmall.copyWith(
           fontWeight: active ? FontWeight.w600 : FontWeight.normal,
           color: active ? Theme.of(context).colorScheme.primary : Colors.grey[300]),
-        )),
+        ),
         if (active) ...[
           const Spacer(),
           Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary),
