@@ -175,8 +175,8 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
         Text("批量刮削"),
       ]),
       content: SizedBox(width: 320, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Text("选择刮削来源（一次只能选一种）",
-            style: AppText.bodySmall.copyWith( color: Colors.grey)),
+        Text("选择刮削来源（一次只能选一种）",
+            style: AppText.bodySmall.copyWith(color: Colors.grey)),
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(

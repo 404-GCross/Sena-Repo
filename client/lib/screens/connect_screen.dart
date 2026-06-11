@@ -287,8 +287,8 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
       content: SizedBox(width: 400, child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text("首次使用需要设置以下目录，稍后可在设置中修改",
-              style: AppText.bodySmall.copyWith( color: Colors.grey)),
+          Text("首次使用需要设置以下目录，稍后可在设置中修改",
+              style: AppText.bodySmall.copyWith(color: Colors.grey)),
           const SizedBox(height: 20),
           _dirCard(Icons.download, "游戏下载目录", _downloadDir, _pickDownloadDir),
           const SizedBox(height: 12),
