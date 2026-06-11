@@ -16,7 +16,15 @@ logger = logging.getLogger(__name__)
 
 # Simple in-memory throttle to prevent hammering APIs
 _last_request_time: float = 0
-_throttle_lock = asyncio.Lock()
+_throttle_lock: asyncio.Lock | None = None
+
+
+def _get_throttle_lock() -> asyncio.Lock:
+    """Lazy-init lock bound to current event loop."""
+    global _throttle_lock
+    if _throttle_lock is None:
+        _throttle_lock = asyncio.Lock()
+    return _throttle_lock
 
 
 @dataclass
@@ -62,7 +70,7 @@ class BaseScraper(ABC):
     async def _throttle(self):
         """Ensure minimum interval between requests to avoid rate limits."""
         global _last_request_time
-        async with _throttle_lock:
+        async with _get_throttle_lock():
             elapsed = time.monotonic() - _last_request_time
             if elapsed < self.throttle_interval:
                 await asyncio.sleep(self.throttle_interval - elapsed)
