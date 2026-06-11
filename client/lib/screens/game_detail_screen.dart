@@ -271,7 +271,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       case "android": return Colors.green;
       case "linux": return Colors.orange;
       case "mac": return Colors.grey;
-      default: return Colors.white60;
+      default: return Colors.blueGrey;
     }
   }
 
