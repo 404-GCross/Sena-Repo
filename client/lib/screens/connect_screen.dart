@@ -8,6 +8,7 @@ import "../providers/game_provider.dart";
 import "../services/profile_service.dart";
 import "home_screen.dart";
 import "profile_switch_screen.dart";
+import "package:file_picker/file_picker.dart";
 import "setup_wizard_screen.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "login_screen.dart";
@@ -86,6 +87,18 @@ class _ConnectScreenState extends State<ConnectScreen> {
       }
 
       if (!mounted) return;
+
+      // ── Client first-run setup: choose download + Steam directories ──
+      final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
+      if (!clientSetupDone) {
+        if (mounted) {
+          await showDialog(context: context, barrierDismissible: false,
+            builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
+          );
+          await prefs.setBool("client_setup_done", true);
+        }
+        if (!mounted) return;
+      }
 
       // Always check if setup is needed (new server or no roots configured)
       final needsSetup = await api.checkSetupNeeded();
@@ -217,6 +230,98 @@ class _ConnectScreenState extends State<ConnectScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── First-run client setup dialog ──
+class _ClientSetupDialog extends StatefulWidget {
+  final VoidCallback onDone;
+  const _ClientSetupDialog({required this.onDone});
+
+  @override
+  State<_ClientSetupDialog> createState() => _ClientSetupDialogState();
+}
+
+class _ClientSetupDialogState extends State<_ClientSetupDialog> {
+  String _downloadDir = "";
+  String _steamDir = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dd = prefs.getString("local_download_dir") ?? "";
+    final sd = prefs.getString("steam_common_dir") ?? "";
+    setState(() { _downloadDir = dd; _steamDir = sd; });
+  }
+
+  Future<void> _pickDownloadDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择游戏下载目录");
+    if (result != null) {
+      setState(() => _downloadDir = result);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("local_download_dir", result);
+    }
+  }
+
+  Future<void> _pickSteamDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择 Steam common 目录");
+    if (result != null) {
+      setState(() => _steamDir = result);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("steam_common_dir", result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text("初始设置", textAlign: TextAlign.center),
+      content: SizedBox(width: 400, child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("首次使用需要设置以下目录，稍后可在设置中修改",
+              style: TextStyle(fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 20),
+          _dirCard(Icons.download, "游戏下载目录", _downloadDir, _pickDownloadDir),
+          const SizedBox(height: 12),
+          _dirCard(Icons.gamepad, "Steam 库目录 (steamapps/common)", _steamDir, _pickSteamDir),
+        ],
+      )),
+      actions: [
+        FilledButton(
+          onPressed: widget.onDone,
+          child: const Text("完成"),
+        ),
+      ],
+    );
+  }
+
+  Widget _dirCard(IconData icon, String label, String path, VoidCallback onPick) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
+      ),
+      child: Row(children: [
+        Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 2),
+          Text(path.isEmpty ? "未设置" : path,
+              style: TextStyle(fontSize: 12, color: path.isEmpty ? Colors.red[300] : Colors.grey[600])),
+        ])),
+        TextButton(onPressed: onPick, child: Text(path.isEmpty ? "选择" : "更换", style: const TextStyle(fontSize: 12))),
+      ]),
     );
   }
 }
