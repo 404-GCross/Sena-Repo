@@ -288,6 +288,7 @@ class DownloadService {
     final dir = await downloadDir;
     final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
+    final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
@@ -309,7 +310,7 @@ class DownloadService {
         _emit();
         await Future.delayed(const Duration(milliseconds: 100));
         try {
-          await _extract(tmp.path, outDir, (p) {
+          await _extract(tmp.path, outDir, gameDir, (p) {
             if (p > t.progress) { t.progress = p; _emit(); }
           });
           t.progress = 1.0;
@@ -464,7 +465,7 @@ class DownloadService {
 
   // ── extract ──
 
-  Future<void> _extract(String filePath, String outDir,
+  Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress]) async {
     final exe = await _getSevenZipPath();
 
@@ -474,60 +475,29 @@ class DownloadService {
         onProgress: onProgress);
 
     // Fix structure: if archive scattered files, wrap in game folder
-    await _fixLayout(outDir);
+    await _fixLayout(outDir, gameDir);
   }
 
-  /// Ensure outDir has clean structure.
-  /// - Single folder with same name as parent → flatten (same-name wrapper)
-  /// - Multiple items → wrap in game-named folder
-  Future<void> _fixLayout(String outDir) async {
-    final gameName = outDir.split(Platform.pathSeparator).last;
+  /// If outDir has multiple items (not just one folder), wrap them in [gameDir].
+  Future<void> _fixLayout(String outDir, String gameDir) async {
     List<FileSystemEntity> entries;
     try { entries = await Directory(outDir).list().toList(); } catch (_) { return; }
     if (entries.isEmpty) return;
 
-    // Case 1: single folder with same name → flatten it
-    if (entries.length == 1 && entries.first is Directory) {
-      final childName = entries.first.uri.pathSegments.last;
-      if (childName == gameName) {
-        try {
-          await _copyDirUp(entries.first.path, outDir);
-          await (entries.first as Directory).delete(recursive: true);
-        } catch (_) {}
-      }
-      return;
-    }
+    // One folder = archive had its own wrapper → perfect, done
+    if (entries.length == 1 && entries.first is Directory) return;
 
-    // Case 2: multiple items, no game-named folder → wrap them
-    final hasGameFolder = entries.any((e) =>
-        e is Directory && e.uri.pathSegments.last == gameName);
-    if (!hasGameFolder) {
-      final wrap = "$outDir/$gameName";
-      try {
-        await Directory(wrap).create();
-        for (final e in entries) {
-          final name = e.uri.pathSegments.last;
-          if (name != gameName) {
-            try { await e.rename("$wrap/$name"); } catch (_) {}
-          }
-        }
-      } catch (_) {}
-    }
-  }
+    // Multiple items = archive has no wrapper → create game folder and move in
+    // Skip if game-named folder already exists
+    if (entries.any((e) => e is Directory && e.uri.pathSegments.last == gameDir)) return;
 
-  /// If outDir contains exactly one subfolder with the same name as outDir itself,
-  /// copy its contents up and delete it. Fixes "会社/游戏名/游戏名" double-nesting.
-  Future<void> _copyDirUp(String from, String to) async {
-    await for (final child in Directory(from).list()) {
-      final name = child.uri.pathSegments.last;
-      if (child is Directory) {
-        await _copyDirUp(child.path, "$to/$name");
-        await child.delete(recursive: true);
-      } else if (child is File) {
-        await child.copy("$to/$name");
-        await child.delete();
+    final wrap = "$outDir/$gameDir";
+    try {
+      await Directory(wrap).create();
+      for (final e in entries) {
+        try { await e.rename("$wrap/${e.uri.pathSegments.last}"); } catch (_) {}
       }
-    }
+    } catch (_) {}
   }
 
   Future<void> _runTool(String exe, List<String> args,
