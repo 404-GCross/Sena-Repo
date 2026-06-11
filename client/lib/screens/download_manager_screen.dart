@@ -113,12 +113,13 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Expanded(
             child: Text(t.fileName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
           ),
-          if (t.status == "downloading")
+          if (t.status == "downloading" || t.status == "extracting")
             Row(mainAxisSize: MainAxisSize.min, children: [
-              TextButton(
-                onPressed: () => DownloadService().pauseTask(t),
-                child: const Text("暂停", style: TextStyle(fontSize: 12)),
-              ),
+              if (t.status == "downloading")
+                TextButton(
+                  onPressed: () => DownloadService().pauseTask(t),
+                  child: const Text("暂停", style: TextStyle(fontSize: 12)),
+                ),
               TextButton(
                 onPressed: () => DownloadService().cancelTask(t),
                 child: const Text("取消", style: TextStyle(fontSize: 12, color: Colors.red)),
@@ -165,7 +166,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         const SizedBox(height: 4),
         Text("${t.companyName}/${t.gameName}",
             style: TextStyle(fontSize: 12, color: hintColor(context))),
-        if (t.status == "downloading" || t.status == "paused") ...[
+        if (t.status == "downloading" || t.status == "paused" || t.status == "extracting") ...[
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
@@ -178,7 +179,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           ),
           const SizedBox(height: 4),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text("${(t.progress * 100).toStringAsFixed(0)}%",
+            Text(t.status == "extracting" ? "解压中..." : "${(t.progress * 100).toStringAsFixed(0)}%",
                 style: TextStyle(fontSize: 11, color: hintColor(context))),
             if (t.status == "paused")
               Text("已暂停", style: TextStyle(fontSize: 11, color: Colors.orange[300])),
