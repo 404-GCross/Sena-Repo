@@ -491,7 +491,16 @@ class DownloadService {
       final folderName = folder.uri.pathSegments.last;
       // Rename to match game name if different
       if (folderName != gameDir) {
-        try { await folder.rename("$outDir/$gameDir"); } catch (_) {}
+        final target = "$outDir/$gameDir";
+        try {
+          await folder.rename(target);
+        } catch (_) {
+          // rename failed (target exists or locked) → copy + delete
+          try {
+            await _copyMerge(folder.path, target);
+            await folder.delete(recursive: true);
+          } catch (_) {}
+        }
       }
       return;
     }
@@ -506,6 +515,21 @@ class DownloadService {
         try { await e.rename("$wrap/${e.uri.pathSegments.last}"); } catch (_) {}
       }
     } catch (_) {}
+  }
+
+  /// Recursively copy/merge contents of [from] directory into [to] directory.
+  Future<void> _copyMerge(String from, String to) async {
+    final target = Directory(to);
+    if (!await target.exists()) await target.create(recursive: true);
+    await for (final child in Directory(from).list()) {
+      final name = child.uri.pathSegments.last;
+      if (child is Directory) {
+        await _copyMerge(child.path, "$to/$name");
+      } else if (child is File) {
+        // Overwrite if exists
+        try { await child.copy("$to/$name"); } catch (_) {}
+      }
+    }
   }
 
   Future<void> _runTool(String exe, List<String> args,
