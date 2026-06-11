@@ -52,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _pollBackground();
     _downloadSub = DownloadService().tasks.listen((tasks) {
-      final count = tasks.where((t) => t.status == "downloading" || t.status == "pending" || t.status == "paused" || t.status == "extracting").length;
+      final count = tasks.where((t) => t.status == "downloading" || t.status == "pending" || t.status == "paused" || t.status == "extracting" || t.status == "retrying").length;
       if (mounted && count != _downloadCount) setState(() => _downloadCount = count);
     });
   }
@@ -599,8 +599,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 } catch (_) {}
               }),
-              _sideBtn(Icons.download_outlined, "下载", () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const DownloadManagerScreen()))),
+              IconButton(
+                icon: Badge(
+                  isLabelVisible: _downloadCount > 0,
+                  label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
+                  child: const Icon(Icons.download_outlined, size: 22),
+                ),
+                onPressed: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
+                tooltip: "下载管理",
+              ),
               const Spacer(),
               _navTab(Icons.gamepad_rounded, Icons.gamepad_outlined, "游戏库", 0),
               if (showSteam) _navTab(FontAwesomeIcons.steam, FontAwesomeIcons.steam, "Steam", 1),
