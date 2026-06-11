@@ -127,8 +127,8 @@ class SteamScraper(BaseScraper):
             developer = devs[0] if devs else ""
             description = (details.get("short_description") or "")[:500]
 
-            # Cover URL: use primary CDN format directly (HEAD check often blocked in CN)
-            cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
+            # Cover URL: try Chinese first, fall back to default
+            cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900_schinese.jpg"
 
             # Ratings and genres
             rating = 0.0
