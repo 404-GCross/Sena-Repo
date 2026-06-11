@@ -3,6 +3,7 @@
 
 import "dart:async";
 import "dart:convert";
+import "package:file_picker/file_picker.dart";
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -476,19 +477,31 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   ]),
                 ),
                 const SizedBox(width: 24),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
+                Column(children: [
+                  Container(
+                    width: 200, height: 280,
                     decoration: BoxDecoration(
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 8)),
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 8, offset: const Offset(0, 2)),
+                      ],
+                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
                     ),
-                    child: SizedBox(width: 200, height: 280,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
                       child: hasCover
                           ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
                               fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
                           : _coverPlaceholder()),
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () => _pickLocalCover(),
+                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+                    label: const Text("本地上传", style: TextStyle(fontSize: 12)),
+                  ),
+                ]),
               ]),
               const SizedBox(height: 24),
 
@@ -635,6 +648,26 @@ class _GameEditScreenState extends State<GameEditScreen> {
   // ── Single unified download: search all sources → show results → compare → apply ──
 
   // ── Single unified download: search all sources → show results → compare → apply ──
+
+  Future<void> _pickLocalCover() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
+      if (result == null || result.files.isEmpty || result.files.first.path == null) return;
+      final request = http.MultipartRequest(
+          "POST", Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover/upload"));
+      request.files.add(await http.MultipartFile.fromPath("file", result.files.first.path!));
+      final streamed = await request.send();
+      if (streamed.statusCode == 200) {
+        final data = jsonDecode(await streamed.stream.bytesToString()) as Map<String, dynamic>;
+        if (data["cover_path"] != null) {
+          setState(() { _coverPath = data["cover_path"]; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("封面上传成功")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("上传失败: $e")));
+    }
+  }
 
   Future<void> _downloadMetadata() async {
     // Step 1: Pick source
