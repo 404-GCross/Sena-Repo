@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -350,6 +350,40 @@ async def update_game_cover(
                 raise HTTPException(status_code=400, detail=f"Failed to download cover: {type(e).__name__}: {e}")
 
     return MessageResponse(message="No cover URL provided")
+
+
+@router.post("/games/{game_id}/cover/upload")
+async def upload_game_cover(
+    game_id: int,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upload a cover image directly from a local file."""
+    result = await session.execute(select(Game).where(Game.id == game_id))
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # Validate file type
+    import os
+    ext = os.path.splitext(file.filename or "cover.jpg")[1].lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        raise HTTPException(status_code=400, detail="不支持的图片格式，仅支持 JPG/PNG/GIF/WebP")
+
+    config = load_config()
+    covers_dir = config.covers_path
+    covers_dir.mkdir(parents=True, exist_ok=True)
+
+    # Delete old cover if exists
+    if game.cover_path and os.path.isfile(game.cover_path):
+        try: os.remove(game.cover_path)
+        except Exception: pass
+
+    cover_path = covers_dir / f"{game_id}_upload{ext}"
+    cover_path.write_bytes(await file.read())
+    game.cover_path = str(cover_path)
+    await session.commit()
+    return {"message": "Cover uploaded", "cover_path": game.cover_path}
 
 
 @router.delete("/games/{game_id}/cover", response_model=MessageResponse)

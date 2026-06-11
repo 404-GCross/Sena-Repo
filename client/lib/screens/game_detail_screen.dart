@@ -11,6 +11,7 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../providers/game_provider.dart";
+import "package:file_picker/file_picker.dart";
 import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
 import "game_edit_screen.dart";
@@ -58,6 +59,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       appBar: AppBar(
         title: Text(game.name),
         actions: [
+          IconButton(icon: const Icon(Icons.add_photo_alternate_outlined), tooltip: "上传封面", onPressed: () => _uploadCover(game)),
           IconButton(icon: const Icon(Icons.search), tooltip: "搜索元数据", onPressed: () => _showSearchDialog(context, game)),
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
             onPressed: () async {
@@ -380,6 +382,35 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   void _showDialog(BuildContext ctx, String title, String msg) {
     showDialog(context: ctx, builder: (c) => AlertDialog(title: Text(title), content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
+  }
+
+  Future<void> _uploadCover(GameDetail game) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      if (file.path == null) return;
+
+      final request = http.MultipartRequest(
+        "POST", Uri.parse("$_baseUrl/api/games/${game.id}/cover/upload"));
+      request.files.add(await http.MultipartFile.fromPath("file", file.path!));
+      final streamed = await request.send();
+      if (streamed.statusCode == 200) {
+        _load(); // Reload to show new cover
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("封面上传成功")));
+      } else {
+        final body = await streamed.stream.bytesToString();
+        throw Exception(body);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("上传失败: $e")));
+    }
   }
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
