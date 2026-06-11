@@ -63,8 +63,31 @@ class _ConnectScreenState extends State<ConnectScreen> {
     if (success && mounted) {
       games.connect(host, port, useHttps: _useHttps);
 
-      // Check if server needs setup
+      // Check if we have a saved token → skip login, otherwise show login
       final api = games.api;
+      final prefs = await SharedPreferences.getInstance();
+      final savedToken = prefs.getString("auth_token");
+      if (savedToken != null && savedToken.isNotEmpty) {
+        api.setToken(savedToken);
+      } else {
+        final loginResult = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+        );
+        if (loginResult == null) return;
+        if (loginResult is Map) {
+          final token = loginResult["token"]?.toString() ?? "";
+          await prefs.setString("auth_token", token);
+          await prefs.setString("username", loginResult["username"]?.toString() ?? "");
+          await prefs.setBool("is_admin", loginResult["is_admin"] == true);
+          api.setToken(token);
+          await ProfileService().saveCurrentAsProfile(loginResult["username"]?.toString() ?? "默认");
+        }
+      }
+
+      if (!mounted) return;
+
+      // Always check if setup is needed (new server or no roots configured)
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
         final result = await Navigator.push<bool>(
@@ -75,31 +98,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
           await games.loadGames();
         }
         if (!mounted) return;
-      } else if (mounted) {
-        // Check if we have a saved token → skip login
-        final prefs = await SharedPreferences.getInstance();
-        final savedToken = prefs.getString("auth_token");
-        if (savedToken != null && savedToken.isNotEmpty) {
-          // Token exists, skip login
-          api.setToken(savedToken);
-        } else {
-          // No token → show login
-          final loginResult = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
-          );
-          if (loginResult == null) return; // user went back
-          // Save token for auto-login
-          if (loginResult is Map) {
-            final token = loginResult["token"]?.toString() ?? "";
-            await prefs.setString("auth_token", token);
-            await prefs.setString("username", loginResult["username"]?.toString() ?? "");
-            await prefs.setBool("is_admin", loginResult["is_admin"] == true);
-            api.setToken(token);
-            // Auto-save as profile
-            await ProfileService().saveCurrentAsProfile(loginResult["username"]?.toString() ?? "默认");
-          }
-        }
       }
 
       if (!mounted) return;
