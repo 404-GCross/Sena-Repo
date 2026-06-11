@@ -413,13 +413,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       }
+      final count = _selectedIds.length;
+      setState(() { _selectedIds.clear(); _multiSelect = false; });
       if (mounted) {
         showDialog(context: context, builder: (c) => AlertDialog(
-          title: const Text("批量刮削"), content: Text("已触发 ${_selectedIds.length} 个游戏的刮削任务"),
+          title: const Text("批量刮削"), content: Text("已触发 $count 个游戏的刮削任务"),
           actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
         ));
       }
-      setState(() { _selectedIds.clear(); _multiSelect = false; });
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("刮削失败: $e")));
     }
