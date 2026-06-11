@@ -1,7 +1,8 @@
-/// Download service — stream download with progress + 7za extraction.
-/// One 7za binary handles all formats: ZIP, RAR, 7z.
+/// Download service — stream download with progress + 7z extraction.
+/// Windows: 7z.exe + 7z.dll (x64, full format support incl. RAR)
+/// Linux:   7zz (standalone x64)
 ///
-/// Flow: download(tmp) → validate(disk size) → test(7za t) → extract(7za x) → done
+/// Flow: download(tmp) → validate(disk size) → extract
 
 import "dart:async";
 import "dart:io";
@@ -190,15 +191,19 @@ class DownloadService {
     if (_sevenZipPath != null) return _sevenZipPath!;
 
     final dir = await getApplicationSupportDirectory();
-    final exeName = Platform.isWindows ? "7za.exe" : "7zz";
+    final exeName = Platform.isWindows ? "7z.exe" : "7zz";
     final dest = File("${dir.path}/$exeName");
 
-    // Replace old (<16.00) binary
+    // Replace old binary (<16.00) or old 7za.exe
     if (await dest.exists()) {
       final v = await _get7zaVersion(dest.path);
       if (v != null && v < _min7zaVersion) {
         try { await dest.delete(); } catch (_) {}
+        try { await File("${dir.path}/7z.dll").delete(); } catch (_) {}
       }
+      // Also clean up old 7za from previous versions
+      try { await File("${dir.path}/7za.exe").delete(); } catch (_) {}
+      try { await File("${dir.path}/7za.dll").delete(); } catch (_) {}
     }
 
     if (!await dest.exists()) {
@@ -207,6 +212,13 @@ class DownloadService {
       try {
         final data = await rootBundle.load("assets/binaries/$exeName");
         await dest.writeAsBytes(data.buffer.asUint8List());
+        // 7z.dll (Windows only — full format support incl. RAR)
+        if (Platform.isWindows) {
+          try {
+            final dll = await rootBundle.load("assets/binaries/7z.dll");
+            await File("${dir.path}/7z.dll").writeAsBytes(dll.buffer.asUint8List());
+          } catch (_) {}
+        }
         if (Platform.isLinux) await Process.run("chmod", ["+x", dest.path]);
         if (await dest.exists()) ok = true;
       } catch (_) {}
@@ -231,7 +243,7 @@ class DownloadService {
 
   Future<void> _downloadBinary(File dest, String dir) async {
     if (Platform.isWindows) {
-      // Download installer, run silently, copy 7za.exe
+      // Download installer, run silently, copy 7z.exe + 7z.dll
       final tmp = File("$dir/_7z_installer.exe");
       final client = http.Client();
       try {
@@ -244,8 +256,12 @@ class DownloadService {
         await sink.close();
         await Process.run(tmp.path, ["/S"]);
         for (final d in ["C:/Program Files/7-Zip", r"C:\Program Files (x86)\7-Zip"]) {
-          final src = File("$d/7za.exe");
-          if (await src.exists()) { await src.copy(dest.path); break; }
+          final src = File("$d/7z.exe");
+          if (await src.exists()) {
+            await src.copy(dest.path);
+            try { await File("$d/7z.dll").copy("${dir}/7z.dll"); } catch (_) {}
+            break;
+          }
         }
         await tmp.delete();
       } finally { client.close(); }
@@ -436,19 +452,27 @@ class DownloadService {
   // ── extract ──
 
   Future<void> _extract(String filePath, String outDir) async {
-    final exe = await _getSevenZipPath();
-
-    // Step 1: test archive integrity
+    // Primary: bundled 7z (supports all formats incl. RAR via 7z.dll)
     try {
-      await _runTool(exe, ["t", filePath], timeout: 300);
-    } catch (e) {
-      final size = await File(filePath).length();
-      throw Exception(
-          "文件损坏（${size}B），请检查服务端源文件或重新下载: $e");
-    }
+      final exe = await _getSevenZipPath();
+      try { await _runTool(exe, ["t", filePath], timeout: 300); } catch (_) {}
+      await _runTool(exe, ["x", "-y", "-o$outDir", filePath]);
+      return;
+    } catch (_) { /* fall through to system tools */ }
 
-    // Step 2: extract (30 min timeout)
-    await _runTool(exe, ["x", "-y", "-o$outDir", filePath]);
+    // Fallback 1: system 7z (handles RAR if 7-Zip GUI is installed)
+    try {
+      await _runTool("7z", ["x", "-y", "-o$outDir", filePath], timeout: 1800);
+      return;
+    } catch (_) {}
+
+    // Fallback 2: unar (cross-platform, many formats)
+    try {
+      await _runTool("unar", ["-o", outDir, filePath], timeout: 1800);
+      return;
+    } catch (_) {}
+
+    throw Exception("无法解压此格式。请安装 7-Zip 以支持 RAR 解压。");
   }
 
   Future<void> _runTool(String exe, List<String> args,

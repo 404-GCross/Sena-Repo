@@ -72,9 +72,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
-          Copy-Item "../7z/Windows/7za.exe" assets/binaries/7za.exe
-          Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7za.txt
-          Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7za.txt
+          Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
+          Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
+          Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7z.txt
+          Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7z.txt
 
       - name: Enable Windows + generate platform files
         run: |
