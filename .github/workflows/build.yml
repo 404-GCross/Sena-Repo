@@ -34,10 +34,8 @@ jobs:
       - name: Clean NDK cache
         run: rm -rf $ANDROID_HOME/ndk/27.0.12077973
 
-      - name: Enable Android + generate platform files
-        run: |
-          flutter config --enable-android
-          flutter create . --project-name sena_repo --org senarepo
+      - name: Enable Android
+        run: flutter config --enable-android
 
       - name: Install dependencies
         run: flutter pub get
@@ -77,10 +75,8 @@ jobs:
           Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7z.txt
           Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7z.txt
 
-      - name: Enable Windows + generate platform files
-        run: |
-          flutter config --enable-windows-desktop
-          flutter create . --project-name sena_repo --org senarepo
+      - name: Enable Windows
+        run: flutter config --enable-windows-desktop
 
       - name: Install dependencies
         run: flutter pub get
@@ -128,10 +124,8 @@ jobs:
           mkdir -p client/assets/binaries
           tar -xf ../7z/Linux/7z2601-linux-x64.tar.xz -C client/assets/binaries 7zz
 
-      - name: Enable Linux + generate platform files
-        run: |
-          flutter config --enable-linux-desktop
-          flutter create . --project-name sena_repo --org senarepo
+      - name: Enable Linux
+        run: flutter config --enable-linux-desktop
 
       - name: Install dependencies
         run: flutter pub get
