@@ -485,21 +485,43 @@ class DownloadService {
   }
 
   /// Auto-flatten: if outDir contains a single folder and no files,
-  /// move that folder's contents up one level.
+  /// copy that folder's children up one level, then delete the folder.
   Future<void> _flatten(String outDir) async {
     final dir = Directory(outDir);
     final entries = await dir.list().toList();
     if (entries.length != 1) return;
     final single = entries.first;
     if (single is! Directory) return;
-    // Move children of single dir up to outDir
-    final tmp = "${outDir}_tmp";
-    await single.rename(tmp);
-    final children = await Directory(tmp).list().toList();
-    for (final child in children) {
-      await child.rename("$outDir/${child.uri.pathSegments.last}");
+
+    // Copy children up to outDir, then delete the now-empty subdirectory
+    try {
+      final children = await single.list().toList();
+      for (final child in children) {
+        final name = child.uri.pathSegments.last;
+        final dest = "$outDir/$name";
+        if (child is Directory) {
+          await _copyDir(child.path, dest);
+        } else if (child is File) {
+          await child.copy(dest);
+        }
+      }
+    } finally {
+      // Always clean up the now-empty subdirectory
+      try { await single.delete(recursive: true); } catch (_) {}
     }
-    await Directory(tmp).delete(recursive: true);
+  }
+
+  Future<void> _copyDir(String from, String to) async {
+    final target = Directory(to);
+    if (!await target.exists()) await target.create(recursive: true);
+    await for (final child in Directory(from).list()) {
+      final name = child.uri.pathSegments.last;
+      if (child is Directory) {
+        await _copyDir(child.path, "$to/$name");
+      } else if (child is File) {
+        await child.copy("$to/$name");
+      }
+    }
   }
 
   Future<void> _runTool(String exe, List<String> args,
