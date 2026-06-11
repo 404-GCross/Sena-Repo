@@ -25,6 +25,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb, _steam, _bgm, _notes, _bgUrl;
   bool _saving = false;
   String? _coverPath;
+  int _coverVersion = 0;
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
@@ -33,6 +34,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     super.initState();
     final g = widget.game;
     _coverPath = g.coverPath;
+    _coverVersion = DateTime.now().millisecondsSinceEpoch;
     _name = TextEditingController(text: g.name);
     _dev = TextEditingController(text: g.developer ?? "");
     _desc = TextEditingController(text: g.description ?? "");
@@ -308,7 +310,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final resp = await http.get(Uri.parse("$_baseUrl/api/games/${widget.game.id}"));
       if (resp.statusCode == 200) {
         final fresh = GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
-        if (mounted) setState(() => _coverPath = fresh.coverPath);
+        if (mounted) setState(() { _coverPath = fresh.coverPath; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
       }
     } catch (_) {}
   }
@@ -482,7 +484,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: SizedBox(width: 200, height: 280,
                       child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${_coverPath!}",
+                          ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
                               fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
                           : _coverPlaceholder()),
                   ),
@@ -905,7 +907,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: _coverPath != null
-                              ? Image.network("$_baseUrl/api/files/covers${_coverPath!}",
+                              ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
                                   width: 90, height: 120, fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => _coverPlaceholderSmall())
                               : _coverPlaceholderSmall(),
@@ -981,7 +983,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body) as Map<String, dynamic>;
           final newPath = data["cover_path"];
-          if (newPath != null) setState(() => _coverPath = newPath.toString());
+          if (newPath != null) setState(() { _coverPath = newPath.toString(); _coverVersion = DateTime.now().millisecondsSinceEpoch; });
         }
       } catch (_) {}
     }
