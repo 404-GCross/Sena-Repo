@@ -8,9 +8,15 @@ import "package:http/http.dart" as http;
 import "../models/game.dart";
 
 class ApiClient {
-  final http.Client _client = http.Client();
+  late final http.Client _client;
   String? _baseUrl;
   String? _token;
+
+  ApiClient() {
+    final ioClient = HttpClient()
+      ..badCertificateCallback = (cert, host, port) => true;
+    _client = http.IOClient(ioClient);
+  }
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
