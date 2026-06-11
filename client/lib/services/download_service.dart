@@ -302,6 +302,7 @@ class DownloadService {
         t.status = "downloading";
         _emit();
         await _download(t, tmp);
+        if (_stopped(t)) return;
 
         // Phase 2: extract — yield to let UI show extracting state first
         t.status = "extracting";
