@@ -96,6 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
         body: Center(
         child: SizedBox(
           width: 400,
