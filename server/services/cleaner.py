@@ -44,8 +44,8 @@ def _clean_name(name: str) -> str:
     name = re.sub(r"\(.*?\)", "", name)
     # Trim and collapse whitespace
     name = re.sub(r"\s+", " ", name).strip()
-    # Remove trailing version-like patterns
-    name = re.sub(r"\s*v?\d+\.?\d*$", "", name).strip()
+    # Remove trailing version patterns (v1.0, 1.0.2) but NOT standalone numbers (sequel markers)
+    name = re.sub(r"\s*v?\d+\.\d+(\.\d+)*$", "", name).strip()
     return name
 
 
