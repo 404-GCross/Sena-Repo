@@ -67,155 +67,162 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 32),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: Column(children: [
-              // ── Header: cover right, name left ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      if (hasCover)
-                        Text(game.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2)),
-                      if (game.companyName != null) ...[
-                        const SizedBox(height: 6),
-                        Row(children: [
-                          Icon(Icons.business, size: 16, color: subTextColor(context)),
-                          const SizedBox(width: 6),
-                          Text(game.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context))),
-                        ]),
-                      ],
-                      const SizedBox(height: 16),
-                      Row(children: [
-                        _sourceBadge("VNDB", game.vndbId),
-                        _sourceBadge("Steam", game.steamId),
-                        _sourceBadge("Bangumi", game.bangumiId),
-                      ]),
-                    ]),
-                  ),
-                  const SizedBox(width: 24),
-                  Container(
-                    width: 200, height: 280,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(color: cs.primary.withValues(alpha: 0.3), blurRadius: 24, offset: const Offset(0, 12)),
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 4)),
-                      ],
-                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
-                              fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                          : _coverPlaceholder()),
-                  ),
-                ]),
+        child: Column(children: [
+          // ── Cover banner ──
+          if (hasCover)
+            Container(
+              height: 240,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 4))],
               ),
-
-              // ── Body: left metadata + right description ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(32, 24, 32, 0),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  // Left: metadata grid + versions
-                  Expanded(
-                    flex: 5,
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      _section("详细信息", Icons.info_outline),
-                      _fieldCard(children: [
-                        _infoRow("开发商", game.developer, Icons.business),
-                        _divider(),
-                        _infoRow("发售日", game.releaseDate, Icons.calendar_today),
-                      ]),
-                      const SizedBox(height: 20),
-                      _section("版本", Icons.folder_outlined),
-                      if (game.versions.isEmpty)
-                        _hintCard("暂无版本信息")
-                      else
-                        _fieldCard(children:
-                          game.versions.asMap().entries.map((e) {
-                            final v = e.value;
-                            final isLast = e.key == game.versions.length - 1;
-                            return Column(children: [
-                              Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                child: Row(children: [
-                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
-                                  const SizedBox(width: 10),
-                                  Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
-                                  const SizedBox(width: 12),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      color: _platformColor(v.platform).withValues(alpha: 0.15),
-                                    ),
-                                    child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: hintColor(context))),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    icon: const Icon(Icons.download, size: 20),
-                                    tooltip: "下载",
-                                    onPressed: () => _startDownload(game, v),
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                ]),
-                              ),
-                              if (!isLast) _divider(),
-                            ]);
-                          }).toList(),
-                        ),
-                      const SizedBox(height: 20),
-                      if (game.tags.isNotEmpty) ...[
-                        _section("标签", Icons.label_outline),
-                        const SizedBox(height: 4),
-                        Wrap(spacing: 8, runSpacing: 6, children: game.tags.map((t) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: cardBorder(context),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: cardBorder(context)),
-                          ),
-                          child: Text(t.name, style: const TextStyle(fontSize: 13)),
-                        )).toList()),
-                      ],
-                    ]),
+              child: Stack(fit: StackFit.expand, children: [
+                Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder()),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+                    ),
                   ),
-                  const SizedBox(width: 28),
-                  // Right: description
+                ),
+                Positioned(left: 24, bottom: 20, right: 24,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text(game.name, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white, height: 1.2)),
+                    if (game.companyName != null) ...[
+                      const SizedBox(height: 4),
+                      Text(game.companyName!, style: const TextStyle(fontSize: 15, color: Colors.white70)),
+                    ],
+                  ]),
+                ),
+              ]),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(game.name, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                if (game.companyName != null)
+                  Text(game.companyName!, style: AppText.body.copyWith(color: subTextColor(context))),
+              ]),
+            ),
+
+          // ── Content ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              // Source badges
+              Row(children: [
+                _sourceBadge("VNDB", game.vndbId),
+                _sourceBadge("Steam", game.steamId),
+                _sourceBadge("Bangumi", game.bangumiId),
+              ]),
+              const SizedBox(height: 20),
+
+              // Description
+              _section("简介", Icons.description_outlined),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(AppGap.lg),
+                decoration: BoxDecoration(
+                  color: cardBg(context),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cardBorder(context)),
+                ),
+                child: Text(
+                  game.description?.isNotEmpty == true ? game.description! : "暂无简介",
+                  style: TextStyle(fontSize: 15, height: 1.8,
+                    color: game.description?.isNotEmpty == true ? null : Colors.grey[500]),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Metadata + Tags row
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  flex: 3,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    _section("详细信息", Icons.info_outline),
+                    const SizedBox(height: 6),
+                    _fieldCard(children: [
+                      _infoRow("开发商", game.developer, Icons.business),
+                      _divider(),
+                      _infoRow("发售日", game.releaseDate, Icons.calendar_today),
+                    ]),
+                  ]),
+                ),
+                const SizedBox(width: AppGap.lg),
+                if (game.tags.isNotEmpty)
                   Expanded(
                     flex: 4,
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      _section("简介", Icons.description_outlined),
-                      Container(
-                        padding: const EdgeInsets.all(18),
+                      _section("标签", Icons.label_outline),
+                      const SizedBox(height: 6),
+                      Wrap(spacing: 6, runSpacing: 6, children: game.tags.map((t) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: cardBg(context),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: cardBorder(context)),
+                          color: cs.primaryContainer.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                          game.description?.isNotEmpty == true ? game.description! : "暂无简介",
-                          style: TextStyle(
-                            fontSize: 15,
-                            height: 1.7,
-                            color: game.description?.isNotEmpty == true ? null : Colors.grey[500],
-                          ),
+                        child: Text(t.name, style: AppText.bodySmall.copyWith(
+                          color: cs.onPrimaryContainer.withValues(alpha: 0.8)),
                         ),
-                      ),
+                      )).toList()),
                     ]),
                   ),
-                ]),
-              ),
+              ]),
+              const SizedBox(height: 24),
+
+              // Versions
+              _section("版本", Icons.folder_outlined),
+              const SizedBox(height: 6),
+              if (game.versions.isEmpty)
+                _hintCard("暂无版本信息")
+              else
+                _fieldCard(children:
+                  game.versions.asMap().entries.map((e) {
+                    final v = e.value;
+                    final isLast = e.key == game.versions.length - 1;
+                    return Column(children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(children: [
+                          Icon(Icons.insert_drive_file_outlined, size: 18, color: cs.onSurface.withValues(alpha: 0.5)),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
+                          const SizedBox(width: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              color: _platformColor(v.platform).withValues(alpha: 0.12),
+                            ),
+                            child: Text(v.platform, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500,
+                              color: _platformColor(v.platform))),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(_formatSize(v.fileSize), style: TextStyle(fontSize: 12, color: hintColor(context))),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: () => _startDownload(game, v),
+                            icon: const Icon(Icons.download, size: 16),
+                            label: const Text("下载", style: TextStyle(fontSize: 13)),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              minimumSize: Size.zero,
+                            ),
+                          ),
+                        ]),
+                      ),
+                      if (!isLast) _divider(),
+                    ]);
+                  }).toList(),
+                ),
+              const SizedBox(height: 32),
             ]),
           ),
-        ),
+        ]),
       ),
     );
   }
