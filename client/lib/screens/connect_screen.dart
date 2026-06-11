@@ -22,6 +22,7 @@ class ConnectScreen extends StatefulWidget {
 class _ConnectScreenState extends State<ConnectScreen> {
   final _hostController = TextEditingController(text: "192.168.1.100");
   final _portController = TextEditingController(text: "11451");
+  bool _useHttps = false;
 
   @override
   void initState() {
@@ -57,9 +58,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text.trim()) ?? 11451;
 
-    final success = await settings.connect(host, port);
+    final success = await settings.connect(host, port, useHttps: _useHttps);
     if (success && mounted) {
-      games.connect(host, port);
+      games.connect(host, port, useHttps: _useHttps);
 
       // Check if server needs setup
       final api = games.api;
@@ -181,6 +182,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       prefixIcon: Icon(Icons.settings_ethernet),
                     ),
                     keyboardType: TextInputType.number,
+                  ),
+                  SwitchListTile(
+                    title: const Text("使用 HTTPS", style: TextStyle(fontSize: 14)),
+                    value: _useHttps,
+                    onChanged: (v) => setState(() => _useHttps = v),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
                   if (settings.errorMessage != null) ...[
                     const SizedBox(height: 12),

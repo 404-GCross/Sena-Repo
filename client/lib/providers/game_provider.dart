@@ -58,8 +58,8 @@ class GameProvider extends ChangeNotifier {
   String? get filterDeveloper => _filterDeveloper;
   bool? get filterHasCover => _filterHasCover;
 
-  void connect(String host, int port) {
-    _api.connect(host, port: port);
+  void connect(String host, int port, {bool useHttps = false}) {
+    _api.connect(host, port: port, useHttps: useHttps);
   }
 
   Future<void> loadGames() async {

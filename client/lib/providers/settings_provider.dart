@@ -9,11 +9,13 @@ import "../services/logger_service.dart";
 class SettingsProvider extends ChangeNotifier {
   String _serverHost = "";
   int _serverPort = 11451;
+  bool _useHttps = false;
   bool _isLoading = false;
   String? _errorMessage;
 
   String get serverHost => _serverHost;
   int get serverPort => _serverPort;
+  bool get useHttps => _useHttps;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -21,17 +23,19 @@ class SettingsProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _serverHost = prefs.getString("server_host") ?? "";
     _serverPort = prefs.getInt("server_port") ?? 11451;
+    _useHttps = prefs.getBool("use_https") ?? false;
     notifyListeners();
   }
 
-  Future<bool> connect(String host, int port) async {
+  Future<bool> connect(String host, int port, {bool useHttps = false}) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
-    LoggerService().info("正在连接 $host:$port");
+    LoggerService().info("正在连接 $host:$port (${useHttps ? "HTTPS" : "HTTP"})");
     try {
-      final uri = Uri.parse("http://$host:$port/api/health");
+      final scheme = useHttps ? "https" : "http";
+      final uri = Uri.parse("$scheme://$host:$port/api/health");
       final resp = await http.get(uri).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) {
         _errorMessage = "服务器返回错误: ${resp.statusCode}";
@@ -44,9 +48,11 @@ class SettingsProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("server_host", host);
       await prefs.setInt("server_port", port);
+      await prefs.setBool("use_https", useHttps);
 
       _serverHost = host;
       _serverPort = port;
+      _useHttps = useHttps;
       _isLoading = false;
       notifyListeners();
       LoggerService().info("连接成功 $host:$port");

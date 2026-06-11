@@ -26,8 +26,9 @@ class ApiClient {
 
   void setToken(String? token) => _token = token;
 
-  void connect(String host, {int port = 11451}) {
-    _baseUrl = "http://$host:$port";
+  void connect(String host, {int port = 11451, bool useHttps = false}) {
+    final scheme = useHttps ? "https" : "http";
+    _baseUrl = "$scheme://$host:$port";
   }
 
 
