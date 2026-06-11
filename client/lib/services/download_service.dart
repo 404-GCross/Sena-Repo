@@ -316,6 +316,9 @@ class DownloadService {
           t.progress = 1.0;
           _emit();
 
+          // Flatten: if archive extracted a single folder with same name as outDir parent
+          await _flattenSameName(outDir);
+
           await tmp.delete();
           break; // success
         } catch (e) {
@@ -481,6 +484,29 @@ class DownloadService {
     } catch (_) {}
 
     throw Exception("无法解压此格式。请安装 7-Zip 以支持 RAR 解压。");
+  }
+
+  /// Flatten only when archive extracted a single folder with the same name
+  /// as the parent directory. Fixes "会社/游戏名/游戏名" double-nesting without
+  /// destroying intentional directory structures.
+  Future<void> _flattenSameName(String outDir) async {
+    final dir = Directory(outDir);
+    final entries = await dir.list().toList();
+    if (entries.length != 1) return;
+    final single = entries.first;
+    if (single is! Directory) return;
+    // Only flatten if names match
+    final childName = single.uri.pathSegments.last;
+    final parentName = outDir.split(Platform.pathSeparator).last;
+    if (childName != parentName) return;
+
+    try {
+      for (final child in await single.list().toList()) {
+        final name = child.uri.pathSegments.last;
+        await child.rename("$outDir/$name");
+      }
+      await single.delete();
+    } catch (_) {}
   }
 
   Future<void> _runTool(String exe, List<String> args,
