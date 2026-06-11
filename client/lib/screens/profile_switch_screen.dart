@@ -1,6 +1,7 @@
 /// Profile switch / management screen.
 
 import "package:flutter/material.dart";
+import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/profile_service.dart";
@@ -119,6 +120,22 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
   }
 
   Future<void> _switchTo(UserProfile profile) async {
+    // Validate token before switching — deleted users won't pass
+    try {
+      final uri = Uri.parse("http://${profile.host}:${profile.port}/api/auth/profile/me");
+      final resp = await http.get(uri,
+        headers: {"Authorization": "Bearer ${profile.authToken}"});
+      if (resp.statusCode != 200) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("此配置已失效，请重新登录")));
+        return;
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("无法连接服务器，请检查网络")));
+      return;
+    }
+
     await ProfileService().applyProfile(profile);
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
