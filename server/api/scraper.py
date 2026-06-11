@@ -235,10 +235,13 @@ async def start_batch_scrape(
     # for SQLAlchemy's greenlet proxy (BackgroundTasks doesn't guarantee this)
     async def _run():
         from database import _session_factory
-        if _session_factory is None:
-            raise RuntimeError("Database not initialized")
-        async with _session_factory() as bg_session:
-            await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
+        try:
+            if _session_factory is None:
+                raise RuntimeError("Database not initialized")
+            async with _session_factory() as bg_session:
+                await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
+        except Exception as e:
+            logger.error(f"Batch scrape job {job.id} failed: {e}", exc_info=True)
 
     asyncio.create_task(_run())
 
