@@ -478,17 +478,25 @@ class DownloadService {
     await _fixLayout(outDir, gameDir);
   }
 
-  /// If outDir has multiple items (not just one folder), wrap them in [gameDir].
+  /// Ensure clean output: rename archive folder to [gameDir] if different,
+  /// or wrap scattered files in [gameDir] folder.
   Future<void> _fixLayout(String outDir, String gameDir) async {
     List<FileSystemEntity> entries;
     try { entries = await Directory(outDir).list().toList(); } catch (_) { return; }
     if (entries.isEmpty) return;
 
-    // One folder = archive had its own wrapper → perfect, done
-    if (entries.length == 1 && entries.first is Directory) return;
+    // One folder = archive had its own wrapper
+    if (entries.length == 1 && entries.first is Directory) {
+      final folder = entries.first as Directory;
+      final folderName = folder.uri.pathSegments.last;
+      // Rename to match game name if different
+      if (folderName != gameDir) {
+        try { await folder.rename("$outDir/$gameDir"); } catch (_) {}
+      }
+      return;
+    }
 
     // Multiple items = archive has no wrapper → create game folder and move in
-    // Skip if game-named folder already exists
     if (entries.any((e) => e is Directory && e.uri.pathSegments.last == gameDir)) return;
 
     final wrap = "$outDir/$gameDir";
