@@ -406,7 +406,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                     Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(v.filename, style: const AppText.bodyMedium.copyWith( fontWeight: FontWeight.w500)),
+                        Text(v.filename, style: AppText.bodyMedium.copyWith( fontWeight: FontWeight.w500)),
                         const SizedBox(height: 2),
                         Text(_formatSize(v.fileSize), style: AppText.label.copyWith( color: hintColor(context))),
                       ],

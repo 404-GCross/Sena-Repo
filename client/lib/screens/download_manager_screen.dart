@@ -111,7 +111,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           _statusIcon(t.status),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(t.fileName, style: const AppText.bodyMedium.copyWith( fontWeight: FontWeight.w500)),
+            child: Text(t.fileName, style: AppText.bodyMedium.copyWith( fontWeight: FontWeight.w500)),
           ),
           if (t.status == "downloading" || t.status == "extracting")
             Row(mainAxisSize: MainAxisSize.min, children: [
@@ -122,7 +122,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                 ),
               TextButton(
                 onPressed: () => DownloadService().cancelTask(t),
-                child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
+                child: Text("取消", style: AppText.label.copyWith( color: Colors.red)),
               ),
             ])
           else if (t.status == "paused")
@@ -135,13 +135,13 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               const SizedBox(width: 4),
               TextButton(
                 onPressed: () => DownloadService().cancelTask(t),
-                child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
+                child: Text("取消", style: AppText.label.copyWith( color: Colors.red)),
               ),
             ])
           else if (t.status == "pending")
             TextButton(
               onPressed: () => DownloadService().cancelTask(t),
-              child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
+              child: Text("取消", style: AppText.label.copyWith( color: Colors.red)),
             )
           else if (t.status == "failed")
             Row(mainAxisSize: MainAxisSize.min, children: [

@@ -140,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const AppText.body.copyWith( fontWeight: FontWeight.w500)),
+              Text(title, style: AppText.body.copyWith( fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
               Text(subtitle, style: AppText.label.copyWith( color: hintColor(context))),
             ]),
@@ -445,7 +445,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(_jobStatusLabel(_scrapeJob!["status"]),
-                        style: const AppText.body.copyWith( fontWeight: FontWeight.w600)),
+                        style: AppText.body.copyWith( fontWeight: FontWeight.w600)),
                     if (_scrapeJob!["current_game"] != null)
                       Text("正在处理: ${_scrapeJob!["current_game"]}",
                           maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -455,7 +455,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 if (_scrapeJob!["status"] == "running" || _scrapeJob!["status"] == "pending")
                   TextButton(
                     onPressed: () => _cancelJob(_scrapeJob!["id"] as int),
-                    child: const Text("取消", style: AppText.label.copyWith( color: Colors.red)),
+                    child: Text("取消", style: AppText.label.copyWith( color: Colors.red)),
                   ),
               ]),
               if (_scrapeJob!["total_games"] != null && (_scrapeJob!["total_games"] as int) > 0) ...[
@@ -1109,7 +1109,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Row(children: [
-                            Text(username, style: const AppText.body.copyWith( fontWeight: FontWeight.w500)),
+                            Text(username, style: AppText.body.copyWith( fontWeight: FontWeight.w500)),
                             const SizedBox(width: 8),
                             if (isAdmin)
                               Container(

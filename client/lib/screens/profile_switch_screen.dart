@@ -195,7 +195,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                                   color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey[400])),
                         ),
                         title: Row(children: [
-                          Text(p.name, style: const AppText.body.copyWith( fontWeight: FontWeight.w500)),
+                          Text(p.name, style: AppText.body.copyWith( fontWeight: FontWeight.w500)),
                           if (isActive) ...[
                             const SizedBox(width: 8),
                             Container(

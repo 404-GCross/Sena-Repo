@@ -36,7 +36,7 @@ class _LogScreenState extends State<LogScreen> {
         appBar: AppBar(title: Text(file.path.split("/").last)),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          child: SelectableText(content, style: const AppText.label.copyWith( fontFamily: "monospace")),
+          child: SelectableText(content, style: AppText.label.copyWith( fontFamily: "monospace")),
         ),
       )));
     }

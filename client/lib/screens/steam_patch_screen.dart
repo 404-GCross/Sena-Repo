@@ -302,7 +302,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           // Info
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(match.gameName, style: const AppText.body.copyWith( fontWeight: FontWeight.w600)),
+              Text(match.gameName, style: AppText.body.copyWith( fontWeight: FontWeight.w600)),
               const SizedBox(height: 3),
               Text(
                 available ? "${match.patchFilename}  ·  ${_formatSize(match.patchSize)}" : "暂无可用补丁",

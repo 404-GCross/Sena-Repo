@@ -5,6 +5,7 @@ import "package:provider/provider.dart";
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
+import "../utils/theme_utils.dart";
 import "../services/profile_service.dart";
 import "home_screen.dart";
 import "profile_switch_screen.dart";
@@ -315,7 +316,7 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
         Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const AppText.bodySmall.copyWith( fontWeight: FontWeight.w500)),
+          Text(label, style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w500)),
           const SizedBox(height: 2),
           Text(path.isEmpty ? "未设置" : path,
               style: AppText.label.copyWith( color: path.isEmpty ? Colors.red[300] : Colors.grey[600])),

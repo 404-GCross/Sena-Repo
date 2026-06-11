@@ -498,9 +498,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(children: [
         Icon(icon, size: 18, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400]),
         const SizedBox(width: 10),
-        Text(label, style: TextStyle(
-          AppText.bodySmall, fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-          color: active ? Theme.of(context).colorScheme.primary : Colors.grey[300],
+        Text(label, style: AppText.bodySmall.copyWith(
+          fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+          color: active ? Theme.of(context).colorScheme.primary : Colors.grey[300]),
         )),
         if (active) ...[
           const Spacer(),

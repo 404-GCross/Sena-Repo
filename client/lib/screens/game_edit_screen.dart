@@ -355,7 +355,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.check_circle, size: 10, color: Colors.green[300]),
                 const SizedBox(width: 4),
-                Text(sourceId, style: TextStyle(color: Colors.green[300], AppText.caption, fontWeight: FontWeight.w500)),
+                Text(sourceId, style: AppText.caption.copyWith(color: Colors.green[300], fontWeight: FontWeight.w500)),
               ]))),
       ]),
     );
@@ -584,14 +584,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       decoration: _dec(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         hintText: "游戏简介..."),
-                      style: const AppText.body.copyWith( height: 1.6)),
+                      style: AppText.body.copyWith( height: 1.6)),
                     const SizedBox(height: 20),
                     _section("备注", Icons.note_outlined),
                     TextField(controller: _notes, maxLines: 4,
                       decoration: _dec(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         hintText: "个人备注..."),
-                      style: const AppText.body.copyWith( height: 1.6)),
+                      style: AppText.body.copyWith( height: 1.6)),
                     const SizedBox(height: 20),
                     _section("背景图 URL", Icons.image_outlined),
                     const SizedBox(height: 4),
@@ -878,7 +878,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(inc.length > 80 ? "${inc.substring(0, 80)}..." : inc,
-                                  style: const AppText.bodyMedium.copyWith( color: Colors.green)),
+                                  style: AppText.bodyMedium.copyWith( color: Colors.green)),
                             ),
                           ),
                         ])
