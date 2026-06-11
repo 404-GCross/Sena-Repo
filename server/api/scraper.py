@@ -231,19 +231,26 @@ async def start_batch_scrape(
     await session.commit()
     await session.refresh(job)
 
-    # Run in background — use asyncio.create_task to preserve async context
-    # for SQLAlchemy's greenlet proxy (BackgroundTasks doesn't guarantee this)
-    async def _run():
+    # Run in background thread — isolated event loop avoids uvloop/greenlet conflict
+    def _run_thread():
+        import asyncio as _asyncio
         from database import _session_factory
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
         try:
             if _session_factory is None:
                 raise RuntimeError("Database not initialized")
-            async with _session_factory() as bg_session:
-                await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
+            async def _work():
+                async with _session_factory() as bg_session:
+                    await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
+            loop.run_until_complete(_work())
         except Exception as e:
             logger.error(f"Batch scrape job {job.id} failed: {e}", exc_info=True)
+        finally:
+            loop.close()
 
-    asyncio.create_task(_run())
+    import asyncio as _asyncio
+    _asyncio.get_event_loop().run_in_executor(None, _run_thread)
 
     return {
         "job_id": job.id,
