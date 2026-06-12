@@ -6,7 +6,9 @@ import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:file_picker/file_picker.dart";
 import "package:http/http.dart" as http;
+import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 import "../services/api_client.dart";
@@ -424,6 +426,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
+    // Check if download directory is set
+    final prefs = await SharedPreferences.getInstance();
+    final dlDir = prefs.getString("local_download_dir");
+    if (dlDir == null || dlDir.isEmpty) {
+      if (mounted) {
+        final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择游戏下载目录");
+        if (result == null || !mounted) return;
+        await prefs.setString("local_download_dir", result);
+      }
+    }
+
     final downloadUrl = "$_baseUrl/api/download/${game.id}/${v.id}";
     final task = DownloadService().startDownload(
       gameId: game.id,
