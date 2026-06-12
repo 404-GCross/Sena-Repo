@@ -312,15 +312,7 @@ class DownloadService {
         await _download(t, tmp);
         if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
 
-        // Phase 2: extract (skip on Android — no RAR/7z support)
-        if (Platform.isAndroid) {
-          t.status = "done";
-          t.outputPath = tmp.path;
-          t.error = "请手动解压";
-          _emit();
-          NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
-          return;
-        }
+        // Phase 2: extract
         t.status = "extracting";
         t.progress = 0.0;
         _emit();
