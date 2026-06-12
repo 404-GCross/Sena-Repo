@@ -31,8 +31,17 @@ jobs:
           flutter-version: "3.29"
           channel: "stable"
 
-      - name: Clean NDK cache
-        run: rm -rf $ANDROID_HOME/ndk/27.0.12077973
+      - name: Setup NDK
+        run: |
+          # Remove corrupted NDK install + SDK download cache
+          rm -rf "$ANDROID_HOME/ndk/27.0.12077973"
+          rm -rf "$ANDROID_HOME/.temp" 2>/dev/null || true
+          rm -rf "$ANDROID_HOME/.cache" 2>/dev/null || true
+          # Pre-install NDK via sdkmanager (more reliable than AGP auto-download)
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.0.12077973" 2>&1 || \
+          yes | "$ANDROID_HOME/tools/bin/sdkmanager" --install "ndk;27.0.12077973" 2>&1 || true
+          # Tell AGP where to find NDK so it skips auto-download
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
       - name: Enable Android + generate platform files
         run: |
