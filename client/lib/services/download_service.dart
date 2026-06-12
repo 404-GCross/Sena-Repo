@@ -574,16 +574,14 @@ class DownloadService {
       // Use 7-Zip-JBinding via MethodChannel on Android (runs on background thread)
       try {
         await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
-      } on MissingPluginException {
-        throw Exception("解压组件未就绪，请更新APP");
       } catch (_) {}
       try {
         await _extractChannel.invokeMethod("extract", {
           "filePath": filePath,
           "outDir": outDir,
         }).timeout(const Duration(minutes: 30));
-      } on MissingPluginException {
-        throw Exception("解压组件未就绪，请更新APP");
+      } catch (e) {
+        throw Exception("$e");
       }
       await _fixLayout(outDir, gameDir);
       return;
