@@ -457,55 +457,27 @@ class _GameEditScreenState extends State<GameEditScreen> {
         child: Center(
           child: SizedBox(width: 900,
             child: Column(children: [
-              // ── Header: cover top on mobile, cover right on desktop ──
-              if (isWide)
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      TextField(controller: _name,
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2),
-                        decoration: _dec(border: InputBorder.none, isDense: true)),
-                      const SizedBox(height: 6),
-                      if (g.companyName != null && g.companyName!.isNotEmpty)
-                        Text(g.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context)))
-                      else
-                        Text("无公司信息", style: AppText.bodyMedium.copyWith( color: Colors.grey[600])),
-                      const SizedBox(height: 12),
-                      Row(children: [
-                        _sourceBadge("VNDB", g.vndbId),
-                        _sourceBadge("Steam", g.steamId),
-                        _sourceBadge("Bangumi", g.bangumiId),
-                      ]),
+              // ── Header: cover right, name left ──
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    TextField(controller: _name,
+                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2),
+                      decoration: _dec(border: InputBorder.none, isDense: true)),
+                    const SizedBox(height: 6),
+                    if (g.companyName != null && g.companyName!.isNotEmpty)
+                      Text(g.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context)))
+                    else
+                      Text("无公司信息", style: AppText.bodyMedium.copyWith( color: Colors.grey[600])),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      _sourceBadge("VNDB", g.vndbId),
+                      _sourceBadge("Steam", g.steamId),
+                      _sourceBadge("Bangumi", g.bangumiId),
                     ]),
-                  ),
-                  const SizedBox(width: 24),
-                  Column(children: [
-                    Container(
-                      width: isWide ? 200 : 130, height: isWide ? 280 : 182,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 8)),
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 8, offset: const Offset(0, 2)),
-                      ],
-                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                              fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                          : _coverPlaceholder()),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () => _pickLocalCover(),
-                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
-                    label: const Text("本地上传", style: TextStyle(fontSize: 12)),
-                  ),
-                ]),
-              ])
-              else ...[
+                  ]),
+                ),
+                const SizedBox(width: 24),
                 Column(children: [
                   Container(
                     width: isWide ? 200 : 130, height: isWide ? 280 : 182,
@@ -531,24 +503,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     label: const Text("本地上传", style: TextStyle(fontSize: 12)),
                   ),
                 ]),
-                const SizedBox(height: 16),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  TextField(controller: _name,
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.2),
-                    decoration: _dec(border: InputBorder.none, isDense: true)),
-                  const SizedBox(height: 4),
-                  if (g.companyName != null && g.companyName!.isNotEmpty)
-                    Text(g.companyName!, style: TextStyle(fontSize: 14, color: subTextColor(context)))
-                  else
-                    Text("无公司信息", style: AppText.bodyMedium.copyWith( color: Colors.grey[600])),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    _sourceBadge("VNDB", g.vndbId),
-                    _sourceBadge("Steam", g.steamId),
-                    _sourceBadge("Bangumi", g.bangumiId),
-                  ]),
-                ]),
-              ],
+              ]),
               const SizedBox(height: 24),
 
               // ── Body: responsive — wide: Row, narrow: Column ──
