@@ -36,8 +36,8 @@ jobs:
 
       - name: Copy 7zz binary (Android)
         run: |
-          New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
-          Copy-Item "../7z/Android/7zz" assets/binaries/7zz
+          mkdir -p assets/binaries
+          cp ../7z/Android/7zz assets/binaries/7zz
 
       - name: Enable Android + generate platform files
         run: |
