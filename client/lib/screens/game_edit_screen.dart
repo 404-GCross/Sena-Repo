@@ -552,12 +552,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
               const SizedBox(height: 24),
 
               // ── Body: left metadata grid + right description ──
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                // Left: metadata grid
-                Expanded(
-                  flex: 5,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    _section("详细信息", Icons.info_outline),
+              if (isWide)
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    flex: 5,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      _section("详细信息", Icons.info_outline),
                     _fieldCard(children: [
                       _field("开发商", _dev, icon: Icons.business, sourceId: g.vndbId),
                       _divider(),
@@ -648,6 +648,82 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       style: const TextStyle(fontSize: 14)),
                   ]),
                 ),
+              ]),
+            ])
+            else
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                _section("简介", Icons.description_outlined),
+                TextField(controller: _desc, maxLines: 8,
+                  decoration: _dec(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    hintText: "游戏简介..."),
+                  style: AppText.body.copyWith( height: 1.6)),
+                const SizedBox(height: 20),
+                _section("详细信息", Icons.info_outline),
+                _fieldCard(children: [
+                  _field("开发商", _dev, icon: Icons.business, sourceId: g.vndbId),
+                  _divider(),
+                  _field("发售日", _date, icon: Icons.calendar_today, sourceId: g.vndbId),
+                  _divider(),
+                  _field("VNDB ID", _vndb, icon: Icons.tag,
+                      sourceId: g.vndbId != null && g.vndbId!.isNotEmpty ? g.vndbId : null),
+                  _divider(),
+                  _field("Steam ID", _steam, icon: Icons.tag,
+                      sourceId: g.steamId != null && g.steamId!.isNotEmpty ? g.steamId : null),
+                  _divider(),
+                  _field("Bangumi ID", _bgm, icon: Icons.tag,
+                      sourceId: g.bangumiId != null && g.bangumiId!.isNotEmpty ? g.bangumiId : null),
+                ]),
+                const SizedBox(height: 20),
+                _section("版本", Icons.folder_outlined),
+                if (g.versions.isEmpty)
+                  _hintCard("暂无版本信息")
+                else ...[
+                  _fieldCard(children:
+                    g.versions.asMap().entries.map((e) {
+                      final v = e.value;
+                      return Column(children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Row(children: [
+                            Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: _platformColor(v.platform).withValues(alpha: 0.15),
+                              ),
+                              child: Text(v.platform, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
+                            ),
+                          ]),
+                        ),
+                      ]);
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.merge, size: 16),
+                    label: const Text("合并到其他游戏..."),
+                    onPressed: _mergeGameDialog,
+                  ),
+                ],
+                const SizedBox(height: 20),
+                _section("备注", Icons.note_outlined),
+                TextField(controller: _notes, maxLines: 4,
+                  decoration: _dec(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    hintText: "个人备注..."),
+                  style: AppText.body.copyWith( height: 1.6)),
+                const SizedBox(height: 20),
+                _section("背景图 URL", Icons.image_outlined),
+                const SizedBox(height: 4),
+                TextField(controller: _bgUrl,
+                  decoration: _dec(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    hintText: "背景图片URL（可选）"),
+                  style: const TextStyle(fontSize: 14)),
               ]),
             ]),
           ),
