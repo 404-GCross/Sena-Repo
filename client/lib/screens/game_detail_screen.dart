@@ -130,23 +130,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               Padding(
                 padding: EdgeInsets.fromLTRB(isWide ? 32 : 8, 24, isWide ? 32 : 8, 0),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  _section("简介", Icons.description_outlined),
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: cardBg(context),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: cardBorder(context)),
-                    ),
-                    child: Text(
-                      game.description?.isNotEmpty == true ? game.description! : "暂无简介",
-                      style: AppText.body.copyWith(
-                        height: 1.7,
-                        color: game.description?.isNotEmpty == true ? null : Colors.grey[500],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
                   _section("详细信息", Icons.info_outline),
                   _fieldCard(children: [
                     _infoRow("开发商", game.developer, Icons.business),
@@ -200,6 +183,23 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       child: Text(t.name, style: const TextStyle(fontSize: 13)),
                     )).toList()),
                   ],
+                  const SizedBox(height: 20),
+                  _section("简介", Icons.description_outlined),
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: cardBg(context),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cardBorder(context)),
+                    ),
+                    child: Text(
+                      game.description?.isNotEmpty == true ? game.description! : "暂无简介",
+                      style: AppText.body.copyWith(
+                        height: 1.7,
+                        color: game.description?.isNotEmpty == true ? null : Colors.grey[500],
+                      ),
+                    ),
+                  ),
                 ]),
               ),
             ]),
