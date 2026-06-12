@@ -8,7 +8,7 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 
-import "package:flutter/services.dart" show rootBundle;
+import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
@@ -566,16 +566,28 @@ class DownloadService {
 
   // ── extract ──
 
+  static const _extractChannel = MethodChannel("com.github.senarepo/extractor");
+
   Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress]) async {
-    final exe = await _getSevenZipPath();
+    if (Platform.isAndroid) {
+      // Use 7-Zip-JBinding via MethodChannel on Android
+      try {
+        await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
+      } catch (_) {}
+      await _extractChannel.invokeMethod("extract", {
+        "filePath": filePath,
+        "outDir": outDir,
+      });
+      await _fixLayout(outDir, gameDir);
+      return;
+    }
 
-    // Extract to outDir
+    // Desktop: use bundled 7z binary
+    final exe = await _getSevenZipPath();
     try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
     await _runTool(exe, ["x", "-y", "-o$outDir", filePath],
         onProgress: onProgress);
-
-    // Fix structure: if archive scattered files, wrap in game folder
     await _fixLayout(outDir, gameDir);
   }
 

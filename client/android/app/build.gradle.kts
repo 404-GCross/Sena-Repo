@@ -39,4 +39,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation("com.github.omicronapps:7-Zip-JBinding-4Android:Release-16.02-2.03")
 }

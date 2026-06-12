@@ -34,11 +34,6 @@ jobs:
       - name: Clean NDK cache
         run: rm -rf $ANDROID_HOME/ndk/27.0.12077973
 
-      - name: Copy 7zz binary (Android)
-        run: |
-          mkdir -p assets/binaries
-          cp ../7z/Android/7zz assets/binaries/7zz
-
       - name: Enable Android + generate platform files
         run: |
           flutter config --enable-android
