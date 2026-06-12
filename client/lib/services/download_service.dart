@@ -677,7 +677,10 @@ class DownloadService {
     final exe = await _getSevenZipPath();
     final args = ["x", "-y", "-o$outDir", filePath];
     if (password != null) args.insert(1, "-p$password");
-    try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+    // Only test integrity without password (encrypted archives fail 7z t without -p)
+    if (password == null) {
+      try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+    }
     await _runTool(exe, args, onProgress: onProgress);
     await _fixLayout(outDir, gameDir);
   }
