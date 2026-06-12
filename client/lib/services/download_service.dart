@@ -373,7 +373,7 @@ class DownloadService {
         t.status = "downloading";
         _emit();
         NotificationService().showDownloadProgress(
-          id: t.gameId, gameName: t.gameName,
+          id: t.gameId * 10000 + t.versionId, gameName: t.gameName,
           progress: 0, receivedBytes: 0, totalBytes: t.totalBytes);
         await _download(t, tmp);
         if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
@@ -415,14 +415,14 @@ class DownloadService {
       t.status = "done";
       t.outputPath = outDir;
       _emit();
-      NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
+      NotificationService().showCompleted(id: t.gameId * 10000 + t.versionId, gameName: t.gameName);
     } catch (e) {
       if (t._cancelled || t.status == "paused") {
-        NotificationService().cancel(t.gameId);
+        NotificationService().cancel(t.gameId * 10000 + t.versionId);
         try { await tmp.delete(); } catch (_) {}
         return;
       }
-      NotificationService().cancel(t.gameId);
+      NotificationService().cancel(t.gameId * 10000 + t.versionId);
       t.status = "failed";
       t.error = "$e";
       _emit();
@@ -532,7 +532,7 @@ class DownloadService {
           t.progress = received / t.totalBytes;
           _emit();
           NotificationService().showDownloadProgress(
-            id: t.gameId, gameName: t.gameName,
+            id: t.gameId * 10000 + t.versionId, gameName: t.gameName,
             progress: t.progress, receivedBytes: received,
             totalBytes: t.totalBytes);
         }
