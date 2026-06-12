@@ -571,14 +571,20 @@ class DownloadService {
   Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress]) async {
     if (Platform.isAndroid) {
-      // Use 7-Zip-JBinding via MethodChannel on Android
+      // Use 7-Zip-JBinding via MethodChannel on Android (runs on background thread)
       try {
         await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
+      } on MissingPluginException {
+        throw Exception("解压组件未就绪，请更新APP");
       } catch (_) {}
-      await _extractChannel.invokeMethod("extract", {
-        "filePath": filePath,
-        "outDir": outDir,
-      });
+      try {
+        await _extractChannel.invokeMethod("extract", {
+          "filePath": filePath,
+          "outDir": outDir,
+        }).timeout(const Duration(minutes: 30));
+      } on MissingPluginException {
+        throw Exception("解压组件未就绪，请更新APP");
+      }
       await _fixLayout(outDir, gameDir);
       return;
     }

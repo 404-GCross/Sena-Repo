@@ -8,104 +8,98 @@ import net.sf.sevenzipjbinding.impl.RandomAccessFileInStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.util.concurrent.Executors
 
 class MainActivity: FlutterActivity() {
     companion object {
         const val CHANNEL = "com.github.senarepo/extractor"
     }
 
+    private val executor = Executors.newSingleThreadExecutor()
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
-                if (call.method == "extract") {
-                    try {
+                when (call.method) {
+                    "extract" -> {
                         val filePath = call.argument<String>("filePath")!!
                         val outDir = call.argument<String>("outDir")!!
-                        extractArchive(filePath, outDir)
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.error("EXTRACT_ERROR", e.message, null)
+                        executor.execute {
+                            try {
+                                extractArchive(filePath, outDir)
+                                runOnUiThread { result.success(true) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("EXTRACT_ERROR", e.message, null) }
+                            }
+                        }
                     }
-                } else if (call.method == "testArchive") {
-                    try {
+                    "testArchive" -> {
                         val filePath = call.argument<String>("filePath")!!
-                        testArchive(filePath)
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.error("TEST_ERROR", e.message, null)
+                        executor.execute {
+                            try {
+                                testArchive(filePath)
+                                runOnUiThread { result.success(true) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("TEST_ERROR", e.message, null) }
+                            }
+                        }
                     }
-                } else {
-                    result.notImplemented()
+                    else -> result.notImplemented()
                 }
             }
     }
 
     private fun extractArchive(filePath: String, outDir: String) {
-        val raf = RandomAccessFile(filePath, "r")
-        val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
-        try {
+        RandomAccessFile(filePath, "r").use { raf ->
+            val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
             val count = inArchive.numberOfItems
-            val indices = IntArray(count) { it }
+            if (count == 0) return
+
+            val toExtract = IntArray(count) { it }
             val paths = Array(count) { idx ->
-                var p = inArchive.getStringProperty(idx, PropID.PATH)
-                if (p != null && p.contains("\\")) p = p.replace("\\", "/")
-                p
+                inArchive.getStringProperty(idx, PropID.PATH)
+                    ?.replace("\\", "/")
+                    ?.let { if (it.endsWith("/")) null else it }
             }
 
-            inArchive.extract(indices, false, object : IArchiveExtractCallback {
-                override fun getStream(index: Int, askExtract: ExtractAskMode?): ISequentialOutStream? {
+            inArchive.extract(toExtract, false, object : IArchiveExtractCallback {
+                override fun getStream(index: Int, mode: ExtractAskMode?): ISequentialOutStream? {
                     val path = paths[index] ?: return null
-                    if (path.endsWith("/") || path.isEmpty()) return null
                     val outFile = File(outDir, path)
-                    outFile.parentFile?.mkdirs()
+                    outFile.parentFile!!.mkdirs()
                     val fos = FileOutputStream(outFile)
-                    return object : ISequentialOutStream {
-                        override fun write(data: ByteArray?): Int {
-                            if (data != null) fos.write(data)
-                            return data?.size ?: 0
-                        }
+                    return ISequentialOutStream { data ->
+                        fos.write(data)
+                        data.size
                     }
                 }
-
-                override fun prepareOperation(askExtractMode: ExtractAskMode?) {}
-                override fun setOperationResult(operationResult: ExtractOperationResult?) {}
+                override fun prepareOperation(mode: ExtractAskMode?) {}
+                override fun setOperationResult(result: ExtractOperationResult?) {}
                 override fun setTotal(total: Long) {}
                 override fun setCompleted(complete: Long) {}
             })
             inArchive.close()
-        } finally {
-            raf.close()
         }
     }
 
     private fun testArchive(filePath: String) {
-        val raf = RandomAccessFile(filePath, "r")
-        val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
-        try {
-            val count = inArchive.numberOfItems
-            val indices = IntArray(1) { 0 }
-            // Try extracting first item to validate archive integrity
-            if (count > 0) {
-                inArchive.extract(indices, false, object : IArchiveExtractCallback {
-                    override fun getStream(index: Int, askExtract: ExtractAskMode?): ISequentialOutStream? {
-                        return object : ISequentialOutStream {
-                            override fun write(data: ByteArray?): Int = data?.size ?: 0
-                        }
-                    }
-                    override fun prepareOperation(askExtractMode: ExtractAskMode?) {}
-                    override fun setOperationResult(operationResult: ExtractOperationResult?) {
-                        if (operationResult != ExtractOperationResult.OK) {
-                            throw Exception("Archive integrity check failed: $operationResult")
-                        }
+        RandomAccessFile(filePath, "r").use { raf ->
+            val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
+            if (inArchive.numberOfItems > 0) {
+                inArchive.extract(intArrayOf(0), false, object : IArchiveExtractCallback {
+                    override fun getStream(idx: Int, mode: ExtractAskMode?) =
+                        ISequentialOutStream { data -> data.size }
+                    override fun prepareOperation(mode: ExtractAskMode?) {}
+                    override fun setOperationResult(result: ExtractOperationResult?) {
+                        if (result != ExtractOperationResult.OK)
+                            throw Exception("Archive integrity check failed: $result")
                     }
                     override fun setTotal(total: Long) {}
                     override fun setCompleted(complete: Long) {}
                 })
             }
             inArchive.close()
-        } finally {
-            raf.close()
         }
     }
 }
