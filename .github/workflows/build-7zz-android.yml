@@ -26,6 +26,8 @@ jobs:
           cd 7zip/CPP/7zip/Bundles/Alone2
           export CC=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
           export CXX=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
+          # Android Bionic has pthread built-in, remove -lpthread from linker
+          sed -i 's/-lpthread//g' ../../7zip_gcc.mak
           make -f makefile.gcc -j$(nproc) 2>&1
           file _o/7zz
           ls -la _o/7zz
