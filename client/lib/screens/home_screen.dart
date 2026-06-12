@@ -192,8 +192,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ]),
               const SizedBox(height: 8),
-              Row(children: [
-                // Platform filters with icons
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
                 _filterChip("PC", Icons.desktop_windows, gameProvider.filterPlatform == "PC",
                     () => _togglePlatformFilter("PC")),
                 _filterChip("KRKR", Icons.android, gameProvider.filterPlatform == "KRKR",
@@ -210,8 +211,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == true ? null : true)),
                 _filterChip("缺封面", Icons.hide_image, gameProvider.filterHasCover == false,
                     () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == false ? null : false)),
-                const Spacer(),
-                // Sort: styled popup menu
+                const SizedBox(width: 8),
                 PopupMenuButton<String>(
                   offset: const Offset(0, 36),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -254,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 if (gameProvider.sortBy != null) const SizedBox(width: 4),
-              ]),
+              ])),
             ]),
           ),
         Expanded(
