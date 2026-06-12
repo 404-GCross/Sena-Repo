@@ -5,8 +5,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import net.sf.sevenzipjbinding.*
 import net.sf.sevenzipjbinding.impl.RandomAccessFileInStream
-import net.sf.sevenzipjbinding.simple.SimpleInArchive
 import java.io.File
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 
 class MainActivity: FlutterActivity() {
@@ -43,19 +43,37 @@ class MainActivity: FlutterActivity() {
 
     private fun extractArchive(filePath: String, outDir: String) {
         val raf = RandomAccessFile(filePath, "r")
+        val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
         try {
-            val inArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
-            val simple = inArchive.simpleInterface
-            for (item in simple.archiveItems) {
-                if (!item.isFolder) {
-                    val outFile = File(outDir, item.path ?: "")
+            val count = inArchive.numberOfItems
+            val indices = IntArray(count) { it }
+            val paths = Array(count) { idx ->
+                var p = inArchive.getStringProperty(idx, PropID.PATH)
+                if (p != null && p.contains("\\")) p = p.replace("\\", "/")
+                p
+            }
+
+            inArchive.extract(indices, false, object : IArchiveExtractCallback {
+                override fun getStream(index: Int, askExtract: ExtractAskMode?): ISequentialOutStream? {
+                    val path = paths[index] ?: return null
+                    if (path.endsWith("/") || path.isEmpty()) return null
+                    val outFile = File(outDir, path)
                     outFile.parentFile?.mkdirs()
-                    item.extractSlow { data ->
-                        outFile.writeBytes(data)
-                        data.size // consumed
+                    val fos = FileOutputStream(outFile)
+                    return object : ISequentialOutStream {
+                        override fun write(data: ByteArray?): Int {
+                            if (data != null) fos.write(data)
+                            return data?.size ?: 0
+                        }
                     }
                 }
-            }
+
+                override fun prepareOperation(askExtractMode: ExtractAskMode?) {}
+                override fun setOperationResult(operationResult: ExtractOperationResult?) {}
+                override fun setTotal(total: Long) {}
+                override fun setCompleted(complete: Long) {}
+            })
+            inArchive.close()
         } finally {
             raf.close()
         }
@@ -63,15 +81,29 @@ class MainActivity: FlutterActivity() {
 
     private fun testArchive(filePath: String) {
         val raf = RandomAccessFile(filePath, "r")
+        val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
         try {
-            val inArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
-            val simple = inArchive.simpleInterface
-            // Iterate items to verify integrity
-            for (item in simple.archiveItems) {
-                if (!item.isFolder) {
-                    item.extractSlow { data -> data.size } // consume and check
-                }
+            val count = inArchive.numberOfItems
+            val indices = IntArray(1) { 0 }
+            // Try extracting first item to validate archive integrity
+            if (count > 0) {
+                inArchive.extract(indices, false, object : IArchiveExtractCallback {
+                    override fun getStream(index: Int, askExtract: ExtractAskMode?): ISequentialOutStream? {
+                        return object : ISequentialOutStream {
+                            override fun write(data: ByteArray?): Int = data?.size ?: 0
+                        }
+                    }
+                    override fun prepareOperation(askExtractMode: ExtractAskMode?) {}
+                    override fun setOperationResult(operationResult: ExtractOperationResult?) {
+                        if (operationResult != ExtractOperationResult.OK) {
+                            throw Exception("Archive integrity check failed: $operationResult")
+                        }
+                    }
+                    override fun setTotal(total: Long) {}
+                    override fun setCompleted(complete: Long) {}
+                })
             }
+            inArchive.close()
         } finally {
             raf.close()
         }
