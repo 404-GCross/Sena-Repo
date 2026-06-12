@@ -154,6 +154,9 @@ async def _apply_result(
     if result.description and not game.description:
         game.description = result.description[:2000]
         session.add(game)
+    if result.release_date and not game.release_date:
+        game.release_date = result.release_date
+        session.add(game)
 
 
 async def run_batch_scrape(
