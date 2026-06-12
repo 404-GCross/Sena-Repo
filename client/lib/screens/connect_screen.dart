@@ -1,5 +1,6 @@
 /// Initial screen: connect to Sena Repo server.
 
+import "dart:io" show Platform;
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
@@ -291,8 +292,10 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
               style: AppText.bodySmall.copyWith(color: Colors.grey)),
           const SizedBox(height: 20),
           _dirCard(Icons.download, "游戏下载目录", _downloadDir, _pickDownloadDir),
-          const SizedBox(height: 12),
-          _dirCard(Icons.gamepad, "Steam 库目录 (steamapps/common)", _steamDir, _pickSteamDir),
+          if (!Platform.isAndroid) ...[
+            const SizedBox(height: 12),
+            _dirCard(Icons.gamepad, "Steam 库目录 (steamapps/common)", _steamDir, _pickSteamDir),
+          ],
         ],
       )),
       actions: [
