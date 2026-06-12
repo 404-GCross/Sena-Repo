@@ -165,6 +165,10 @@ class DownloadService {
       task.error = "已取消";
       _emit();
       _cleanupTemp(task);
+    } else if (task.status == "failed") {
+      task.status = "cancelled";
+      _emit();
+      _cleanupTemp(task);
     }
   }
 
