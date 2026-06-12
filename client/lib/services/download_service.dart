@@ -37,6 +37,7 @@ class DownloadTask {
   final DateTime startedAt;
   http.Client? _client;
   bool _cancelled = false;
+  bool needsPassword = false;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
 
@@ -208,9 +209,54 @@ class DownloadService {
     if (task.status == "failed") {
       task.status = "pending";
       task.error = null;
+      task.needsPassword = false;
       task.progress = task.totalBytes > 0 ? task.receivedBytes / task.totalBytes : 0;
       _emit();
       _run(task);
+    }
+  }
+
+  void retryWithPassword(DownloadTask task, String password) {
+    if (task.status == "failed" && task.needsPassword) {
+      task.status = "extracting";
+      task.error = null;
+      task.needsPassword = false;
+      _emit();
+      _runWithPassword(task, password);
+    }
+  }
+
+  Future<void> _runWithPassword(DownloadTask t, String password) async {
+    final dir = await downloadDir;
+    final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
+    final outDir = _outDir(t, dir);
+    final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
+    try {
+      t._cancelled = false;
+      await Directory(outDir).create(recursive: true);
+      t.status = "extracting";
+      t.progress = 0.0;
+      _emit();
+      await Future.delayed(const Duration(milliseconds: 100));
+      await _extract(tmp.path, outDir, gameDir, password: password);
+      await _fixLayout(outDir, gameDir);
+      await tmp.delete();
+      t.status = "done";
+      t.outputPath = outDir;
+      _emit();
+      NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
+    } catch (e) {
+      NotificationService().cancel(t.gameId);
+      final errStr = "$e";
+      if (_isEncryptedError(errStr)) {
+        t.needsPassword = true;
+        t.status = "failed";
+        t.error = "需要密码";
+      } else {
+        t.status = "failed";
+        t.error = errStr;
+      }
+      _emit();
     }
   }
 
@@ -423,10 +469,29 @@ class DownloadService {
         return;
       }
       NotificationService().cancel(t.gameId);
-      t.status = "failed";
-      t.error = "$e";
+      final errStr = "$e";
+      // Check if archive is password-protected
+      if (_isEncryptedError(errStr)) {
+        t.needsPassword = true;
+        t.status = "failed";
+        t.error = "需要密码";
+      } else {
+        t.status = "failed";
+        t.error = errStr;
+      }
       _emit();
     }
+  }
+
+  bool _isEncryptedError(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains("password") ||
+        lower.contains("encrypted") ||
+        lower.contains("wrong password") ||
+        lower.contains("can't open encrypted") ||
+        lower.contains("crc error") ||
+        lower.contains("crc_error") ||
+        lower.contains("data error");
   }
 
   // ── download ──
@@ -569,9 +634,9 @@ class DownloadService {
   static const _extractChannel = MethodChannel("com.github.senarepo/extractor");
 
   Future<void> _extract(String filePath, String outDir, String gameDir,
-      [void Function(double)? onProgress]) async {
+      [void Function(double)? onProgress, String? password]) async {
     if (Platform.isAndroid) {
-      // Use 7-Zip-JBinding via MethodChannel on Android (runs on background thread)
+      // Use 7-Zip-JBinding via MethodChannel on Android
       try {
         await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
       } catch (_) {}
@@ -579,6 +644,7 @@ class DownloadService {
         await _extractChannel.invokeMethod("extract", {
           "filePath": filePath,
           "outDir": outDir,
+          if (password != null) "password": password,
         }).timeout(const Duration(minutes: 30));
       } catch (e) {
         throw Exception("$e");
@@ -589,9 +655,10 @@ class DownloadService {
 
     // Desktop: use bundled 7z binary
     final exe = await _getSevenZipPath();
+    final args = ["x", "-y", "-o$outDir", filePath];
+    if (password != null) args.insert(1, "-p$password");
     try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
-    await _runTool(exe, ["x", "-y", "-o$outDir", filePath],
-        onProgress: onProgress);
+    await _runTool(exe, args, onProgress: onProgress);
     await _fixLayout(outDir, gameDir);
   }
 

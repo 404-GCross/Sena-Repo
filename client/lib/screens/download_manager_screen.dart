@@ -145,11 +145,18 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
             )
           else if (t.status == "failed")
             Row(mainAxisSize: MainAxisSize.min, children: [
-              FilledButton(
-                onPressed: () => DownloadService().retryTask(t),
-                child: const Text("重试", style: TextStyle(fontSize: 12)),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
-              ),
+              if (t.needsPassword)
+                FilledButton(
+                  onPressed: () => _passwordDialog(t),
+                  child: const Text("填写密码", style: TextStyle(fontSize: 12)),
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
+                )
+              else
+                FilledButton(
+                  onPressed: () => DownloadService().retryTask(t),
+                  child: const Text("重试", style: TextStyle(fontSize: 12)),
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
+                ),
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
                 onPressed: () => DownloadService().removeTask(t),
@@ -198,6 +205,40 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
     );
+  }
+
+  Future<void> _passwordDialog(DownloadTask t) async {
+    final ctrl = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.lock, size: 20, color: Colors.orange),
+          SizedBox(width: 8),
+          Text("输入解压密码"),
+        ]),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(
+            hintText: "压缩包密码",
+            prefixIcon: Icon(Icons.key),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text("解压"),
+          ),
+        ],
+      ),
+    );
+    if (result != null && result.isNotEmpty && mounted) {
+      DownloadService().retryWithPassword(t, result);
+    }
   }
 
   String _fmtSize(int bytes) {
