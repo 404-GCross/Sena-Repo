@@ -238,7 +238,7 @@ class DownloadService {
       t.progress = 0.0;
       _emit();
       await Future.delayed(const Duration(milliseconds: 100));
-      await _extract(tmp.path, outDir, gameDir, password: password);
+      await _extract(tmp.path, outDir, gameDir, null, password);
       await _fixLayout(outDir, gameDir);
       await tmp.delete();
       t.status = "done";
