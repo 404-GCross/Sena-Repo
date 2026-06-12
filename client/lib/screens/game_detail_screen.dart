@@ -2,6 +2,7 @@
 
 import "dart:async";
 import "dart:convert";
+import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -627,12 +628,14 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               child: Text(_task.outputPath!,
                   style: AppText.label.copyWith( color: subTextColor(context), fontFamily: "monospace")),
             ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => _createShortcut(_task),
-              icon: const Icon(Icons.desktop_windows, size: 16),
-              label: const Text("创建桌面快捷方式", style: TextStyle(fontSize: 13)),
-            ),
+            if (!Platform.isAndroid) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => _createShortcut(_task),
+                icon: const Icon(Icons.desktop_windows, size: 16),
+                label: const Text("创建桌面快捷方式", style: TextStyle(fontSize: 13)),
+              ),
+            ],
           ],
         ]);
       default:
