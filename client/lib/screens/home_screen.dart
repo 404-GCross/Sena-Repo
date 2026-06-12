@@ -268,23 +268,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         subtitle: "请在服务端添加根目录并刷新",
                       ),
                     )
-                  : _isGridView
-                      ? GameGrid(
-                          games: gameProvider.games,
-                          coverBaseUrl: gameProvider.api.baseUrl,
-                          onTap: (game) => _openDetail(game),
-                          selectedIds: _selectedIds,
-                          onSelect: (id) => _toggleSelect(id),
-                          multiSelect: _multiSelect,
-                        )
-                      : GameList(
-                          games: gameProvider.games,
-                          coverBaseUrl: gameProvider.api.baseUrl,
-                          onTap: (game) => _openDetail(game),
-                          selectedIds: _selectedIds,
-                          onSelect: (id) => _toggleSelect(id),
-                          multiSelect: _multiSelect,
-                        ),
+                  : RefreshIndicator(
+                      onRefresh: gameProvider.loadGames,
+                      child: _isGridView
+                          ? GameGrid(
+                              games: gameProvider.games,
+                              coverBaseUrl: gameProvider.api.baseUrl,
+                              onTap: (game) => _openDetail(game),
+                              selectedIds: _selectedIds,
+                              onSelect: (id) => _toggleSelect(id),
+                              multiSelect: _multiSelect,
+                            )
+                          : GameList(
+                              games: gameProvider.games,
+                              coverBaseUrl: gameProvider.api.baseUrl,
+                              onTap: (game) => _openDetail(game),
+                              selectedIds: _selectedIds,
+                              onSelect: (id) => _toggleSelect(id),
+                              multiSelect: _multiSelect,
+                            ),
+                    ),
         ),
       ],
     );
