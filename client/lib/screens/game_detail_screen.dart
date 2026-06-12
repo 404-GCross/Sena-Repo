@@ -10,6 +10,7 @@ import "package:http/http.dart" as http;
 import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
+import "../services/shortcut_service.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
@@ -543,6 +544,33 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     );
   }
 
+  Future<void> _createShortcut(DownloadTask task) async {
+    if (task.outputPath == null) return;
+    final exe = ShortcutService.findExecutable(task.outputPath!);
+    if (exe == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("未找到可执行文件")),
+      );
+      return;
+    }
+    // Try to get cover from server
+    String? coverPath;
+    try {
+      final api = context.read<GameProvider>().api;
+      final base = api.baseUrl;
+      final coverUrl = "$base/api/files/covers${_task.gameId}";
+      coverPath = await ShortcutService.downloadCover(coverUrl, task.gameName);
+    } catch (_) {}
+    final ok = await ShortcutService.createShortcut(
+      gameName: task.gameName,
+      exePath: exe,
+      coverPath: coverPath,
+    );
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? "桌面快捷方式已创建" : "创建失败")),
+    );
+  }
+
   Widget _statusIcon() {
     switch (_task.status) {
       case "downloading": return SizedBox(
@@ -598,6 +626,12 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               ),
               child: Text(_task.outputPath!,
                   style: AppText.label.copyWith( color: subTextColor(context), fontFamily: "monospace")),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _createShortcut(_task),
+              icon: const Icon(Icons.desktop_windows, size: 16),
+              label: const Text("创建桌面快捷方式", style: TextStyle(fontSize: 13)),
             ),
           ],
         ]);
