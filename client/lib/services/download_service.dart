@@ -224,7 +224,9 @@ class DownloadService {
             await File("${dir.path}/7z.dll").writeAsBytes(dll.buffer.asUint8List());
           } catch (_) {}
         }
-        if (Platform.isLinux) await Process.run("chmod", ["+x", dest.path]);
+        if (Platform.isLinux || Platform.isAndroid) {
+          await Process.run("chmod", ["+x", dest.path]);
+        }
         if (await dest.exists()) ok = true;
       } catch (_) {}
 
