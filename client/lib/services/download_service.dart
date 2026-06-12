@@ -288,8 +288,8 @@ class DownloadService {
             await File("${dir.path}/7z.dll").writeAsBytes(dll.buffer.asUint8List());
           } catch (_) {}
         }
-        if (Platform.isLinux || Platform.isAndroid) {
-          await Process.run("chmod", ["+x", dest.path]);
+        if (Platform.isLinux) {
+          try { await Process.run("chmod", ["+x", dest.path]); } catch (_) {}
         }
         if (await dest.exists()) ok = true;
       } catch (_) {}
@@ -537,6 +537,9 @@ class DownloadService {
             totalBytes: t.totalBytes);
         }
       }
+      // Tell UI we're done downloading before slow disk flush
+      t.progress = 1.0;
+      _emit();
       await sink.flush();
       await sink.close();
 
