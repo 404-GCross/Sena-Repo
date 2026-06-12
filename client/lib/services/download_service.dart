@@ -12,6 +12,8 @@ import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
+import "notification_service.dart";
+
 // ────────────────────────────────────────────────────
 // DownloadTask
 // ────────────────────────────────────────────────────
@@ -304,6 +306,9 @@ class DownloadService {
         // Phase 1: download
         t.status = "downloading";
         _emit();
+        NotificationService().showDownloadProgress(
+          id: t.gameId, gameName: t.gameName,
+          progress: 0, receivedBytes: 0, totalBytes: t.totalBytes);
         await _download(t, tmp);
         if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
 
@@ -344,11 +349,14 @@ class DownloadService {
       t.status = "done";
       t.outputPath = outDir;
       _emit();
+      NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
       if (t._cancelled || t.status == "paused") {
+        NotificationService().cancel(t.gameId);
         try { await tmp.delete(); } catch (_) {}
         return;
       }
+      NotificationService().cancel(t.gameId);
       try { await tmp.delete(); } catch (_) {}
       t.status = "failed";
       t.error = "$e";
@@ -451,6 +459,10 @@ class DownloadService {
         if (t.totalBytes > 0) {
           t.progress = received / t.totalBytes;
           _emit();
+          NotificationService().showDownloadProgress(
+            id: t.gameId, gameName: t.gameName,
+            progress: t.progress, receivedBytes: received,
+            totalBytes: t.totalBytes);
         }
       }
       await sink.flush();

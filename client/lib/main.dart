@@ -15,6 +15,7 @@ import "providers/theme_provider.dart";
 import "screens/connect_screen.dart";
 import "services/tray_service.dart";
 import "services/logger_service.dart";
+import "services/notification_service.dart";
 
 Future<bool> _check7zAvailable() async {
   try {
@@ -50,6 +51,7 @@ class _AllowAllCertificates extends HttpOverrides {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = _AllowAllCertificates();
+  NotificationService().init();
   LoggerService().cleanOldLogs();
 
   if (Platform.isWindows || Platform.isLinux) {
