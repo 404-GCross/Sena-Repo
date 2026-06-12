@@ -583,6 +583,48 @@ class _HomeScreenState extends State<HomeScreen> {
         else if (theme.bgColor != null)
           Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
         Scaffold(
+      appBar: wide ? null : AppBar(
+        title: const Text("Sena Repo", style: TextStyle(fontSize: 18)),
+        centerTitle: true,
+        leading: IconButton(
+          icon: Badge(
+            isLabelVisible: _unreadCount > 0,
+            label: Text("$_unreadCount", style: const TextStyle(fontSize: 10)),
+            child: const Icon(Icons.notifications_outlined, size: 22),
+          ),
+          onPressed: () async {
+            await Navigator.push(context,
+                MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
+            try {
+              final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
+              if (r.statusCode == 200 && mounted) {
+                setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
+              }
+            } catch (_) {}
+          },
+        ),
+        actions: [
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _downloadCount > 0,
+              label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
+              child: const Icon(Icons.download_outlined, size: 22),
+            ),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 22),
+            onPressed: gameProvider.loadGames,
+            tooltip: "刷新",
+          ),
+          IconButton(
+            icon: Icon(_isGridView ? Icons.list : Icons.grid_view, size: 22),
+            onPressed: () => setState(() => _isGridView = !_isGridView),
+            tooltip: _isGridView ? "列表视图" : "网格视图",
+          ),
+        ],
+      ),
       body: Row(children: [
         // ── Left Sidebar (desktop/wide only) ──
         if (wide) ...[
