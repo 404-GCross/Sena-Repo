@@ -5,6 +5,7 @@
 /// Flow: download(tmp) → validate(disk size) → extract
 
 import "dart:async";
+import "dart:convert";
 import "dart:io";
 
 import "package:flutter/services.dart" show rootBundle;
@@ -76,7 +77,66 @@ class DownloadTask {
 class DownloadService {
   static final DownloadService _instance = DownloadService._();
   factory DownloadService() => _instance;
-  DownloadService._();
+  DownloadService._() {
+    _restoreTasks();
+  }
+
+  Future<void> _restoreTasks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = prefs.getStringList("saved_tasks") ?? [];
+      for (final json in data) {
+        final m = Map<String, dynamic>.from(
+            const JsonDecoder().convert(json) as Map);
+        final task = DownloadTask(
+          gameId: m["gameId"] ?? 0,
+          versionId: m["versionId"] ?? 0,
+          fileName: m["fileName"] ?? "",
+          downloadUrl: m["downloadUrl"] ?? "",
+          gameName: m["gameName"] ?? "",
+          companyName: m["companyName"] ?? "",
+        )
+          ..status = m["status"] ?? "failed"
+          ..receivedBytes = m["receivedBytes"] ?? 0
+          ..totalBytes = m["totalBytes"] ?? 0
+          ..progress = (m["progress"] ?? 0).toDouble()
+          ..error = m["error"]
+          ..outputPath = m["outputPath"];
+        _tasks.add(task);
+        // Re-run active tasks
+        if (task.status == "downloading" || task.status == "pending" ||
+            task.status == "retrying" || task.status == "extracting") {
+          task.status = "pending";
+          _run(task);
+        }
+      }
+      if (_tasks.isNotEmpty) _emit();
+    } catch (_) {}
+  }
+
+  Future<void> _saveTasks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = _tasks
+          .where((t) => t.status != "done" && t.status != "cancelled")
+          .map((t) => const JsonEncoder().convert({
+                "gameId": t.gameId,
+                "versionId": t.versionId,
+                "fileName": t.fileName,
+                "downloadUrl": t.downloadUrl,
+                "gameName": t.gameName,
+                "companyName": t.companyName,
+                "status": t.status,
+                "receivedBytes": t.receivedBytes,
+                "totalBytes": t.totalBytes,
+                "progress": t.progress,
+                "error": t.error,
+                "outputPath": t.outputPath,
+              }))
+          .toList();
+      await prefs.setStringList("saved_tasks", data);
+    } catch (_) {}
+  }
 
   final List<DownloadTask> _tasks = [];
   final _controller = StreamController<List<DownloadTask>>.broadcast();
@@ -640,5 +700,8 @@ class DownloadService {
     } catch (_) {}
   }
 
-  void _emit() => _controller.add(List.unmodifiable(_tasks));
+  void _emit() {
+    _controller.add(List.unmodifiable(_tasks));
+    _saveTasks();
+  }
 }
