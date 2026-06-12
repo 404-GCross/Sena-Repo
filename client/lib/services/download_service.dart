@@ -451,7 +451,8 @@ class DownloadService {
 
       // Stream to file
       int received = t.receivedBytes;
-      final sink = dest.openWrite(
+      IOSink? sink;
+      sink = dest.openWrite(
           mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write);
 
       await for (final chunk in resp.stream) {
@@ -493,6 +494,8 @@ class DownloadService {
       // Sync counter
       if (t.receivedBytes != fileSize) t.receivedBytes = fileSize;
     } finally {
+      try { sink.flush(); } catch (_) {}
+      try { sink.close(); } catch (_) {}
       client.close();
       t._client = null;
     }
