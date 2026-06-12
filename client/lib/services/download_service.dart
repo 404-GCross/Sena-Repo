@@ -79,6 +79,7 @@ class DownloadService {
   static final DownloadService _instance = DownloadService._();
   factory DownloadService() => _instance;
   DownloadService._() {
+    _setupExtractChannel();
     _restoreTasks();
   }
 
@@ -443,6 +444,8 @@ class DownloadService {
             try { await tmp.delete(); } catch (_) {}
             return;
           }
+          // Encrypted archive — throw immediately, don't waste retries
+          if (_isEncryptedError("$e")) rethrow;
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
             try { await tmp.delete(); } catch (_) {}
@@ -632,14 +635,29 @@ class DownloadService {
   // ── extract ──
 
   static const _extractChannel = MethodChannel("com.github.senarepo/extractor");
+  void Function(double)? _activeProgressCallback;
+
+  void _setupExtractChannel() {
+    _extractChannel.setMethodCallHandler((call) {
+      if (call.method == "onProgress") {
+        final p = (call.arguments as Map)["progress"] as double;
+        _activeProgressCallback?.call(p);
+      }
+      return Future.value(null);
+    });
+  }
 
   Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress, String? password]) async {
     if (Platform.isAndroid) {
       // Use 7-Zip-JBinding via MethodChannel on Android
-      try {
-        await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
-      } catch (_) {}
+      // Only test archive integrity when no password (encrypted archives fail open without password)
+      if (password == null) {
+        try {
+          await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
+        } catch (_) {}
+      }
+      _activeProgressCallback = onProgress;
       try {
         await _extractChannel.invokeMethod("extract", {
           "filePath": filePath,
@@ -648,6 +666,8 @@ class DownloadService {
         }).timeout(const Duration(minutes: 30));
       } catch (e) {
         throw Exception("$e");
+      } finally {
+        _activeProgressCallback = null;
       }
       await _fixLayout(outDir, gameDir);
       return;

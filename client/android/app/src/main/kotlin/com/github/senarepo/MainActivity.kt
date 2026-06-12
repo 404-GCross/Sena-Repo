@@ -16,11 +16,12 @@ class MainActivity: FlutterActivity() {
     }
 
     private val executor = Executors.newSingleThreadExecutor()
+    private var channel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        channel!!.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "extract" -> {
                         val filePath = call.argument<String>("filePath")!!
@@ -70,6 +71,8 @@ class MainActivity: FlutterActivity() {
                     ?.let { if (it.endsWith("/")) null else it }
             }
 
+            var totalBytes = 0L
+            var lastReported = -1L
             inArchive.extract(toExtract, false, object : IArchiveExtractCallback {
                 override fun getStream(index: Int, mode: ExtractAskMode?): ISequentialOutStream? {
                     val path = paths[index] ?: return null
@@ -83,9 +86,23 @@ class MainActivity: FlutterActivity() {
                 }
                 override fun prepareOperation(mode: ExtractAskMode?) {}
                 override fun setOperationResult(result: ExtractOperationResult?) {}
-                override fun setTotal(total: Long) {}
-                override fun setCompleted(complete: Long) {}
+                override fun setTotal(total: Long) {
+                    totalBytes = total
+                }
+                override fun setCompleted(complete: Long) {
+                    if (totalBytes > 0 && complete - lastReported > totalBytes / 20) {
+                        lastReported = complete
+                        val progress = complete.toDouble() / totalBytes
+                        runOnUiThread {
+                            channel?.invokeMethod("onProgress", mapOf("progress" to progress))
+                        }
+                    }
+                }
             })
+            // Final 100% progress
+            runOnUiThread {
+                channel?.invokeMethod("onProgress", mapOf("progress" to 1.0))
+            }
             inArchive.close()
         }
     }
