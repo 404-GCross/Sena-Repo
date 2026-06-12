@@ -503,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 10),
         Text(label, style: AppText.bodySmall.copyWith(
           fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-          color: active ? Theme.of(context).colorScheme.primary : Colors.grey[300]),
+          color: active ? Theme.of(context).colorScheme.primary : subTextColor(context)),
         ),
         if (active) ...[
           const Spacer(),
