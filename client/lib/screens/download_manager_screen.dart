@@ -179,7 +179,10 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           ),
           const SizedBox(height: 4),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(t.status == "extracting" ? "解压中..." : "${(t.progress * 100).toStringAsFixed(0)}%",
+            Text(t.status == "extracting" ? "解压中..."
+                : t.totalBytes > 0
+                    ? "${(t.progress * 100).toStringAsFixed(0)}% · ${_fmtSize(t.receivedBytes)} / ${_fmtSize(t.totalBytes)}"
+                    : "${(t.progress * 100).toStringAsFixed(0)}%",
                 style: AppText.caption.copyWith( color: hintColor(context))),
             if (t.status == "downloading")
               Text(_formatSpeed(t.speedBytesPerSecond),
@@ -195,6 +198,13 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
     );
+  }
+
+  String _fmtSize(int bytes) {
+    if (bytes < 1024) return "$bytes B";
+    if (bytes < 1048576) return "${(bytes / 1024).toStringAsFixed(1)} KB";
+    if (bytes < 1073741824) return "${(bytes / 1048576).toStringAsFixed(1)} MB";
+    return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
   }
 
   String _formatSpeed(int bytesPerSec) {
