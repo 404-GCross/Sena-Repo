@@ -551,8 +551,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
               ],
               const SizedBox(height: 24),
 
-              // ── Body: responsive ──
-              Wrap(spacing: isWide ? 28 : 0, runSpacing: 20, children: [
+              // ── Body: left metadata grid + right description ──
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 // Left: metadata grid
                 Expanded(
                   flex: 5,
