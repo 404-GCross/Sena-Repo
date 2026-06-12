@@ -617,11 +617,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
           ),
           IconButton(
-            icon: const Icon(Icons.refresh, size: 22),
-            onPressed: gameProvider.loadGames,
-            tooltip: "刷新",
-          ),
-          IconButton(
             icon: Icon(_isGridView ? Icons.list : Icons.grid_view, size: 22),
             onPressed: () => setState(() => _isGridView = !_isGridView),
             tooltip: _isGridView ? "列表视图" : "网格视图",
