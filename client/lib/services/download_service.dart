@@ -359,7 +359,6 @@ class DownloadService {
         return;
       }
       NotificationService().cancel(t.gameId);
-      try { await tmp.delete(); } catch (_) {}
       t.status = "failed";
       t.error = "$e";
       _emit();
@@ -375,10 +374,16 @@ class DownloadService {
     for (int attempt = 0; attempt <= _maxRetries; attempt++) {
       if (_stopped(t)) return;
 
-      // Sync counter with disk (crash recovery)
-      if (t.receivedBytes > 0 && await dest.exists()) {
-        final sz = await dest.length();
-        if (sz != t.receivedBytes) t.receivedBytes = sz;
+      // Sync counter with disk
+      if (t.receivedBytes > 0) {
+        if (await dest.exists()) {
+          final sz = await dest.length();
+          if (sz != t.receivedBytes) t.receivedBytes = sz;
+        } else {
+          // File was deleted — reset counter
+          t.receivedBytes = 0;
+          t.totalBytes = 0;
+        }
       }
 
       // Already complete?
