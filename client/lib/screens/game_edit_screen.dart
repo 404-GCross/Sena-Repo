@@ -414,6 +414,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   Widget build(BuildContext context) {
     final g = widget.game;
     final hasCover = _coverPath != null && _coverPath!.isNotEmpty;
+    final isWide = MediaQuery.of(context).size.width > 600;
 
     return Scaffold(
       appBar: AppBar(
@@ -452,7 +453,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(28),
+        padding: EdgeInsets.all(isWide ? 28 : 12),
         child: Center(
           child: SizedBox(width: 900,
             child: Column(children: [
@@ -479,7 +480,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 const SizedBox(width: 24),
                 Column(children: [
                   Container(
-                    width: 200, height: 280,
+                    width: isWide ? 200 : 130, height: isWide ? 280 : 182,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [

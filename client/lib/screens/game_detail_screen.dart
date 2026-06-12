@@ -55,6 +55,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
     final cs = Theme.of(context).colorScheme;
+    final isWide = MediaQuery.of(context).size.width > 600;
 
     return Scaffold(
       appBar: AppBar(
@@ -76,12 +77,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             child: Column(children: [
               // ── Header: cover right, name left ──
               Padding(
-                padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
+                padding: EdgeInsets.fromLTRB(isWide ? 32 : 8, 20, isWide ? 32 : 8, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       if (hasCover)
-                        Text(game.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2)),
+                        Text(game.name, style: TextStyle(fontSize: isWide ? 28 : 22, fontWeight: FontWeight.bold, height: 1.2)),
                       if (game.companyName != null) ...[
                         const SizedBox(height: 6),
                         Row(children: [
@@ -104,7 +105,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   ),
                   const SizedBox(width: 24),
                   Container(
-                    width: 200, height: 280,
+                    width: isWide ? 200 : 140, height: isWide ? 280 : 196,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [
@@ -125,7 +126,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
               // ── Body: left metadata + right description ──
               Padding(
-                padding: const EdgeInsets.fromLTRB(32, 24, 32, 0),
+                padding: EdgeInsets.fromLTRB(isWide ? 32 : 8, 24, isWide ? 32 : 8, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   // Left: metadata grid + versions
                   Expanded(
