@@ -80,6 +80,7 @@ jobs:
       - name: Enable Windows + generate platform files
         run: |
           flutter config --enable-windows-desktop
+          Remove-Item -Recurse -Force windows/ -ErrorAction SilentlyContinue
           flutter create . --project-name sena_repo --org senarepo
 
       - name: Install dependencies
