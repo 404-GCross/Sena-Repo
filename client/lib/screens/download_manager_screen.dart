@@ -181,6 +181,9 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(t.status == "extracting" ? "解压中..." : "${(t.progress * 100).toStringAsFixed(0)}%",
                 style: AppText.caption.copyWith( color: hintColor(context))),
+            if (t.status == "downloading")
+              Text(_formatSpeed(t.speedBytesPerSecond),
+                  style: AppText.caption.copyWith( color: hintColor(context))),
             if (t.status == "paused")
               Text("已暂停", style: AppText.caption.copyWith( color: Colors.orange[300])),
           ]),
@@ -192,6 +195,13 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
     );
+  }
+
+  String _formatSpeed(int bytesPerSec) {
+    if (bytesPerSec <= 0) return "";
+    if (bytesPerSec < 1024) return "$bytesPerSec B/s";
+    if (bytesPerSec < 1048576) return "${(bytesPerSec / 1024).toStringAsFixed(1)} KB/s";
+    return "${(bytesPerSec / 1048576).toStringAsFixed(1)} MB/s";
   }
 
   Widget _statusIcon(String status) {

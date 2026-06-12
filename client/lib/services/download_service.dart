@@ -28,11 +28,14 @@ class DownloadTask {
   double progress;
   int receivedBytes;
   int totalBytes;
+  int speedBytesPerSecond = 0;
   String? error;
   String? outputPath;
   final DateTime startedAt;
   http.Client? _client;
   bool _cancelled = false;
+  int _lastBytes = 0;
+  DateTime _lastSpeedTime = DateTime.now();
 
   DownloadTask({
     required this.gameId,
@@ -436,6 +439,15 @@ class DownloadService {
         sink.add(chunk);
         received += chunk.length;
         t.receivedBytes = received;
+        // Calculate speed every ~1 second
+        final now = DateTime.now();
+        final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
+        if (elapsed >= 1000) {
+          t.speedBytesPerSecond =
+              ((received - t._lastBytes) / elapsed * 1000).round();
+          t._lastBytes = received;
+          t._lastSpeedTime = now;
+        }
         if (t.totalBytes > 0) {
           t.progress = received / t.totalBytes;
           _emit();

@@ -574,6 +574,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     }
   }
 
+  String _formatSpeed(int bytesPerSec) {
+    if (bytesPerSec <= 0) return "下载中...";
+    if (bytesPerSec < 1024) return "$bytesPerSec B/s";
+    if (bytesPerSec < 1048576) return "${(bytesPerSec / 1024).toStringAsFixed(1)} KB/s";
+    return "${(bytesPerSec / 1048576).toStringAsFixed(1)} MB/s";
+  }
+
   Widget _buildProgressSection() {
     switch (_task.status) {
       case "downloading":
@@ -589,7 +596,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text("${(_task.progress * 100).toStringAsFixed(0)}%",
                 style: AppText.bodyMedium.copyWith( fontWeight: FontWeight.w600)),
-            Text("下载中...", style: AppText.bodySmall.copyWith( color: subTextColor(context))),
+            Text(_formatSpeed(_task.speedBytesPerSecond),
+                style: AppText.bodySmall.copyWith( color: subTextColor(context))),
           ]),
         ]);
       case "extracting":
