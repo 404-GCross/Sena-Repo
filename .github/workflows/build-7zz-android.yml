@@ -1,0 +1,33 @@
+name: Build 7zz for Android ARM64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install NDK
+        run: |
+          wget -q https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          unzip -q android-ndk-r27c-linux.zip
+          echo "NDK=$(pwd)/android-ndk-r27c" >> $GITHUB_ENV
+
+      - name: Clone 7-Zip source
+        run: |
+          git clone --depth 1 https://github.com/ip7z/7zip.git
+
+      - name: Build 7zz for aarch64
+        run: |
+          cd 7zip/CPP/7zip/Bundles/Alone2
+          export CC=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          export CXX=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
+          make -f makefile.gcc -j$(nproc) 2>&1
+          file _o/7zz
+          ls -la _o/7zz
+
+      - name: Upload 7zz
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7zz-android-arm64
+          path: 7zip/CPP/7zip/Bundles/Alone2/_o/7zz
