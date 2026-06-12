@@ -25,9 +25,10 @@ class MainActivity: FlutterActivity() {
                     "extract" -> {
                         val filePath = call.argument<String>("filePath")!!
                         val outDir = call.argument<String>("outDir")!!
+                        val password = call.argument<String>("password")
                         executor.execute {
                             try {
-                                extractArchive(filePath, outDir)
+                                extractArchive(filePath, outDir, password)
                                 runOnUiThread { result.success(true) }
                             } catch (e: Exception) {
                                 runOnUiThread { result.error("EXTRACT_ERROR", e.message, null) }
@@ -50,9 +51,15 @@ class MainActivity: FlutterActivity() {
             }
     }
 
-    private fun extractArchive(filePath: String, outDir: String) {
+    private fun extractArchive(filePath: String, outDir: String, password: String? = null) {
         RandomAccessFile(filePath, "r").use { raf ->
-            val inArchive: IInArchive = SevenZip.openInArchive(null, RandomAccessFileInStream(raf))
+            val stream = RandomAccessFileInStream(raf)
+            val openCallback = if (password != null) object : IArchiveOpenCallback, ICryptoGetTextPassword {
+                override fun cryptoGetTextPassword(): String = password
+                override fun setCompleted(files: Long?, bytes: Long?) {}
+                override fun setTotal(files: Long?, bytes: Long?) {}
+            } else null
+            val inArchive: IInArchive = SevenZip.openInArchive(null, stream, openCallback)
             val count = inArchive.numberOfItems
             if (count == 0) return
 
