@@ -62,9 +62,10 @@ class VndbKanaScraper(BaseScraper):
         image = item.get("image") or {}
         cover = image.get("url", "")
 
-        # Hero: first landscape screenshot
+        # Hero: first landscape screenshot, all screenshots for picker
         screenshots = item.get("screenshots") or []
         hero = screenshots[0].get("url", "") if screenshots else ""
+        all_shots = [s.get("url", "") for s in screenshots if s.get("url")]
 
         # Tags (filter rating >= 1.5, sort by rating desc, top 5)
         tags = item.get("tags", [])
@@ -78,6 +79,7 @@ class VndbKanaScraper(BaseScraper):
             release_date=(item.get("released") or ""),
             cover_url=cover,
             hero_url=hero,
+            screenshot_urls=all_shots,
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
         )
@@ -136,6 +138,7 @@ class VndbTitlesScraper(BaseScraper):
                 image = item.get("image") or {}
                 screenshots = item.get("screenshots") or []
                 hero = screenshots[0].get("url", "") if screenshots else ""
+                all_shots = [s.get("url", "") for s in screenshots if s.get("url")]
                 results.append(ScraperResult(
                     title=item.get("title", ""),
                     developer=devs[0].get("name", "") if devs else "",
@@ -143,6 +146,7 @@ class VndbTitlesScraper(BaseScraper):
                     release_date=item.get("released", ""),
                     cover_url=image.get("url", ""),
                     hero_url=hero,
+                    screenshot_urls=all_shots,
                     source_id=str(item.get("id", "")),
                     source_name=self.source_name,
                 ))

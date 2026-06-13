@@ -43,6 +43,7 @@ class ScraperResult:
     release_date: str = ""
     cover_url: str = ""
     hero_url: str = ""   # wide landscape banner (Steam header.jpg, etc.)
+    screenshot_urls: list[str] = field(default_factory=list)  # all screenshots for picker
     source_id: str = ""
     source_name: str = ""
 

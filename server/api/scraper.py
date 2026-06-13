@@ -81,6 +81,7 @@ async def search_candidates(
             "query": q,
             "results": [
                 {"title": r.title, "cover_url": r.cover_url, "hero_url": r.hero_url,
+                 "screenshots": r.screenshot_urls,
                  "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
                  "source_id": r.source_id}

@@ -882,6 +882,51 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
+    // Step 2.5: If multiple screenshots, let user pick hero image (like Playnite)
+    final screenshots = (r["screenshots"] as List<dynamic>?)?.cast<String>() ?? [];
+    if (screenshots.length > 1) {
+      final pickedHero = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("选择横版大图"),
+          content: SizedBox(
+            width: 500,
+            child: GridView.builder(
+              shrinkWrap: true,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 1.6,
+              ),
+              itemCount: screenshots.length,
+              itemBuilder: (_, i) => GestureDetector(
+                onTap: () => Navigator.pop(ctx, screenshots[i]),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(screenshots[i],
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.grey[800],
+                      child: const Icon(Icons.broken_image, color: Colors.grey),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, screenshots[0]),
+              child: const Text("使用第一张")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("跳过")),
+          ],
+        ),
+      );
+      if (pickedHero != null) {
+        r["hero_url"] = pickedHero;
+      }
+    }
+
     // Step 3: Preload cover image before showing comparison
     final coverUrl = (r["cover_url"] ?? "").toString();
     if (coverUrl.isNotEmpty) {
