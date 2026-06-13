@@ -60,7 +60,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final resp = await http.put(Uri.parse("$_baseUrl/api/games/${g.id}"),
           headers: {"Content-Type": "application/json", ..._authHeaders},
           body: jsonEncode(body));
-      if (resp.statusCode != 200) { _showError("保存失败"); return; }
+      if (resp.statusCode != 200) { _showError("保存失败 (${resp.statusCode}): ${resp.body}"); return; }
       // Also update background image if URL provided
       if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
         await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"), headers: _authHeaders);
