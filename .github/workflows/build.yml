@@ -80,7 +80,7 @@ jobs:
       - name: Copy 7z binary (Windows)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force client/assets/binaries | Out-Null
+          New-Item -ItemType Directory -Force assets/binaries | Out-Null
           Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
           Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
           Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7z.txt
@@ -135,8 +135,8 @@ jobs:
 
       - name: Copy 7z binary (Linux)
         run: |
-          mkdir -p client/assets/binaries
-          tar -xf ../7z/Linux/7z2601-linux-x64.tar.xz -C client/assets/binaries 7zz
+          mkdir -p assets/binaries
+          tar -xf ../7z/Linux/7z2601-linux-x64.tar.xz -C assets/binaries 7zz
 
       - name: Enable Linux + generate platform files
         run: |
