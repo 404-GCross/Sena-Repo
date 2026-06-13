@@ -456,26 +456,28 @@ class _GameEditScreenState extends State<GameEditScreen> {
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(isWide ? 28 : 12),
-        child: Center(
-          child: SizedBox(width: 900,
-            child: Column(children: [
-              // ── Hero banner (landscape) ──
-              Padding(
-                padding: EdgeInsets.fromLTRB(0, 0, 0, 4),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(isWide ? 14 : 0),
-                  child: _bgHeroPreview(),
-                ),
-              ),
-              Center(
-                child: TextButton.icon(
-                  onPressed: _pickLocalBg,
-                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
-                  label: const Text("上传横版大图", style: TextStyle(fontSize: 12)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // ── Header: cover right, name left ──
+        child: Column(children: [
+          // ── Hero banner (landscape) full width ──
+          Padding(
+            padding: EdgeInsets.fromLTRB(0, 0, 0, 4),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+              child: _bgHeroPreview(),
+            ),
+          ),
+          Center(
+            child: TextButton.icon(
+              onPressed: _pickLocalBg,
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
+              label: const Text("上传横版大图", style: TextStyle(fontSize: 12)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // ── Content area ──
+          Center(
+            child: SizedBox(width: 900,
+              child: Column(children: [
+                // ── Header: cover right, name left ──
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -697,6 +699,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             ]),
           ),
         ),
+      ]),
       ),
     );
   }
