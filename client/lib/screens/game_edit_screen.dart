@@ -930,8 +930,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text("选择横版大图"),
-          content: SizedBox(
-            width: 500,
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
             child: GridView.builder(
               shrinkWrap: true,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
