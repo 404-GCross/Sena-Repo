@@ -159,10 +159,15 @@ class _BatchScrapeDialog extends StatefulWidget {
 
 class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
   String _source = "vndb_kana";
+  String _mode = "missing";
 
   static const _sourceLabels = {
     "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
     "steam": "Steam", "dlsite": "DLsite",
+  };
+  static const _modeLabels = {
+    "missing": "仅填充缺失", "overwrite": "全部覆盖",
+    "images": "仅图片", "metadata": "仅元数据",
   };
 
   @override
@@ -197,6 +202,35 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
             }).toList(),
           ),
         ),
+        const SizedBox(height: 16),
+        Text("刮削模式", style: AppText.bodySmall.copyWith(color: Colors.grey)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: Column(children:
+            _modeLabels.entries.map((e) {
+              final descs = {
+                "missing": "空字段才填，已有数据不覆盖",
+                "overwrite": "全部刷新，覆盖已有数据",
+                "images": "只下载封面和横版大图",
+                "metadata": "只补文本，不下载图片",
+              };
+              return RadioListTile<String>(
+                title: Text(e.value, style: const TextStyle(fontSize: 14)),
+                subtitle: Text(descs[e.key] ?? "", style: AppText.bodySmall.copyWith(color: Colors.grey)),
+                value: e.key,
+                groupValue: _mode,
+                onChanged: (v) => setState(() => _mode = v!),
+                dense: true,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              );
+            }).toList(),
+          ),
+        ),
       ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
@@ -204,6 +238,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           onPressed: () {
             Navigator.pop(context, {
               "sources": [_source],
+              "mode": _mode,
             });
           },
           icon: const Icon(Icons.play_arrow, size: 18),

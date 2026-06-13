@@ -71,6 +71,7 @@ async def scrape_single_game(
     covers_dir: Path,
     session: AsyncSession,
     config: "Config | None" = None,
+    mode: str = "missing",
 ) -> dict:
     """Scrape a single game across all available sources.
 
@@ -109,7 +110,7 @@ async def scrape_single_game(
                     result = await dlsite_scraper.search_best(query, company_hint)
                     if result:
                         results[dlsite_scraper.source_name] = result
-                        await _apply_result(result, dlsite_scraper.source_name, game, client, covers_dir, session, config)
+                        await _apply_result(result, dlsite_scraper.source_name, game, client, covers_dir, session, config, mode)
                         break
                 except Exception:
                     continue
@@ -124,7 +125,7 @@ async def scrape_single_game(
                 result = await scraper.search_best(query, company_hint)
                 if result:
                     results[scraper.source_name] = result
-                    await _apply_result(result, scraper.source_name, game, client, covers_dir, session, config)
+                    await _apply_result(result, scraper.source_name, game, client, covers_dir, session, config, mode)
                     break  # Found for this candidate, try next candidate for remaining scrapers
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} error for '{query}': {e}")
@@ -141,33 +142,44 @@ async def _apply_result(
     covers_dir: Path,
     session: AsyncSession,
     config: "Config | None" = None,
+    mode: str = "missing",
 ):
-    """Apply a scraper result to a game: download cover, set metadata."""
-    if result.cover_url and not game.cover_path:
-        ext = ".jpg"
-        cover_path = covers_dir / f"{game.id}_{source_name}{ext}"
-        success = await _download_cover(client, result.cover_url, cover_path)
-        if success:
-            game.cover_path = str(cover_path)
+    """Apply a scraper result to a game, respecting the scrape mode."""
+    overwrite = mode == "overwrite"
+    images_only = mode == "images"
+    metadata_only = mode == "metadata"
+
+    # ── Images ──
+    if not metadata_only:
+        # Cover
+        if result.cover_url and (overwrite or images_only or not game.cover_path):
+            ext = ".jpg"
+            cover_path = covers_dir / f"{game.id}_{source_name}{ext}"
+            success = await _download_cover(client, result.cover_url, cover_path)
+            if success:
+                game.cover_path = str(cover_path)
+                session.add(game)
+        # Hero/landscape
+        if result.hero_url and config is not None and (overwrite or images_only or not game.bg_path):
+            bg_dir = config.backgrounds_path
+            bg_dir.mkdir(parents=True, exist_ok=True)
+            bg_path = bg_dir / f"{game.id}_hero.jpg"
+            success = await _download_cover(client, result.hero_url, bg_path)
+            if success:
+                game.bg_path = str(bg_path)
+                session.add(game)
+
+    # ── Text metadata ──
+    if not images_only:
+        if result.developer and (overwrite or not game.developer):
+            game.developer = result.developer
             session.add(game)
-    # Download hero/landscape banner to backgrounds
-    if result.hero_url and not game.bg_path and config is not None:
-        bg_dir = config.backgrounds_path
-        bg_dir.mkdir(parents=True, exist_ok=True)
-        bg_path = bg_dir / f"{game.id}_hero.jpg"
-        success = await _download_cover(client, result.hero_url, bg_path)
-        if success:
-            game.bg_path = str(bg_path)
+        if result.description and (overwrite or not game.description):
+            game.description = result.description[:2000]
             session.add(game)
-    if result.developer and not game.developer:
-        game.developer = result.developer
-        session.add(game)
-    if result.description and not game.description:
-        game.description = result.description[:2000]
-        session.add(game)
-    if result.release_date and not game.release_date:
-        game.release_date = result.release_date
-        session.add(game)
+        if result.release_date and (overwrite or not game.release_date):
+            game.release_date = result.release_date
+            session.add(game)
 
 
 async def run_batch_scrape(
@@ -176,6 +188,7 @@ async def run_batch_scrape(
     session: AsyncSession,
     job: ScrapeJob,
     sources: list[str] | None = None,
+    mode: str = "missing",
 ) -> dict:
     """Run batch scraping for specified games (or all without covers).
 
@@ -238,7 +251,7 @@ async def run_batch_scrape(
 
             try:
                 results = await scrape_single_game(
-                    game, scrapers, client, covers_dir, session, config,
+                    game, scrapers, client, covers_dir, session, config, mode=mode,
                 )
                 if any(results.values()):
                     completed += 1

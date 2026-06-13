@@ -46,6 +46,7 @@ def _validate_public_url(url: str) -> None:
 class BatchScrapeRequest(BaseModel):
     game_ids: list[int] | None = None
     sources: list[str] | None = None
+    mode: str = "missing"  # "missing" | "overwrite" | "images" | "metadata"
 
 
 class JobStatusOut(BaseModel):
@@ -286,7 +287,7 @@ async def start_batch_scrape(
         try:
             async def _work():
                 async with database._session_factory() as bg_session:
-                    await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources)
+                    await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources, mode=body.mode)
             loop.run_until_complete(_work())
         except Exception as e:
             logger.error(f"Batch scrape job {job.id} failed: {e}", exc_info=True)
