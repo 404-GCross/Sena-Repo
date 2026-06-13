@@ -20,4 +20,4 @@ ENV SENA_DATA_PATH=/data
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:11451/api/health')" || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "::", "--port", "11451", "--loop", "asyncio"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "11451", "--loop", "asyncio"]
