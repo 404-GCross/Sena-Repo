@@ -5,11 +5,18 @@ import "dart:io";
 
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 class ShortcutService {
   /// Find a likely game executable in [dir]. Returns the best match.
   static String? findExecutable(String dir) {
-    if (!Directory(dir).existsSync()) return null;
+    final all = findAllExecutables(dir);
+    return all.isNotEmpty ? all.first : null;
+  }
+
+  /// Find all executable files in [dir], sorted by size descending.
+  static List<String> findAllExecutables(String dir) {
+    if (!Directory(dir).existsSync()) return [];
     try {
       final files = Directory(dir)
           .listSync(recursive: true, followLinks: false)
@@ -17,23 +24,20 @@ class ShortcutService {
           .where((f) {
         final name = f.uri.pathSegments.last.toLowerCase();
         if (Platform.isWindows) return name.endsWith(".exe");
-        // Linux: executable files (no extension, or .sh)
         if (name.endsWith(".exe")) return true;
         if (name.endsWith(".sh")) return true;
-        // Check if executable by extension convention
         return !name.contains(".") || name.endsWith(".x86_64") || name.endsWith(".bin");
       }).toList();
 
-      if (files.isEmpty) return null;
-      // Prefer files not in subdirectories
+      if (files.isEmpty) return [];
+      // Prefer root-level files, then sort by size descending
       final rootFiles = files.where((f) =>
           File(f.path).parent.path == dir).toList();
       final candidates = rootFiles.isNotEmpty ? rootFiles : files;
-      // Sort by size descending — main exe is usually largest
       candidates.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
-      return candidates.first.path;
+      return candidates.map((f) => f.path).toList();
     } catch (_) {
-      return null;
+      return [];
     }
   }
 
@@ -124,7 +128,26 @@ class ShortcutService {
     return true;
   }
 
+  static String? _customDir;
+  static String? get customDesktopDir => _customDir;
+
+  static Future<void> setCustomDesktopDir(String? dir) async {
+    _customDir = dir;
+    final prefs = await SharedPreferences.getInstance();
+    if (dir != null) {
+      await prefs.setString("shortcut_desktop_dir", dir);
+    } else {
+      await prefs.remove("shortcut_desktop_dir");
+    }
+  }
+
+  static Future<void> loadCustomDesktopDir() async {
+    final prefs = await SharedPreferences.getInstance();
+    _customDir = prefs.getString("shortcut_desktop_dir");
+  }
+
   static String? _desktopDir() {
+    if (_customDir != null && _customDir!.isNotEmpty) return _customDir;
     final home = Platform.environment["HOME"] ??
         Platform.environment["USERPROFILE"];
     if (home == null) return null;

@@ -34,6 +34,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       if (mounted) setState(() => _tasks = t);
     });
     _loadDir();
+    ShortcutService.loadCustomDesktopDir();
   }
 
   Future<void> _loadDir() async {
@@ -88,6 +89,33 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
             ),
           ]),
         ),
+        // ── Shortcut directory (PC only) ──
+        if (!Platform.isAndroid)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            decoration: BoxDecoration(
+              color: cardBg(context),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: cardBorder(context)),
+            ),
+            child: Row(children: [
+              Icon(Icons.desktop_windows, size: 20, color: sectionIconColor(context)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(ShortcutService.customDesktopDir ?? "桌面",
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: AppText.bodySmall.copyWith( color: subTextColor(context))),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: _changeShortcutDir,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text("快捷方式目录", style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+              ),
+            ]),
+          ),
         // ── Task list ──
         Expanded(
           child: _tasks.isEmpty
@@ -220,16 +248,17 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           else ...[
             Text("已解压到: ${t.outputPath}",
                 style: AppText.caption.copyWith( color: hintColor(context))),
-            if (!Platform.isAndroid) ...[
+            if (!Platform.isAndroid && t.outputPath != null) ...[
               const SizedBox(height: 6),
               Builder(builder: (_) {
-                final exePath = ShortcutService.findExecutable(t.outputPath!);
-                if (exePath == null) return const SizedBox.shrink();
+                final exes = ShortcutService.findAllExecutables(t.outputPath!);
+                if (exes.isEmpty) return const SizedBox.shrink();
+                final exeCount = exes.length > 1 ? " (${exes.length}个)" : "";
                 return Row(mainAxisSize: MainAxisSize.min, children: [
                   OutlinedButton.icon(
-                    onPressed: () => _addToSteam(t, exePath),
+                    onPressed: () => _addToSteam(t, t.outputPath!),
                     icon: const Icon(Icons.gamepad, size: 14),
-                    label: const Text("添加到 Steam", style: TextStyle(fontSize: 11)),
+                    label: Text("添加到 Steam$exeCount", style: const TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       minimumSize: Size.zero,
@@ -237,9 +266,9 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                   ),
                   const SizedBox(width: 6),
                   OutlinedButton.icon(
-                    onPressed: () => _createShortcut(t, exePath),
+                    onPressed: () => _createShortcut(t, t.outputPath!),
                     icon: const Icon(Icons.desktop_windows, size: 14),
-                    label: const Text("桌面快捷方式", style: TextStyle(fontSize: 11)),
+                    label: const Text("快捷方式", style: TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       minimumSize: Size.zero,
@@ -255,10 +284,43 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     );
   }
 
-  Future<void> _addToSteam(DownloadTask t, String exePath) async {
+  Future<String?> _pickExe(String dir) async {
+    final exes = ShortcutService.findAllExecutables(dir);
+    if (exes.isEmpty) return null;
+    if (exes.length == 1) return exes.first;
+    return await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("选择启动程序"),
+        content: SizedBox(
+          width: 400,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: exes.length,
+            itemBuilder: (_, i) {
+              final name = exes[i].split(RegExp(r"[/\\]")).last;
+              return ListTile(
+                leading: const Icon(Icons.insert_drive_file, size: 20),
+                title: Text(name, style: const TextStyle(fontSize: 13)),
+                subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.pop(ctx, exes[i]),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addToSteam(DownloadTask t, String dir) async {
+    final exe = await _pickExe(dir);
+    if (exe == null) return;
     final result = await SteamIntegrationService().addToSteam(
       gameName: t.gameName,
-      exePath: exePath,
+      exePath: exe,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -267,16 +329,33 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     }
   }
 
-  Future<void> _createShortcut(DownloadTask t, String exePath) async {
+  Future<void> _createShortcut(DownloadTask t, String dir) async {
+    final exe = await _pickExe(dir);
+    if (exe == null) return;
     final ok = await ShortcutService.createShortcut(
       gameName: t.gameName,
-      exePath: exePath,
+      exePath: exe,
       coverPath: null,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? "桌面快捷方式已创建" : "创建失败")),
+        SnackBar(content: Text(ok ? "快捷方式已创建" : "创建失败")),
       );
+    }
+  }
+
+  Future<void> _changeShortcutDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: "选择快捷方式存放目录",
+    );
+    if (result != null) {
+      await ShortcutService.setCustomDesktopDir(result);
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("快捷方式目录已更改为: $result")),
+        );
+      }
     }
   }
 
