@@ -469,7 +469,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             child: TextButton.icon(
               onPressed: _pickLocalBg,
               icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
-              label: const Text("上传横版大图", style: TextStyle(fontSize: 12)),
+              label: const Text("上传背景", style: TextStyle(fontSize: 12)),
             ),
           ),
           const SizedBox(height: 12),
@@ -897,7 +897,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final pickedHero = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text("选择横版大图"),
+          title: const Text("选择背景"),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640, maxHeight: 500),
             child: GridView.builder(
@@ -995,7 +995,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
     }
     useSearch["封面"] = hasCoverDiff;
-    useSearch["横版大图"] = hasHeroDiff;
+    useSearch["背景"] = hasHeroDiff;
 
     final confirmed = await showDialog<Map<String, bool>?>(
       context: context, builder: (ctx) => StatefulBuilder(
@@ -1191,7 +1191,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Text("横版大图", style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        Text("背景", style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
                         const Spacer(),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1247,15 +1247,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       Row(children: [
                         SizedBox(width: 20, height: 20,
                           child: Checkbox(
-                            value: useSearch["横版大图"],
-                            onChanged: (v) => setD(() => useSearch["横版大图"] = v ?? false),
+                            value: useSearch["背景"],
+                            onChanged: (v) => setD(() => useSearch["背景"] = v ?? false),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                           ),
                         ),
                         const SizedBox(width: 8),
                         GestureDetector(
-                          onTap: () => setD(() => useSearch["横版大图"] = !(useSearch["横版大图"] ?? false)),
-                          child: const Text("应用横版大图", style: TextStyle(fontSize: 13)),
+                          onTap: () => setD(() => useSearch["背景"] = !(useSearch["背景"] ?? false)),
+                          child: const Text("应用背景", style: TextStyle(fontSize: 13)),
                         ),
                       ]),
                     ]),
@@ -1283,7 +1283,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       // Apply landscape hero banner URL to background
-      if (apply["横版大图"] == true && heroUrl.isNotEmpty) { _bgUrl.text = heroUrl; }
+      if (apply["背景"] == true && heroUrl.isNotEmpty) { _bgUrl.text = heroUrl; }
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = r["source_id"].toString();
