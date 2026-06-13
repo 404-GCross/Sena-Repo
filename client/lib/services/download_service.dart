@@ -650,10 +650,17 @@ class DownloadService {
       // Sync counter
       if (t.receivedBytes != fileSize) t.receivedBytes = fileSize;
     } finally {
-      try { sink?.flush(); } catch (_) {}
-      try { sink?.close(); } catch (_) {}
+      // Ensure data is flushed to disk before returning
+      try { await sink?.flush(); } catch (_) {}
+      try { await sink?.close(); } catch (_) {}
       client.close();
       t._client = null;
+      // Sync counter with actual file size (critical for resume on Android)
+      try {
+        final actualSize = await dest.length();
+        if (actualSize > 0) t.receivedBytes = actualSize;
+        if (t.totalBytes > 0 && actualSize >= t.totalBytes) t.receivedBytes = t.totalBytes;
+      } catch (_) {}
     }
   }
 
