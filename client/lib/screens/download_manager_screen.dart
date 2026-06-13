@@ -321,6 +321,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     final result = await SteamIntegrationService().addToSteam(
       gameName: t.gameName,
       exePath: exe,
+      startDir: dir,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -336,6 +337,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       gameName: t.gameName,
       exePath: exe,
       coverPath: null,
+      workingDir: dir,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

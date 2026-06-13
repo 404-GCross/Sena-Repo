@@ -8,10 +8,16 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 class ShortcutService {
-  /// Find a likely game executable in [dir]. Returns the best match.
+  /// Find a likely game executable in [dir]. Prefers root-level exe.
   static String? findExecutable(String dir) {
     final all = findAllExecutables(dir);
-    return all.isNotEmpty ? all.first : null;
+    if (all.isEmpty) return null;
+    // Pick first root-level exe; fall back to first overall
+    final rootExe = all.firstWhere(
+      (f) => File(f).parent.path == dir,
+      orElse: () => all.first,
+    );
+    return rootExe;
   }
 
   /// Find all executable files in [dir], sorted by size descending.
@@ -73,19 +79,20 @@ class ShortcutService {
     required String gameName,
     required String exePath,
     required String? coverPath,
+    String? workingDir,
   }) async {
     try {
       if (Platform.isWindows) {
-        return await _createWindowsShortcut(gameName, exePath, coverPath);
+        return await _createWindowsShortcut(gameName, exePath, coverPath, workingDir);
       } else if (Platform.isLinux) {
-        return await _createLinuxDesktop(gameName, exePath, coverPath);
+        return await _createLinuxDesktop(gameName, exePath, coverPath, workingDir);
       }
     } catch (_) {}
     return false;
   }
 
   static Future<bool> _createWindowsShortcut(
-      String name, String target, String? iconPath) async {
+      String name, String target, String? iconPath, [String? workingDir]) async {
     final desktopDir = _desktopDir();
     if (desktopDir == null) return false;
     final lnkPath = "$desktopDir\\${_safeName(name)}.lnk";
@@ -96,7 +103,7 @@ class ShortcutService {
     script.writeln(r'$Shortcut = $WshShell.CreateShortcut("' + lnkPath.replaceAll('\\', '\\\\') + r'")');
     script.writeln(r'$Shortcut.TargetPath = "' + target.replaceAll('\\', '\\\\') + r'"');
     script.writeln(r'$Shortcut.WorkingDirectory = "' +
-        File(target).parent.path.replaceAll('\\', '\\\\') + r'"');
+        (workingDir ?? File(target).parent.path).replaceAll('\\', '\\\\') + r'"');
     if (iconPath != null && File(iconPath).existsSync()) {
       script.writeln(r'$Shortcut.IconLocation = "' +
           iconPath.replaceAll('\\', '\\\\') + r'"');
@@ -111,7 +118,7 @@ class ShortcutService {
   }
 
   static Future<bool> _createLinuxDesktop(
-      String name, String exec, String? iconPath) async {
+      String name, String exec, String? iconPath, [String? workingDir]) async {
     final desktopDir = _desktopDir();
     if (desktopDir == null) return false;
 
@@ -121,7 +128,7 @@ class ShortcutService {
     content.writeln("Type=Application");
     content.writeln("Name=$name");
     content.writeln("Exec=$exec");
-    content.writeln("Path=${File(exec).parent.path}");
+    content.writeln("Path=${workingDir ?? File(exec).parent.path}");
     if (iconPath != null) content.writeln("Icon=$iconPath");
     content.writeln("Terminal=false");
     content.writeln("Categories=Game;");
