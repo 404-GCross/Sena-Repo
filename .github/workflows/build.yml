@@ -142,6 +142,10 @@ jobs:
         run: |
           flutter config --enable-linux-desktop
           flutter create . --project-name sena_repo --org senarepo
+          # Enable touch events on GTK window for Flutter Linux
+          for f in linux/my_application.cc linux/main.cc; do
+            [ -f "$f" ] && sed -i '/gtk_widget_show\|gtk_window_present/i\  gtk_widget_add_events(GTK_WIDGET(window), GDK_TOUCH_MASK);' "$f"
+          done
 
       - name: Install dependencies
         run: flutter pub get
