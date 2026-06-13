@@ -84,8 +84,6 @@ class ShortcutService {
     try {
       if (Platform.isWindows) {
         return await _createWindowsShortcut(gameName, exePath, coverPath, workingDir);
-      } else if (Platform.isLinux) {
-        return await _createLinuxDesktop(gameName, exePath, coverPath, workingDir);
       }
     } catch (_) {}
     return false;
@@ -115,27 +113,6 @@ class ShortcutService {
       runInShell: true,
     );
     return result.exitCode == 0 && File(lnkPath).existsSync();
-  }
-
-  static Future<bool> _createLinuxDesktop(
-      String name, String exec, String? iconPath, [String? workingDir]) async {
-    final desktopDir = _desktopDir();
-    if (desktopDir == null) return false;
-
-    final file = File("$desktopDir/${_safeName(name)}.desktop");
-    final content = StringBuffer();
-    content.writeln("[Desktop Entry]");
-    content.writeln("Type=Application");
-    content.writeln("Name=$name");
-    content.writeln("Exec=$exec");
-    content.writeln("Path=${workingDir ?? File(exec).parent.path}");
-    if (iconPath != null) content.writeln("Icon=$iconPath");
-    content.writeln("Terminal=false");
-    content.writeln("Categories=Game;");
-
-    await file.writeAsString(content.toString());
-    await Process.run("chmod", ["+x", file.path]);
-    return true;
   }
 
   static String? _customDir;

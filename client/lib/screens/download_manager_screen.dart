@@ -90,7 +90,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           ]),
         ),
         // ── Shortcut directory (PC only) ──
-        if (!Platform.isAndroid)
+        if (Platform.isWindows)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
