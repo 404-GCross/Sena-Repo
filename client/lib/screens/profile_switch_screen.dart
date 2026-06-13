@@ -83,7 +83,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               ),
               const SizedBox(height: 8),
               TextField(controller: userCtrl,
-                decoration: const InputDecoration(labelText: isEdit ? "用户名（留空不修改）" : "用户名")),
+                decoration: InputDecoration(labelText: isEdit ? "用户名（留空不修改）" : "用户名")),
               const SizedBox(height: 8),
               TextField(controller: passCtrl,
                 decoration: InputDecoration(labelText: isEdit ? "密码（留空不修改）" : "密码"), obscureText: true),
