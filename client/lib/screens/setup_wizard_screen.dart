@@ -41,6 +41,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useVndbKana = true;
   bool _useSteam = true;
   bool _useDlsite = true;
+  bool _useYmgal = true;
   bool _useIGDB = false;
   final _vndbCtrl = TextEditingController();
   final _igdbIdCtrl = TextEditingController();
@@ -83,8 +84,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
       // Save scraper keys
       await _saveScraperKeys();
-      // Persist Steam common dir and local download dir
+      // Persist scraper source toggles
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool("scrape_src_vndb_kana", _useVndbKana);
+      await prefs.setBool("scrape_src_bangumi", _useBangumi);
+      await prefs.setBool("scrape_src_steam", _useSteam);
+      await prefs.setBool("scrape_src_dlsite", _useDlsite);
+      await prefs.setBool("scrape_src_ymgal", _useYmgal);
+      await prefs.setBool("scrape_src_igdb", _useIGDB);
+      // Persist Steam common dir and local download dir
       if (_steamCommonCtrl.text.trim().isNotEmpty) {
         await prefs.setString("steamapps_dir", _steamCommonCtrl.text.trim());
       }
@@ -304,6 +312,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         () => setState(() => _useSteam = !_useSteam)),
     _buildScraperRow("DLsite（免认证）", _useDlsite, false,
         () => setState(() => _useDlsite = !_useDlsite)),
+    _buildScraperRow("月幕GalGame（免认证）", _useYmgal, false,
+        () => setState(() => _useYmgal = !_useYmgal)),
     _buildScraperRow("IGDB（需要 Client ID/Secret）", _useIGDB, true,
         () => setState(() => _useIGDB = !_useIGDB),
         apiFields: Padding(
