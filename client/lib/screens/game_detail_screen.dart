@@ -85,7 +85,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(isWide ? 14 : 0),
                     child: Image.network(
-                      "$_baseUrl/api/files/backgrounds${game.bgPath!.split("/").last}",
+                      "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}",
                       width: double.infinity,
                       height: isWide ? 200 : 140,
                       fit: BoxFit.cover,
