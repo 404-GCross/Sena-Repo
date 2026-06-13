@@ -29,6 +29,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   int _coverVersion = 0;
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
+  Map<String, String> get _authHeaders => context.read<GameProvider>().api.headers;
 
   @override
   void initState() {
@@ -57,12 +58,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "vndb_id": _vndb.text.trim(), "steam_id": _steam.text.trim(),
         "bangumi_id": _bgm.text.trim()};
       final resp = await http.put(Uri.parse("$_baseUrl/api/games/${g.id}"),
-          headers: {"Content-Type": "application/json", ...context.read<GameProvider>().api.headers},
+          headers: {"Content-Type": "application/json", ..._authHeaders},
           body: jsonEncode(body));
       if (resp.statusCode != 200) { _showError("保存失败"); return; }
       // Also update background image if URL provided
       if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
-        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"));
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"), headers: _authHeaders);
       }
       if (popOnSave && mounted) Navigator.pop(context, true);
     } catch (e) { _showError("$e"); }
@@ -209,7 +210,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 if (newName == null || newName.isEmpty) return;
                 try {
                   final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
-                    headers: {"Content-Type": "application/json"},
+                    headers: {"Content-Type": "application/json", ..._authHeaders},
                     body: jsonEncode({"name": newName}),
                   );
                   if (r.statusCode == 200) {
@@ -224,7 +225,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (targetId != null && targetId > 0) {
       try {
         final g = widget.game;
-        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/versions/${version.id}/move?to_game_id=$targetId"));
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/versions/${version.id}/move?to_game_id=$targetId"), headers: _authHeaders);
         if (mounted) Navigator.pop(context, true);
       } catch (e) { _showError("$e"); }
     }
@@ -285,7 +286,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               onPressed: () async {
                 try {
                   final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
-                    headers: {"Content-Type": "application/json"},
+                    headers: {"Content-Type": "application/json", ..._authHeaders},
                     body: jsonEncode({"name": searchCtrl.text.trim()}),
                   );
                   if (r.statusCode == 200) {
@@ -301,7 +302,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (targetId != null && targetId > 0) {
       try {
         final g = widget.game;
-        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/merge/$targetId"));
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/merge/$targetId"), headers: _authHeaders);
         if (mounted) Navigator.pop(context, true);
       } catch (e) { _showError("$e"); }
     }
@@ -744,6 +745,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (result == null || result.files.isEmpty || result.files.first.path == null) return;
       final request = http.MultipartRequest(
           "POST", Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover/upload"));
+      _authHeaders.forEach((k, v) => request.headers[k] = v);
       request.files.add(await http.MultipartFile.fromPath("file", result.files.first.path!));
       final streamed = await request.send();
       if (streamed.statusCode == 200) {
@@ -1101,7 +1103,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     // Download cover then auto-save
     if (apply["封面"] == true && coverUrl.isNotEmpty) {
       try {
-        final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"));
+        final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"), headers: _authHeaders);
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body) as Map<String, dynamic>;
           final newPath = data["cover_path"];
