@@ -38,23 +38,35 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
     if (mounted) setState(() { _profiles = profiles; _activeIndex = idx; _loading = false; });
   }
 
-  Future<void> _addProfile() async {
-    final nameCtrl = TextEditingController();
-    final hostCtrl = TextEditingController(text: "192.168.1.100");
-    final portCtrl = TextEditingController(text: "11451");
-    final userCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
+  bool _useHttps = false;
 
+  Future<void> _addProfile() async {
+    await _showProfileEditor(null);
+  }
+
+  Future<void> _editProfile(UserProfile p) async {
+    await _showProfileEditor(p);
+  }
+
+  Future<void> _showProfileEditor(UserProfile? existing) async {
+    final nameCtrl = TextEditingController(text: existing?.name ?? "");
+    final hostCtrl = TextEditingController(text: existing?.host ?? "192.168.1.100");
+    final portCtrl = TextEditingController(text: (existing?.port ?? 11451).toString());
+    final userCtrl = TextEditingController(text: existing?.username ?? "");
+    final passCtrl = TextEditingController();
+    _useHttps = existing?.useHttps ?? false;
+
+    final isEdit = existing != null;
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("新增配置"),
+        title: Text(isEdit ? "编辑配置" : "新增配置"),
         content: SingleChildScrollView(
           child: SizedBox(width: 300, child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl, autofocus: true,
+              TextField(controller: nameCtrl, autofocus: !isEdit,
                 decoration: const InputDecoration(labelText: "配置名称", hintText: "如: 家里NAS")),
               const SizedBox(height: 8),
               TextField(controller: hostCtrl,
@@ -63,11 +75,18 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               TextField(controller: portCtrl,
                 decoration: const InputDecoration(labelText: "端口"), keyboardType: TextInputType.number),
               const SizedBox(height: 8),
+              SwitchListTile(
+                title: const Text("HTTPS", style: TextStyle(fontSize: 14)),
+                value: _useHttps,
+                onChanged: (v) => setD(() => _useHttps = v),
+                dense: true,
+              ),
+              const SizedBox(height: 8),
               TextField(controller: userCtrl,
-                decoration: const InputDecoration(labelText: "用户名")),
+                decoration: const InputDecoration(labelText: isEdit ? "用户名（留空不修改）" : "用户名")),
               const SizedBox(height: 8),
               TextField(controller: passCtrl,
-                decoration: const InputDecoration(labelText: "密码"), obscureText: true),
+                decoration: InputDecoration(labelText: isEdit ? "密码（留空不修改）" : "密码"), obscureText: true),
             ],
           )),
         ),
@@ -76,10 +95,30 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
           FilledButton(onPressed: () async {
             if (nameCtrl.text.trim().isEmpty || hostCtrl.text.trim().isEmpty) return;
             final port = int.tryParse(portCtrl.text.trim()) ?? 11451;
+            final scheme = _useHttps ? "https" : "http";
+
+            // For edit: if password is empty, keep existing token
+            if (isEdit && passCtrl.text.isEmpty && existing != null) {
+              final profile = UserProfile(
+                name: nameCtrl.text.trim(),
+                host: hostCtrl.text.trim(),
+                port: port,
+                authToken: existing.authToken,
+                username: userCtrl.text.trim().isEmpty ? existing.username : userCtrl.text.trim(),
+                isAdmin: existing.isAdmin,
+                useHttps: _useHttps,
+              );
+              final ps = ProfileService();
+              await ps.applyProfile(profile);
+              await saveEditedProfile(profile, existing);
+              Navigator.pop(ctx, true);
+              return;
+            }
+
             // Try to login to get token
             try {
               final resp = await http.post(
-                Uri.parse("http://${hostCtrl.text.trim()}:$port/api/auth/login"),
+                Uri.parse("$scheme://${hostCtrl.text.trim()}:$port/api/auth/login"),
                 headers: {"Content-Type": "application/json"},
                 body: jsonEncode({"username": userCtrl.text.trim(), "password": passCtrl.text}),
               );
@@ -100,10 +139,16 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                 authToken: data["token"]?.toString() ?? "",
                 username: userCtrl.text.trim(),
                 isAdmin: data["is_admin"] == true,
+                useHttps: _useHttps,
               );
               final ps = ProfileService();
               await ps.applyProfile(profile);
-              await ps.saveCurrentAsProfile(profile.name);
+              // Remove old profile if editing, then save as new
+              if (isEdit && existing != null) {
+                await saveEditedProfile(profile, existing);
+              } else {
+                await ps.saveCurrentAsProfile(profile.name);
+              }
               Navigator.pop(ctx, true);
             } catch (e) {
               if (ctx.mounted) {
@@ -112,17 +157,29 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                 );
               }
             }
-          }, child: const Text("登录并保存")),
+          }, child: const Text("保存")),
         ],
-      ),
+      )),
     );
     if (result == true) _load();
+  }
+
+  Future<void> saveEditedProfile(UserProfile newProfile, UserProfile oldProfile) async {
+    final ps = ProfileService();
+    final profiles = await ps.loadProfiles();
+    final idx = profiles.indexWhere((p) => p.name == oldProfile.name);
+    if (idx >= 0) {
+      profiles[idx] = newProfile;
+    } else {
+      profiles.add(newProfile);
+    }
+    await ps.saveProfiles(profiles);
   }
 
   Future<void> _switchTo(UserProfile profile) async {
     // Validate token before switching — deleted users won't pass
     try {
-      final uri = Uri.parse("http://${profile.host}:${profile.port}/api/auth/profile/me");
+      final uri = Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me");
       final resp = await http.get(uri,
         headers: {"Authorization": "Bearer ${profile.authToken}"});
       if (resp.statusCode != 200) {
@@ -213,11 +270,13 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                         trailing: PopupMenuButton<String>(
                           onSelected: (action) {
                             if (action == "switch") _switchTo(p);
+                            if (action == "edit") _editProfile(p);
                             if (action == "delete") _deleteProfile(i);
                           },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(value: "switch", child: Text("切换到此")),
-                            const PopupMenuItem(value: "delete",
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: "switch", child: Text("切换到此")),
+                            PopupMenuItem(value: "edit", child: Text("编辑")),
+                            PopupMenuItem(value: "delete",
                                 child: Text("删除", style: TextStyle(color: Colors.red))),
                           ],
                         ),

@@ -11,6 +11,7 @@ class UserProfile {
   String authToken;
   String username;
   bool isAdmin;
+  bool useHttps;
 
   UserProfile({
     required this.name,
@@ -19,11 +20,15 @@ class UserProfile {
     this.authToken = "",
     this.username = "",
     this.isAdmin = false,
+    this.useHttps = false,
   });
+
+  String get scheme => useHttps ? "https" : "http";
 
   Map<String, dynamic> toJson() => {
     "name": name, "host": host, "port": port,
     "authToken": authToken, "username": username, "isAdmin": isAdmin,
+    "useHttps": useHttps,
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -33,6 +38,7 @@ class UserProfile {
     authToken: json["authToken"] ?? "",
     username: json["username"] ?? "",
     isAdmin: json["isAdmin"] ?? false,
+    useHttps: json["useHttps"] ?? false,
   );
 }
 
@@ -76,6 +82,7 @@ class ProfileService {
     await prefs.setString("auth_token", profile.authToken);
     await prefs.setString("username", profile.username);
     await prefs.setBool("is_admin", profile.isAdmin);
+    await prefs.setBool("use_https", profile.useHttps);
   }
 
   /// Save current session as a new or updated profile
@@ -86,12 +93,13 @@ class ProfileService {
     final token = prefs.getString("auth_token") ?? "";
     final username = prefs.getString("username") ?? "";
     final isAdmin = prefs.getBool("is_admin") ?? false;
+    final useHttps = prefs.getBool("use_https") ?? false;
 
     final profiles = await loadProfiles();
     // Update existing or add new
     final existing = profiles.indexWhere((p) => p.name == name);
     final profile = UserProfile(name: name, host: host, port: port,
-        authToken: token, username: username, isAdmin: isAdmin);
+        authToken: token, username: username, isAdmin: isAdmin, useHttps: useHttps);
     if (existing >= 0) {
       profiles[existing] = profile;
     } else {
