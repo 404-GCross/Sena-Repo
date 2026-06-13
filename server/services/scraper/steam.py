@@ -43,17 +43,22 @@ class SteamScraper(BaseScraper):
         client_kwargs = {"timeout": httpx.Timeout(15.0)}
         if self.proxy:
             client_kwargs["proxy"] = self.proxy
+        logger.debug(f"Steam resolve_app_id '{title}': creating client...")
         async with httpx.AsyncClient(**client_kwargs) as client:
             all_items: list[dict] = []
 
             # Collect from all sources
             for lang, cc in [("schinese", "CN"), ("english", "US")]:
+                logger.debug(f"Steam resolve_app_id '{title}': searching store l={lang} cc={cc}")
                 items = await self._store_search(client, title, lang, cc)
+                logger.debug(f"Steam resolve_app_id '{title}': store l={lang} returned {len(items) if items else 0} items")
                 if items:
                     all_items.extend(items)
 
             # Community search as additional source
+            logger.debug(f"Steam resolve_app_id '{title}': searching community")
             comm_items = await self._community_search(client, title)
+            logger.debug(f"Steam resolve_app_id '{title}': community returned {len(comm_items) if comm_items else 0} items")
             if comm_items:
                 all_items.extend(comm_items)
 
