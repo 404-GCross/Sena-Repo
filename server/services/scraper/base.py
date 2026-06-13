@@ -137,8 +137,14 @@ def clean_title(title: str) -> str:
     """Clean a game title for better scraper matching.
 
     Removes platform markers, version numbers, and suffixes.
+    Pure numeric IDs (Steam appid, etc.) are returned as-is.
     """
     t = title.strip()
+    if not t:
+        return ""
+    # Pure numeric → likely an app ID (Steam, VNDB, etc.), don't strip
+    if re.match(r"^\d+$", t):
+        return t
     # Strip platform markers: [PC], (KRKR), 【Ty】, 直装_, etc.
     t = re.sub(r"^[\[\(（][A-Za-z]+[\]\)）]", "", t).strip()
     t = re.sub(r"^直装[_ ]", "", t, flags=re.IGNORECASE).strip()

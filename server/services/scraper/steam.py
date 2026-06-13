@@ -26,6 +26,10 @@ class SteamScraper(BaseScraper):
         if not keyword:
             return []
 
+        # If keyword is a numeric App ID, skip store search, go direct
+        if keyword.isdigit():
+            return await self._get_details(keyword, keyword)
+
         # Search all stores, then pick best App ID across all of them
         appid = await self._resolve_app_id(keyword)
         if not appid:
