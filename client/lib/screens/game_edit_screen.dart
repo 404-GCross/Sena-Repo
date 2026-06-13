@@ -57,7 +57,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "vndb_id": _vndb.text.trim(), "steam_id": _steam.text.trim(),
         "bangumi_id": _bgm.text.trim()};
       final resp = await http.put(Uri.parse("$_baseUrl/api/games/${g.id}"),
-          headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
+          headers: {"Content-Type": "application/json", ...context.read<GameProvider>().api.headers},
+          body: jsonEncode(body));
       if (resp.statusCode != 200) { _showError("保存失败"); return; }
       // Also update background image if URL provided
       if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
