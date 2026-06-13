@@ -1095,6 +1095,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
+      // Apply landscape hero banner URL to background
+      final heroUrl = (r["hero_url"] ?? "").toString();
+      if (heroUrl.isNotEmpty) { _bgUrl.text = heroUrl; }
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = r["source_id"].toString();

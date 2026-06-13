@@ -135,6 +135,30 @@ class SteamIntegrationService {
     }
   }
 
+  /// Download and save a hero/landscape image to the Steam grid as landscape art.
+  Future<bool> _importHeroToGrid(String heroUrl, int gridAppId,
+      String steamRoot, String userId) async {
+    if (heroUrl.isEmpty) return false;
+    final gridDir = Directory(_gridDir(steamRoot, userId));
+    if (!await gridDir.exists()) await gridDir.create(recursive: true);
+
+    final landscapeFile = File("${gridDir.path}/$gridAppId.jpg");
+    try {
+      final resp = await http.get(Uri.parse(heroUrl)).timeout(const Duration(seconds: 30));
+      if (resp.statusCode != 200) return false;
+      if (resp.bodyBytes.length < 1024) return false;
+      await landscapeFile.writeAsBytes(resp.bodyBytes);
+      // Also save hero as the new library hero if Steam supports it
+      final heroFile = File("${gridDir.path}/${gridAppId}_hero.jpg");
+      if (!await heroFile.exists()) {
+        await heroFile.writeAsBytes(resp.bodyBytes);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── Main API ──
 
   /// Add a game as a non-Steam game in the user's Steam library.
@@ -148,6 +172,7 @@ class SteamIntegrationService {
     required String gameName,
     required String exePath,
     String coverUrl = "",
+    String heroUrl = "",
     String? startDir,
     String? iconPath,
   }) async {
@@ -205,10 +230,13 @@ class SteamIntegrationService {
       // Write shortcuts.vdf
       _writeShortcuts(steam.root, steam.userId, entries);
 
-      // Import cover
+      // Import cover (portrait) + hero (landscape) to Steam grid
+      final gridId = gridAppId(gameName, exePath);
       if (coverUrl.isNotEmpty) {
-        final gridId = gridAppId(gameName, exePath);
         await _importCover(coverUrl, gridId, steam.root, steam.userId);
+      }
+      if (heroUrl.isNotEmpty) {
+        await _importHeroToGrid(heroUrl, gridId, steam.root, steam.userId);
       }
 
       return SteamIntegrationResult(true, "「$gameName」已添加到 Steam 库！\n重启 Steam 后生效。");

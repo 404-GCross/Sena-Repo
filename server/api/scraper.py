@@ -79,7 +79,8 @@ async def search_candidates(
             "source": source,
             "query": q,
             "results": [
-                {"title": r.title, "cover_url": r.cover_url, "developer": r.developer,
+                {"title": r.title, "cover_url": r.cover_url, "hero_url": r.hero_url,
+                 "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
                  "source_id": r.source_id}
                 for r in results
@@ -97,6 +98,7 @@ async def scrape_apply(
     source: str,
     source_id: str,
     cover_url: str = "",
+    hero_url: str = "",
     developer: str = "",
     title: str = "",
     description: str = "",
@@ -125,6 +127,19 @@ async def scrape_apply(
                 game.cover_path = str(cover_path)
             except Exception as e:
                 logger.warning(f"Cover download failed: {e}")
+        # Download hero/landscape banner to backgrounds folder
+        if hero_url:
+            _validate_public_url(hero_url)
+            try:
+                resp = await c.get(hero_url)
+                resp.raise_for_status()
+                bg_dir = config.backgrounds_path
+                bg_dir.mkdir(parents=True, exist_ok=True)
+                bg_path = bg_dir / f"{game_id}_hero.jpg"
+                bg_path.write_bytes(resp.content)
+                game.bg_path = str(bg_path)
+            except Exception as e:
+                logger.warning(f"Hero download failed: {e}")
 
     if developer:
         game.developer = developer

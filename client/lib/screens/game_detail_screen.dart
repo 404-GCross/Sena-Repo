@@ -78,6 +78,21 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
             child: Column(children: [
+              // ── Hero banner (landscape) ──
+              if (game.bgPath != null && game.bgPath!.isNotEmpty)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(isWide ? 16 : 0, isWide ? 12 : 0, isWide ? 16 : 0, 0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+                    child: Image.network(
+                      "$_baseUrl/api/files/backgrounds${game.bgPath!.split("/").last}",
+                      width: double.infinity,
+                      height: isWide ? 200 : 140,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
               // ── Header: cover right, name left ──
               Padding(
                 padding: EdgeInsets.fromLTRB(isWide ? 32 : 8, 20, isWide ? 32 : 8, 0),
@@ -392,7 +407,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     );
     if (picked == null || !mounted) return;
 
-    try { await http.post(Uri.parse("$_baseUrl/api/games/${game.id}/scrape-apply"), headers: {"Content-Type": "application/json"}, body: jsonEncode({"source_id": picked["source_id"] ?? "", "source": src, "cover_url": picked["cover_url"] ?? "", "title": picked["title"] ?? "", "developer": picked["developer"] ?? "", "description": picked["description"] ?? "", "release_date": picked["release_date"] ?? ""}));
+    try { await http.post(Uri.parse("$_baseUrl/api/games/${game.id}/scrape-apply"), headers: {"Content-Type": "application/json"}, body: jsonEncode({"source_id": picked["source_id"] ?? "", "source": src, "cover_url": picked["cover_url"] ?? "", "hero_url": picked["hero_url"] ?? "", "title": picked["title"] ?? "", "developer": picked["developer"] ?? "", "description": picked["description"] ?? "", "release_date": picked["release_date"] ?? ""}));
       _load(); _showDialog(context, "完成", "元数据已应用"); } catch (e) { _showDialog(context, "错误", "$e"); }
   }
 
@@ -490,10 +505,14 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final coverUrl = game.coverPath != null && game.coverPath!.isNotEmpty
         ? "$_baseUrl/api/files/covers${game.coverPath!}"
         : "";
+    final heroUrl = game.bgPath != null && game.bgPath!.isNotEmpty
+        ? "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}"
+        : "";
     final result = await SteamIntegrationService().addToSteam(
       gameName: game.name,
       exePath: exePath,
       coverUrl: coverUrl,
+      heroUrl: heroUrl,
     );
     if (mounted) _showDialog(context, result.success ? "完成" : "失败", result.message);
   }

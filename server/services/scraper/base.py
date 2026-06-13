@@ -42,6 +42,7 @@ class ScraperResult:
     description: str = ""
     release_date: str = ""
     cover_url: str = ""
+    hero_url: str = ""   # wide landscape banner (Steam header.jpg, etc.)
     source_id: str = ""
     source_name: str = ""
 

@@ -175,15 +175,15 @@ class SteamScraper(BaseScraper):
                         break
                 except Exception:
                     continue
-            # Also try header.jpg as alternative Chinese cover (some games only have this)
-            if not cover_url.endswith("_schinese.jpg"):
-                try:
-                    alt_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
-                    r = await client.head(alt_url)
-                    if r.status_code == 200:
-                        cover_url = alt_url
-                except Exception:
-                    pass
+
+            # Hero banner (landscape): library_hero.jpg (1920x620) is best, fall back to header.jpg
+            hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
+            try:
+                r = await client.head(hero_url)
+                if r.status_code != 200:
+                    hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
+            except Exception:
+                hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
 
             # Ratings and genres
             rating = 0.0
@@ -216,6 +216,7 @@ class SteamScraper(BaseScraper):
                 description=description,
                 release_date=(details.get("release_date") or {}).get("date", ""),
                 cover_url=cover_url,
+                hero_url=hero_url,
                 source_id=appid,
                 source_name=self.source_name,
             )] if title else []
