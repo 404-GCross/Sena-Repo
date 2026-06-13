@@ -459,6 +459,23 @@ class _GameEditScreenState extends State<GameEditScreen> {
         child: Center(
           child: SizedBox(width: 900,
             child: Column(children: [
+              // ── Hero banner (landscape) ──
+              if (_bgUrl.text.isNotEmpty)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(0, 0, 0, isWide ? 20 : 12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+                    child: Image.network(
+                      _bgUrl.text.startsWith("http")
+                          ? _bgUrl.text
+                          : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}",
+                      width: double.infinity,
+                      height: isWide ? 200 : 140,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
               // ── Header: cover right, name left ──
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(
