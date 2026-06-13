@@ -30,12 +30,15 @@ class ShortcutService {
       }).toList();
 
       if (files.isEmpty) return [];
-      // Prefer root-level files, then sort by size descending
-      final rootFiles = files.where((f) =>
-          File(f.path).parent.path == dir).toList();
-      final candidates = rootFiles.isNotEmpty ? rootFiles : files;
-      candidates.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
-      return candidates.map((f) => f.path).toList();
+      // Sort: root-level files first, then by size descending
+      files.sort((a, b) {
+        final aRoot = File(a.path).parent.path == dir;
+        final bRoot = File(b.path).parent.path == dir;
+        if (aRoot && !bRoot) return -1;
+        if (!aRoot && bRoot) return 1;
+        return b.lengthSync().compareTo(a.lengthSync());
+      });
+      return files.map((f) => f.path).toList();
     } catch (_) {
       return [];
     }
