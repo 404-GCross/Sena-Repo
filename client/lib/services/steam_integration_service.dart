@@ -205,8 +205,8 @@ class SteamIntegrationService {
         return SteamIntegrationResult(true, "「$gameName」已在 Steam 库中。${coverUrl.isNotEmpty ? "封面已更新。" : ""}");
       }
 
-      // Build shortcut entry
-      final appid = _masterAppId(entries);
+      // Build shortcut entry — use Steam's CRC32-based appid (same as grid ID)
+      final appid = gridAppId(gameName, exePath);
       final data = <String, dynamic>{
         "appname": gameName,
         "exe": exePath,
@@ -245,13 +245,4 @@ class SteamIntegrationService {
     }
   }
 
-  // ── helpers ──
-
-  /// Find the next available negative appid that doesn't conflict.
-  int _masterAppId(List<VdfShortcut> existing) {
-    int candidate = -1;
-    final used = existing.map((e) => e.appid).toSet();
-    while (used.contains(candidate)) candidate--;
-    return candidate;
-  }
 }
