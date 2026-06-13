@@ -460,22 +460,21 @@ class _GameEditScreenState extends State<GameEditScreen> {
           child: SizedBox(width: 900,
             child: Column(children: [
               // ── Hero banner (landscape) ──
-              if (_bgUrl.text.isNotEmpty)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(0, 0, 0, isWide ? 20 : 12),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(isWide ? 14 : 0),
-                    child: Image.network(
-                      _bgUrl.text.startsWith("http")
-                          ? _bgUrl.text
-                          : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}",
-                      width: double.infinity,
-                      height: isWide ? 200 : 140,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    ),
-                  ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(0, 0, 0, 4),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+                  child: _bgHeroPreview(),
                 ),
+              ),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _pickLocalBg,
+                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
+                  label: const Text("上传横版大图", style: TextStyle(fontSize: 12)),
+                ),
+              ),
+              const SizedBox(height: 12),
               // ── Header: cover right, name left ──
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(
@@ -613,26 +612,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                           hintText: "个人备注..."),
                         style: AppText.body.copyWith( height: 1.6)),
-                      const SizedBox(height: 20),
-                      _section("横版大图", Icons.crop_landscape),
-                      const SizedBox(height: 4),
-                      Container(
-                        width: double.infinity, height: 140,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: cardBorder(context)),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: _bgHeroPreview(),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextButton.icon(
-                        onPressed: _pickLocalBg,
-                        icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
-                        label: const Text("本地上传", style: TextStyle(fontSize: 12)),
-                      ),
+                      // hero moved to top,
                     ]),
                   ),
                 ])
@@ -713,26 +693,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       hintText: "个人备注..."),
                     style: AppText.body.copyWith( height: 1.6)),
-                  const SizedBox(height: 20),
-                  _section("横版大图", Icons.crop_landscape),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: double.infinity, height: 140,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: cardBorder(context)),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: _bgHeroPreview(),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  TextButton.icon(
-                    onPressed: _pickLocalBg,
-                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
-                    label: const Text("本地上传", style: TextStyle(fontSize: 12)),
-                  ),
                 ])
             ]),
           ),
@@ -742,8 +702,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Widget _bgHeroPreview() {
+    final w = MediaQuery.of(context).size.width;
+    final h = w > 600 ? 200.0 : 140.0;
     if (_bgUrl.text.isEmpty) {
       return Container(
+        width: double.infinity, height: h,
         color: placeholderBg(context),
         child: Center(child: Icon(Icons.image, size: 48, color: placeholderIcon(context))),
       );
@@ -751,11 +714,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final url = _bgUrl.text.startsWith("http")
         ? _bgUrl.text
         : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}";
-    return Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) =>
-      Container(
-        color: placeholderBg(context),
-        child: Center(child: Icon(Icons.broken_image, size: 48, color: placeholderIcon(context))),
-      ),
+    return Image.network(url, width: double.infinity, height: h, fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) =>
+        Container(
+          width: double.infinity, height: h,
+          color: placeholderBg(context),
+          child: Center(child: Icon(Icons.broken_image, size: 48, color: placeholderIcon(context))),
+        ),
     );
   }
 
