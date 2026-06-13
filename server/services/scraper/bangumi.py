@@ -37,10 +37,10 @@ class BangumiScraper(BaseScraper):
         if not keyword:
             return []
 
-        # Try main endpoint first, then mirror
-        for endpoint, use_proxy in [(BGM_MAIN, True), (BGM_MIRROR, False)]:
+        # Try main endpoint first, then mirror (shorter timeout in CN)
+        for endpoint, timeout in [(BGM_MAIN, 8.0), (BGM_MIRROR, 12.0)]:
             try:
-                results = await self._do_search(endpoint, keyword, use_proxy)
+                results = await self._do_search(endpoint, keyword, timeout)
                 if results:
                     return results
             except Exception as e:
@@ -48,10 +48,10 @@ class BangumiScraper(BaseScraper):
         return []
 
     async def _do_search(
-        self, endpoint: str, keyword: str, use_proxy: bool
+        self, endpoint: str, keyword: str, timeout: float
     ) -> list[ScraperResult]:
-        kwargs = {"timeout": httpx.Timeout(15.0)}
-        if use_proxy and self.proxy:
+        kwargs = {"timeout": httpx.Timeout(timeout)}
+        if self.proxy:
             kwargs["proxy"] = self.proxy
         async with httpx.AsyncClient(**kwargs) as client:
             headers = {
