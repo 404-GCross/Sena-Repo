@@ -187,6 +187,13 @@ async def _apply_result(
         if result.release_date and (overwrite or not game.release_date):
             game.release_date = result.release_date
             session.add(game)
+        # Source ID — map scraper to game ID column
+        _id_map = {"vndb_kana": "vndb_id", "vndb": "vndb_id",
+                   "steam": "steam_id", "bangumi": "bangumi_id"}
+        col = _id_map.get(source_name)
+        if col and result.source_id and (overwrite or not getattr(game, col, None)):
+            setattr(game, col, result.source_id)
+            session.add(game)
 
 
 async def run_batch_scrape(
