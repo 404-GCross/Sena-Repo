@@ -30,6 +30,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   // Step 2: Game dirs
   final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
   final _localDirCtrl = TextEditingController();
+  String _structure = "company_game";
+  bool _autoScan = false;
+  int _scanInterval = 24;
 
   // Step 3: Steam
   final _patchDirCtrl = TextEditingController(text: "/steam_patch");
@@ -92,6 +95,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       await prefs.setBool("scrape_src_dlsite", _useDlsite);
       await prefs.setBool("scrape_src_ymgal", _useYmgal);
       await prefs.setBool("scrape_src_igdb", _useIGDB);
+      await prefs.setString("scan_structure", _structure);
+      await prefs.setBool("auto_scan", _autoScan);
+      if (_autoScan) await prefs.setInt("scan_interval", _scanInterval);
       // Persist Steam common dir and local download dir
       if (_steamCommonCtrl.text.trim().isNotEmpty) {
         await prefs.setString("steamapps_dir", _steamCommonCtrl.text.trim());
@@ -253,6 +259,53 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       const SizedBox(width: 4),
       IconButton.filled(icon: const Icon(Icons.folder_open, size: 20), onPressed: _pickLocalDir),
     ]),
+    const SizedBox(height: 16),
+    const Text("目录结构", style: TextStyle(fontWeight: FontWeight.bold)),
+    Text("游戏文件的组织方式", style: AppText.label.copyWith( color: hintColor(context))),
+    const SizedBox(height: 8),
+    Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: ListTile(
+        title: const Text("结构"),
+        trailing: DropdownButton<String>(
+          value: _structure,
+          underline: const SizedBox(),
+          items: const [
+            DropdownMenuItem(value: "company_game", child: Text("会社 / 游戏")),
+            DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
+            DropdownMenuItem(value: "flat", child: Text("扁平")),
+          ],
+          onChanged: (v) => setState(() => _structure = v!),
+        ),
+      ),
+    ),
+    const SizedBox(height: 12),
+    SwitchListTile(
+      title: const Text("自动扫描", style: TextStyle(fontSize: 14)),
+      subtitle: Text(_autoScan ? "每 $_scanInterval 小时" : "关闭",
+          style: AppText.bodySmall.copyWith( color: hintColor(context))),
+      value: _autoScan,
+      onChanged: (v) => setState(() => _autoScan = v),
+      dense: true,
+    ),
+    if (_autoScan) ...[
+      const SizedBox(height: 4),
+      TextField(
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: "扫描间隔（小时）",
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        onChanged: (v) {
+          final n = int.tryParse(v);
+          if (n != null && n > 0) setState(() => _scanInterval = n);
+        },
+      ),
+    ],
   ];
 
   Future<void> _pickSteamDir() async {
