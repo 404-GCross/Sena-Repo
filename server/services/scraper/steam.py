@@ -55,12 +55,13 @@ class SteamScraper(BaseScraper):
                 if items:
                     all_items.extend(items)
 
-            # Community search as additional source
-            logger.debug(f"Steam resolve_app_id '{title}': searching community")
-            comm_items = await self._community_search(client, title)
-            logger.debug(f"Steam resolve_app_id '{title}': community returned {len(comm_items) if comm_items else 0} items")
-            if comm_items:
-                all_items.extend(comm_items)
+            # Community search as additional source (only if store searches found nothing)
+            if not all_items:
+                logger.debug(f"Steam resolve_app_id '{title}': searching community")
+                comm_items = await self._community_search(client, title)
+                logger.debug(f"Steam resolve_app_id '{title}': community returned {len(comm_items) if comm_items else 0} items")
+                if comm_items:
+                    all_items.extend(comm_items)
 
             if not all_items:
                 return None
