@@ -246,7 +246,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               ),
             ])
           else ...[
-            Text("已解压到: ${t.outputPath}",
+            Text(Platform.isAndroid ? "已下载: ${t.outputPath}" : "已解压到: ${t.outputPath}",
                 style: AppText.caption.copyWith( color: hintColor(context))),
             if (!Platform.isAndroid && t.outputPath != null) ...[
               const SizedBox(height: 6),

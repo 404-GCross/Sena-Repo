@@ -8,7 +8,7 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 
-import "package:flutter/services.dart" show MethodChannel, rootBundle;
+import "package:flutter/services.dart" show rootBundle;
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
@@ -80,7 +80,6 @@ class DownloadService {
   static final DownloadService _instance = DownloadService._();
   factory DownloadService() => _instance;
   DownloadService._() {
-    _setupExtractChannel();
     _restoreTasks();
   }
 
@@ -229,6 +228,13 @@ class DownloadService {
   }
 
   Future<void> _runWithPassword(DownloadTask t, String password) async {
+    // Android doesn't extract — extraction is desktop-only
+    if (Platform.isAndroid) {
+      t.status = "failed";
+      t.error = "Android 端不支持解压";
+      _emit();
+      return;
+    }
     final dir = await downloadDir;
     final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
@@ -426,26 +432,25 @@ class DownloadService {
         await _download(t, tmp);
         if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
 
-        // Check if APK — move to output dir, skip extraction
-        if (t.fileName.toLowerCase().endsWith(".apk")) {
-          t.isApk = true;
-          final apkFile = File("$outDir/${t.fileName}");
-          try { await apkFile.parent.create(recursive: true); } catch (_) {}
-          try { await tmp.rename(apkFile.path); } catch (e) {
-            // rename across volumes → copy + delete
-            try { await tmp.copy(apkFile.path); await tmp.delete(); } catch (_) {
-              throw Exception("无法移动 APK 文件: $e");
+        // Android: skip extraction, just move downloaded file to output
+        if (Platform.isAndroid) {
+          t.isApk = t.fileName.toLowerCase().endsWith(".apk");
+          final outFile = File("$outDir/${t.fileName}");
+          try { await outFile.parent.create(recursive: true); } catch (_) {}
+          try { await tmp.rename(outFile.path); } catch (e) {
+            try { await tmp.copy(outFile.path); await tmp.delete(); } catch (_) {
+              throw Exception("无法保存文件: $e");
             }
           }
           t.status = "done";
-          t.outputPath = apkFile.path;
+          t.outputPath = outFile.path;
           t.progress = 1.0;
           _emit();
           NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
           return;
         }
 
-        // Phase 2: extract
+        // Phase 2: extract (desktop only)
         t.status = "extracting";
         t.progress = 0.0;
         _emit();
@@ -652,47 +657,10 @@ class DownloadService {
     }
   }
 
-  // ── extract ──
-
-  static const _extractChannel = MethodChannel("com.github.senarepo/extractor");
-  void Function(double)? _activeProgressCallback;
-
-  void _setupExtractChannel() {
-    _extractChannel.setMethodCallHandler((call) {
-      if (call.method == "onProgress") {
-        final p = (call.arguments as Map)["progress"] as double;
-        _activeProgressCallback?.call(p);
-      }
-      return Future.value(null);
-    });
-  }
+  // ── extract (desktop only) ──
 
   Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress, String? password]) async {
-    if (Platform.isAndroid) {
-      // Use 7-Zip-JBinding via MethodChannel on Android
-      // Only test archive integrity when no password (encrypted archives fail open without password)
-      if (password == null) {
-        try {
-          await _extractChannel.invokeMethod("testArchive", {"filePath": filePath});
-        } catch (_) {}
-      }
-      _activeProgressCallback = onProgress;
-      try {
-        await _extractChannel.invokeMethod("extract", {
-          "filePath": filePath,
-          "outDir": outDir,
-          if (password != null) "password": password,
-        }).timeout(const Duration(minutes: 30));
-      } catch (e) {
-        throw Exception("$e");
-      } finally {
-        _activeProgressCallback = null;
-      }
-      await _fixLayout(outDir, gameDir);
-      return;
-    }
-
     // Desktop: use bundled 7z binary
     final exe = await _getSevenZipPath();
     final args = ["x", "-y", "-o$outDir", filePath];
