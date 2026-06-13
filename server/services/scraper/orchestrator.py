@@ -70,6 +70,7 @@ async def scrape_single_game(
     client: httpx.AsyncClient,
     covers_dir: Path,
     session: AsyncSession,
+    config: "Config | None" = None,
 ) -> dict:
     """Scrape a single game across all available sources.
 
@@ -108,7 +109,7 @@ async def scrape_single_game(
                     result = await dlsite_scraper.search_best(query, company_hint)
                     if result:
                         results[dlsite_scraper.source_name] = result
-                        await _apply_result(result, dlsite_scraper.source_name, game, client, covers_dir, session)
+                        await _apply_result(result, dlsite_scraper.source_name, game, client, covers_dir, session, config)
                         break
                 except Exception:
                     continue
@@ -123,7 +124,7 @@ async def scrape_single_game(
                 result = await scraper.search_best(query, company_hint)
                 if result:
                     results[scraper.source_name] = result
-                    await _apply_result(result, scraper.source_name, game, client, covers_dir, session)
+                    await _apply_result(result, scraper.source_name, game, client, covers_dir, session, config)
                     break  # Found for this candidate, try next candidate for remaining scrapers
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} error for '{query}': {e}")
@@ -139,6 +140,7 @@ async def _apply_result(
     client: httpx.AsyncClient,
     covers_dir: Path,
     session: AsyncSession,
+    config: "Config | None" = None,
 ):
     """Apply a scraper result to a game: download cover, set metadata."""
     if result.cover_url and not game.cover_path:
@@ -147,6 +149,15 @@ async def _apply_result(
         success = await _download_cover(client, result.cover_url, cover_path)
         if success:
             game.cover_path = str(cover_path)
+            session.add(game)
+    # Download hero/landscape banner to backgrounds
+    if result.hero_url and not game.bg_path and config is not None:
+        bg_dir = config.backgrounds_path
+        bg_dir.mkdir(parents=True, exist_ok=True)
+        bg_path = bg_dir / f"{game.id}_hero.jpg"
+        success = await _download_cover(client, result.hero_url, bg_path)
+        if success:
+            game.bg_path = str(bg_path)
             session.add(game)
     if result.developer and not game.developer:
         game.developer = result.developer
@@ -227,7 +238,7 @@ async def run_batch_scrape(
 
             try:
                 results = await scrape_single_game(
-                    game, scrapers, client, covers_dir, session,
+                    game, scrapers, client, covers_dir, session, config,
                 )
                 if any(results.values()):
                     completed += 1

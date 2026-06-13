@@ -222,6 +222,19 @@ async def scrape_game_cover(
                             session.add(game)
                         except Exception as e:
                             logger.warning(f"Cover download failed: {e}")
+                    # Download hero/landscape banner
+                    if result.hero_url and not game.bg_path:
+                        try:
+                            bg_dir = config.backgrounds_path
+                            bg_dir.mkdir(parents=True, exist_ok=True)
+                            resp = await client.get(result.hero_url, timeout=30.0)
+                            resp.raise_for_status()
+                            bg_path = bg_dir / f"{game_id}_hero.jpg"
+                            bg_path.write_bytes(resp.content)
+                            game.bg_path = str(bg_path)
+                            session.add(game)
+                        except Exception as e:
+                            logger.warning(f"Hero download failed: {e}")
 
                     if result.developer and not game.developer:
                         game.developer = result.developer
