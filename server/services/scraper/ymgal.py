@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from urllib.parse import quote as url_encode
 
 import httpx
 
@@ -70,28 +69,32 @@ class YmgalScraper(BaseScraper):
             "version": "1",
             "User-Agent": "SenaRepo/0.1 (GalGame manager)",
         }
-        resp = await self._request_with_retry(
-            client, "GET", f"{YMGAL_BASE}{path}",
-            params=params, headers=headers,
-        )
-        data = resp.json()
-        code = data.get("code", -1)
-        if code != 0 and not data.get("success", False):
-            # Token expired → refresh and retry once
-            if code in (401, 403):
-                self._token = ""
-                token = await self._ensure_token(client)
-                headers["Authorization"] = f"Bearer {token}"
+        # Try once; on 401/403 refresh token and retry
+        for attempt in range(2):
+            try:
                 resp = await self._request_with_retry(
                     client, "GET", f"{YMGAL_BASE}{path}",
                     params=params, headers=headers,
                 )
-                data = resp.json()
-                code = data.get("code", -1)
-            if code != 0:
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403) and attempt == 0:
+                    self._token = ""
+                    token = await self._ensure_token(client)
+                    headers["Authorization"] = f"Bearer {token}"
+                    continue
+                raise
+            data = resp.json()
+            code = data.get("code", -1)
+            if code != 0 and not data.get("success", False):
+                if code in (401, 403) and attempt == 0:
+                    self._token = ""
+                    token = await self._ensure_token(client)
+                    headers["Authorization"] = f"Bearer {token}"
+                    continue
                 msg = data.get("msg", "调用失败")
                 raise Exception(f"月幕Gal API {code}: {msg}")
-        return data.get("data") or {}
+            return data.get("data") or {}
+        return {}  # unreachable
 
     async def search(
         self,
