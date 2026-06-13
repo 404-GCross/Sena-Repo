@@ -616,20 +616,23 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       const SizedBox(height: 20),
                       _section("横版大图", Icons.crop_landscape),
                       const SizedBox(height: 4),
-                      Row(children: [
-                        Expanded(child: TextField(controller: _bgUrl,
-                        decoration: _dec(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                            hintText: "图片URL或本地上传"),
-                          style: const TextStyle(fontSize: 14))),
-    const SizedBox(width: 8),
-    OutlinedButton.icon(
-      onPressed: _pickLocalBg,
-      icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
-      label: const Text("上传", style: TextStyle(fontSize: 12)),
-      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-    ),
-  ]),
+                      Container(
+                        width: double.infinity, height: 140,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: cardBorder(context)),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: _bgHeroPreview(),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextButton.icon(
+                        onPressed: _pickLocalBg,
+                        icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+                        label: const Text("本地上传", style: TextStyle(fontSize: 12)),
+                      ),
                     ]),
                   ),
                 ])
@@ -713,24 +716,45 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   const SizedBox(height: 20),
                   _section("横版大图", Icons.crop_landscape),
                   const SizedBox(height: 4),
-                  Row(children: [
-                    Expanded(child: TextField(controller: _bgUrl,
-                    decoration: _dec(
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                            hintText: "图片URL或本地上传"),
-                          style: const TextStyle(fontSize: 14))),
-    const SizedBox(width: 8),
-    OutlinedButton.icon(
-      onPressed: _pickLocalBg,
-      icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
-      label: const Text("上传", style: TextStyle(fontSize: 12)),
-      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-    ),
-  ]),
+                  Container(
+                    width: double.infinity, height: 140,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cardBorder(context)),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _bgHeroPreview(),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    onPressed: _pickLocalBg,
+                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+                    label: const Text("本地上传", style: TextStyle(fontSize: 12)),
+                  ),
                 ])
             ]),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _bgHeroPreview() {
+    if (_bgUrl.text.isEmpty) {
+      return Container(
+        color: placeholderBg(context),
+        child: Center(child: Icon(Icons.image, size: 48, color: placeholderIcon(context))),
+      );
+    }
+    final url = _bgUrl.text.startsWith("http")
+        ? _bgUrl.text
+        : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}";
+    return Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) =>
+      Container(
+        color: placeholderBg(context),
+        child: Center(child: Icon(Icons.broken_image, size: 48, color: placeholderIcon(context))),
       ),
     );
   }
