@@ -915,6 +915,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(screenshots[i],
                     fit: BoxFit.cover,
+                    loadingBuilder: (_, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: Colors.grey.withValues(alpha: 0.15),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                          value: progress.expectedTotalBytes != null
+                              ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                              : null)),
+                      );
+                    },
                     errorBuilder: (_, __, ___) => Container(
                       color: Colors.grey[800],
                       child: const Icon(Icons.broken_image, color: Colors.grey),
@@ -976,13 +986,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "日期": (r["release_date"] ?? "").toString(),
       "简介": (r["description"] ?? "").toString(),
     };
+    final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
+    final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
     // Build initial selection state (outside StatefulBuilder so it persists across rebuilds)
     final useSearch = <String, bool>{};
     for (final f in fields.keys) {
       useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
     }
     useSearch["封面"] = hasCoverDiff;
+    useSearch["横版大图"] = hasHeroDiff;
 
     final confirmed = await showDialog<Map<String, bool>?>(
       context: context, builder: (ctx) => StatefulBuilder(
@@ -1167,6 +1180,87 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ]),
                   ),
                 ],
+                if (hasHeroDiff) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text("横版大图", style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text("有变更", style: AppText.caption.copyWith( color: Colors.green[300])),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: _bgUrl.text.isNotEmpty
+                              ? Image.network(
+                                  _bgUrl.text.startsWith("http")
+                                      ? _bgUrl.text
+                                      : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}",
+                                  width: 180, height: 90, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 180, height: 90, color: Colors.grey[800],
+                                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                                  ),
+                                )
+                              : Container(width: 180, height: 90, color: Colors.grey[800],
+                                  child: const Icon(Icons.image, color: Colors.grey)),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(Icons.arrow_forward, size: 22, color: Colors.green[400]),
+                        ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(heroUrl, width: 180, height: 90, fit: BoxFit.cover,
+                            loadingBuilder: (_, child, progress) {
+                              if (progress == null) return child;
+                              return Container(width: 180, height: 90,
+                                color: Colors.grey.withValues(alpha: 0.15),
+                                child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                                  value: progress.expectedTotalBytes != null
+                                      ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                      : null)));
+                            },
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 180, height: 90, color: Colors.grey[800],
+                              child: const Icon(Icons.broken_image, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        SizedBox(width: 20, height: 20,
+                          child: Checkbox(
+                            value: useSearch["横版大图"],
+                            onChanged: (v) => setD(() => useSearch["横版大图"] = v ?? false),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setD(() => useSearch["横版大图"] = !(useSearch["横版大图"] ?? false)),
+                          child: const Text("应用横版大图", style: TextStyle(fontSize: 13)),
+                        ),
+                      ]),
+                    ]),
+                  ),
+                ],
               ]),),),),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
@@ -1189,8 +1283,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       // Apply landscape hero banner URL to background
-      final heroUrl = (r["hero_url"] ?? "").toString();
-      if (heroUrl.isNotEmpty) { _bgUrl.text = heroUrl; }
+      if (apply["横版大图"] == true && heroUrl.isNotEmpty) { _bgUrl.text = heroUrl; }
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = r["source_id"].toString();
