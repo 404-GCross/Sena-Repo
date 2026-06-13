@@ -163,6 +163,7 @@ async def _apply_result(
                 session.add(game)
         # Hero/landscape
         if result.hero_url and config is not None and (overwrite or images_only or not game.bg_path):
+            logger.info(f"Downloading hero for game {game.id}: {result.hero_url}")
             bg_dir = config.backgrounds_path
             bg_dir.mkdir(parents=True, exist_ok=True)
             bg_path = bg_dir / f"{game.id}_hero.jpg"
@@ -170,6 +171,10 @@ async def _apply_result(
             if success:
                 game.bg_path = str(bg_path)
                 session.add(game)
+            else:
+                logger.warning(f"Hero download failed for game {game.id}")
+        elif result.hero_url and config is not None and game.bg_path:
+            logger.debug(f"Hero skipped for game {game.id}: already has bg_path ({game.bg_path})")
 
     # ── Text metadata ──
     if not images_only:
