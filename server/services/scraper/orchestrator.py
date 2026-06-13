@@ -20,6 +20,7 @@ from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
 from .dlsite import DLsiteScraper
+from .ymgal import YmgalScraper
 from .igdb import IGDBScraper
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
         DLsiteScraper(proxy=config.proxy),
         SteamScraper(proxy=config.proxy),
+        YmgalScraper(proxy=config.proxy),
     ]
     if s.igdb_client_id and s.igdb_client_secret:
         scrapers.append(IGDBScraper(

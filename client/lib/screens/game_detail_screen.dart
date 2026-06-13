@@ -353,7 +353,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   // ── Search Dialog ──
 
   Future<void> _showSearchDialog(BuildContext context, game) async {
-    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite"};
+    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "ymgal": "月幕GalGame"};
     final srcToId = {"vndb_kana": game.vndbId, "bangumi": game.bangumiId, "steam": game.steamId};
 
     final src = await showDialog<String>(

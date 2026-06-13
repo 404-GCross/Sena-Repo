@@ -163,7 +163,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
 
   static const _sourceLabels = {
     "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
-    "steam": "Steam", "dlsite": "DLsite",
+    "steam": "Steam", "dlsite": "DLsite", "ymgal": "月幕GalGame",
   };
   static const _modeLabels = {
     "missing": "仅填充缺失", "overwrite": "全部覆盖",
@@ -266,7 +266,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   // Scraper sources
-  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "igdb": false};
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "ymgal": true, "igdb": false};
   final _keys = {"vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
@@ -589,6 +589,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _srcCard("VNDB Kana v2", "vndb_kana", "免认证，中文标题"),
         _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
         _srcCard("Steam", "steam", "免认证"),
+        _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
         _srcCard("DLsite", "dlsite", "免认证，建议配日本代理"),
         _srcCard("IGDB", "igdb", "需要 Client ID / Secret", needsApi: true, key1: "igdb_client_id", key2: "igdb_client_secret"),
         const SizedBox(height: 16),
