@@ -33,7 +33,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _loadSavedDir() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString("steam_common_dir");
+    // Read new key first, fall back to old "steam_common_dir" for backward compat
+    final saved = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir");
     if (saved != null && saved.isNotEmpty && mounted) {
       setState(() => _commonDir = saved);
     }
@@ -43,7 +44,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final dir = await SteamService.pickSteamDir();
     if (dir != null && mounted) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("steam_common_dir", dir);
+      await prefs.setString("steamapps_dir", dir);
       setState(() {
         _commonDir = dir;
         _status = null;
@@ -117,7 +118,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               Text("Steam 补丁注入", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
             ]),
             const SizedBox(height: 8),
-            Text("选择 Steam 库的 steamapps/common 目录，自动匹配库内游戏的汉化补丁",
+            Text("选择 Steam 的 steamapps 目录，自动匹配库内游戏的汉化补丁",
                 style: AppText.bodyMedium.copyWith( color: subTextColor(context))),
           ]),
         ),

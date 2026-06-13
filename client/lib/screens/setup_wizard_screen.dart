@@ -86,7 +86,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       // Persist Steam common dir and local download dir
       final prefs = await SharedPreferences.getInstance();
       if (_steamCommonCtrl.text.trim().isNotEmpty) {
-        await prefs.setString("steam_common_dir", _steamCommonCtrl.text.trim());
+        await prefs.setString("steamapps_dir", _steamCommonCtrl.text.trim());
       }
       if (_localDirCtrl.text.trim().isNotEmpty) {
         await prefs.setString("local_download_dir", _localDirCtrl.text.trim());

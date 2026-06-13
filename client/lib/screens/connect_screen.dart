@@ -258,7 +258,7 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final dd = prefs.getString("local_download_dir") ?? "";
-    final sd = prefs.getString("steam_common_dir") ?? "";
+    final sd = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir") ?? "";
     setState(() { _downloadDir = dd; _steamDir = sd; });
   }
 
@@ -272,11 +272,11 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
   }
 
   Future<void> _pickSteamDir() async {
-    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择 Steam common 目录");
+    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择 Steam steamapps 目录");
     if (result != null) {
       setState(() => _steamDir = result);
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("steam_common_dir", result);
+      await prefs.setString("steamapps_dir", result);
     }
   }
 

@@ -54,15 +54,15 @@ class SteamService {
   /// Let user pick Steam steamapps directory.
   static Future<String?> pickSteamDir() async {
     final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: "选择 Steam 库 common 目录",
+      dialogTitle: "选择 Steam steamapps 目录",
     );
     return result;
   }
 
   /// Scan a steamapps directory for installed games via appmanifest_*.acf files.
-  static List<SteamGameInfo> scanInstalledGames(String commonDir) {
+  static List<SteamGameInfo> scanInstalledGames(String steamappsDir) {
     final games = <SteamGameInfo>[];
-    final dir = Directory(commonDir);
+    final dir = Directory(steamappsDir);
 
     if (!dir.existsSync()) return games;
 
