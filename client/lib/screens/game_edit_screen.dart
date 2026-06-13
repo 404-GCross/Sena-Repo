@@ -597,13 +597,22 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           hintText: "个人备注..."),
                         style: AppText.body.copyWith( height: 1.6)),
                       const SizedBox(height: 20),
-                      _section("背景图 URL", Icons.image_outlined),
+                      _section("横版大图", Icons.crop_landscape),
                       const SizedBox(height: 4),
-                      TextField(controller: _bgUrl,
+                      Row(children: [
+                        Expanded(child: TextField(controller: _bgUrl,
                         decoration: _dec(
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          hintText: "背景图片URL（可选）"),
-                        style: const TextStyle(fontSize: 14)),
+                            hintText: "图片URL或本地上传"),
+                          style: const TextStyle(fontSize: 14))),
+    const SizedBox(width: 8),
+    OutlinedButton.icon(
+      onPressed: _pickLocalBg,
+      icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+      label: const Text("上传", style: TextStyle(fontSize: 12)),
+      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+    ),
+  ]),
                     ]),
                   ),
                 ])
@@ -685,13 +694,22 @@ class _GameEditScreenState extends State<GameEditScreen> {
                       hintText: "个人备注..."),
                     style: AppText.body.copyWith( height: 1.6)),
                   const SizedBox(height: 20),
-                  _section("背景图 URL", Icons.image_outlined),
+                  _section("横版大图", Icons.crop_landscape),
                   const SizedBox(height: 4),
-                  TextField(controller: _bgUrl,
+                  Row(children: [
+                    Expanded(child: TextField(controller: _bgUrl,
                     decoration: _dec(
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      hintText: "背景图片URL（可选）"),
-                    style: const TextStyle(fontSize: 14)),
+                            hintText: "图片URL或本地上传"),
+                          style: const TextStyle(fontSize: 14))),
+    const SizedBox(width: 8),
+    OutlinedButton.icon(
+      onPressed: _pickLocalBg,
+      icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+      label: const Text("上传", style: TextStyle(fontSize: 12)),
+      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+    ),
+  ]),
                 ])
             ]),
           ),
@@ -738,6 +756,27 @@ class _GameEditScreenState extends State<GameEditScreen> {
   // ── Single unified download: search all sources → show results → compare → apply ──
 
   // ── Single unified download: search all sources → show results → compare → apply ──
+
+  Future<void> _pickLocalBg() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
+      if (result == null || result.files.isEmpty || result.files.first.path == null) return;
+      final request = http.MultipartRequest(
+          "POST", Uri.parse("$_baseUrl/api/games/${widget.game.id}/background/upload"));
+      _authHeaders.forEach((k, v) => request.headers[k] = v);
+      request.files.add(await http.MultipartFile.fromPath("file", result.files.first.path!));
+      final streamed = await request.send();
+      if (streamed.statusCode == 200) {
+        final data = jsonDecode(await streamed.stream.bytesToString()) as Map<String, dynamic>;
+        if (data["bg_path"] != null) {
+          setState(() { _bgUrl.text = data["bg_path"]; });
+        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("大图上传成功")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("上传失败: $e")));
+    }
+  }
 
   Future<void> _pickLocalCover() async {
     try {

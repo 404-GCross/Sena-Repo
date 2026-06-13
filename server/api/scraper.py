@@ -497,6 +497,38 @@ async def update_game_background(
     return MessageResponse(message="No background URL provided")
 
 
+@router.post("/games/{game_id}/background/upload")
+async def upload_game_background(
+    game_id: int,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upload a background/hero image directly from a local file."""
+    result = await session.execute(select(Game).where(Game.id == game_id))
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    import os
+    ext = os.path.splitext(file.filename or "bg.jpg")[1].lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        raise HTTPException(status_code=400, detail="不支持的图片格式，仅支持 JPG/PNG/GIF/WebP")
+
+    config = load_config()
+    bg_dir = config.backgrounds_path
+    bg_dir.mkdir(parents=True, exist_ok=True)
+
+    if game.bg_path and os.path.isfile(game.bg_path):
+        try: os.remove(game.bg_path)
+        except Exception: pass
+
+    bg_path = bg_dir / f"{game_id}_hero{ext}"
+    bg_path.write_bytes(await file.read())
+    game.bg_path = str(bg_path)
+    await session.commit()
+    return {"message": "Background uploaded", "bg_path": game.bg_path}
+
+
 @router.delete("/games/{game_id}/background", response_model=MessageResponse)
 async def delete_game_background(
     game_id: int,
