@@ -26,38 +26,52 @@ class SteamScraper(BaseScraper):
         if not keyword:
             return []
 
-        # Resolve App ID first (try Chinese store, then English)
+        # Search all stores, then pick best App ID across all of them
         appid = await self._resolve_app_id(keyword)
         if not appid:
             return []
 
         # Fetch details + cover + vendors
-        return await self._get_details(appid)
+        return await self._get_details(appid, keyword)
 
     async def _resolve_app_id(self, title: str) -> str | None:
-        """Search Steam store for best matching App ID.
+        """Search all Steam stores and pick the best matching App ID.
 
-        Tries: Chinese store → English store → Steam Community search.
+        Collects candidates from Chinese store, English store, and Community search,
+        then picks the best match across all sources.
         """
         client_kwargs = {"timeout": httpx.Timeout(15.0)}
         if self.proxy:
             client_kwargs["proxy"] = self.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
-            # Try 1: Chinese store
-            appid = await self._store_search(client, title, "schinese", "CN")
-            if appid:
-                return appid
-            # Try 2: English store
-            appid = await self._store_search(client, title, "english", "US")
-            if appid:
-                return appid
-            # Try 3: Steam Community
-            appid = await self._community_search(client, title)
-            return appid
+            all_items: list[dict] = []
+
+            # Collect from all sources
+            for lang, cc in [("schinese", "CN"), ("english", "US")]:
+                items = await self._store_search(client, title, lang, cc)
+                if items:
+                    all_items.extend(items)
+
+            # Community search as additional source
+            comm_items = await self._community_search(client, title)
+            if comm_items:
+                all_items.extend(comm_items)
+
+            if not all_items:
+                return None
+
+            # Pick best match across ALL results
+            picked = self._pick_best(all_items, title)
+            if picked is None:
+                return None
+
+            # Community results use "appid", store results use "id"
+            appid = picked.get("appid") or picked.get("id")
+            return str(appid) if appid else None
 
     async def _store_search(
         self, client: httpx.AsyncClient, title: str, lang: str, cc: str
-    ) -> str | None:
+    ) -> list[dict] | None:
         try:
             resp = await self._request_with_retry(
                 client, "GET",
@@ -66,14 +80,11 @@ class SteamScraper(BaseScraper):
             )
             data = resp.json()
             items = data.get("items", [])
-            if not items:
-                return None
-            picked = self._pick_best(items, title)
-            return str(picked["id"]) if picked else None
+            return items if items else None
         except Exception:
             return None
 
-    async def _community_search(self, client: httpx.AsyncClient, title: str) -> str | None:
+    async def _community_search(self, client: httpx.AsyncClient, title: str) -> list[dict] | None:
         try:
             resp = await self._request_with_retry(
                 client, "GET",
@@ -82,20 +93,20 @@ class SteamScraper(BaseScraper):
             apps = resp.json()
             if not isinstance(apps, list) or not apps:
                 return None
-            picked = self._pick_best(apps, title)
-            return str(picked["appid"]) if picked else None
+            return apps
         except Exception:
             return None
 
     @staticmethod
     def _pick_best(items: list[dict], title: str) -> dict | None:
-        """Pick best match: exact > contains > prefix > first."""
+        """Pick best match by name similarity. Only returns results that
+        contain or start with the search title — no blind fallback to first."""
         norm = title.lower()
         # Exact match
         exact = next((a for a in items if str(a.get("name", "")).lower() == norm), None)
         if exact:
             return exact
-        # Contains match (handles different language names)
+        # Contains match (handles different language / subtitle variations)
         contains = next((a for a in items if norm in str(a.get("name", "")).lower()), None)
         if contains:
             return contains
@@ -103,39 +114,70 @@ class SteamScraper(BaseScraper):
         starts = next((a for a in items if str(a.get("name", "")).lower().startswith(norm)), None)
         if starts:
             return starts
-        return items[0] if items else None
+        # Search term is contained in item name (reverse contains — handles
+        # cases where store name is longer / has extra info)
+        for a in items:
+            item_name = str(a.get("name", "")).lower()
+            if item_name and item_name in norm:
+                return a
+        return None
 
-    async def _get_details(self, appid: str) -> list[ScraperResult]:
-        """Fetch game details, cover, and vendors from App ID."""
+    async def _get_details(self, appid: str, search_title: str = "") -> list[ScraperResult]:
+        """Fetch game details, cover, and vendors from App ID.
+
+        Tries Chinese store first, falls back to English for region-locked games.
+        """
         client_kwargs = {"timeout": httpx.Timeout(15.0)}
         if self.proxy:
             client_kwargs["proxy"] = self.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
-            # Get app details for name + developer
-            try:
-                resp = await self._request_with_retry(
-                    client, "GET",
-                    f"https://store.steampowered.com/api/appdetails?appids={appid}&l=schinese",
-                )
-                data = resp.json()
-                details = (data.get(str(appid)) or {}).get("data") or {}
-            except Exception:
-                details = {}
+            # Try Chinese store first, fall back to English
+            details = {}
+            for lang in ("schinese", "english"):
+                try:
+                    resp = await self._request_with_retry(
+                        client, "GET",
+                        f"https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}",
+                    )
+                    data = resp.json()
+                    details = (data.get(str(appid)) or {}).get("data") or {}
+                    if details.get("name"):
+                        break  # Got a valid result
+                except Exception:
+                    continue
+
+            if not details:
+                return []
 
             title = details.get("name", "")
+            if not title:
+                return []
+
             devs = details.get("developers", [])
             developer = devs[0] if devs else ""
             description = (details.get("short_description") or "")[:500]
 
-            # Cover URL: prefer Chinese, fall back to default
+            # Cover URL: prefer Chinese → English → default
             cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
-            try:
-                r = await client.head(
-                    f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900_schinese.jpg")
-                if r.status_code == 200:
-                    cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900_schinese.jpg"
-            except Exception:
-                pass
+            # Try Chinese-specific covers first
+            for suffix in ("_schinese", "_english", ""):
+                try:
+                    url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900{suffix}.jpg"
+                    r = await client.head(url)
+                    if r.status_code == 200:
+                        cover_url = url
+                        break
+                except Exception:
+                    continue
+            # Also try header.jpg as alternative Chinese cover (some games only have this)
+            if not cover_url.endswith("_schinese.jpg"):
+                try:
+                    alt_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
+                    r = await client.head(alt_url)
+                    if r.status_code == 200:
+                        cover_url = alt_url
+                except Exception:
+                    pass
 
             # Ratings and genres
             rating = 0.0
