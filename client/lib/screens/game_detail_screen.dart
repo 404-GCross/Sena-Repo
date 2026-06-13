@@ -14,7 +14,6 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/shortcut_service.dart";
-import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
@@ -119,33 +118,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           ),
                         ),
-                        // PC-only: Steam integration + desktop shortcut
-                        if (!Platform.isAndroid) ...[
-                          const SizedBox(height: 8),
-                          // Pick the first version's file as the target executable
-                          Builder(builder: (ctx) {
-                            final exePath = game.versions.first.filePath;
-                            return Row(mainAxisSize: MainAxisSize.min, children: [
-                              OutlinedButton.icon(
-                                onPressed: () => _addToSteam(game, exePath),
-                                icon: const Icon(Icons.gamepad, size: 16),
-                                label: const Text("添加到 Steam", style: TextStyle(fontSize: 12)),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              OutlinedButton.icon(
-                                onPressed: () => _createDesktopShortcut(game, exePath),
-                                icon: const Icon(Icons.desktop_windows, size: 16),
-                                label: const Text("桌面快捷方式", style: TextStyle(fontSize: 12)),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                              ),
-                            ]);
-                          }),
-                        ],
                       ],
                     ]),
                   ),
@@ -496,41 +468,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         barrierDismissible: false,
         builder: (_) => _DownloadProgressDialog(task: task),
       );
-    }
-  }
-
-  // ── Steam integration + desktop shortcut (PC-only) ──
-
-  Future<void> _addToSteam(GameDetail game, String exePath) async {
-    final coverUrl = game.coverPath != null && game.coverPath!.isNotEmpty
-        ? "$_baseUrl/api/files/covers${game.coverPath!}"
-        : "";
-    final heroUrl = game.bgPath != null && game.bgPath!.isNotEmpty
-        ? "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}"
-        : "";
-    final result = await SteamIntegrationService().addToSteam(
-      gameName: game.name,
-      exePath: exePath,
-      coverUrl: coverUrl,
-      heroUrl: heroUrl,
-    );
-    if (mounted) _showDialog(context, result.success ? "完成" : "失败", result.message);
-  }
-
-  Future<void> _createDesktopShortcut(GameDetail game, String exePath) async {
-    String? coverPath;
-    if (game.coverPath != null && game.coverPath!.isNotEmpty) {
-      final coverUrl = "$_baseUrl/api/files/covers${game.coverPath!}";
-      coverPath = await ShortcutService.downloadCover(coverUrl, game.name);
-    }
-    final ok = await ShortcutService.createShortcut(
-      gameName: game.name,
-      exePath: exePath,
-      coverPath: coverPath,
-    );
-    if (mounted) {
-      _showDialog(context, ok ? "完成" : "失败",
-          ok ? "桌面快捷方式已创建" : "创建快捷方式失败");
     }
   }
 

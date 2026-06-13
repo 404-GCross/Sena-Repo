@@ -2,11 +2,15 @@
 
 import "dart:async";
 
+import "dart:io" show Platform;
+
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 
 import "../services/download_service.dart";
+import "../services/shortcut_service.dart";
+import "../services/steam_integration_service.dart";
 import "../widgets/empty_state.dart";
 import "../utils/theme_utils.dart";
 
@@ -213,13 +217,67 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                 style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
               ),
             ])
-          else
+          else ...[
             Text("已解压到: ${t.outputPath}",
                 style: AppText.caption.copyWith( color: hintColor(context))),
+            if (!Platform.isAndroid) ...[
+              const SizedBox(height: 6),
+              Builder(builder: (_) {
+                final exePath = ShortcutService.findExecutable(t.outputPath!);
+                if (exePath == null) return const SizedBox.shrink();
+                return Row(mainAxisSize: MainAxisSize.min, children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _addToSteam(t, exePath),
+                    icon: const Icon(Icons.gamepad, size: 14),
+                    label: const Text("添加到 Steam", style: TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      minimumSize: Size.zero,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  OutlinedButton.icon(
+                    onPressed: () => _createShortcut(t, exePath),
+                    icon: const Icon(Icons.desktop_windows, size: 14),
+                    label: const Text("桌面快捷方式", style: TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      minimumSize: Size.zero,
+                    ),
+                  ),
+                ]);
+              }),
+            ],
+          ],
         if (t.error != null)
           Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
     );
+  }
+
+  Future<void> _addToSteam(DownloadTask t, String exePath) async {
+    final result = await SteamIntegrationService().addToSteam(
+      gameName: t.gameName,
+      exePath: exePath,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+    }
+  }
+
+  Future<void> _createShortcut(DownloadTask t, String exePath) async {
+    final ok = await ShortcutService.createShortcut(
+      gameName: t.gameName,
+      exePath: exePath,
+      coverPath: null,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? "桌面快捷方式已创建" : "创建失败")),
+      );
+    }
   }
 
   Future<void> _passwordDialog(DownloadTask t) async {
