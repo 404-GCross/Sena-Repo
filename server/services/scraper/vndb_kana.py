@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 VNDB_FIELDS = (
     "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
-    "image.url,description,rating,released,developers.name,tags.name,tags.rating,tags.spoiler"
+    "image.url,screenshots.url,description,rating,released,"
+    "developers.name,tags.name,tags.rating,tags.spoiler"
 )
 
 
@@ -61,6 +62,10 @@ class VndbKanaScraper(BaseScraper):
         image = item.get("image") or {}
         cover = image.get("url", "")
 
+        # Hero: first landscape screenshot
+        screenshots = item.get("screenshots") or []
+        hero = screenshots[0].get("url", "") if screenshots else ""
+
         # Tags (filter rating >= 1.5, sort by rating desc, top 5)
         tags = item.get("tags", [])
         filtered = [t for t in tags if t.get("rating", 0) >= 1.5]
@@ -72,6 +77,7 @@ class VndbKanaScraper(BaseScraper):
             description=(item.get("description") or ""),
             release_date=(item.get("released") or ""),
             cover_url=cover,
+            hero_url=hero,
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
         )
@@ -116,7 +122,7 @@ class VndbTitlesScraper(BaseScraper):
         try:
             body = {
                 "filters": ["search", "=", name],
-                "fields": "id,title,image.url,description,rating,released,developers.name",
+                "fields": "id,title,image.url,screenshots.url,description,rating,released,developers.name",
                 "sort": "searchrank",
                 "results": 5,
             }
@@ -128,12 +134,15 @@ class VndbTitlesScraper(BaseScraper):
             for item in resp.json().get("results", []):
                 devs = item.get("developers", [])
                 image = item.get("image") or {}
+                screenshots = item.get("screenshots") or []
+                hero = screenshots[0].get("url", "") if screenshots else ""
                 results.append(ScraperResult(
                     title=item.get("title", ""),
                     developer=devs[0].get("name", "") if devs else "",
                     description=item.get("description", ""),
                     release_date=item.get("released", ""),
                     cover_url=image.get("url", ""),
+                    hero_url=hero,
                     source_id=str(item.get("id", "")),
                     source_name=self.source_name,
                 ))
