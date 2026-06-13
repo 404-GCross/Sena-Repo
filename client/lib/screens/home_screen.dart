@@ -364,6 +364,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       context.read<GameProvider>().loadGames();
     }
+    // If loadGames was NOT called, check the navigation flow
+    debugPrint("[SenaRepo] _openDetail: returned from detail screen, calling loadGames");
   }
 
   void _toggleSelect(int id) {
