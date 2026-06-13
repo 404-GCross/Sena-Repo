@@ -294,7 +294,7 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
           _dirCard(Icons.download, "游戏下载目录", _downloadDir, _pickDownloadDir),
           if (!Platform.isAndroid) ...[
             const SizedBox(height: 12),
-            _dirCard(Icons.gamepad, "Steam 库目录 (steamapps/common)", _steamDir, _pickSteamDir),
+            _dirCard(Icons.gamepad, "Steam 库目录 (steamapps)", _steamDir, _pickSteamDir),
           ],
         ],
       )),
