@@ -706,7 +706,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Widget _bgHeroPreview() {
     final w = MediaQuery.of(context).size.width;
-    final h = w > 600 ? 200.0 : 140.0;
+    final h = w > 600 ? 280.0 : 160.0;
     if (_bgUrl.text.isEmpty) {
       return Container(
         width: double.infinity, height: h,
@@ -899,14 +899,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text("选择横版大图"),
           content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+            constraints: const BoxConstraints(maxWidth: 640, maxHeight: 500),
             child: GridView.builder(
               shrinkWrap: true,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 1.6,
+                crossAxisCount: 2,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 1.78,
               ),
               itemCount: screenshots.length,
               itemBuilder: (_, i) => GestureDetector(
