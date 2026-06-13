@@ -4,6 +4,7 @@ import "dart:async";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 
 import "../services/download_service.dart";
 import "../widgets/empty_state.dart";
@@ -199,8 +200,22 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           ]),
         ],
         if (t.status == "done" && t.outputPath != null)
-          Text("已解压到: ${t.outputPath}",
-              style: AppText.caption.copyWith( color: hintColor(context))),
+          if (t.isApk)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.android, size: 16, color: Colors.green[300]),
+              const SizedBox(width: 4),
+              Text("APK 就绪", style: AppText.caption.copyWith( color: Colors.green[300])),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: () => _installApk(t.outputPath!),
+                icon: const Icon(Icons.install_mobile, size: 16),
+                label: const Text("安装", style: TextStyle(fontSize: 12)),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
+              ),
+            ])
+          else
+            Text("已解压到: ${t.outputPath}",
+                style: AppText.caption.copyWith( color: hintColor(context))),
         if (t.error != null)
           Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
@@ -246,6 +261,20 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     if (bytes < 1048576) return "${(bytes / 1024).toStringAsFixed(1)} KB";
     if (bytes < 1073741824) return "${(bytes / 1048576).toStringAsFixed(1)} MB";
     return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
+  }
+
+  static const _installChannel = MethodChannel("com.github.senarepo/installer");
+
+  Future<void> _installApk(String filePath) async {
+    try {
+      await _installChannel.invokeMethod("installApk", {"filePath": filePath});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("安装失败: $e")),
+        );
+      }
+    }
   }
 
   String _formatSpeed(int bytesPerSec) {

@@ -38,6 +38,7 @@ class DownloadTask {
   http.Client? _client;
   bool _cancelled = false;
   bool needsPassword = false;
+  bool isApk = false;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
 
@@ -424,6 +425,25 @@ class DownloadService {
           progress: 0, receivedBytes: 0, totalBytes: t.totalBytes);
         await _download(t, tmp);
         if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
+
+        // Check if APK — move to output dir, skip extraction
+        if (t.fileName.toLowerCase().endsWith(".apk")) {
+          t.isApk = true;
+          final apkFile = File("$outDir/${t.fileName}");
+          try { await apkFile.parent.create(recursive: true); } catch (_) {}
+          try { await tmp.rename(apkFile.path); } catch (e) {
+            // rename across volumes → copy + delete
+            try { await tmp.copy(apkFile.path); await tmp.delete(); } catch (_) {
+              throw Exception("无法移动 APK 文件: $e");
+            }
+          }
+          t.status = "done";
+          t.outputPath = apkFile.path;
+          t.progress = 1.0;
+          _emit();
+          NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
+          return;
+        }
 
         // Phase 2: extract
         t.status = "extracting";
