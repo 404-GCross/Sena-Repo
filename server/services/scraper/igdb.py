@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timezone
 
 import httpx
 
@@ -12,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class IGDBScraper(BaseScraper):
-    """Scrape IGDB for game covers (needs Client ID + Secret)."""
+    """Scrape IGDB for game covers + screenshots + metadata."""
 
     source_name = "igdb"
 
@@ -26,12 +28,14 @@ class IGDBScraper(BaseScraper):
         super().__init__(proxy=proxy, client=client)
         self.client_id = client_id
         self.client_secret = client_secret
-        self._access_token: str | None = None
+        self._access_token: str = ""
+        self._token_expires: float = 0.0
 
     async def _authenticate(self) -> bool:
         if not self.client_id or not self.client_secret:
             return False
-        if self._access_token:
+        now = time.monotonic()
+        if self._access_token and now < self._token_expires:
             return True
 
         client = await self._get_client()
@@ -46,7 +50,10 @@ class IGDBScraper(BaseScraper):
                 timeout=10.0,
             )
             resp.raise_for_status()
-            self._access_token = resp.json().get("access_token", "")
+            data = resp.json()
+            self._access_token = data.get("access_token", "")
+            expires_in = data.get("expires_in", 86400)
+            self._token_expires = now + max(300, expires_in - 300)
             return bool(self._access_token)
         except Exception as e:
             logger.warning(f"IGDB auth failed: {e}")
@@ -65,25 +72,48 @@ class IGDBScraper(BaseScraper):
         results = []
 
         try:
-            resp = await client.post(
+            resp = await self._request_with_retry(
+                client, "POST",
                 "https://api.igdb.com/v4/games",
-                data=f'search "{name}"; fields name,cover.url; limit 5;',
+                data=f'search "{name}"; fields name,cover.url,screenshots.url,summary,first_release_date; limit 5;',
                 headers={
                     "Client-ID": self.client_id,
                     "Authorization": f"Bearer {self._access_token}",
                 },
-                timeout=15.0,
             )
-            resp.raise_for_status()
-
-            for item in resp.json():
+            data = resp.json()
+            for item in data:
                 cover_url = ""
                 if item.get("cover") and item["cover"].get("url"):
                     cover_url = "https:" + item["cover"]["url"].replace("t_thumb", "t_cover_big_2x")
 
+                # Screenshots for hero/landscape picker
+                shots = item.get("screenshots") or []
+                shot_urls: list[str] = []
+                hero = ""
+                for s in shots:
+                    if s.get("url"):
+                        url = "https:" + s["url"].replace("t_thumb", "t_screenshot_big")
+                        shot_urls.append(url)
+                        if not hero:
+                            hero = url
+
+                # Release date: Unix timestamp → YYYY-MM-DD
+                release_date = ""
+                ts = item.get("first_release_date")
+                if ts and ts > 0:
+                    try:
+                        release_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                    except (ValueError, OSError):
+                        release_date = str(ts)
+
                 results.append(ScraperResult(
                     title=item.get("name", ""),
+                    description=(item.get("summary") or "")[:2000],
+                    release_date=release_date,
                     cover_url=cover_url,
+                    hero_url=hero,
+                    screenshot_urls=shot_urls,
                     source_id=str(item.get("id", "")),
                     source_name=self.source_name,
                 ))
