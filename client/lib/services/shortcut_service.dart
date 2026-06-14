@@ -81,11 +81,9 @@ class ShortcutService {
     required String? coverPath,
     String? workingDir,
   }) async {
-    try {
-      if (Platform.isWindows) {
-        return await _createWindowsShortcut(gameName, exePath, coverPath, workingDir);
-      }
-    } catch (_) {}
+    if (Platform.isWindows) {
+      return await _createWindowsShortcut(gameName, exePath, coverPath, workingDir);
+    }
     return false;
   }
 
@@ -109,10 +107,13 @@ class ShortcutService {
     script.writeln(r'$Shortcut.Save()');
 
     final result = await Process.run(
-      "powershell", ["-Command", script.toString()],
-      runInShell: true,
+      "powershell", ["-NoProfile", "-Command", script.toString()],
     );
-    return result.exitCode == 0 && File(lnkPath).existsSync();
+    if (result.exitCode != 0) {
+      final err = (result.stderr as String?)?.trim() ?? "";
+      if (err.isNotEmpty) throw Exception(err);
+    }
+    return File(lnkPath).existsSync();
   }
 
   static String? _customDir;

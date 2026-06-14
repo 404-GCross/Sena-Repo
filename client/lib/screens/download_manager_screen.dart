@@ -324,25 +324,23 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       startDir: dir,
     );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
-      );
+      _toast(result.message);
     }
   }
 
   Future<void> _createShortcut(DownloadTask t, String dir) async {
     final exe = await _pickExe(dir);
     if (exe == null) return;
-    final ok = await ShortcutService.createShortcut(
-      gameName: t.gameName,
-      exePath: exe,
-      coverPath: null,
-      workingDir: dir,
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? "快捷方式已创建" : "创建失败")),
+    try {
+      final ok = await ShortcutService.createShortcut(
+        gameName: t.gameName,
+        exePath: exe,
+        coverPath: null,
+        workingDir: dir,
       );
+      _toast(ok ? "快捷方式已创建" : "创建失败");
+    } catch (e) {
+      _toast("创建失败: $e");
     }
   }
 
@@ -352,13 +350,20 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     );
     if (result != null) {
       await ShortcutService.setCustomDesktopDir(result);
-      if (mounted) {
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("快捷方式目录已更改为: $result")),
-        );
-      }
+      if (mounted) setState(() {});
+      _toast("快捷方式目录已更改为: $result");
     }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Text(msg),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+      ),
+    );
   }
 
   Future<void> _passwordDialog(DownloadTask t) async {
@@ -408,11 +413,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     try {
       await _installChannel.invokeMethod("installApk", {"filePath": filePath});
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("安装失败: $e")),
-        );
-      }
+      _toast("安装失败: $e");
     }
   }
 
