@@ -43,23 +43,46 @@ class SteamIntegrationService {
   }
 
   /// Find the first Steam user ID by scanning userdata/ for numeric folders.
+  /// Handles library folders by also checking common Steam install paths.
   Future<String?> findSteamUserId(String steamRoot) async {
-    final userdata = Directory("$steamRoot/userdata");
+    // Try primary steamRoot first
+    var id = await _tryFindUserData(steamRoot);
+    if (id != null) return id;
+    // Library folder fallback: try common Steam install paths
+    if (Platform.isWindows) {
+      for (final p in [
+        r"C:\Program Files (x86)\Steam",
+        r"C:\Program Files\Steam",
+        r"D:\Steam",
+        r"E:\Steam",
+      ]) {
+        if (p == steamRoot) continue;
+        id = await _tryFindUserData(p);
+        if (id != null) return id;
+      }
+    } else if (Platform.isLinux) {
+      final home = Platform.environment["HOME"] ?? "";
+      for (final p in [
+        "$home/.steam/steam",
+        "$home/.local/share/Steam",
+        "$home/.var/app/com.valvesoftware.Steam/.local/share/Steam",
+      ]) {
+        if (p == steamRoot) continue;
+        id = await _tryFindUserData(p);
+        if (id != null) return id;
+      }
+    }
+    return null;
+  }
+
+  Future<String?> _tryFindUserData(String root) async {
+    final userdata = Directory("$root/userdata");
     if (!await userdata.exists()) return null;
     await for (final entry in userdata.list()) {
       final name = entry.uri.pathSegments.last;
-      // Steam user IDs are all-numeric
       if (RegExp(r'^\d+$').hasMatch(name) && entry is Directory) {
-        // Prefer the one with config/ directory
-        if (await Directory("${entry.path}/config").exists()) {
-          return name;
-        }
+        if (await Directory("${entry.path}/config").exists()) return name;
       }
-    }
-    // Fallback: any numeric folder
-    await for (final entry in userdata.list()) {
-      final name = entry.uri.pathSegments.last;
-      if (RegExp(r'^\d+$').hasMatch(name)) return name;
     }
     return null;
   }

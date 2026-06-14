@@ -14,7 +14,6 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/shortcut_service.dart";
-import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
@@ -674,25 +673,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
           ])
         else if (_task.status == "done" || _task.status == "cancelled")
-          Row(children: [
-            if (_task.status == "done" && !Platform.isAndroid) ...[
-              OutlinedButton.icon(
-                onPressed: () => _addToSteamDownload(_task),
-                icon: const Icon(Icons.gamepad, size: 16),
-                label: const Text("Steam", style: TextStyle(fontSize: 12)),
-                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () => _createShortcut(_task),
-                icon: const Icon(Icons.desktop_windows, size: 16),
-                label: const Text("快捷方式", style: TextStyle(fontSize: 12)),
-                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
-              ),
-            ],
-            const Spacer(),
-            FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
-          ]),
+          FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
         if (_task.status == "paused")
           Row(children: [
             FilledButton(
@@ -719,53 +700,6 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           ]),
       ],
     );
-  }
-
-  Future<void> _addToSteamDownload(DownloadTask task) async {
-    if (task.outputPath == null) return;
-    final exes = ShortcutService.findAllExecutables(task.outputPath!);
-    if (exes.isEmpty) {
-      _showDialog(context, "提示", "未找到可执行文件");
-      return;
-    }
-    String exe = exes.first;
-    if (exes.length > 1) {
-      final picked = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("选择启动程序"),
-          content: SizedBox(width: 400, child: ListView.builder(
-            shrinkWrap: true, itemCount: exes.length,
-            itemBuilder: (_, i) => ListTile(
-              title: Text(exes[i].split(RegExp(r"[/\\]")).last, style: const TextStyle(fontSize: 13)),
-              subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
-              onTap: () => Navigator.pop(ctx, exes[i]),
-            ),
-          )),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
-        ),
-      );
-      if (picked != null) exe = picked; else return;
-    }
-    var result = await SteamIntegrationService().addToSteam(
-      gameName: task.gameName,
-      exePath: exe,
-      startDir: task.outputPath,
-    );
-    if (!result.success && result.message.contains("未配置 Steam 目录")) {
-      final picked = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: "选择 Steam steamapps 目录",
-      );
-      if (picked != null) {
-        await SteamIntegrationService().setSteamappsDir(picked);
-        result = await SteamIntegrationService().addToSteam(
-          gameName: task.gameName,
-          exePath: exe,
-          startDir: task.outputPath,
-        );
-      }
-    }
-    _showDialog(context, result.success ? "完成" : "失败", result.message);
   }
 
   Future<void> _createShortcut(DownloadTask task) async {
