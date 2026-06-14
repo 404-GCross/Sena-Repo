@@ -71,7 +71,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       );
       await _load();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("操作失败: $e")));
+      if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("操作失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
     }
   }
 

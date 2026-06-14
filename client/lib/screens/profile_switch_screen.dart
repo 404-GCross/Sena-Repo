@@ -124,11 +124,8 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               );
               if (resp.statusCode != 200) {
                 final err = jsonDecode(resp.body);
-                if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text("登录失败: ${err["detail"]}")),
-                  );
-                }
+                if (ctx.mounted) Navigator.pop(ctx);
+                _toast("登录失败: ${err["detail"]}", title: "错误");
                 return;
               }
               final data = jsonDecode(resp.body);
@@ -151,11 +148,8 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               }
               Navigator.pop(ctx, true);
             } catch (e) {
-              if (ctx.mounted) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(content: Text("连接失败: $e")),
-                );
-              }
+              if (ctx.mounted) Navigator.pop(ctx);
+              _toast("连接失败: $e", title: "错误");
             }
           }, child: const Text("保存")),
         ],
@@ -176,6 +170,18 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
     await ps.saveProfiles(profiles);
   }
 
+  void _toast(String msg, {String title = "提示"}) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+      ),
+    );
+  }
+
   Future<void> _switchTo(UserProfile profile) async {
     // Validate token before switching — deleted users won't pass
     try {
@@ -183,13 +189,11 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
       final resp = await http.get(uri,
         headers: {"Authorization": "Bearer ${profile.authToken}"});
       if (resp.statusCode != 200) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("此配置已失效，请重新登录")));
+        _toast("此配置已失效，请重新登录", title: "错误");
         return;
       }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("无法连接服务器，请检查网络")));
+      _toast("无法连接服务器，请检查网络", title: "错误");
       return;
     }
 
