@@ -8,6 +8,7 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 
+import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show rootBundle;
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
@@ -190,6 +191,7 @@ class DownloadService {
       task._client?.close();
       task._client = null;
       task.status = "paused";
+      _saveTasks();
       _emit();
     } else if (task.status == "extracting") {
       _killExtractor();
@@ -529,9 +531,11 @@ class DownloadService {
       if (t.receivedBytes > 0) {
         if (await dest.exists()) {
           final sz = await dest.length();
+          debugPrint("[SenaRepo] Resume sync: receivedBytes=${t.receivedBytes} fileSize=$sz");
           if (sz != t.receivedBytes) t.receivedBytes = sz;
         } else {
           // File was deleted — reset counter
+          debugPrint("[SenaRepo] Resume: temp file deleted, resetting");
           t.receivedBytes = 0;
           t.totalBytes = 0;
         }
@@ -647,14 +651,18 @@ class DownloadService {
       // Ensure data is flushed to disk before returning
       try { await sink?.flush(); } catch (_) {}
       try { await sink?.close(); } catch (_) {}
+      // Small delay for Android filesystem to update metadata
+      if (Platform.isAndroid) await Future.delayed(const Duration(milliseconds: 200));
       client.close();
       t._client = null;
-      // Sync counter with actual file size (critical for resume on Android)
+      // Sync counter with actual file size (critical for resume)
       try {
         final actualSize = await dest.length();
         if (actualSize > 0) t.receivedBytes = actualSize;
         if (t.totalBytes > 0 && actualSize >= t.totalBytes) t.receivedBytes = t.totalBytes;
       } catch (_) {}
+      // Save task state immediately so resume has correct receivedBytes
+      if (t.status == "paused") _saveTasks();
     }
   }
 
