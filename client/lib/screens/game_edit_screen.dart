@@ -899,14 +899,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text("选择背景"),
           content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640, maxHeight: 500),
+            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
             child: GridView.builder(
               shrinkWrap: true,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
-                childAspectRatio: 1.78,
+                childAspectRatio: 1.6,
               ),
               itemCount: screenshots.length,
               itemBuilder: (_, i) => GestureDetector(
