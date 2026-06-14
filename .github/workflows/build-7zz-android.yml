@@ -34,7 +34,7 @@ jobs:
           grep -rl '\-lpthread\|\-ldl' /tmp/7zsrc/CPP/7zip/ | xargs -r sed -i 's/-lpthread//g; s/-ldl//g'
           make -j$(nproc) -f makefile.gcc \
             CC="$NDK/aarch64-linux-android29-clang" \
-            CXX="$NDK/aarch64-linux-android29-clang++" \
+            CXX="$NDK/aarch64-linux-android29-clang++"
           cp _o/7za _o/7zz
           echo "=== Build output ==="
           file _o/7zz
