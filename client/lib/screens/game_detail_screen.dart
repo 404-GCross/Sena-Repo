@@ -822,6 +822,20 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             ],
           ],
         ]);
+      case "paused":
+        return Row(children: [
+          Icon(Icons.pause_circle, color: Colors.orange[300], size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text("${(_task.progress * 100).toStringAsFixed(0)}% · 已暂停",
+              style: AppText.bodyMedium.copyWith( color: Colors.orange[300]))),
+        ]);
+      case "failed":
+        return Row(children: [
+          Icon(Icons.error, color: Colors.red[300], size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text(_task.error ?? "下载失败",
+              style: AppText.bodySmall.copyWith( color: Colors.red[300]))),
+        ]);
       default:
         return Row(children: [
           Icon(Icons.error, color: Colors.red[300], size: 20),
