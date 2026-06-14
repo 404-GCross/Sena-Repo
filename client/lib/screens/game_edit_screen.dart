@@ -780,10 +780,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
         if (data["bg_path"] != null) {
           setState(() { _bgUrl.text = data["bg_path"]; });
         }
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("大图上传成功")));
+        _showMsg("大图上传成功");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("上传失败: $e")));
+      _showError("上传失败: $e");
     }
   }
 
@@ -801,10 +801,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
         if (data["cover_path"] != null) {
           setState(() { _coverPath = data["cover_path"]; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
         }
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("封面上传成功")));
+        _showMsg("封面上传成功");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("上传失败: $e")));
+      _showError("上传失败: $e");
     }
   }
 
