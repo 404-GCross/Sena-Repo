@@ -24,6 +24,17 @@ class NotificationService {
     _initialized = true;
   }
 
+  /// Request notification permission (Android 13+).
+  /// Show rationale dialog first, then system permission dialog.
+  Future<bool> requestPermission() async {
+    if (!Platform.isAndroid) return true;
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return true;
+    final granted = await android.requestNotificationsPermission();
+    return granted ?? false;
+  }
+
   /// Show a download progress notification. Call with progress 0-1.
   /// Returns the notification ID so you can update/cancel it.
   Future<int> showDownloadProgress({

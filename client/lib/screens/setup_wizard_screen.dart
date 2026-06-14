@@ -8,6 +8,7 @@ import "dart:convert";
 
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
+import "../services/notification_service.dart";
 
 class SetupWizardScreen extends StatefulWidget {
   final ApiClient api;
@@ -107,6 +108,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
       // Trigger scan
       await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
+      // Request Android notification permission
+      await NotificationService().init();
+      await NotificationService().requestPermission();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       setState(() { _error = "$e"; _loading = false; });
