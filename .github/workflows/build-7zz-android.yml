@@ -18,13 +18,14 @@ jobs:
 
       - name: Download 7-Zip source
         run: |
-          curl -sL "https://www.7-zip.org/a/7z2409-src.tar.xz" -o /tmp/7zsrc.tar.xz
-          tar -xf /tmp/7zsrc.tar.xz -C /tmp
+          curl -sL "https://7-zip.org/a/7z2409-src.7z" -o /tmp/7zsrc.7z
+          sudo apt-get install -y p7zip-full
+          7z x /tmp/7zsrc.7z -o/tmp/7zsrc -y
 
       - name: Build 7zz for aarch64
         run: |
           NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          cd /tmp/7z2409-src/CPP/7zip/Bundles/Alone
+          cd /tmp/7zsrc/CPP/7zip/Bundles/Alone
           make -j$(nproc) -f makefile.gcc \
             CC="$NDK/aarch64-linux-android21-clang" \
             CXX="$NDK/aarch64-linux-android21-clang++" \
@@ -37,4 +38,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: 7zz-android-arm64
-          path: /tmp/7z2409-src/CPP/7zip/Bundles/Alone/_o/7zz
+          path: /tmp/7zsrc/CPP/7zip/Bundles/Alone/_o/7zz
