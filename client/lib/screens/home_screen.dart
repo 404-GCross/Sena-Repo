@@ -319,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await provider.loadGames();
         if (ctx.mounted) showDialog(context: ctx, builder: (d) => AlertDialog(content: const Text("已创建"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
       } catch (e) {
-        if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text("创建失败: $e")));
+        if (ctx.mounted) showDialog(context: ctx, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("创建失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
       }
     }
   }
@@ -405,7 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await context.read<GameProvider>().loadGames();
       setState(() { _selectedIds.clear(); _multiSelect = false; });
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("删除失败: $e")));
+      if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("删除失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
     }
   }
 
@@ -427,7 +427,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("刮削失败: $e")));
+      if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("刮削失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
     }
   }
 

@@ -706,12 +706,9 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     if (task.outputPath == null) return;
     final exe = ShortcutService.findExecutable(task.outputPath!);
     if (exe == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("未找到可执行文件")),
-      );
+      _showDialog(context, "提示", "未找到可执行文件");
       return;
     }
-    // Try to get cover from server
     String? coverPath;
     try {
       final api = context.read<GameProvider>().api;
@@ -719,13 +716,17 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       final coverUrl = "$base/api/files/covers${_task.gameId}";
       coverPath = await ShortcutService.downloadCover(coverUrl, task.gameName);
     } catch (_) {}
-    final ok = await ShortcutService.createShortcut(
-      gameName: task.gameName,
-      exePath: exe,
-      coverPath: coverPath,
-    );
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? "桌面快捷方式已创建" : "创建失败")),
+    try {
+      await ShortcutService.createShortcut(
+        gameName: task.gameName,
+        exePath: exe,
+        coverPath: coverPath,
+      );
+      _showDialog(context, "完成", "桌面快捷方式已创建");
+    } catch (e) {
+      _showDialog(context, "失败", "$e");
+    }
+  }
     );
   }
 
