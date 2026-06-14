@@ -3,7 +3,6 @@ name: Build 7zz for Android ARM64
 on:
   workflow_dispatch:
   push:
-    branches: [dev]
     paths:
       - ".github/workflows/build-7zz-android.yml"
 
@@ -11,29 +10,31 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install NDK
         run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
-          unzip -q android-ndk-r27c-linux.zip
-          echo "NDK=$(pwd)/android-ndk-r27c" >> $GITHUB_ENV
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" 2>&1
 
-      - name: Clone 7-Zip source
+      - name: Download 7-Zip source
         run: |
-          git clone --depth 1 https://github.com/ip7z/7zip.git
+          curl -sL "https://www.7-zip.org/a/7z2409-src.tar.xz" -o /tmp/7zsrc.tar.xz
+          tar -xf /tmp/7zsrc.tar.xz -C /tmp
 
       - name: Build 7zz for aarch64
         run: |
-          cd 7zip/CPP/7zip/Bundles/Alone2
-          export CC=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
-          export CXX=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
-          # Android Bionic has pthread built-in, remove -lpthread from linker
-          sed -i 's/-lpthread//g' ../../7zip_gcc.mak
-          make -f makefile.gcc -j$(nproc) 2>&1
+          NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cd /tmp/7z2409-src/CPP/7zip/Bundles/Alone
+          make -j$(nproc) -f makefile.gcc \
+            CC="$NDK/aarch64-linux-android21-clang" \
+            CXX="$NDK/aarch64-linux-android21-clang++" \
+            DISABLE_RAR=1
+          echo "=== Build output ==="
           file _o/7zz
           ls -la _o/7zz
 
-      - name: Upload 7zz
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: 7zz-android-arm64
-          path: 7zip/CPP/7zip/Bundles/Alone2/_o/7zz
+          path: /tmp/7z2409-src/CPP/7zip/Bundles/Alone/_o/7zz
