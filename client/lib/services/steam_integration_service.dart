@@ -177,9 +177,13 @@ class SteamIntegrationService {
     String? iconPath,
   }) async {
     // Validate
+    final steamapps = await getSteamappsDir();
+    if (steamapps == null) {
+      return SteamIntegrationResult(false, "未配置 Steam 目录。请先在设置中选 steamapps 文件夹。");
+    }
     final steam = await resolveSteam();
     if (steam == null) {
-      return SteamIntegrationResult(false, "未配置 Steam 目录。请先在设置中选择 steamapps 文件夹。");
+      return SteamIntegrationResult(false, "Steam 目录已选 ($steamapps)，但未找到 userdata 用户文件夹。请确认 Steam 已登录过。");
     }
     if (!await File(exePath).exists()) {
       return SteamIntegrationResult(false, "游戏文件不存在:\n$exePath");
