@@ -224,8 +224,28 @@ async def run_batch_scrape(
             select(Game).options(selectinload(Game.company))
             .where(Game.id.in_(game_ids), Game.is_deleted == False)
         )
+    elif mode in ("overwrite", "images"):
+        # overwrite/images mode: scrape ALL games (not just missing covers)
+        result = await session.execute(
+            select(Game).options(selectinload(Game.company))
+            .where(Game.is_deleted == False)
+            .order_by(Game.imported_at.desc())
+        )
+    elif mode == "metadata":
+        from sqlalchemy import or_
+        # metadata mode: games missing text fields (but may have covers)
+        result = await session.execute(
+            select(Game).options(selectinload(Game.company))
+            .where(
+                Game.is_deleted == False,
+                or_(
+                    Game.description == None, Game.description == "",
+                    Game.developer == None, Game.developer == "",
+                ),
+            ).order_by(Game.imported_at.desc())
+        )
     else:
-        # All games without covers
+        # missing mode: only games without covers
         result = await session.execute(
             select(Game).options(selectinload(Game.company))
             .where(
