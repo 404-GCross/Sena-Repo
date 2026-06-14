@@ -57,7 +57,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
     final cs = Theme.of(context).colorScheme;
-    final isWide = MediaQuery.of(context).size.width > 600;
 
     return Scaffold(
       appBar: AppBar(
@@ -76,17 +75,23 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
-            child: Column(children: [
+            child: LayoutBuilder(builder: (ctx, constraints) {
+              final w = constraints.maxWidth;
+              final wide = w > 500;
+              final heroH = wide ? (w > 700 ? 280.0 : 200.0) : 140.0;
+              final coverW = wide ? (w > 700 ? 200.0 : 150.0) : 130.0;
+              final coverH = coverW * 1.4;
+              return Column(children: [
               // ── Hero banner (landscape) ──
               if (game.bgPath != null && game.bgPath!.isNotEmpty)
                 Padding(
-                  padding: EdgeInsets.fromLTRB(isWide ? 16 : 0, isWide ? 12 : 0, isWide ? 16 : 0, 0),
+                  padding: EdgeInsets.fromLTRB(wide ? 16 : 0, wide ? 12 : 0, wide ? 16 : 0, 0),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+                    borderRadius: BorderRadius.circular(wide ? 14 : 0),
                     child: Image.network(
                       "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}",
                       width: double.infinity,
-                      height: isWide ? 280 : 160,
+                      height: wide ? 280 : 160,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),
@@ -94,11 +99,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 ),
               // ── Header: cover right, name left ──
               Padding(
-                padding: EdgeInsets.fromLTRB(isWide ? 32 : 8, 20, isWide ? 32 : 8, 0),
+                padding: EdgeInsets.fromLTRB(wide ? 32 : 8, 20, wide ? 32 : 8, 0),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(game.name, style: TextStyle(fontSize: isWide ? 28 : 22, fontWeight: FontWeight.bold, height: 1.2)),
+                      Text(game.name, style: TextStyle(fontSize: wide ? 28 : 22, fontWeight: FontWeight.bold, height: 1.2)),
                       if (game.companyName != null) ...[
                         const SizedBox(height: 6),
                         Row(children: [
@@ -130,7 +135,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   ),
                   const SizedBox(width: 24),
                   Container(
-                    width: isWide ? 200 : 140, height: isWide ? 280 : 196,
+                    width: wide ? 200 : 140, height: wide ? 280 : 196,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [
@@ -151,8 +156,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
               // ── Body: responsive ──
               Padding(
-                padding: EdgeInsets.fromLTRB(isWide ? 32 : 8, 24, isWide ? 32 : 8, 0),
-                child: isWide
+                padding: EdgeInsets.fromLTRB(wide ? 32 : 8, 24, wide ? 32 : 8, 0),
+                child: wide
                     ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         // Left: description + tags
                         Expanded(flex: 5, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -301,9 +306,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                           ),
                       ]),
               ),
-            ]),
-          ),
+            ]);
+          }),
         ),
+      ),
       ),
     );
   }
