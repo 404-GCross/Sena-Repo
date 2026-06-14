@@ -704,10 +704,30 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   Future<void> _createShortcut(DownloadTask task) async {
     if (task.outputPath == null) return;
-    final exe = ShortcutService.findExecutable(task.outputPath!);
-    if (exe == null) {
+    final exes = ShortcutService.findAllExecutables(task.outputPath!);
+    if (exes.isEmpty) {
       _showDialog(context, "提示", "未找到可执行文件");
       return;
+    }
+    String exe = exes.first;
+    if (exes.length > 1) {
+      final picked = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("选择启动程序"),
+          content: SizedBox(width: 400, child: ListView.builder(
+            shrinkWrap: true, itemCount: exes.length,
+            itemBuilder: (_, i) => ListTile(
+              leading: const Icon(Icons.insert_drive_file, size: 20),
+              title: Text(exes[i].split(RegExp(r"[/\\]")).last, style: const TextStyle(fontSize: 13)),
+              subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
+              onTap: () => Navigator.pop(ctx, exes[i]),
+            ),
+          )),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+        ),
+      );
+      if (picked != null) exe = picked; else return;
     }
     String? coverPath;
     try {
