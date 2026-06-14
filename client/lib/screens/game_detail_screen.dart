@@ -19,6 +19,10 @@ import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
 import "game_edit_screen.dart";
 
+void _showDialog(BuildContext ctx, String title, String msg) {
+  showDialog(context: ctx, builder: (c) => AlertDialog(title: Text(title), content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
+}
+
 class GameDetailScreen extends StatefulWidget {
   final int gameId;
   const GameDetailScreen({super.key, required this.gameId});
@@ -522,10 +526,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       _load(); _showDialog(context, "完成", "元数据已应用"); } catch (e) { _showDialog(context, "错误", "$e"); }
   }
 
-  void _showDialog(BuildContext ctx, String title, String msg) {
-    showDialog(context: ctx, builder: (c) => AlertDialog(title: Text(title), content: Text(msg), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))]));
-  }
-
   Future<void> _showDownloadDialog(GameDetail game) async {
     final v = await showDialog<dynamic>(
       context: context,
@@ -673,7 +673,25 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
           ])
         else if (_task.status == "done" || _task.status == "cancelled")
-          FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+          Row(children: [
+            if (_task.status == "done" && !Platform.isAndroid) ...[
+              OutlinedButton.icon(
+                onPressed: () => _addToSteamDownload(_task),
+                icon: const Icon(Icons.gamepad, size: 16),
+                label: const Text("Steam", style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => _createShortcut(_task),
+                icon: const Icon(Icons.desktop_windows, size: 16),
+                label: const Text("快捷方式", style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+              ),
+            ],
+            const Spacer(),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+          ]),
         if (_task.status == "paused")
           Row(children: [
             FilledButton(
@@ -702,6 +720,40 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     );
   }
 
+  Future<void> _addToSteamDownload(DownloadTask task) async {
+    if (task.outputPath == null) return;
+    final exes = ShortcutService.findAllExecutables(task.outputPath!);
+    if (exes.isEmpty) {
+      _showDialog(context, "提示", "未找到可执行文件");
+      return;
+    }
+    String exe = exes.first;
+    if (exes.length > 1) {
+      final picked = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("选择启动程序"),
+          content: SizedBox(width: 400, child: ListView.builder(
+            shrinkWrap: true, itemCount: exes.length,
+            itemBuilder: (_, i) => ListTile(
+              title: Text(exes[i].split(RegExp(r"[/\\]")).last, style: const TextStyle(fontSize: 13)),
+              subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
+              onTap: () => Navigator.pop(ctx, exes[i]),
+            ),
+          )),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+        ),
+      );
+      if (picked != null) exe = picked; else return;
+    }
+    final result = await SteamIntegrationService().addToSteam(
+      gameName: task.gameName,
+      exePath: exe,
+      startDir: task.outputPath,
+    );
+    _showDialog(context, result.success ? "完成" : "失败", result.message);
+  }
+
   Future<void> _createShortcut(DownloadTask task) async {
     if (task.outputPath == null) return;
     final exe = ShortcutService.findExecutable(task.outputPath!);
@@ -726,8 +778,6 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     } catch (e) {
       _showDialog(context, "失败", "$e");
     }
-  }
-    );
   }
 
   Widget _statusIcon() {
