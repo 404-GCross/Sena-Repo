@@ -318,14 +318,26 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   Future<void> _addToSteam(DownloadTask t, String dir) async {
     final exe = await _pickExe(dir);
     if (exe == null) return;
-    final result = await SteamIntegrationService().addToSteam(
+    var result = await SteamIntegrationService().addToSteam(
       gameName: t.gameName,
       exePath: exe,
       startDir: dir,
     );
-    if (mounted) {
-      _toast(result.message);
+    // If not configured, let user pick directory and retry
+    if (!result.success && result.message.contains("未配置 Steam 目录")) {
+      final picked = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: "选择 Steam steamapps 目录",
+      );
+      if (picked != null) {
+        await SteamIntegrationService().setSteamappsDir(picked);
+        result = await SteamIntegrationService().addToSteam(
+          gameName: t.gameName,
+          exePath: exe,
+          startDir: dir,
+        );
+      }
     }
+    _toast(result.message);
   }
 
   Future<void> _createShortcut(DownloadTask t, String dir) async {

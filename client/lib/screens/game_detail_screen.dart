@@ -746,11 +746,24 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       );
       if (picked != null) exe = picked; else return;
     }
-    final result = await SteamIntegrationService().addToSteam(
+    var result = await SteamIntegrationService().addToSteam(
       gameName: task.gameName,
       exePath: exe,
       startDir: task.outputPath,
     );
+    if (!result.success && result.message.contains("未配置 Steam 目录")) {
+      final picked = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: "选择 Steam steamapps 目录",
+      );
+      if (picked != null) {
+        await SteamIntegrationService().setSteamappsDir(picked);
+        result = await SteamIntegrationService().addToSteam(
+          gameName: task.gameName,
+          exePath: exe,
+          startDir: task.outputPath,
+        );
+      }
+    }
     _showDialog(context, result.success ? "完成" : "失败", result.message);
   }
 
