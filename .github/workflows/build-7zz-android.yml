@@ -30,6 +30,8 @@ jobs:
         run: |
           NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
           cd /tmp/7zsrc/CPP/7zip/Bundles/Alone
+          # Android Bionic has pthread built-in, remove -lpthread from linker flags
+          sed -i 's/-lpthread//g' ../../7zip_gcc.mak
           make -j$(nproc) -f makefile.gcc \
             CC="$NDK/aarch64-linux-android29-clang" \
             CXX="$NDK/aarch64-linux-android29-clang++" \
