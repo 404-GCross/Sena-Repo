@@ -43,46 +43,21 @@ class SteamIntegrationService {
   }
 
   /// Find the first Steam user ID by scanning userdata/ for numeric folders.
-  /// Handles library folders by also checking common Steam install paths.
   Future<String?> findSteamUserId(String steamRoot) async {
-    // Try primary steamRoot first
-    var id = await _tryFindUserData(steamRoot);
-    if (id != null) return id;
-    // Library folder fallback: try common Steam install paths
-    if (Platform.isWindows) {
-      for (final p in [
-        r"C:\Program Files (x86)\Steam",
-        r"C:\Program Files\Steam",
-        r"D:\Steam",
-        r"E:\Steam",
-      ]) {
-        if (p == steamRoot) continue;
-        id = await _tryFindUserData(p);
-        if (id != null) return id;
-      }
-    } else if (Platform.isLinux) {
-      final home = Platform.environment["HOME"] ?? "";
-      for (final p in [
-        "$home/.steam/steam",
-        "$home/.local/share/Steam",
-        "$home/.var/app/com.valvesoftware.Steam/.local/share/Steam",
-      ]) {
-        if (p == steamRoot) continue;
-        id = await _tryFindUserData(p);
-        if (id != null) return id;
-      }
-    }
-    return null;
-  }
-
-  Future<String?> _tryFindUserData(String root) async {
-    final userdata = Directory("$root/userdata");
+    final userdata = Directory("$steamRoot${Platform.pathSeparator}userdata");
     if (!await userdata.exists()) return null;
     await for (final entry in userdata.list()) {
       final name = entry.uri.pathSegments.last;
       if (RegExp(r'^\d+$').hasMatch(name) && entry is Directory) {
-        if (await Directory("${entry.path}/config").exists()) return name;
+        if (await Directory("${entry.path}${Platform.pathSeparator}config").exists()) {
+          return name;
+        }
       }
+    }
+    // Fallback: any numeric folder
+    await for (final entry in userdata.list()) {
+      final name = entry.uri.pathSegments.last;
+      if (RegExp(r'^\d+$').hasMatch(name)) return name;
     }
     return null;
   }
@@ -100,7 +75,7 @@ class SteamIntegrationService {
 
   /// Path to shortcuts.vdf for the given user.
   String _shortcutsPath(String steamRoot, String userId) =>
-      "$steamRoot/userdata/$userId/config/shortcuts.vdf";
+      "${steamRoot}${Platform.pathSeparator}userdata${Platform.pathSeparator}$userId${Platform.pathSeparator}config${Platform.pathSeparator}shortcuts.vdf";
 
   /// Read existing shortcuts.
   List<VdfShortcut> _readShortcuts(String steamRoot, String userId) {
@@ -126,7 +101,7 @@ class SteamIntegrationService {
 
   /// Path to the grid directory for the given user.
   String _gridDir(String steamRoot, String userId) =>
-      "$steamRoot/userdata/$userId/config/grid";
+      "${steamRoot}${Platform.pathSeparator}userdata${Platform.pathSeparator}$userId${Platform.pathSeparator}config${Platform.pathSeparator}grid";
 
   /// Copy a cover image from [coverUrl] to the Steam grid directory.
   /// The image is saved as <gridAppId>p.jpg (portrait) for use in Steam library.
@@ -137,8 +112,9 @@ class SteamIntegrationService {
     if (!await gridDir.exists()) await gridDir.create(recursive: true);
 
     // Try portrait first, then landscape
-    final portraitFile = File("${gridDir.path}/${gridAppId}p.jpg");
-    final landscapeFile = File("${gridDir.path}/$gridAppId.jpg");
+    final s = Platform.pathSeparator;
+    final portraitFile = File("${gridDir.path}$s${gridAppId}p.jpg");
+    final landscapeFile = File("${gridDir.path}$s$gridAppId.jpg");
 
     // Download and save
     try {
@@ -165,14 +141,15 @@ class SteamIntegrationService {
     final gridDir = Directory(_gridDir(steamRoot, userId));
     if (!await gridDir.exists()) await gridDir.create(recursive: true);
 
-    final landscapeFile = File("${gridDir.path}/$gridAppId.jpg");
+    final s = Platform.pathSeparator;
+    final landscapeFile = File("${gridDir.path}$s$gridAppId.jpg");
     try {
       final resp = await http.get(Uri.parse(heroUrl)).timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200) return false;
       if (resp.bodyBytes.length < 1024) return false;
       await landscapeFile.writeAsBytes(resp.bodyBytes);
       // Also save hero as the new library hero if Steam supports it
-      final heroFile = File("${gridDir.path}/${gridAppId}_hero.jpg");
+      final heroFile = File("${gridDir.path}$s${gridAppId}_hero.jpg");
       if (!await heroFile.exists()) {
         await heroFile.writeAsBytes(resp.bodyBytes);
       }
