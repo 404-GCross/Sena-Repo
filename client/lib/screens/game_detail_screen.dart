@@ -97,60 +97,111 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                     ),
                   ),
                 ),
-              // ── Header: cover right, name left (unified across all sizes) ──
+              // ── Header ──
               Padding(
-                padding: EdgeInsets.fromLTRB(wide ? 32 : 10, wide ? 20 : 10, wide ? 32 : 10, 0),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(game.name, style: TextStyle(fontSize: wide ? 28 : 18, fontWeight: FontWeight.bold, height: 1.2)),
-                      if (game.companyName != null) ...[
-                        SizedBox(height: wide ? 6 : 4),
-                        Row(children: [
-                          Icon(Icons.business, size: wide ? 16 : 14, color: subTextColor(context)),
-                          SizedBox(width: wide ? 6 : 4),
-                          Flexible(child: Text(game.companyName!, style: TextStyle(fontSize: wide ? 16 : 12, color: subTextColor(context)))),
-                        ]),
-                      ],
-                      if (game.vndbId != null || game.steamId != null || game.bangumiId != null) ...[
-                        SizedBox(height: wide ? 10 : 6),
-                        Wrap(spacing: 6, runSpacing: 4, children: [
-                          _sourceBadge("VNDB", game.vndbId),
-                          _sourceBadge("Steam", game.steamId),
-                          _sourceBadge("Bangumi", game.bangumiId),
-                        ]),
-                      ],
-                      SizedBox(height: wide ? 16 : 10),
-                      if (game.versions.isNotEmpty)
-                        FilledButton.icon(
-                          onPressed: () => _showDownloadDialog(game),
-                          icon: Icon(Icons.download, size: wide ? 18 : 16),
-                          label: Text("下载游戏", style: TextStyle(fontSize: wide ? 14 : 12)),
-                          style: FilledButton.styleFrom(
-                            padding: EdgeInsets.symmetric(horizontal: wide ? 20 : 14, vertical: wide ? 12 : 8),
-                          ),
+                padding: EdgeInsets.fromLTRB(wide ? 32 : 8, wide ? 20 : 10, wide ? 32 : 8, 0),
+                child: wide
+                    ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(game.name, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2)),
+                            if (game.companyName != null) ...[
+                              const SizedBox(height: 6),
+                              Row(children: [
+                                Icon(Icons.business, size: 16, color: subTextColor(context)),
+                                const SizedBox(width: 6),
+                                Text(game.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context))),
+                              ]),
+                            ],
+                            if (game.vndbId != null || game.steamId != null || game.bangumiId != null) ...[
+                              const SizedBox(height: 10),
+                              Row(children: [
+                                _sourceBadge("VNDB", game.vndbId),
+                                _sourceBadge("Steam", game.steamId),
+                                _sourceBadge("Bangumi", game.bangumiId),
+                              ]),
+                            ],
+                            const SizedBox(height: 16),
+                            if (game.versions.isNotEmpty)
+                              FilledButton.icon(
+                                onPressed: () => _showDownloadDialog(game),
+                                icon: const Icon(Icons.download, size: 18),
+                                label: const Text("下载游戏"),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                ),
+                              ),
+                          ]),
                         ),
-                    ]),
-                  ),
-                  SizedBox(width: wide ? 24 : 10),
-                  Container(
-                    width: coverW, height: coverH,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(wide ? 14 : 10),
-                      boxShadow: [
-                        BoxShadow(color: cs.primary.withValues(alpha: 0.3), blurRadius: wide ? 24 : 14, offset: Offset(0, wide ? 12 : 6)),
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: wide ? 8 : 4, offset: Offset(0, wide ? 4 : 2)),
-                      ],
-                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(wide ? 14 : 10),
-                      child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
-                              fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                          : _coverPlaceholder()),
-                  ),
-                ]),
+                        const SizedBox(width: 24),
+                        Container(
+                          width: coverW, height: coverH,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: [
+                              BoxShadow(color: cs.primary.withValues(alpha: 0.3), blurRadius: 24, offset: const Offset(0, 12)),
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 4)),
+                            ],
+                            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: hasCover
+                                ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
+                                : _coverPlaceholder()),
+                        ),
+                      ])
+                    // Narrow: cover top, name centered below
+                    : Column(children: [
+                        if (hasCover)
+                          Center(
+                            child: Container(
+                              width: coverW, height: coverH,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(color: cs.primary.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 8)),
+                                ],
+                                border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.4)),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                                    fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder()),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 10),
+                        Text(game.name, textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, height: 1.2)),
+                        if (game.companyName != null) ...[
+                          const SizedBox(height: 4),
+                          Text(game.companyName!, textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 14, color: subTextColor(context))),
+                        ],
+                        if (game.vndbId != null || game.steamId != null || game.bangumiId != null) ...[
+                          const SizedBox(height: 8),
+                          Wrap(alignment: WrapAlignment.center, spacing: 6, children: [
+                            _sourceBadge("VNDB", game.vndbId),
+                            _sourceBadge("Steam", game.steamId),
+                            _sourceBadge("Bangumi", game.bangumiId),
+                          ]),
+                        ],
+                        if (game.versions.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Center(
+                            child: FilledButton.icon(
+                              onPressed: () => _showDownloadDialog(game),
+                              icon: const Icon(Icons.download, size: 18),
+                              label: const Text("下载游戏"),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ]),
               ),
 
               // ── Body: responsive ──
