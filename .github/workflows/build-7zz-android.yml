@@ -18,8 +18,12 @@ jobs:
 
       - name: Download 7-Zip source
         run: |
-          curl -sL "https://7-zip.org/a/7z2409-src.7z" -o /tmp/7zsrc.7z
-          sudo apt-get install -y p7zip-full
+          # Try official source first, fall back to SourceForge mirror
+          wget -q --user-agent="Wget" "https://sourceforge.net/projects/sevenzip/files/7-Zip/24.09/7z2409-src.7z/download" -O /tmp/7zsrc.7z || \
+          wget -q --user-agent="Wget" "https://7-zip.org/a/7z2409-src.7z" -O /tmp/7zsrc.7z || \
+          wget -q --user-agent="Wget" "https://www.7-zip.org/a/7z2409-src.7z" -O /tmp/7zsrc.7z
+          ls -la /tmp/7zsrc.7z
+          sudo apt-get install -y p7zip-full > /dev/null 2>&1
           7z x /tmp/7zsrc.7z -o/tmp/7zsrc -y
 
       - name: Build 7zz for aarch64
