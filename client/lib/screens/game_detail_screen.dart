@@ -14,6 +14,7 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/shortcut_service.dart";
+import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "download_manager_screen.dart";
