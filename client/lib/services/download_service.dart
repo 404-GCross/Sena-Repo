@@ -414,7 +414,8 @@ class DownloadService {
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
       for (int retry = 0; retry <= maxExtractRetries; retry++) {
-        if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
+        if (t._cancelled) { try { await tmp.delete(); } catch (_) {} return; }
+        if (t.status == "paused") return;
 
         // Phase 1: download
         t.status = "downloading";
@@ -423,7 +424,8 @@ class DownloadService {
           id: t.gameId, gameName: t.gameName,
           progress: 0, receivedBytes: 0, totalBytes: t.totalBytes);
         await _download(t, tmp);
-        if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
+        if (t._cancelled) { try { await tmp.delete(); } catch (_) {} return; }
+        if (t.status == "paused") return;
 
         // Check if APK — move to output dir, skip extraction
         if (t.fileName.toLowerCase().endsWith(".apk")) {
@@ -458,10 +460,8 @@ class DownloadService {
           await tmp.delete();
           break; // success
         } catch (e) {
-          if (_stopped(t)) {
-            try { await tmp.delete(); } catch (_) {}
-            return;
-          }
+          if (t._cancelled) { try { await tmp.delete(); } catch (_) {} return; }
+          if (t.status == "paused") return;
           // Encrypted archive — throw immediately, don't waste retries
           if (_isEncryptedError("$e")) rethrow;
           if (retry < maxExtractRetries) {
@@ -484,11 +484,12 @@ class DownloadService {
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
-      if (t._cancelled || t.status == "paused") {
+      if (t._cancelled) {
         NotificationService().cancel(t.gameId);
         try { await tmp.delete(); } catch (_) {}
         return;
       }
+      if (t.status == "paused") return;
       NotificationService().cancel(t.gameId);
       final errStr = "$e";
       // Check if archive is password-protected
