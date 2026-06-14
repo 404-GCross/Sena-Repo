@@ -31,8 +31,8 @@ jobs:
           NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
           cd /tmp/7zsrc/CPP/7zip/Bundles/Alone
           make -j$(nproc) -f makefile.gcc \
-            CC="$NDK/aarch64-linux-android21-clang" \
-            CXX="$NDK/aarch64-linux-android21-clang++" \
+            CC="$NDK/aarch64-linux-android29-clang" \
+            CXX="$NDK/aarch64-linux-android29-clang++" \
             DISABLE_RAR=1
           echo "=== Build output ==="
           file _o/7zz
