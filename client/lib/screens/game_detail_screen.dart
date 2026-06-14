@@ -86,7 +86,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                     child: Image.network(
                       "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}",
                       width: double.infinity,
-                      height: isWide ? 200 : 140,
+                      height: isWide ? 280 : 160,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),
