@@ -675,7 +675,8 @@ class DownloadService {
     final args = ["x", "-y", "-o$outDir", filePath];
     if (password != null) args.insert(1, "-p$password");
     // Only test integrity without password (encrypted archives fail 7z t without -p)
-    if (password == null) {
+    // Skip on Android — extra time, and archive is verified during extraction
+    if (password == null && !Platform.isAndroid) {
       try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
     }
     await _runTool(exe, args, onProgress: onProgress);
@@ -738,6 +739,11 @@ class DownloadService {
 
   Future<void> _runTool(String exe, List<String> args,
       {void Function(double)? onProgress, int timeout = 1800}) async {
+    // Android: bypass noexec by using dynamic linker to load the ELF
+    if (Platform.isAndroid) {
+      args = [exe, ...args];
+      exe = "/system/bin/linker64";
+    }
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
 
