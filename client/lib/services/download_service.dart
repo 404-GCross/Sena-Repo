@@ -228,13 +228,6 @@ class DownloadService {
   }
 
   Future<void> _runWithPassword(DownloadTask t, String password) async {
-    // Android doesn't extract — extraction is desktop-only
-    if (Platform.isAndroid) {
-      t.status = "failed";
-      t.error = "Android 端不支持解压";
-      _emit();
-      return;
-    }
     final dir = await downloadDir;
     final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
@@ -432,25 +425,25 @@ class DownloadService {
         await _download(t, tmp);
         if (_stopped(t)) { try { await tmp.delete(); } catch (_) {} return; }
 
-        // Android: skip extraction, just move downloaded file to output
-        if (Platform.isAndroid) {
-          t.isApk = t.fileName.toLowerCase().endsWith(".apk");
-          final outFile = File("$outDir/${t.fileName}");
-          try { await outFile.parent.create(recursive: true); } catch (_) {}
-          try { await tmp.rename(outFile.path); } catch (e) {
-            try { await tmp.copy(outFile.path); await tmp.delete(); } catch (_) {
-              throw Exception("无法保存文件: $e");
+        // Check if APK — move to output dir, skip extraction
+        if (t.fileName.toLowerCase().endsWith(".apk")) {
+          t.isApk = true;
+          final apkFile = File("$outDir/${t.fileName}");
+          try { await apkFile.parent.create(recursive: true); } catch (_) {}
+          try { await tmp.rename(apkFile.path); } catch (e) {
+            try { await tmp.copy(apkFile.path); await tmp.delete(); } catch (_) {
+              throw Exception("无法保存 APK 文件: $e");
             }
           }
           t.status = "done";
-          t.outputPath = outFile.path;
+          t.outputPath = apkFile.path;
           t.progress = 1.0;
           _emit();
           NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
           return;
         }
 
-        // Phase 2: extract (desktop only)
+        // Phase 2: extract
         t.status = "extracting";
         t.progress = 0.0;
         _emit();

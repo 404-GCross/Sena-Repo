@@ -43,6 +43,12 @@ jobs:
           # Tell AGP where to find NDK so it skips auto-download
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
+      - name: Copy 7z binary (Android ARM64)
+        run: |
+          mkdir -p assets/binaries
+          cp ../7z/Android/7zz assets/binaries/7zz
+          chmod +x assets/binaries/7zz
+
       - name: Enable Android + generate platform files
         run: |
           flutter config --enable-android
