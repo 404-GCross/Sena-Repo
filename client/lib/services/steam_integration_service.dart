@@ -58,14 +58,14 @@ class SteamIntegrationService {
   /// Find the first Steam user ID by scanning userdata/ for numeric folders.
   Future<String?> findSteamUserId(String steamRoot) async {
     final userdata = Directory("$steamRoot${Platform.pathSeparator}userdata");
-    LoggerService().info("steam:[SenaRepo] Looking for userdata at: ${userdata.path}");
+    // LoggerService().info("steam:[SenaRepo] Looking for userdata at: ${userdata.path}");
     if (!await userdata.exists()) {
-      LoggerService().info("steam:[SenaRepo] userdata NOT FOUND at: ${userdata.path}");
+      // LoggerService().info("steam:[SenaRepo] userdata NOT FOUND at: ${userdata.path}");
       return null;
     }
-    LoggerService().info("steam:[SenaRepo] userdata exists, scanning...");
+    // LoggerService().info("steam:[SenaRepo] userdata exists, scanning...");
     await for (final entry in userdata.list()) {
-      LoggerService().info("steam:[SenaRepo] Found entry: ${entry.path} isDir=${entry is Directory}");
+      // LoggerService().info("steam:[SenaRepo] Found entry: ${entry.path} isDir=${entry is Directory}");
       final name = entry.uri.pathSegments.last;
       if (RegExp(r'^\d+$').hasMatch(name) && entry is Directory) {
         if (await Directory("${entry.path}${Platform.pathSeparator}config").exists()) {
