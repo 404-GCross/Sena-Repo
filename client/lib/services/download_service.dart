@@ -186,11 +186,18 @@ class DownloadService {
     return task;
   }
 
-  void pauseTask(DownloadTask task) {
+  void pauseTask(DownloadTask task) async {
     if (task.status == "downloading" || task.status == "retrying") {
+      // Save state BEFORE closing client
+      final received = task.receivedBytes;
+      final total = task.totalBytes;
       task._client?.close();
       task._client = null;
       task.status = "paused";
+      // Persist byte counts to a dedicated key for safe resume
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt("resume_${task.gameId}_${task.versionId}", received);
+      await prefs.setInt("resume_total_${task.gameId}_${task.versionId}", total);
       _saveTasks();
       _emit();
     } else if (task.status == "extracting") {
@@ -200,8 +207,16 @@ class DownloadService {
     }
   }
 
-  void resumeTask(DownloadTask task) {
+  void resumeTask(DownloadTask task) async {
     if (task.status == "paused") {
+      // Restore byte counts from dedicated key if live object lost them
+      if (task.receivedBytes == 0) {
+        final prefs = await SharedPreferences.getInstance();
+        final r = prefs.getInt("resume_${task.gameId}_${task.versionId}");
+        final t = prefs.getInt("resume_total_${task.gameId}_${task.versionId}");
+        if (r != null && r > 0) task.receivedBytes = r;
+        if (t != null && t > 0) task.totalBytes = t;
+      }
       task.status = "pending";
       _emit();
       _run(task);
