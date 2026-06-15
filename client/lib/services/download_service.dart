@@ -343,7 +343,9 @@ class DownloadService {
       // Extract from bundled assets
       bool ok = false;
       try {
+        debugPrint("[SenaRepo] Loading 7zz from assets: assets/binaries/$exeName");
         final data = await rootBundle.load("assets/binaries/$exeName");
+        debugPrint("[SenaRepo] 7zz size from assets: ${data.buffer.lengthInBytes} bytes");
         await dest.writeAsBytes(data.buffer.asUint8List());
         // 7z.dll (Windows only — full format support incl. RAR)
         if (Platform.isWindows) {
@@ -685,7 +687,12 @@ class DownloadService {
 
   Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress, String? password]) async {
-    final exe = await _getSevenZipPath();
+    final String exe;
+    try {
+      exe = await _getSevenZipPath();
+    } catch (e) {
+      throw Exception("解压组件未就绪: $e");
+    }
     final args = ["x", "-y", "-o$outDir", filePath];
     if (password != null) args.insert(1, "-p$password");
     // Skip integrity test on Android (saves time, verified during extraction)
