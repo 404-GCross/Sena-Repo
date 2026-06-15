@@ -33,6 +33,7 @@ class GameDetailScreen extends StatefulWidget {
 
 class _GameDetailScreenState extends State<GameDetailScreen> {
   GameDetail? _game;
+  int _refreshKey = 0;
   bool _isLoading = true;
 
   ApiClient get _api => context.read<GameProvider>().api;
@@ -47,7 +48,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   Future<void> _load() async {
     try {
       final game = await _api.getGame(widget.gameId);
-      if (mounted) setState(() { _game = game; _isLoading = false; });
+      if (mounted) setState(() { _game = game; _isLoading = false; _refreshKey++; });
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -93,7 +94,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(wide ? 14 : 0),
                     child: Image.network(
-                      "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}",
+                      "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
                       width: double.infinity,
                       height: wide ? 280 : 160,
                       fit: BoxFit.cover,
@@ -151,7 +152,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(14),
                             child: hasCover
-                                ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                                ? Image.network("$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
                                     fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
                                 : _coverPlaceholder()),
                         ),
@@ -171,7 +172,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(14),
-                                child: Image.network("$_baseUrl/api/files/covers${game.coverPath!}",
+                                child: Image.network("$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
                                     fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder()),
                               ),
                             ),
