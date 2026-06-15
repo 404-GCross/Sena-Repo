@@ -524,6 +524,7 @@ class DownloadService with WidgetsBindingObserver {
           if (_isExtractorMissingError(errStr)) rethrow;
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
+            LoggerService().warn("Extraction failed (retry $retry): $e");
             try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
             t.receivedBytes = 0;
             t.totalBytes = 0;
@@ -597,7 +598,7 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
           final sz = await dest.length();
-          LoggerService().info("Resume: receivedBytes=$t.receivedBytes fileSize=$sz");
+          LoggerService().info("Resume: receivedBytes=${t.receivedBytes} fileSize=$sz");
           if (sz != t.receivedBytes) t.receivedBytes = sz;
         } else {
           LoggerService().warn("Resume: temp file GONE: ${dest.path}");
