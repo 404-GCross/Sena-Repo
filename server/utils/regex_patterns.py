@@ -40,6 +40,8 @@ BUILTIN_PATTERNS: list[tuple[re.Pattern, Platform]] = [
     (re.compile(r"(?i)(.+)krkr$", re.IGNORECASE), Platform.KRKR),
     (re.compile(r"(?i)^krkr[_\.](.+)", re.IGNORECASE), Platform.KRKR),
     (re.compile(r"(?i)(.+)krkr[_\.]", re.IGNORECASE), Platform.KRKR),
+    # KR_ prefix without brackets (e.g. KR_AMBITIOUS MISSION)
+    (re.compile(r"(?i)^KR_(.+)", re.IGNORECASE), Platform.KRKR),
     (re.compile(r"(?i).*kirikiroid.*(.+)", re.IGNORECASE), Platform.KRKR),
     # Contains "tyranor" → Tyranor
     (re.compile(r"(?i).*tyranor.*(.+)", re.IGNORECASE), Platform.TYRANOR),
