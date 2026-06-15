@@ -833,8 +833,8 @@ class DownloadService {
 
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
-      final dir = await downloadDir;
-      await File("$dir/.tmp_${t.versionId}_${t.fileName}").delete();
+      final supportDir = (await getApplicationSupportDirectory()).path;
+      await File("$supportDir/.tmp_${t.versionId}_${t.fileName}").delete();
     } catch (_) {}
   }
 
