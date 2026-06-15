@@ -10,6 +10,7 @@ import "dart:io";
 
 import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show rootBundle;
+import "../services/logger_service.dart";
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
@@ -433,7 +434,7 @@ class DownloadService {
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
       for (int retry = 0; retry <= maxExtractRetries; retry++) {
-        if (t._cancelled) { try { debugPrint("[SenaRepo] DELETING tmp at: ${StackTrace.current}"); await tmp.delete(); } catch (_) {} return; }
+        if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
         if (t.status == "paused") return;
 
         // Phase 1: download
@@ -443,7 +444,7 @@ class DownloadService {
           id: t.gameId, gameName: t.gameName,
           progress: 0, receivedBytes: 0, totalBytes: t.totalBytes);
         await _download(t, tmp);
-        if (t._cancelled) { try { debugPrint("[SenaRepo] DELETING tmp at: ${StackTrace.current}"); await tmp.delete(); } catch (_) {} return; }
+        if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
         if (t.status == "paused") return;
 
         // Check if APK — move to output dir, skip extraction
@@ -479,13 +480,13 @@ class DownloadService {
           await tmp.delete();
           break; // success
         } catch (e) {
-          if (t._cancelled) { try { debugPrint("[SenaRepo] DELETING tmp at: ${StackTrace.current}"); await tmp.delete(); } catch (_) {} return; }
+          if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
           if (t.status == "paused") return;
           // Encrypted archive — throw immediately, don't waste retries
           if (_isEncryptedError("$e")) rethrow;
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
-            try { debugPrint("[SenaRepo] DELETING tmp at: ${StackTrace.current}"); await tmp.delete(); } catch (_) {}
+            try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
             t.receivedBytes = 0;
             t.totalBytes = 0;
             t.status = "retrying";
@@ -505,7 +506,7 @@ class DownloadService {
     } catch (e) {
       if (t._cancelled) {
         NotificationService().cancel(t.gameId);
-        try { debugPrint("[SenaRepo] DELETING tmp at: ${StackTrace.current}"); await tmp.delete(); } catch (_) {}
+        try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
         return;
       }
       if (t.status == "paused") return;
