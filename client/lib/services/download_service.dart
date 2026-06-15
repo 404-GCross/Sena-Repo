@@ -515,8 +515,10 @@ class DownloadService with WidgetsBindingObserver {
         } catch (e) {
           if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
           if (t.status == "paused") return;
-          // Encrypted archive — throw immediately, don't waste retries
-          if (_isEncryptedError("$e")) rethrow;
+          // Encrypted or no-extractor error — throw immediately, don't waste retries
+          final errStr = "$e";
+          if (_isEncryptedError(errStr)) rethrow;
+          if (_isExtractorMissingError(errStr)) rethrow;
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
             try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
@@ -567,6 +569,14 @@ class DownloadService with WidgetsBindingObserver {
         lower.contains("crc error") ||
         lower.contains("crc_error") ||
         lower.contains("data error");
+  }
+
+  bool _isExtractorMissingError(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains("permission denied") ||
+        lower.contains("cannot run") ||
+        lower.contains("no such file") ||
+        lower.contains("解压组件未就绪");
   }
 
   // ── download ──
