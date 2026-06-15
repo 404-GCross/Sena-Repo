@@ -84,18 +84,14 @@ List<VdfShortcut> parseShortcutsVdf(List<int> raw) {
 }
 
 /// Serialize a list of shortcuts back to the binary VDF format.
-/// Appids are auto-generated as negative integers based on a hash of name+exe
-/// if not already set (<= 0).
+/// For new entries (appid == 0), auto-generate CRC32-based negative ID.
+/// Existing entries keep their original appid.
 Uint8List writeShortcutsVdf(List<VdfShortcut> entries) {
   final out = BytesBuilder();
   // Header byte
   out.addByte(0x00);
 
   for (final entry in entries) {
-    // Ensure appid is negative for non-Steam games
-    if (entry.appid >= 0) {
-      entry.appid = _makeAppid(entry.appname, entry.exe);
-    }
     _writeU32LE(out, entry.appid);
 
     for (final kv in entry.data.entries) {

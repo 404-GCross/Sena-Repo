@@ -117,9 +117,16 @@ class SteamIntegrationService {
   /// Write shortcuts back to disk.
   void _writeShortcuts(String steamRoot, String userId, List<VdfShortcut> entries) {
     final path = _shortcutsPath(steamRoot, userId);
-    final dir = File(path).parent;
+    final file = File(path);
+    // Backup original before overwriting
+    try {
+      if (file.existsSync()) {
+        file.copySync("$path.bak");
+      }
+    } catch (_) {}
+    final dir = file.parent;
     if (!dir.existsSync()) dir.createSync(recursive: true);
-    File(path).writeAsBytesSync(writeShortcutsVdf(entries));
+    file.writeAsBytesSync(writeShortcutsVdf(entries));
   }
 
   // ── grid image management ──
