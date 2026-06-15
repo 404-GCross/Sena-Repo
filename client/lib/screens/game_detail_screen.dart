@@ -87,21 +87,23 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               final coverW = wide ? (w > 700 ? 200.0 : 150.0) : 130.0;
               final coverH = coverW * 1.4;
               return Column(children: [
-              // ── Hero banner (landscape) ──
+              // ── Hero banner (landscape, 16:9) ──
               if (game.bgPath != null && game.bgPath!.isNotEmpty)
                 Padding(
                   padding: EdgeInsets.fromLTRB(wide ? 16 : 0, wide ? 12 : 0, wide ? 16 : 0, 0),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(wide ? 14 : 0),
-                    child: Image.network(
-                      "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
-                      width: double.infinity,
-                      height: wide ? 280 : 160,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    ),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Image.network(
+                        "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
                   ),
                 ),
+              ),
               // ── Header ──
               Padding(
                 padding: EdgeInsets.fromLTRB(wide ? 32 : 8, wide ? 20 : 10, wide ? 32 : 8, 0),

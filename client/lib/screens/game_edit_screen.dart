@@ -705,25 +705,27 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Widget _bgHeroPreview() {
-    final w = MediaQuery.of(context).size.width;
-    final h = w > 600 ? 280.0 : 160.0;
     if (_bgUrl.text.isEmpty) {
-      return Container(
-        width: double.infinity, height: h,
-        color: placeholderBg(context),
-        child: Center(child: Icon(Icons.image, size: 48, color: placeholderIcon(context))),
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Container(
+          color: placeholderBg(context),
+          child: Center(child: Icon(Icons.image, size: 48, color: placeholderIcon(context))),
+        ),
       );
     }
     final url = _bgUrl.text.startsWith("http")
         ? _bgUrl.text
         : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}";
-    return Image.network(url, width: double.infinity, height: h, fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) =>
-        Container(
-          width: double.infinity, height: h,
-          color: placeholderBg(context),
-          child: Center(child: Icon(Icons.broken_image, size: 48, color: placeholderIcon(context))),
-        ),
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Image.network(url, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) =>
+          Container(
+            color: placeholderBg(context),
+            child: Center(child: Icon(Icons.broken_image, size: 48, color: placeholderIcon(context))),
+          ),
+      ),
     );
   }
 
