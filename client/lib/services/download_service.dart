@@ -685,16 +685,16 @@ class DownloadService {
 
   Future<void> _extract(String filePath, String outDir, String gameDir,
       [void Function(double)? onProgress, String? password]) async {
-    // Desktop: use bundled 7z binary
     final exe = await _getSevenZipPath();
     final args = ["x", "-y", "-o$outDir", filePath];
     if (password != null) args.insert(1, "-p$password");
-    // Only test integrity without password (encrypted archives fail 7z t without -p)
-    // Skip on Android — extra time, and archive is verified during extraction
+    // Skip integrity test on Android (saves time, verified during extraction)
     if (password == null && !Platform.isAndroid) {
       try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
     }
-    await _runTool(exe, args, onProgress: onProgress);
+    debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
+    await _runTool(exe, args, onProgress: onProgress,
+      timeout: Platform.isAndroid ? 600 : 1800); // Android: 10min timeout
     await _fixLayout(outDir, gameDir);
   }
 
