@@ -247,7 +247,8 @@ class DownloadService {
 
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await downloadDir;
-    final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
+    final supportDir = (await getApplicationSupportDirectory()).path;
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -424,7 +425,9 @@ class DownloadService {
 
   Future<void> _run(DownloadTask t) async {
     final dir = await downloadDir;
-    final tmp = File("$dir/.tmp_${t.versionId}_${t.fileName}");
+    // Temp file in app internal storage — external storage may delete it
+    final supportDir = (await getApplicationSupportDirectory()).path;
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
