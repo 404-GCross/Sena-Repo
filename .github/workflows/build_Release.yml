@@ -168,93 +168,6 @@ jobs:
           Categories=Game;Utility;
           DESKTOP
 
-      - name: Build RPM
-        run: |
-          BUNDLE=build/linux/x64/release/bundle
-          RELEASE="1"
-          ARCH="x86_64"
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          cat > ~/rpmbuild/SPECS/sena-repo.spec << SPEC
-          Name:           sena-repo
-          Version:        ${VERSION}
-          Release:        ${RELEASE}%{?dist}
-          Summary:        GalGame Private Library Manager
-          License:        GPL-3.0
-          URL:            https://github.com/404-GCross/Sena-Repo
-          BuildArch:      ${ARCH}
-          %description
-          Sena Repo is a cross-platform GalGame/Visual Novel private library manager.
-          %install
-          mkdir -p %{buildroot}/opt/sena-repo
-          cp -r ${GITHUB_WORKSPACE}/client/build/linux/x64/release/bundle/* %{buildroot}/opt/sena-repo/
-          mkdir -p %{buildroot}/usr/bin
-          ln -s /opt/sena-repo/sena_repo %{buildroot}/usr/bin/sena-repo
-          mkdir -p %{buildroot}/usr/share/applications
-          cp %{buildroot}/opt/sena-repo/usr/share/applications/sena-repo.desktop %{buildroot}/usr/share/applications/
-          %files
-          /opt/sena-repo/
-          /usr/bin/sena-repo
-          /usr/share/applications/sena-repo.desktop
-          %changelog
-          * $(date +"%a %b %d %Y") Sena Repo Team - ${VERSION}-${RELEASE}
-          - Release
-          SPEC
-          rpmbuild -bb --target ${ARCH} ~/rpmbuild/SPECS/sena-repo.spec
-          cp ~/rpmbuild/RPMS/${ARCH}/sena-repo-*.rpm "dist/Sena-Repo_Fedora_v${VERSION}.rpm"
-
-      - name: Build DEB
-        run: |
-          BUNDLE=build/linux/x64/release/bundle
-          DEB="sena-repo_${VERSION}_amd64"
-          mkdir -p "$DEB/DEBIAN" "$DEB/opt/sena-repo"
-          cp -r "$BUNDLE"/* "$DEB/opt/sena-repo/"
-          mkdir -p "$DEB/usr/bin" "$DEB/usr/share/applications"
-          ln -s /opt/sena-repo/sena_repo "$DEB/usr/bin/sena-repo"
-          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$DEB/usr/share/applications/"
-          cat > "$DEB/DEBIAN/control" << CONTROL
-          Package: sena-repo
-          Version: ${VERSION}
-          Section: games
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Sena Repo Team
-          Description: GalGame Private Library Manager
-           Sena Repo is a cross-platform GalGame/Visual Novel
-           private library manager with multi-source metadata scraping.
-          CONTROL
-          dpkg-deb --build "$DEB" "dist/Sena-Repo_Debian_v${VERSION}.deb"
-          rm -rf "$DEB"
-
-      - name: Build Arch package
-        run: |
-          BUNDLE=build/linux/x64/release/bundle
-          PKG="sena-repo-${VERSION}-1-x86_64"
-          mkdir -p "$PKG/opt/sena-repo"
-          cp -r "$BUNDLE"/* "$PKG/opt/sena-repo/"
-          mkdir -p "$PKG/usr/bin"
-          ln -s /opt/sena-repo/sena_repo "$PKG/usr/bin/sena-repo"
-          mkdir -p "$PKG/usr/share/applications"
-          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$PKG/usr/share/applications/"
-          cat > "$PKG/.PKGINFO" << PKGINFO
-          pkgname = sena-repo
-          pkgbase = sena-repo
-          pkgver = ${VERSION}-1
-          pkgdesc = GalGame Private Library Manager
-          url = https://github.com/404-GCross/Sena-Repo
-          builddate = $(date -u +%s)
-          packager = Sena Repo CI
-          size = $(du -sb "$PKG" | cut -f1)
-          arch = x86_64
-          license = GPL-3.0
-          PKGINFO
-          cd "$PKG"
-          LANG=C bsdtar -czf .MTREE --format=mtree \
-            --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256,link' \
-            opt usr .PKGINFO 2>/dev/null || true
-          cd ..
-          tar -c -I 'zstd -19' -f "dist/Sena-Repo_Arch_v${VERSION}.pkg.tar.zst" -C "$PKG" .
-          rm -rf "$PKG"
-
       - name: Build AppImage
         run: |
           BUNDLE=build/linux/x64/release/bundle
@@ -281,24 +194,6 @@ jobs:
           ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_AppImage_v${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
 
-      - name: Upload RPM
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sena-Repo_Fedora
-          path: client/dist/Sena-Repo_Fedora_*.rpm
-
-      - name: Upload Debian
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sena-Repo_Debian
-          path: client/dist/Sena-Repo_Debian_*.deb
-
-      - name: Upload Arch
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sena-Repo_Arch
-          path: client/dist/Sena-Repo_Arch_*.pkg.tar.zst
-
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
@@ -324,9 +219,6 @@ jobs:
             --notes "正式发布版本" \
             Sena-Repo_Android/* \
             Sena-Repo_Windows/* \
-            Sena-Repo_Fedora/* \
-            Sena-Repo_Debian/* \
-            Sena-Repo_Arch/* \
             Sena-Repo_AppImage/*
         env:
           GH_TOKEN: ${{ github.token }}
