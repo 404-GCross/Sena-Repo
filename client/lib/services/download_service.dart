@@ -527,6 +527,7 @@ class DownloadService with WidgetsBindingObserver {
             t.status = "retrying";
             _emit();
             await Future.delayed(const Duration(seconds: 2));
+            if (_stopped(t)) return;
             continue;
           }
           rethrow;
@@ -613,12 +614,14 @@ class DownloadService with WidgetsBindingObserver {
         if (attempt >= _maxRetries) throw Exception("网络中断（重试${_maxRetries}次后仍失败）: $e");
         _setStatus(t, "retrying");
         await Future.delayed(Duration(seconds: _retryDelays[attempt]));
+        if (_stopped(t)) return;
         _setStatus(t, "downloading");
       } on SocketException catch (e) {
         if (_stopped(t)) return;
         if (attempt >= _maxRetries) throw Exception("网络不通（重试${_maxRetries}次后仍失败）: $e");
         _setStatus(t, "retrying");
         await Future.delayed(Duration(seconds: _retryDelays[attempt]));
+        if (_stopped(t)) return;
         _setStatus(t, "downloading");
       }
     }
