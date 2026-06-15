@@ -349,7 +349,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       controller: _steamIdCtrl,
       decoration: const InputDecoration(
         labelText: "Steam 用户 ID（可选）",
-        hintText: "userdata下的数字文件夹名",
+        hintText: "去 Steam/userdata/ 找纯数字文件夹名",
         prefixIcon: Icon(Icons.person),
       ),
       keyboardType: TextInputType.number,

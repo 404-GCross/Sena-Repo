@@ -343,7 +343,11 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text("设置 Steam 用户 ID"),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text("在 ${hintPath ?? "Steam"}\\userdata\\ 下找到纯数字文件夹名", style: AppText.bodySmall),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("去 ${hintPath ?? "Steam"}/userdata/ 目录", style: AppText.bodySmall),
+            Text("里面只有一个纯数字的文件夹，比如 12345678", style: AppText.bodySmall.copyWith(color: Colors.grey)),
+            Text("把那个数字填进来", style: AppText.bodySmall.copyWith(color: Colors.grey)),
+          ]),
             const SizedBox(height: 8),
             TextField(controller: ctrl, keyboardType: TextInputType.number,
               decoration: const InputDecoration(hintText: "例如: 12345678")),
