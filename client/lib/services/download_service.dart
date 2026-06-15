@@ -387,7 +387,10 @@ class DownloadService with WidgetsBindingObserver {
           } catch (_) {}
         }
         if (Platform.isLinux || Platform.isAndroid) {
-          try { await Process.run("chmod", ["+x", dest.path]); } catch (_) {}
+          try {
+            await Process.run(Platform.isAndroid ? "/system/bin/chmod" : "chmod",
+              ["+x", dest.path]);
+          } catch (_) {}
         }
         if (await dest.exists()) ok = true;
       } catch (_) {}
