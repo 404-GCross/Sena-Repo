@@ -781,6 +781,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
           setState(() { _bgUrl.text = data["bg_path"]; });
         }
         _showMsg("大图上传成功");
+      } else {
+        _showError("上传失败");
       }
     } catch (e) {
       _showError("上传失败: $e");
