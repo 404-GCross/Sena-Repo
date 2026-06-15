@@ -547,13 +547,13 @@ class DownloadService {
 
       // Sync counter with disk
       if (t.receivedBytes > 0) {
+        LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
           final sz = await dest.length();
-          debugPrint("[SenaRepo] Resume sync: receivedBytes=${t.receivedBytes} fileSize=$sz");
+          LoggerService().info("Resume: receivedBytes=$t.receivedBytes fileSize=$sz");
           if (sz != t.receivedBytes) t.receivedBytes = sz;
         } else {
-          // File was deleted — reset counter
-          debugPrint("[SenaRepo] Resume: temp file deleted, resetting");
+          LoggerService().warn("Resume: temp file GONE: ${dest.path}");
           t.receivedBytes = 0;
           t.totalBytes = 0;
         }
