@@ -10,6 +10,7 @@ import "dart:io";
 
 import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show rootBundle;
+import "package:flutter/widgets.dart" show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import "../services/logger_service.dart";
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
@@ -78,11 +79,40 @@ class DownloadTask {
 // DownloadService
 // ────────────────────────────────────────────────────
 
-class DownloadService {
+class DownloadService with WidgetsBindingObserver {
   static final DownloadService _instance = DownloadService._();
   factory DownloadService() => _instance;
   DownloadService._() {
     _restoreTasks();
+  }
+
+  bool _lifecycleInitialized = false;
+
+  /// Call this once at app startup to enable auto-pause on lock screen (Android).
+  void initLifecycle() {
+    if (_lifecycleInitialized) return;
+    _lifecycleInitialized = true;
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!Platform.isAndroid) return;
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // App going to background / lock screen — pause all active downloads
+      for (final t in _tasks) {
+        if (t.status == "downloading" || t.status == "retrying" || t.status == "extracting") {
+          pauseTask(t);
+        }
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // App back to foreground — resume paused downloads
+      for (final t in _tasks) {
+        if (t.status == "paused") {
+          resumeTask(t);
+        }
+      }
+    }
   }
 
   Future<void> _restoreTasks() async {
