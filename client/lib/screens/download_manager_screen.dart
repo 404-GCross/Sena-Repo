@@ -344,9 +344,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           title: const Text("设置 Steam 用户 ID"),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("去 ${hintPath ?? "Steam"}/userdata/ 目录", style: AppText.bodySmall),
-            Text("里面只有一个纯数字的文件夹，比如 12345678", style: AppText.bodySmall.copyWith(color: Colors.grey)),
-            Text("把那个数字填进来", style: AppText.bodySmall.copyWith(color: Colors.grey)),
+            Text("Steam 用户 ID 就是你的 Steam 好友代码", style: AppText.bodySmall),
+            Text("在 Steam 客户端里点好友 → 添加好友就能看到", style: AppText.bodySmall.copyWith(color: Colors.grey)),
           ]),
             const SizedBox(height: 8),
             TextField(controller: ctrl, keyboardType: TextInputType.number,

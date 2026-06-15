@@ -189,7 +189,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 Expanded(child: TextField(
                   controller: _steamIdCtrl,
                   decoration: const InputDecoration(
-                    hintText: "Steam 用户 ID — 打开Steam/userdata/找到纯数字文件夹名",
+                    hintText: "Steam 用户 ID — 就是Steam好友代码，一串纯数字",
                     isDense: true, border: InputBorder.none,
                   ),
                   keyboardType: TextInputType.number,
