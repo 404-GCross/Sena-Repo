@@ -331,9 +331,33 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       if (picked != null) {
         await SteamIntegrationService().setSteamappsDir(picked);
         result = await SteamIntegrationService().addToSteam(
-          gameName: t.gameName,
-          exePath: exe,
-          startDir: dir,
+          gameName: t.gameName, exePath: exe, startDir: dir,
+        );
+      }
+    }
+    if (!result.success && result.message.contains("Steam 用户 ID")) {
+      final ctrl = TextEditingController();
+      final hintPath = await SteamIntegrationService().getSteamappsDir();
+      final input = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("设置 Steam 用户 ID"),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text("在 ${hintPath ?? "Steam"}\\userdata\\ 下找到纯数字文件夹名", style: AppText.bodySmall),
+            const SizedBox(height: 8),
+            TextField(controller: ctrl, keyboardType: TextInputType.number,
+              decoration: const InputDecoration(hintText: "例如: 12345678")),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text("保存")),
+          ],
+        ),
+      );
+      if (input != null && input.isNotEmpty) {
+        await SteamIntegrationService().setSteamUserId(input);
+        result = await SteamIntegrationService().addToSteam(
+          gameName: t.gameName, exePath: exe, startDir: dir,
         );
       }
     }

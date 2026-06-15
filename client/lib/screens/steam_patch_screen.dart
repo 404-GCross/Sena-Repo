@@ -19,6 +19,8 @@ class SteamPatchScreen extends StatefulWidget {
 
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   String? _commonDir;
+  String _steamUserId = "";
+  final _steamIdCtrl = TextEditingController();
   List<SteamGameInfo> _installedGames = [];
   List<PatchMatch> _matches = [];
   bool _scanning = false;
@@ -33,6 +35,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _loadSavedDir() async {
     final prefs = await SharedPreferences.getInstance();
+    _steamUserId = prefs.getString("steam_user_id") ?? "";
+    _steamIdCtrl.text = _steamUserId;
     // Read new key first, fall back to old "steam_common_dir" for backward compat
     final saved = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir");
     if (saved != null && saved.isNotEmpty && mounted) {
@@ -167,6 +171,42 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ]),
           ),
         ),
+
+        // ── Steam User ID ──
+        if (hasDir)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: cardBg(context),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: cardBorder(context)),
+              ),
+              child: Row(children: [
+                Icon(Icons.person, size: 20, color: sectionIconColor(context)),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(
+                  controller: _steamIdCtrl,
+                  decoration: const InputDecoration(
+                    hintText: "Steam 用户 ID (userdata下的数字文件夹名)",
+                    isDense: true, border: InputBorder.none,
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (v) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    if (v.trim().isNotEmpty) {
+                      await prefs.setString("steam_user_id", v.trim());
+                    } else {
+                      await prefs.remove("steam_user_id");
+                    }
+                  },
+                  style: const TextStyle(fontSize: 13),
+                )),
+              ]),
+            ),
+          ),
+        const SizedBox(height: 8),
 
         // ── Action buttons ──
         Padding(

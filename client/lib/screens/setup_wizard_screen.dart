@@ -38,6 +38,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   // Step 3: Steam
   final _patchDirCtrl = TextEditingController(text: "/steam_patch");
   final _steamCommonCtrl = TextEditingController();
+  final _steamIdCtrl = TextEditingController();
 
   // Step 4: Scrapers
   final _proxyCtrl = TextEditingController();
@@ -102,6 +103,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       // Persist Steam common dir and local download dir
       if (_steamCommonCtrl.text.trim().isNotEmpty) {
         await prefs.setString("steamapps_dir", _steamCommonCtrl.text.trim());
+      }
+      if (_steamIdCtrl.text.trim().isNotEmpty) {
+        await prefs.setString("steam_user_id", _steamIdCtrl.text.trim());
       }
       if (_localDirCtrl.text.trim().isNotEmpty) {
         await prefs.setString("local_download_dir", _localDirCtrl.text.trim());
@@ -340,6 +344,16 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     ),
     const SizedBox(height: 8),
     Text("PC 端专属，可稍后在设置中配置", style: AppText.label.copyWith( color: hintColor(context))),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _steamIdCtrl,
+      decoration: const InputDecoration(
+        labelText: "Steam 用户 ID（可选）",
+        hintText: "userdata下的数字文件夹名",
+        prefixIcon: Icon(Icons.person),
+      ),
+      keyboardType: TextInputType.number,
+    ),
   ];
 
   Widget _buildScraperRow(String label, bool enabled, bool needsApi, VoidCallback onToggle, {Widget? apiFields}) {

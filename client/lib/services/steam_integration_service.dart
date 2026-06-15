@@ -43,6 +43,18 @@ class SteamIntegrationService {
     await prefs.setString("steamapps_dir", path);
   }
 
+  /// Get user-configured Steam user ID (like NSL's steamid3).
+  Future<String?> getSteamUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("steam_user_id");
+  }
+
+  /// Save Steam user ID for future use.
+  Future<void> setSteamUserId(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("steam_user_id", id);
+  }
+
   /// Find the first Steam user ID by scanning userdata/ for numeric folders.
   Future<String?> findSteamUserId(String steamRoot) async {
     final userdata = Directory("$steamRoot${Platform.pathSeparator}userdata");
@@ -73,8 +85,14 @@ class SteamIntegrationService {
   Future<({String root, String userId})?> resolveSteam() async {
     final root = await getSteamRoot();
     if (root == null) return null;
-    final userId = await findSteamUserId(root);
+    // Manual ID first (like NSL steamid3), then auto-detect
+    var userId = await getSteamUserId();
+    userId ??= await findSteamUserId(root);
     if (userId == null) return null;
+    // Save auto-detected ID for future use
+    if (await getSteamUserId() == null) {
+      await setSteamUserId(userId);
+    }
     return (root: root, userId: userId);
   }
 
@@ -190,7 +208,8 @@ class SteamIntegrationService {
     }
     final steam = await resolveSteam();
     if (steam == null) {
-      return SteamIntegrationResult(false, "Steam 目录已选 ($steamapps)，但未找到 userdata 用户文件夹。请确认 Steam 已登录过。");
+      return SteamIntegrationResult(false,
+        "找不到 Steam 用户 ID。\n\n请在 $steamapps\\..\\userdata\\ 下找到你的纯数字用户文件夹名，\n然后点击 [设置 Steam ID] 填入。");
     }
     if (!await File(exePath).exists()) {
       return SteamIntegrationResult(false, "游戏文件不存在:\n$exePath");

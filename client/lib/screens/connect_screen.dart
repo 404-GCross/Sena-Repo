@@ -248,6 +248,8 @@ class _ClientSetupDialog extends StatefulWidget {
 class _ClientSetupDialogState extends State<_ClientSetupDialog> {
   String _downloadDir = "";
   String _steamDir = "";
+  String _steamUserId = "";
+  final _steamIdCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -259,7 +261,9 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     final prefs = await SharedPreferences.getInstance();
     final dd = prefs.getString("local_download_dir") ?? "";
     final sd = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir") ?? "";
-    setState(() { _downloadDir = dd; _steamDir = sd; });
+    final uid = prefs.getString("steam_user_id") ?? "";
+    _steamIdCtrl.text = uid;
+    setState(() { _downloadDir = dd; _steamDir = sd; _steamUserId = uid; });
   }
 
   Future<void> _pickDownloadDir() async {
@@ -295,6 +299,38 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
           if (!Platform.isAndroid) ...[
             const SizedBox(height: 12),
             _dirCard(Icons.gamepad, "Steam 库目录 (steamapps)", _steamDir, _pickSteamDir),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: cardBg(context),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cardBorder(context)),
+              ),
+              child: Row(children: [
+                Icon(Icons.person, size: 20, color: sectionIconColor(context)),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(
+                  controller: _steamIdCtrl,
+                  decoration: const InputDecoration(
+                    hintText: "Steam 用户 ID (userdata下的数字文件夹名)",
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (v) async {
+                    _steamUserId = v.trim();
+                    final prefs = await SharedPreferences.getInstance();
+                    if (v.trim().isNotEmpty) {
+                      await prefs.setString("steam_user_id", v.trim());
+                    } else {
+                      await prefs.remove("steam_user_id");
+                    }
+                  },
+                  style: const TextStyle(fontSize: 13),
+                )),
+              ]),
+            ),
           ],
         ],
       )),
