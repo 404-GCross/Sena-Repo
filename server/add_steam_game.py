@@ -39,8 +39,14 @@ else:
 
 shortcuts = data.setdefault("shortcuts", {})
 
+# Check if already added (match against quoted Exe)
+quoted_exe = f'"{args.exe}"'
+for sid, entry in shortcuts.items():
+    if isinstance(entry, dict) and entry.get("Exe") == quoted_exe:
+        print(json.dumps({"success": True, "message": "已在 Steam 库中，无需重复添加。"}))
+        sys.exit(0)
+
 # Steam uses sequential numeric keys (0, 1, 2, ...)
-# Find next available key
 existing_keys = set()
 for k in shortcuts.keys():
     try:
@@ -51,8 +57,10 @@ next_key = 0
 while next_key in existing_keys:
     next_key += 1
 
-# CRC32 for grid_id (used for artwork filenames)
-crc = binascii.crc32((args.exe + args.appname).encode()) | 0x80000000
+# CRC32: Python's crc32 returns signed int32; force to unsigned for grid_id
+raw = binascii.crc32((args.exe + args.appname).encode())
+crc_u32 = (raw | 0x80000000) & 0xFFFFFFFF  # unsigned (grid images)
+crc_s32 = crc_u32 - 0x100000000            # signed (appid field)
 
 # Match Steam's EXACT format:
 # - Exe value wrapped in double quotes
@@ -60,7 +68,7 @@ crc = binascii.crc32((args.exe + args.appname).encode()) | 0x80000000
 # - appid field = CRC32 (signed int32)
 # - icon empty, sortas empty
 shortcuts[str(next_key)] = {
-    "appid":      crc - 0x100000000,
+    "appid":      crc_s32,
     "AppName":    args.appname,
     "Exe":        f'"{args.exe}"',           # quoted!
     "StartDir":   args.startdir or os.path.dirname(args.exe),
@@ -83,6 +91,6 @@ shortcuts[str(next_key)] = {
 with open(shortcuts_path, "wb") as f:
     f.write(vdf.binary_dumps(data))
 
-print(json.dumps({"success": True, "grid_id": crc,
+print(json.dumps({"success": True, "grid_id": crc_u32,
     "message": f"'{args.appname}' 已添加到 Steam，重启 Steam 客户端后生效。"},
     ensure_ascii=False))
