@@ -19,13 +19,10 @@ class SteamPatchScreen extends StatefulWidget {
 
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   String? _commonDir;
-  String _steamUserId = "";
-  final _steamIdCtrl = TextEditingController();
-  List<SteamGameInfo> _installedGames = [];
   List<PatchMatch> _matches = [];
-  bool _scanning = false;
-  bool _checking = false;
+  bool _loading = false;
   String? _status;
+  bool _showNoPatch = false;
 
   @override
   void initState() {
@@ -35,12 +32,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _loadSavedDir() async {
     final prefs = await SharedPreferences.getInstance();
-    _steamUserId = prefs.getString("steam_user_id") ?? "";
-    _steamIdCtrl.text = _steamUserId;
-    // Read new key first, fall back to old "steam_common_dir" for backward compat
     final saved = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir");
     if (saved != null && saved.isNotEmpty && mounted) {
       setState(() => _commonDir = saved);
+      _scanAndCheck();
     }
   }
 
@@ -51,327 +46,389 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       await prefs.setString("steamapps_dir", dir);
       setState(() {
         _commonDir = dir;
+        _matches = [];
         _status = null;
       });
-      _scanLocal();
+      _scanAndCheck();
     }
   }
 
-  void _scanLocal() {
+  Future<void> _scanAndCheck() async {
     if (_commonDir == null) return;
-    setState(() => _scanning = true);
-
-    final games = SteamService.scanInstalledGames(_commonDir!);
 
     setState(() {
-      _installedGames = games;
-      _scanning = false;
-      _status = "本地扫描完成，找到 ${games.length} 个 Steam 游戏";
+      _loading = true;
+      _status = "正在扫描本地 Steam 库...";
       _matches = [];
     });
-  }
 
-  Future<void> _checkPatches() async {
-    if (_installedGames.isEmpty) return;
-    final api = context.read<GameProvider>().api;
+    // Phase 1: scan local
+    final games = SteamService.scanInstalledGames(_commonDir!);
+    if (!mounted) return;
 
-    setState(() {
-      _checking = true;
-      _status = null;
-    });
+    setState(() => _status = "扫描到 ${games.length} 个游戏，正在匹配补丁...");
 
+    // Phase 2: check patches
     try {
-      final matches = await SteamService.checkPatches(api, _installedGames);
-      if (mounted) {
-        setState(() {
-          _matches = matches;
-          _checking = false;
-          final available = matches.where((m) => m.patchAvailable).length;
-          _status = "检测完成: $available / ${matches.length} 个游戏有可用补丁";
-        });
-      }
+      final api = context.read<GameProvider>().api;
+      final matches = await SteamService.checkPatches(api, games);
+      if (!mounted) return;
+
+      // Sort: available first, then by name
+      matches.sort((a, b) {
+        if (a.patchAvailable != b.patchAvailable) {
+          return a.patchAvailable ? -1 : 1;
+        }
+        return a.gameName.compareTo(b.gameName);
+      });
+
+      final available = matches.where((m) => m.patchAvailable).length;
+
+      setState(() {
+        _matches = matches;
+        _loading = false;
+        _status = available > 0
+            ? "扫描完成 — ${matches.length} 个游戏，$available 个有可用补丁"
+            : "扫描完成 — ${matches.length} 个游戏，暂无可用补丁";
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _checking = false;
-          _status = "检测失败: $e";
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _status = "补丁检测失败: $e";
+        _matches = games
+            .map((g) => PatchMatch(
+                  appId: g.appId,
+                  gameName: g.name,
+                  installDir: g.installDir,
+                  patchAvailable: false,
+                ))
+            .toList();
+      });
     }
   }
+
+  List<PatchMatch> get _availablePatches =>
+      _matches.where((m) => m.patchAvailable).toList();
+  List<PatchMatch> get _noPatchGames =>
+      _matches.where((m) => !m.patchAvailable).toList();
 
   @override
   Widget build(BuildContext context) {
-    final hasDir = _commonDir != null;
     final theme = Theme.of(context);
+    final available = _availablePatches;
 
     return Scaffold(
       body: Column(children: [
-        // ── Header banner ──
+        // ── Header ──
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
           decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
             border: Border(bottom: BorderSide(color: cardBorder(context))),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               FaIcon(FontAwesomeIcons.steam, size: 24, color: theme.colorScheme.primary),
               const SizedBox(width: 12),
-              Text("Steam 补丁注入", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
+              Text("Steam 补丁管理",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
             ]),
-            const SizedBox(height: 8),
-            Text("选择 Steam 的 steamapps 目录，自动匹配库内游戏的汉化补丁",
-                style: AppText.bodyMedium.copyWith( color: subTextColor(context))),
+            const SizedBox(height: 6),
+            Text("自动扫描 Steam 库内游戏，匹配服务器上的汉化补丁",
+                style: AppText.bodyMedium.copyWith(color: subTextColor(context))),
           ]),
         ),
 
-        // ── Directory section ──
+        // ── Directory selector ──
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Row(children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: hasDir ? Colors.blue.withValues(alpha: 0.15) : cardBg(context),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  hasDir ? Icons.folder : Icons.folder_open,
-                  size: 24,
-                  color: hasDir ? Colors.blue[300] : Colors.grey[500],
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text("Steam 库目录", style: AppText.bodySmall.copyWith( color: hintColor(context))),
-                  const SizedBox(height: 2),
-                  Text(
-                    hasDir ? _commonDir! : "未选择",
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: AppText.bodyMedium.copyWith( color: hasDir ? null : Colors.grey[600]),
-                  ),
-                ]),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonalIcon(
-                onPressed: _pickDirectory,
-                icon: const Icon(Icons.folder_open, size: 18),
-                label: Text(hasDir ? "更换" : "选择目录"),
-              ),
-            ]),
-          ),
+          child: _buildDirRow(),
         ),
 
-        // ── Steam User ID ──
-        if (hasDir)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: cardBorder(context)),
-              ),
-              child: Row(children: [
-                Icon(Icons.person, size: 20, color: sectionIconColor(context)),
-                const SizedBox(width: 8),
-                Expanded(child: TextField(
-                  controller: _steamIdCtrl,
-                  decoration: const InputDecoration(
-                    hintText: "Steam 用户 ID — 就是Steam好友代码，一串纯数字",
-                    isDense: true, border: InputBorder.none,
-                  ),
-                  keyboardType: TextInputType.number,
-                  onChanged: (v) async {
-                    final prefs = await SharedPreferences.getInstance();
-                    if (v.trim().isNotEmpty) {
-                      await prefs.setString("steam_user_id", v.trim());
-                    } else {
-                      await prefs.remove("steam_user_id");
-                    }
-                  },
-                  style: const TextStyle(fontSize: 13),
-                )),
-              ]),
-            ),
-          ),
-        const SizedBox(height: 8),
-
-        // ── Action buttons ──
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Row(children: [
-            Expanded(
-              child: _actionBtn(
-                icon: _scanning ? Icons.hourglass_empty : Icons.search,
-                label: _scanning ? "扫描中..." : "扫描本地游戏",
-                onPressed: _scanning || !hasDir ? null : _scanLocal,
-                primary: true,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _actionBtn(
-                icon: _checking ? Icons.hourglass_empty : Icons.cloud_sync,
-                label: _checking ? "检测中..." : "检测补丁",
-                onPressed: _checking || _installedGames.isEmpty ? null : _checkPatches,
-                primary: false,
-              ),
-            ),
-          ]),
-        ),
-
-        // ── Status banner ──
+        // ── Status ──
         if (_status != null)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
-              ),
-              child: Row(children: [
-                Icon(Icons.info_outline, size: 18, color: Colors.blue[300]),
-                const SizedBox(width: 8),
-                Expanded(child: Text(_status!, style: AppText.bodySmall.copyWith( color: Colors.blue[200]))),
-              ]),
-            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            child: _buildStatusBar(),
           ),
 
         const SizedBox(height: 8),
 
         // ── Results ──
         Expanded(
-          child: _matches.isEmpty
-              ? _emptyState()
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: _matches.length,
-                  itemBuilder: (_, i) => _matchCard(_matches[i], i == _matches.length - 1),
-                ),
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _matches.isEmpty
+                  ? _emptyState()
+                  : _buildResults(),
         ),
       ]),
     );
   }
 
-  Widget _actionBtn({required IconData icon, required String label, required VoidCallback? onPressed, required bool primary}) {
-    if (primary) {
-      return FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label, style: const TextStyle(fontSize: 14)),
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  // ── Directory row ──
+
+  Widget _buildDirRow() {
+    final hasDir = _commonDir != null;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(
+            color: hasDir ? Colors.blue.withValues(alpha: 0.12) : cardBg(context),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(Icons.folder, size: 22, color: hasDir ? Colors.blue[300] : Colors.grey[500]),
         ),
-      );
-    }
-    return OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(label, style: const TextStyle(fontSize: 14)),
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(hasDir ? _commonDir! : "未选择 Steam 库目录",
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: AppText.bodySmall.copyWith(
+                    color: hasDir ? null : Colors.grey[500], fontWeight: hasDir ? FontWeight.w500 : null)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        _miniBtn(Icons.folder_open, hasDir ? "更换" : "选择", _pickDirectory),
+        if (hasDir) ...[
+          const SizedBox(width: 8),
+          _miniBtn(Icons.refresh, "刷新", _loading ? null : _scanAndCheck),
+        ],
+      ]),
+    );
+  }
+
+  Widget _miniBtn(IconData icon, String label, VoidCallback? onTap) {
+    return Material(
+      color: cardBorder(context),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 15, color: onTap == null ? Colors.grey : null),
+            const SizedBox(width: 5),
+            Text(label, style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w500)),
+          ]),
+        ),
       ),
     );
   }
 
-  Widget _emptyState() => Center(
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: cardBg(context),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(Icons.videogame_asset_outlined, size: 56, color: Colors.grey[600]),
-      ),
-      const SizedBox(height: 16),
-      Text(
-        _installedGames.isEmpty ? "选择 Steam 库目录并开始扫描" : "点击「检测补丁」查询可用补丁",
-        style: AppText.body.copyWith( color: hintColor(context)),
-      ),
-      const SizedBox(height: 4),
-      Text(
-        "支持自动匹配库内游戏的汉化/修正补丁",
-        style: AppText.bodySmall.copyWith( color: Colors.grey[600]),
-      ),
-    ]),
-  );
+  // ── Status bar ──
 
-  Widget _matchCard(PatchMatch match, bool isLast) {
-    final available = match.patchAvailable;
+  Widget _buildStatusBar() {
+    final available = _availablePatches.length;
+    final color = available > 0 ? Colors.green : Colors.grey;
     return Container(
-      margin: EdgeInsets.only(bottom: isLast ? 20 : 10),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+      ),
+      child: Row(children: [
+        Icon(
+          available > 0 ? Icons.check_circle_outline : Icons.info_outline,
+          size: 18, color: color[300],
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(_status!,
+              style: AppText.bodySmall.copyWith(color: color[200])),
+        ),
+      ]),
+    );
+  }
+
+  // ── Results ──
+
+  Widget _buildResults() {
+    final available = _availablePatches;
+    final noPatch = _noPatchGames;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+      children: [
+        // Available patches section
+        if (available.isNotEmpty) ...[
+          _sectionHeader("可注入 (${available.length})", Icons.download, Colors.green),
+          ...available.map((m) => _gameCard(m)),
+        ],
+
+        // No-patch section (collapsible)
+        if (noPatch.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setState(() => _showNoPatch = !_showNoPatch),
+            child: _sectionHeader(
+              "暂无补丁 (${noPatch.length})",
+              _showNoPatch ? Icons.expand_less : Icons.expand_more,
+              Colors.grey,
+            ),
+          ),
+          if (_showNoPatch) ...noPatch.map((m) => _simpleCard(m)),
+        ],
+      ],
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon, MaterialColor color) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(children: [
+        Icon(icon, size: 16, color: color[300]),
+        const SizedBox(width: 8),
+        Text(title, style: AppText.bodySmall.copyWith(color: color[300], fontWeight: FontWeight.w600)),
+      ]),
+    );
+  }
+
+  // ── Game card with patch available ──
+
+  Widget _gameCard(PatchMatch m) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: cardBg(context),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder(context)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(children: [
-          // Status icon
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: available ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              available ? Icons.check_circle : Icons.block,
-              size: 22,
-              color: available ? Colors.green[300] : Colors.grey[600],
-            ),
-          ),
-          const SizedBox(width: 14),
-          // Info
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(match.gameName, style: AppText.body.copyWith( fontWeight: FontWeight.w600)),
-              const SizedBox(height: 3),
-              Text(
-                available ? "${match.patchFilename}  ·  ${_formatSize(match.patchSize)}" : "暂无可用补丁",
-                style: AppText.bodySmall.copyWith( color: hintColor(context)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Game name + inject button
+          Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: Icon(Icons.download, size: 18, color: Colors.green[300]),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(m.gameName, style: AppText.body.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text("AppID ${m.appId}  ·  ${m.installDir}",
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: AppText.bodySmall.copyWith(color: hintColor(context), fontSize: 11)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => _showInjectDialog(m),
+              icon: const Icon(Icons.auto_fix_high, size: 16),
+              label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                minimumSize: Size.zero,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          // Patch info
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(children: [
+              Icon(Icons.archive, size: 14, color: Colors.green[300]),
+              const SizedBox(width: 6),
+              Text(m.patchFilename ?? "补丁文件",
+                  style: AppText.bodySmall.copyWith(color: Colors.green[200])),
+              const Spacer(),
+              Text(_formatSize(m.patchSize),
+                  style: AppText.bodySmall.copyWith(color: Colors.green[200], fontWeight: FontWeight.w600)),
             ]),
           ),
-          // Action
-          if (available)
-            FilledButton.tonalIcon(
-              onPressed: () {
-                showDialog(context: context, builder: (c) => AlertDialog(
-                  icon: Icon(Icons.download_for_offline, size: 32, color: Theme.of(context).colorScheme.primary),
-                  title: const Text("补丁注入"),
-                  content: Text("即将注入补丁: ${match.gameName}\n\n此功能开发中，敬请期待。"),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(c), child: const Text("关闭")),
-                    FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定")),
-                  ],
-                ));
-              },
-              icon: const Icon(Icons.download, size: 17),
-              label: const Text("注入"),
-            ),
         ]),
       ),
     );
   }
+
+  // ── Simple card for no-patch games ──
+
+  Widget _simpleCard(PatchMatch m) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: [
+        Icon(Icons.block, size: 14, color: Colors.grey[600]),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(m.gameName, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: AppText.bodySmall.copyWith(color: hintColor(context))),
+        ),
+        Text("AppID ${m.appId}",
+            style: AppText.bodySmall.copyWith(color: Colors.grey[600], fontSize: 11)),
+      ]),
+    );
+  }
+
+  // ── Inject dialog (placeholder) ──
+
+  void _showInjectDialog(PatchMatch m) {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        icon: Icon(Icons.auto_fix_high, size: 32, color: Theme.of(context).colorScheme.primary),
+        title: Text(m.gameName),
+        content: Text("补丁: ${m.patchFilename}\n大小: ${_formatSize(m.patchSize)}\n目标: ${m.installDir}\n\n补丁注入功能开发中，敬请期待。"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text("关闭")),
+        ],
+      ),
+    );
+  }
+
+  // ── Empty state ──
+
+  Widget _emptyState() => Center(
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: cardBg(context),
+          shape: BoxShape.circle,
+        ),
+        child: FaIcon(FontAwesomeIcons.steam, size: 48, color: Colors.grey[600]),
+      ),
+      const SizedBox(height: 20),
+      Text("选择 Steam 库目录开始扫描", style: AppText.body.copyWith(color: hintColor(context))),
+      const SizedBox(height: 6),
+      Text("自动匹配 steamapps 内游戏的汉化补丁",
+          style: AppText.bodySmall.copyWith(color: Colors.grey[600])),
+      const SizedBox(height: 20),
+      FilledButton.icon(
+        onPressed: _pickDirectory,
+        icon: const Icon(Icons.folder_open, size: 18),
+        label: const Text("选择 steamapps 目录"),
+      ),
+    ]),
+  );
 
   String _formatSize(int bytes) {
     if (bytes < 1024) return "$bytes B";
