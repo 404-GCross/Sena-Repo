@@ -217,10 +217,16 @@ class SteamIntegrationService {
       final msg = output["message"]?.toString() ?? "done";
       final gridId = output["grid_id"] as int? ?? gridAppId(gameName, exePath);
 
-      if (coverUrl.isNotEmpty) await _importCover(coverUrl, gridId, steam.root, steam.userId);
-      if (heroUrl.isNotEmpty) await _importHeroToGrid(heroUrl, gridId, steam.root, steam.userId);
+      var coverOk = false;
+      var heroOk = false;
+      if (coverUrl.isNotEmpty) coverOk = await _importCover(coverUrl, gridId, steam.root, steam.userId);
+      if (heroUrl.isNotEmpty) heroOk = await _importHeroToGrid(heroUrl, gridId, steam.root, steam.userId);
 
-      return SteamIntegrationResult(output["success"] == true, msg);
+      String fullMsg = msg;
+      if (!coverOk && coverUrl.isNotEmpty) fullMsg += "（封面导入失败）";
+      if (!heroOk && heroUrl.isNotEmpty) fullMsg += "（背景导入失败）";
+
+      return SteamIntegrationResult(output["success"] == true, fullMsg);
     } catch (e) {
       return SteamIntegrationResult(false, "add_steam_game.py error: $e");
     }
