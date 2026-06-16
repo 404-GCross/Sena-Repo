@@ -60,18 +60,7 @@ shortcuts[str(entry_id)] = {
     "exe": args.exe,
     "StartDir": args.startdir or os.path.dirname(args.exe),
     "icon": args.icon or args.exe,
-    "ShortcutPath": "",
     "LaunchOptions": "",
-    "IsHidden": 0,
-    "AllowDesktopConfig": 1,
-    "AllowOverlay": 1,
-    "OpenVR": 0,
-    "Devkit": 0,
-    "DevkitGameID": "",
-    "DevkitOverrideAppID": 0,
-    "LastPlayTime": 0,
-    "FlatpakAppID": "",
-    "tags": {}
 }
 
 with open(shortcuts_path, "wb") as f:
