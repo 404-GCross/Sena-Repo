@@ -5,7 +5,9 @@ import "dart:convert";
 import "dart:io";
 
 import "package:file_picker/file_picker.dart";
+import "package:flutter/services.dart" show rootBundle;
 import "package:http/http.dart" as http;
+import "package:path_provider/path_provider.dart";
 
 import "api_client.dart";
 
@@ -98,6 +100,100 @@ class SteamService {
     final regex = RegExp('"$key"\\s+"([^"]+)"');
     final match = regex.firstMatch(content);
     return match?.group(1);
+  }
+
+  /// Download and inject a patch into the Steam game directory.
+  /// Returns a stream of progress updates: (stage, progress, receivedBytes, totalBytes, speed).
+  static Stream<Map<String, dynamic>> injectPatch({
+    required String downloadUrl,
+    required String installDir,
+    required ApiClient api,
+  }) async* {
+    final httpClient = http.Client();
+    File? tmpFile;
+    try {
+      // Phase 1: download
+      final resp = await httpClient.send(http.Request("GET", Uri.parse(downloadUrl)));
+      if (resp.statusCode != 200) {
+        yield {"error": "HTTP ${resp.statusCode}"};
+        return;
+      }
+
+      final total = resp.contentLength ?? 0;
+      final supportDir = (await getApplicationSupportDirectory()).path;
+      tmpFile = File("$supportDir/.patch_${DateTime.now().millisecondsSinceEpoch}");
+      final sink = tmpFile.openWrite();
+
+      int received = 0;
+      int lastBytes = 0;
+      DateTime lastTime = DateTime.now();
+      await for (final chunk in resp.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        final now = DateTime.now();
+        final elapsed = now.difference(lastTime).inMilliseconds;
+        int speed = 0;
+        if (elapsed >= 500) {
+          speed = ((received - lastBytes) * 1000 ~/ elapsed);
+          lastBytes = received;
+          lastTime = now;
+        }
+        yield {
+          "stage": "downloading",
+          "progress": total > 0 ? received / total : 0.0,
+          "received": received,
+          "total": total,
+          "speed": speed,
+        };
+      }
+      await sink.flush();
+      await sink.close();
+
+      // Phase 2: extract
+      yield {"stage": "extracting", "progress": 0.0, "received": received, "total": total, "speed": 0};
+      await Process.run("chmod", ["+x", tmpFile.path]); // no-op on Windows
+      final exe = await _getSevenZipPath();
+      final proc = await Process.start(exe, ["x", "-y", "-o$installDir", tmpFile.path]);
+      final exitCode = await proc.exitCode;
+      if (exitCode != 0) {
+        final stderr = await proc.stderr.transform(utf8.decoder).join();
+        yield {"error": stderr.isNotEmpty ? stderr : "Extraction failed (exit $exitCode)"};
+        return;
+      }
+
+      yield {"stage": "done", "progress": 1.0, "received": received, "total": total, "speed": 0};
+    } catch (e) {
+      yield {"error": "$e"};
+    } finally {
+      httpClient.close();
+      if (tmpFile != null) {
+        try { await tmpFile.delete(); } catch (_) {}
+      }
+    }
+  }
+
+  static String? _sevenZipPath;
+  static Future<String> _getSevenZipPath() async {
+    if (_sevenZipPath != null) return _sevenZipPath!;
+    final dir = await getApplicationSupportDirectory();
+    final exeName = Platform.isWindows ? "7z.exe" : "7zz";
+    final dest = File("${dir.path}/$exeName");
+    if (!await dest.exists()) {
+      // try bundled
+      try {
+        final data = await rootBundle.load("assets/binaries/$exeName");
+        await dest.writeAsBytes(data.buffer.asUint8List());
+        if (Platform.isAndroid) {
+          await Process.run("/system/bin/chmod", ["+x", dest.path]);
+        } else if (!Platform.isWindows) {
+          await Process.run("chmod", ["+x", dest.path]);
+        }
+      } catch (_) {
+        throw Exception("7z binary not found");
+      }
+    }
+    _sevenZipPath = dest.path;
+    return _sevenZipPath!;
   }
 
   /// Send scanned games to server for patch matching.

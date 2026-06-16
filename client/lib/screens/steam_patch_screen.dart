@@ -23,6 +23,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _loading = false;
   String? _status;
   bool _showNoPatch = false;
+  final Map<String, Map<String, dynamic>> _injectState = {}; // appId → {stage, progress, received, total, speed}
 
   @override
   void initState() {
@@ -331,35 +332,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ]),
             ),
             const SizedBox(width: 8),
-            FilledButton.tonalIcon(
-              onPressed: () => _showInjectDialog(m),
-              icon: const Icon(Icons.auto_fix_high, size: 16),
-              label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                minimumSize: Size.zero,
-              ),
-            ),
+            _buildInjectButton(m),
           ]),
-          const SizedBox(height: 10),
-          // Patch info
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(children: [
-              Icon(Icons.archive, size: 14, color: Colors.green[300]),
-              const SizedBox(width: 6),
-              Text(m.patchFilename ?? "补丁文件",
-                  style: AppText.bodySmall.copyWith(color: Colors.green[200])),
-              const Spacer(),
-              Text(_formatSize(m.patchSize),
-                  style: AppText.bodySmall.copyWith(color: Colors.green[200], fontWeight: FontWeight.w600)),
-            ]),
-          ),
+          // Progress or patch info
+          _buildInjectProgress(m),
+          const SizedBox(height: 6),
         ]),
       ),
     );
@@ -388,20 +365,146 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
-  // ── Inject dialog (placeholder) ──
+  // ── Inject button / progress ──
 
-  void _showInjectDialog(PatchMatch m) {
-    showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        icon: Icon(Icons.auto_fix_high, size: 32, color: Theme.of(context).colorScheme.primary),
-        title: Text(m.gameName),
-        content: Text("补丁: ${m.patchFilename}\n大小: ${_formatSize(m.patchSize)}\n目标: ${m.installDir}\n\n补丁注入功能开发中，敬请期待。"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text("关闭")),
-        ],
+  Widget _buildInjectButton(PatchMatch m) {
+    final state = _injectState[m.appId];
+    if (state != null && state["stage"] != "error") return const SizedBox.shrink();
+
+    final hasError = state != null && state["stage"] == "error";
+    return FilledButton.tonalIcon(
+      onPressed: () => _startInjection(m),
+      icon: Icon(hasError ? Icons.refresh : Icons.auto_fix_high, size: 16),
+      label: Text(hasError ? "重试" : "注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        minimumSize: Size.zero,
+        backgroundColor: hasError ? Colors.red.withValues(alpha: 0.15) : null,
       ),
     );
+  }
+
+  Widget _buildInjectProgress(PatchMatch m) {
+    final state = _injectState[m.appId];
+    if (state == null) {
+      // Default: show patch info
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.green.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(children: [
+          Icon(Icons.archive, size: 14, color: Colors.green[300]),
+          const SizedBox(width: 6),
+          Text(m.patchFilename ?? "补丁文件",
+              style: AppText.bodySmall.copyWith(color: Colors.green[200])),
+          const Spacer(),
+          Text(_formatSize(m.patchSize),
+              style: AppText.bodySmall.copyWith(color: Colors.green[200], fontWeight: FontWeight.w600)),
+        ]),
+      );
+    }
+
+    if (state["stage"] == "done") {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.green.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(children: [
+          Icon(Icons.check_circle, size: 14, color: Colors.green[300]),
+          const SizedBox(width: 6),
+          Text("注入完成", style: AppText.bodySmall.copyWith(color: Colors.green[300])),
+        ]),
+      );
+    }
+
+    if (state["stage"] == "error") {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(children: [
+          Icon(Icons.error_outline, size: 14, color: Colors.red[300]),
+          const SizedBox(width: 6),
+          Expanded(child: Text(state["error"]?.toString() ?? "注入失败",
+              maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: AppText.bodySmall.copyWith(color: Colors.red[200]))),
+        ]),
+      );
+    }
+
+    // Downloading or extracting
+    final progress = (state["progress"] as num?)?.toDouble() ?? 0.0;
+    final received = (state["received"] as int?) ?? 0;
+    final total = (state["total"] as int?) ?? 0;
+    final speed = (state["speed"] as int?) ?? 0;
+    final isExtracting = state["stage"] == "extracting";
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const SizedBox(height: 4),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(
+          value: isExtracting ? null : (progress > 0 ? progress : null),
+          minHeight: 6,
+          backgroundColor: cardBorder(context),
+        ),
+      ),
+      const SizedBox(height: 6),
+      Row(children: [
+        Text(
+          isExtracting ? "解压中..." : "${(progress * 100).toStringAsFixed(0)}%",
+          style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(width: 12),
+        if (!isExtracting) ...[
+          Text("${_formatSize(received)} / ${_formatSize(total)}",
+              style: AppText.bodySmall.copyWith(color: hintColor(context))),
+          const Spacer(),
+          if (speed > 0)
+            Text("${_formatSize(speed)}/s",
+                style: AppText.bodySmall.copyWith(color: hintColor(context))),
+        ],
+      ]),
+    ]);
+  }
+
+  // ── Inject logic ──
+
+  Future<void> _startInjection(PatchMatch m) async {
+    final api = context.read<GameProvider>().api;
+    setState(() => _injectState[m.appId] = {"stage": "downloading", "progress": 0.0, "received": 0, "total": 0, "speed": 0});
+
+    try {
+      final stream = SteamService.injectPatch(
+        downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
+        installDir: m.installDir,
+        api: api,
+      );
+      await for (final update in stream) {
+        if (!mounted) return;
+        if (update.containsKey("error")) {
+          setState(() => _injectState[m.appId] = {"stage": "error", "error": update["error"]});
+          return;
+        }
+        setState(() => _injectState[m.appId] = update);
+        if (update["stage"] == "done") {
+          setState(() => _injectState[m.appId] = {"stage": "done"});
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _injectState[m.appId] = {"stage": "error", "error": "$e"});
+      }
+    }
   }
 
   // ── Empty state ──
