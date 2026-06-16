@@ -1,15 +1,16 @@
 /// Steam non-Steam game import — add games to Steam library + import covers.
 ///
-/// Uses the user-configured steamapps directory (SharedPreferences "steamapps_dir"
-/// or legacy "steam_common_dir") to locate Steam root and userdata.
+/// Uses Python vdf library (NSL approach) for reliable shortcuts.vdf manipulation.
+/// Steam path from user-configured steamapps directory (SharedPreferences).
 
+import "dart:convert";
 import "dart:io";
 
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/logger_service.dart";
-import "vdf_parser.dart";
+import "vdf_parser.dart"; // only for gridAppId CRC32 calculation
 
 class SteamIntegrationResult {
   final bool success;
@@ -21,59 +22,42 @@ class SteamIntegrationService {
 
   // ── Steam path resolution ──
 
-  /// Get the Steam root directory (parent of steamapps/).
   Future<String?> getSteamRoot() async {
     final steamapps = await getSteamappsDir();
     if (steamapps == null) return null;
-    final dir = Directory(steamapps);
-    // steamapps is a subdirectory of the Steam installation
-    return dir.parent.path;
+    return Directory(steamapps).parent.path;
   }
 
-  /// Get the configured steamapps directory.
   Future<String?> getSteamappsDir() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString("steamapps_dir") ??
         prefs.getString("steam_common_dir");
   }
 
-  /// Save the chosen steamapps directory.
   Future<void> setSteamappsDir(String path) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("steamapps_dir", path);
   }
 
-  /// Get user-configured Steam user ID (like NSL's steamid3).
   Future<String?> getSteamUserId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString("steam_user_id");
   }
 
-  /// Save Steam user ID for future use.
   Future<void> setSteamUserId(String id) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("steam_user_id", id);
   }
 
-  /// Find the first Steam user ID by scanning userdata/ for numeric folders.
   Future<String?> findSteamUserId(String steamRoot) async {
     final userdata = Directory("$steamRoot${Platform.pathSeparator}userdata");
-    // LoggerService().info("steam:[SenaRepo] Looking for userdata at: ${userdata.path}");
-    if (!await userdata.exists()) {
-      // LoggerService().info("steam:[SenaRepo] userdata NOT FOUND at: ${userdata.path}");
-      return null;
-    }
-    // LoggerService().info("steam:[SenaRepo] userdata exists, scanning...");
+    if (!await userdata.exists()) return null;
     await for (final entry in userdata.list()) {
-      // LoggerService().info("steam:[SenaRepo] Found entry: ${entry.path} isDir=${entry is Directory}");
       final name = entry.uri.pathSegments.last;
       if (RegExp(r'^\d+$').hasMatch(name) && entry is Directory) {
-        if (await Directory("${entry.path}${Platform.pathSeparator}config").exists()) {
-          return name;
-        }
+        if (await Directory("${entry.path}${Platform.pathSeparator}config").exists()) return name;
       }
     }
-    // Fallback: any numeric folder
     await for (final entry in userdata.list()) {
       final name = entry.uri.pathSegments.last;
       if (RegExp(r'^\d+$').hasMatch(name)) return name;
@@ -81,98 +65,44 @@ class SteamIntegrationService {
     return null;
   }
 
-  /// Resolve steam root + user id. Returns null if not configured.
   Future<({String root, String userId})?> resolveSteam() async {
     final root = await getSteamRoot();
     if (root == null) return null;
-    // Manual ID first (like NSL steamid3), then auto-detect
     var userId = await getSteamUserId();
     userId ??= await findSteamUserId(root);
     if (userId == null) return null;
-    // Save auto-detected ID for future use
-    if (await getSteamUserId() == null) {
-      await setSteamUserId(userId);
-    }
+    if (await getSteamUserId() == null) await setSteamUserId(userId);
     return (root: root, userId: userId);
-  }
-
-  // ── shortcuts.vdf manipulation ──
-
-  /// Path to shortcuts.vdf for the given user.
-  String _shortcutsPath(String steamRoot, String userId) =>
-      "${steamRoot}${Platform.pathSeparator}userdata${Platform.pathSeparator}$userId${Platform.pathSeparator}config${Platform.pathSeparator}shortcuts.vdf";
-
-  /// Read existing shortcuts.
-  List<VdfShortcut> _readShortcuts(String steamRoot, String userId) {
-    final path = _shortcutsPath(steamRoot, userId);
-    final file = File(path);
-    if (!file.existsSync()) return [];
-    try {
-      return parseShortcutsVdf(file.readAsBytesSync().toList());
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /// Write shortcuts back to disk.
-  void _writeShortcuts(String steamRoot, String userId, List<VdfShortcut> entries) {
-    final path = _shortcutsPath(steamRoot, userId);
-    final file = File(path);
-    // Backup original before overwriting
-    try {
-      if (file.existsSync()) {
-        file.copySync("$path.bak");
-      }
-    } catch (_) {}
-    final dir = file.parent;
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    file.writeAsBytesSync(writeShortcutsVdf(entries));
   }
 
   // ── grid image management ──
 
-  /// Path to the grid directory for the given user.
   String _gridDir(String steamRoot, String userId) =>
       "${steamRoot}${Platform.pathSeparator}userdata${Platform.pathSeparator}$userId${Platform.pathSeparator}config${Platform.pathSeparator}grid";
 
-  /// Copy a cover image from [coverUrl] to the Steam grid directory.
-  /// The image is saved as <gridAppId>p.jpg (portrait) for use in Steam library.
   Future<bool> _importCover(String coverUrl, int gridAppId,
       String steamRoot, String userId) async {
     if (coverUrl.isEmpty) return false;
     final gridDir = Directory(_gridDir(steamRoot, userId));
     if (!await gridDir.exists()) await gridDir.create(recursive: true);
-
-    // Try portrait first, then landscape
     final s = Platform.pathSeparator;
     final portraitFile = File("${gridDir.path}$s${gridAppId}p.jpg");
     final landscapeFile = File("${gridDir.path}$s$gridAppId.jpg");
-
-    // Download and save
     try {
-      final resp = await http.get(Uri.parse(coverUrl)).timeout(
-          const Duration(seconds: 30));
+      final resp = await http.get(Uri.parse(coverUrl)).timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200) return false;
-      if (resp.bodyBytes.length < 1024) return false; // too small, probably placeholder
-
+      if (resp.bodyBytes.length < 1024) return false;
       await portraitFile.writeAsBytes(resp.bodyBytes);
-      // Also save landscape copy if it doesn't exist yet
-      if (!await landscapeFile.exists()) {
-        await landscapeFile.writeAsBytes(resp.bodyBytes);
-      }
+      if (!await landscapeFile.exists()) await landscapeFile.writeAsBytes(resp.bodyBytes);
       return true;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
-  /// Download and save a hero/landscape image to the Steam grid as landscape art.
   Future<bool> _importHeroToGrid(String heroUrl, int gridAppId,
       String steamRoot, String userId) async {
     if (heroUrl.isEmpty) return false;
     final gridDir = Directory(_gridDir(steamRoot, userId));
     if (!await gridDir.exists()) await gridDir.create(recursive: true);
-
     final s = Platform.pathSeparator;
     final landscapeFile = File("${gridDir.path}$s$gridAppId.jpg");
     try {
@@ -180,26 +110,14 @@ class SteamIntegrationService {
       if (resp.statusCode != 200) return false;
       if (resp.bodyBytes.length < 1024) return false;
       await landscapeFile.writeAsBytes(resp.bodyBytes);
-      // Also save hero as the new library hero if Steam supports it
       final heroFile = File("${gridDir.path}$s${gridAppId}_hero.jpg");
-      if (!await heroFile.exists()) {
-        await heroFile.writeAsBytes(resp.bodyBytes);
-      }
+      if (!await heroFile.exists()) await heroFile.writeAsBytes(resp.bodyBytes);
       return true;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   // ── Main API ──
 
-  /// Add a game as a non-Steam game in the user's Steam library.
-  ///
-  /// [gameName]  — display name in Steam library.
-  /// [exePath]   — path to the game executable (version file).
-  /// [coverUrl]  — URL of the cover image to import into Steam grid.
-  /// [startDir]  — working directory (defaults to exe's parent).
-  /// [iconPath]  — path to icon file (optional, defaults to exe).
   Future<SteamIntegrationResult> addToSteam({
     required String gameName,
     required String exePath,
@@ -208,7 +126,6 @@ class SteamIntegrationService {
     String? startDir,
     String? iconPath,
   }) async {
-    // Validate
     final steamapps = await getSteamappsDir();
     if (steamapps == null) {
       return SteamIntegrationResult(false, "未配置 Steam 目录。请先在设置中选 steamapps 文件夹。");
@@ -216,7 +133,7 @@ class SteamIntegrationService {
     final steam = await resolveSteam();
     if (steam == null) {
       return SteamIntegrationResult(false,
-        "找不到 Steam 用户 ID。\n\n请在 $steamapps\\..\\userdata\\ 下找到你的纯数字用户文件夹名，\n然后点击 [设置 Steam ID] 填入。");
+        "找不到 Steam 用户 ID。请在 $steamapps\\..\\userdata\\ 下找到你的纯数字用户文件夹名。");
     }
     if (!await File(exePath).exists()) {
       return SteamIntegrationResult(false, "游戏文件不存在:\n$exePath");
@@ -226,60 +143,30 @@ class SteamIntegrationService {
     final icon = iconPath ?? exePath;
 
     try {
-      // Read existing shortcuts
-      final entries = _readShortcuts(steam.root, steam.userId);
-
-      // Check if already added (same exe path)
-      final existing = entries.where((e) =>
-        e.data["exe"]?.toString() == exePath
-      );
-      if (existing.isNotEmpty) {
-        // Still update cover if provided
-        if (coverUrl.isNotEmpty) {
-          final gridId = gridAppId(gameName, exePath);
-          await _importCover(coverUrl, gridId, steam.root, steam.userId);
-        }
-        return SteamIntegrationResult(true, "「$gameName」已在 Steam 库中。${coverUrl.isNotEmpty ? "封面已更新。" : ""}");
+      final scriptPath = "server/add_steam_game.py";
+      final result = await Process.run("python3", [
+        scriptPath,
+        "--steamroot", steam.root,
+        "--userid", steam.userId,
+        "--appname", gameName,
+        "--exe", exePath,
+        "--startdir", start,
+        "--icon", icon,
+      ]);
+      if (result.exitCode != 0) {
+        final err = result.stderr.toString().trim();
+        return SteamIntegrationResult(false, err.isNotEmpty ? err : "add_steam_game.py failed");
       }
+      final output = jsonDecode(result.stdout.toString().trim()) as Map<String, dynamic>;
+      final msg = output["message"]?.toString() ?? "done";
 
-      // Build shortcut entry — use Steam's CRC32-based appid (same as grid ID)
-      final appid = gridAppId(gameName, exePath);
-      final data = <String, dynamic>{
-        "appname": gameName,
-        "exe": exePath,
-        "StartDir": start,
-        "icon": icon,
-        "ShortcutPath": "",
-        "LaunchOptions": "",
-        "IsHidden": 0,
-        "AllowDesktopConfig": 1,
-        "AllowOverlay": 1,
-        "OpenVR": 0,
-        "Devkit": 0,
-        "DevkitGameID": "",
-        "DevkitOverrideAppID": 0,
-        "LastPlayTime": 0,
-        "FlatpakAppID": "",
-      };
-
-      entries.add(VdfShortcut(appid: appid, data: data));
-
-      // Write shortcuts.vdf
-      _writeShortcuts(steam.root, steam.userId, entries);
-
-      // Import cover (portrait) + hero (landscape) to Steam grid
       final gridId = gridAppId(gameName, exePath);
-      if (coverUrl.isNotEmpty) {
-        await _importCover(coverUrl, gridId, steam.root, steam.userId);
-      }
-      if (heroUrl.isNotEmpty) {
-        await _importHeroToGrid(heroUrl, gridId, steam.root, steam.userId);
-      }
+      if (coverUrl.isNotEmpty) await _importCover(coverUrl, gridId, steam.root, steam.userId);
+      if (heroUrl.isNotEmpty) await _importHeroToGrid(heroUrl, gridId, steam.root, steam.userId);
 
-      return SteamIntegrationResult(true, "「$gameName」已添加到 Steam 库！\n重启 Steam 后生效。");
+      return SteamIntegrationResult(output["success"] == true, msg);
     } catch (e) {
-      return SteamIntegrationResult(false, "添加失败: $e");
+      return SteamIntegrationResult(false, "add_steam_game.py error: $e");
     }
   }
-
 }
