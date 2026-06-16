@@ -192,6 +192,28 @@ class DownloadService with WidgetsBindingObserver {
     return extPaths.any((p) => path.startsWith(p));
   }
 
+  /// Check if MANAGE_EXTERNAL_STORAGE is granted on Android.
+  Future<bool> checkStoragePermissionGranted() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final result = await Process.run(
+        "appops", ["get", "com.github.senarepo", "MANAGE_EXTERNAL_STORAGE"],
+      );
+      return result.exitCode == 0 && result.stdout.toString().contains("allow");
+    } catch (_) {
+      // Fallback: try to create a test file
+      try {
+        final dir = await downloadDir;
+        final testFile = File("$dir/.sena_perm_test");
+        await testFile.writeAsString("1");
+        await testFile.delete();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
   /// Open Android "All files access" settings for this app.
   Future<void> openStoragePermissionSettings() async {
     if (!Platform.isAndroid) return;

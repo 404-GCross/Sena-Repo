@@ -586,16 +586,21 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
     final prefs = await SharedPreferences.getInstance();
-    final dlDir = prefs.getString("local_download_dir");
+    var dlDir = prefs.getString("local_download_dir");
     if (dlDir == null || dlDir.isEmpty) {
       if (mounted) {
         final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择游戏下载目录");
         if (result == null || !mounted) return;
+        dlDir = result;
         await prefs.setString("local_download_dir", result);
-        // On Android, warn about storage permission for external paths
-        if (Platform.isAndroid && DownloadService().needsStoragePermission(result)) {
-          await _showStoragePermissionDialog();
-        }
+      }
+    }
+
+    // On Android, check storage permission before starting download
+    if (Platform.isAndroid && DownloadService().needsStoragePermission(dlDir!)) {
+      final granted = await DownloadService().checkStoragePermissionGranted();
+      if (!granted && mounted) {
+        await _showStoragePermissionDialog();
       }
     }
 
