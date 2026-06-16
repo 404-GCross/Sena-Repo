@@ -21,6 +21,11 @@ parser.add_argument("--startdir", default="")
 parser.add_argument("--icon", default="")
 args = parser.parse_args()
 
+# Normalize all paths for the current OS (Windows: / → \)
+args.exe = os.path.normpath(args.exe)
+args.startdir = os.path.normpath(args.startdir) if args.startdir else ""
+args.icon = os.path.normpath(args.icon) if args.icon else ""
+
 shortcuts_path = os.path.join(args.steamroot, "userdata", args.userid, "config", "shortcuts.vdf")
 os.makedirs(os.path.dirname(shortcuts_path), exist_ok=True)
 
