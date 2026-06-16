@@ -14,6 +14,12 @@ from config import load_config
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
 
+def _get_patches_dir(config=None):
+    if config is None:
+        config = load_config()
+    return Path(config.patch_dir) if config.patch_dir else Path(config.data_path) / "steam_patches"
+
+
 # ── Models ──
 
 class SteamGameInfo(BaseModel):
@@ -48,7 +54,7 @@ async def scan_steam_games(body: ScanRequest):
     3. POST the list to this endpoint
     """
     config = load_config()
-    patches_dir = Path(config.data_path) / "steam_patches"
+    patches_dir = _get_patches_dir(config)
     results = []
 
     for game in body.games:
@@ -75,8 +81,7 @@ async def scan_steam_games(body: ScanRequest):
 @router.get("/patches")
 async def list_patches():
     """List all available patches on the server."""
-    config = load_config()
-    patches_dir = Path(config.data_path) / "steam_patches"
+    patches_dir = _get_patches_dir()
 
     if not patches_dir.exists():
         return {"patches": [], "message": "No patches directory found"}
@@ -96,8 +101,7 @@ async def list_patches():
 @router.get("/patches/{app_id}/download")
 async def download_patch(app_id: str):
     """Download a patch file for the given Steam App ID."""
-    config = load_config()
-    patches_dir = Path(config.data_path) / "steam_patches"
+    patches_dir = _get_patches_dir()
 
     if not patches_dir.exists():
         raise HTTPException(status_code=404, detail="补丁目录不存在")

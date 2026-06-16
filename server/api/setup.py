@@ -78,6 +78,20 @@ async def initialize_setup(
 
     await session.commit()
 
+    # Save patch_dir and steam_dir to config.yaml
+    import yaml, os
+    config_path = "config.yaml"
+    config_data = {}
+    if os.path.isfile(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = yaml.safe_load(f) or {}
+    if body.patch_dir:
+        config_data["patch_dir"] = body.patch_dir
+    if body.steam_dir:
+        config_data["steam_dir"] = body.steam_dir
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config_data, f)
+
     return {
         "message": "Setup complete",
         "admin_created": True,

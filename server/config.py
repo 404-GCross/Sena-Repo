@@ -36,6 +36,8 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     games_path: str = "/games"
     data_path: str = "/data"
+    patch_dir: str = ""  # custom patch directory (default: {data_path}/steam_patches)
+    steam_dir: str = ""
     proxy: str = ""
     custom_regex: list[CustomRegex] = field(default_factory=list)
     scrapers: ScraperConfig = field(default_factory=ScraperConfig)
@@ -92,6 +94,10 @@ def load_config(config_path: str | None = None) -> Config:
             config.games_path = data["games_path"]
         if "data_path" in data:
             config.data_path = data["data_path"]
+        if "patch_dir" in data:
+            config.patch_dir = data["patch_dir"]
+        if "steam_dir" in data:
+            config.steam_dir = data["steam_dir"]
         if "custom_regex" in data:
             config.custom_regex = [
                 CustomRegex(**r) for r in data["custom_regex"] if r.get("pattern")

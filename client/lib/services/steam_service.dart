@@ -149,17 +149,33 @@ class SteamService {
       await sink.flush();
       await sink.close();
 
-      // Phase 2: extract
+      // Phase 2: extract to temp, then merge to install dir
       yield {"stage": "extracting", "progress": 0.0, "received": received, "total": total, "speed": 0};
-      await Process.run("chmod", ["+x", tmpFile.path]); // no-op on Windows
       final exe = await _getSevenZipPath();
-      final proc = await Process.start(exe, ["x", "-y", "-o$installDir", tmpFile.path]);
+      final tmpExtract = "${(await getApplicationSupportDirectory()).path}/.patch_extract_${DateTime.now().millisecondsSinceEpoch}";
+      await Directory(tmpExtract).create(recursive: true);
+
+      final proc = await Process.start(exe, ["x", "-y", "-o$tmpExtract", tmpFile.path]);
       final exitCode = await proc.exitCode;
       if (exitCode != 0) {
+        await Directory(tmpExtract).delete(recursive: true);
         final stderr = await proc.stderr.transform(utf8.decoder).join();
         yield {"error": stderr.isNotEmpty ? stderr : "Extraction failed (exit $exitCode)"};
         return;
       }
+
+      // Merge: if single subfolder, copy its contents; otherwise copy everything
+      final entries = Directory(tmpExtract).listSync();
+      String sourceDir = tmpExtract;
+      if (entries.length == 1 && entries.first is Directory) {
+        sourceDir = entries.first.path;
+      }
+
+      // Copy files to install dir, overwriting existing
+      await _copyMerge(sourceDir, installDir);
+
+      // Cleanup
+      await Directory(tmpExtract).delete(recursive: true);
 
       yield {"stage": "done", "progress": 1.0, "received": received, "total": total, "speed": 0};
     } catch (e) {
@@ -168,6 +184,20 @@ class SteamService {
       httpClient.close();
       if (tmpFile != null) {
         try { await tmpFile.delete(); } catch (_) {}
+      }
+    }
+  }
+
+  /// Recursively copy/merge [from] into [to], overwriting existing files.
+  static Future<void> _copyMerge(String from, String to) async {
+    final target = Directory(to);
+    if (!await target.exists()) await target.create(recursive: true);
+    await for (final child in Directory(from).list()) {
+      final name = child.uri.pathSegments.last;
+      if (child is Directory) {
+        await _copyMerge(child.path, "$to${Platform.pathSeparator}$name");
+      } else if (child is File) {
+        try { await child.copy("$to${Platform.pathSeparator}$name"); } catch (_) {}
       }
     }
   }
