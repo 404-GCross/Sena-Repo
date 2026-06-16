@@ -99,22 +99,8 @@ class DownloadService with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!Platform.isAndroid) return;
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // App going to background / lock screen — pause all active downloads
-      for (final t in _tasks) {
-        if (t.status == "downloading" || t.status == "retrying" || t.status == "extracting") {
-          pauseTask(t);
-        }
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      // App back to foreground — resume paused downloads
-      for (final t in _tasks) {
-        if (t.status == "paused") {
-          resumeTask(t);
-        }
-      }
-    }
+    // Android: downloads continue in background via ongoing notification.
+    // No auto-pause — the system keeps the process alive while streaming.
   }
 
   Future<void> _restoreTasks() async {
