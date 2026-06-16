@@ -12,6 +12,7 @@
 ///   value: string → 1-byte length + UTF-8 bytes
 ///          int32  → 4 bytes LE
 
+import "dart:convert";
 import "dart:typed_data";
 
 class VdfShortcut {
@@ -133,7 +134,7 @@ int gridAppId(String appname, String exe) {
 }
 
 int _makeAppid(String appname, String exe) {
-  final bytes = "$appname$exe".codeUnits;
+  final bytes = utf8.encode("$appname$exe");
   final crc = _crc32(Uint8List.fromList(bytes));
   return (crc | 0x80000000);
 }
@@ -143,7 +144,7 @@ int _makeAppid(String appname, String exe) {
 String _readString(Uint8List buf, int pos) {
   final len = buf[pos];
   if (pos + 1 + len > buf.length) return "";
-  return String.fromCharCodes(buf, pos + 1, pos + 1 + len);
+  return utf8.decode(buf.sublist(pos + 1, pos + 1 + len));
 }
 
 int _readU32LE(Uint8List buf, int pos) {
@@ -154,7 +155,7 @@ int _readU32LE(Uint8List buf, int pos) {
 }
 
 void _writeString(BytesBuilder out, String s) {
-  final bytes = s.codeUnits;
+  final bytes = utf8.encode(s);
   if (bytes.length > 255) {
     out.addByte(255);
     out.add(bytes.sublist(0, 255));
