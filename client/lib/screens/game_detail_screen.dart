@@ -795,8 +795,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         await SteamIntegrationService().setSteamappsDir(picked);
         result = await SteamIntegrationService().addToSteam(
           gameName: task.gameName, exePath: exe, startDir: task.outputPath,
-          coverUrl: task.coverUrl ?? "",
-          heroUrl: task.bgUrl ?? "",
+          coverUrl: coverUrl,
+          heroUrl: heroUrl,
         );
       }
     }
