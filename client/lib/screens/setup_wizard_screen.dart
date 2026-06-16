@@ -34,6 +34,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   String _structure = "company_game";
   bool _autoScan = false;
   int _scanInterval = 24;
+  bool _notifGranted = false;
+  bool _notifAsked = false;
 
   // Step 3: Steam
   final _patchDirCtrl = TextEditingController(text: "/steam_patch");
@@ -51,6 +53,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _vndbCtrl = TextEditingController();
   final _igdbIdCtrl = TextEditingController();
   final _igdbSecretCtrl = TextEditingController();
+
+  Future<void> _requestNotification() async {
+    final granted = await NotificationService().requestPermission();
+    if (!mounted) return;
+    setState(() {
+      _notifAsked = true;
+      _notifGranted = granted;
+    });
+  }
 
   void _next() {
     // Validate password match on step 0
@@ -267,6 +278,64 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       const SizedBox(width: 4),
       IconButton.filled(icon: const Icon(Icons.folder_open, size: 20), onPressed: _pickLocalDir),
     ]),
+    const SizedBox(height: 20),
+    // ── Notification permission ──
+    Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(
+            color: _notifGranted
+                ? Colors.green.withValues(alpha: 0.12)
+                : Colors.orange.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            _notifGranted ? Icons.notifications_active : Icons.notifications_off,
+            size: 20,
+            color: _notifGranted ? Colors.green[300] : Colors.orange[300],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("通知权限", style: AppText.body.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(
+              _notifGranted
+                  ? "已授权 — 后台下载通知正常"
+                  : "用于显示下载进度和完成提醒",
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+            ),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        _notifGranted
+            ? Icon(Icons.check_circle, size: 20, color: Colors.green[300])
+            : Material(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: _notifAsked ? null : _requestNotification,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: Text(
+                      _notifAsked ? "已拒绝" : "开启",
+                      style: AppText.bodySmall.copyWith(
+                        color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ),
+      ]),
+    ),
     const SizedBox(height: 16),
     const Text("目录结构", style: TextStyle(fontWeight: FontWeight.bold)),
     Text("游戏文件的组织方式", style: AppText.label.copyWith( color: hintColor(context))),
