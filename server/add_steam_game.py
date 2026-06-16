@@ -44,11 +44,11 @@ for sid, entry in shortcuts.items():
         sys.exit(0)
 
 # Generate new entry ID (Steam formula: CRC32(exe+name) | 0x80000000)
-import binascii, ctypes
+import binascii
 raw_id = args.exe + args.appname
 crc = binascii.crc32(raw_id.encode()) | 0x80000000
-entry_id = ctypes.c_int(crc).value      # signed (negative), used in shortcuts.vdf
-grid_id = ctypes.c_uint(crc).value      # unsigned, used for grid image filenames
+entry_id = crc - 0x100000000  # signed int32 (negative), used in shortcuts.vdf
+grid_id = crc                  # unsigned int32 (positive), used for grid image filenames
 
 shortcuts[str(entry_id)] = {
     "appname": args.appname,
