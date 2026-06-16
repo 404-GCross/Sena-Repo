@@ -185,6 +185,24 @@ class DownloadService with WidgetsBindingObserver {
     await Directory(path).create(recursive: true);
   }
 
+  /// Check if the path is in Android external storage that needs MANAGE_EXTERNAL_STORAGE.
+  bool needsStoragePermission(String path) {
+    if (!Platform.isAndroid) return false;
+    final extPaths = ["/storage/emulated/0/", "/sdcard/", "/mnt/sdcard/"];
+    return extPaths.any((p) => path.startsWith(p));
+  }
+
+  /// Open Android "All files access" settings for this app.
+  Future<void> openStoragePermissionSettings() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await Process.run("am", [
+        "start", "-a", "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
+        "-d", "package:com.github.senarepo",
+      ]);
+    } catch (_) {}
+  }
+
   // ── public API ──
 
   DownloadTask startDownload({
