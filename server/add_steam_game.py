@@ -1,6 +1,17 @@
 """Add a non-Steam game shortcut via Python vdf library (NSL approach)."""
 import json, os, sys, argparse
 
+# Use bundled vdf module (from NSL), fall back to system package
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_vdf_path = os.path.join(_script_dir, "vdf")
+if os.path.isdir(_vdf_path):
+    sys.path.insert(0, _script_dir)
+try:
+    import vdf
+except ImportError:
+    print(json.dumps({"success": False, "message": "vdf module not found. Run: pip install vdf"}))
+    sys.exit(0)
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--steamroot", required=True)
 parser.add_argument("--userid", required=True)
@@ -12,12 +23,6 @@ args = parser.parse_args()
 
 shortcuts_path = os.path.join(args.steamroot, "userdata", args.userid, "config", "shortcuts.vdf")
 os.makedirs(os.path.dirname(shortcuts_path), exist_ok=True)
-
-try:
-    import vdf
-except ImportError:
-    print(json.dumps({"success": False, "message": "Python vdf library not installed. Run: pip install vdf"}))
-    sys.exit(0)
 
 # Read or create
 if os.path.exists(shortcuts_path):
