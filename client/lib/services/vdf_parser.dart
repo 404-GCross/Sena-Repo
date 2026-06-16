@@ -39,6 +39,17 @@ List<VdfShortcut> parseShortcutsVdf(List<int> raw) {
   if (buf.isEmpty || buf[pos] != 0x00) return entries;
   pos++;
 
+  // Skip "shortcuts\0" section header if present
+  if (pos + 9 < buf.length &&
+      buf[pos] == 0x73 && buf[pos+1] == 0x68 && buf[pos+2] == 0x6F &&
+      buf[pos+3] == 0x72 && buf[pos+4] == 0x74 && buf[pos+5] == 0x63 &&
+      buf[pos+6] == 0x75 && buf[pos+7] == 0x74 && buf[pos+8] == 0x73) {
+    // "shortcuts" found, skip until \x00 terminator then \x08
+    pos += 9; // skip "shortcuts"
+    while (pos < buf.length && buf[pos] != 0x00) pos++; // skip to null
+    if (pos < buf.length && buf[pos] == 0x00) pos++; // skip null
+  }
+
   while (pos + 4 <= buf.length) {
     // Check for EOF marker
     if (buf[pos] == 0x08) {
@@ -88,8 +99,11 @@ List<VdfShortcut> parseShortcutsVdf(List<int> raw) {
 /// Existing entries keep their original appid.
 Uint8List writeShortcutsVdf(List<VdfShortcut> entries) {
   final out = BytesBuilder();
-  // Header byte
+  // Header: \x00shortcuts\x00\x08
   out.addByte(0x00);
+  out.add("shortcuts".codeUnits);
+  out.addByte(0x00);
+  out.addByte(0x08);
 
   for (final entry in entries) {
     _writeU32LE(out, entry.appid);
