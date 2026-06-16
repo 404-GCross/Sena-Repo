@@ -290,7 +290,10 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       NotificationService().cancel(t.gameId);
       final errStr = "$e";
-      if (_isEncryptedError(errStr)) {
+      if (Platform.isAndroid && _isPermissionError(errStr)) {
+        t.status = "failed";
+        t.error = "存储权限不足。请在系统设置 → 应用 → Sena Repo → 权限 → 开启「所有文件访问权限」后重试。";
+      } else if (_isEncryptedError(errStr)) {
         t.needsPassword = true;
         t.status = "failed";
         t.error = "需要密码";
@@ -512,6 +515,7 @@ class DownloadService with WidgetsBindingObserver {
           if (t.status == "paused") return;
           // Encrypted or no-extractor error — throw immediately, don't waste retries
           final errStr = "$e";
+          if (_isPermissionError(errStr)) rethrow;
           if (_isEncryptedError(errStr)) rethrow;
           if (_isExtractorMissingError(errStr)) rethrow;
           if (retry < maxExtractRetries) {
@@ -544,8 +548,10 @@ class DownloadService with WidgetsBindingObserver {
       if (t.status == "paused") return;
       NotificationService().cancel(t.gameId);
       final errStr = "$e";
-      // Check if archive is password-protected
-      if (_isEncryptedError(errStr)) {
+      if (Platform.isAndroid && _isPermissionError(errStr)) {
+        t.status = "failed";
+        t.error = "存储权限不足。请在系统设置 → 应用 → Sena Repo → 权限 → 开启「所有文件访问权限」后重试。";
+      } else if (_isEncryptedError(errStr)) {
         t.needsPassword = true;
         t.status = "failed";
         t.error = "需要密码";
@@ -555,6 +561,14 @@ class DownloadService with WidgetsBindingObserver {
       }
       _emit();
     }
+  }
+
+  bool _isPermissionError(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains("operation not permitted") ||
+        lower.contains("permission denied") ||
+        lower.contains("cannot open output file") ||
+        lower.contains("errno=1");
   }
 
   bool _isEncryptedError(String err) {
