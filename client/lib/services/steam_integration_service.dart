@@ -116,6 +116,54 @@ class SteamIntegrationService {
     } catch (_) { return false; }
   }
 
+  // ── Python discovery ──
+
+  /// Resolve a working Python intepreter.
+  ///
+  /// Windows: exe-relative "python/" first (bundled with app), then PATH.
+  /// Other: system "python3" / "python".
+  Future<String?> _resolvePython() async {
+    if (Platform.isWindows) {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+
+      // 1. Bundled alongside exe (release install)
+      var bundled = "$exeDir${Platform.pathSeparator}python${Platform.pathSeparator}python.exe";
+      if (await File(bundled).exists()) return bundled;
+
+      // 2. Project root (flutter run debug: CWD is client/)
+      bundled = "python${Platform.pathSeparator}python.exe";
+      if (await File(bundled).exists()) return bundled;
+    }
+
+    // 3. System PATH
+    final candidates = Platform.isWindows
+        ? ["py", "python", "python3"]
+        : ["python3", "python"];
+    for (final name in candidates) {
+      try {
+        final result = await Process.run(name, ["--version"]);
+        if (result.exitCode == 0) return name;
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  // ── Script resolution ──
+
+  /// Resolve path to add_steam_game.py.
+  /// Release: bundled alongside exe.
+  /// Debug (flutter run): CWD is client/, script is at ../server/.
+  String _resolveScriptPath() {
+    if (Platform.isWindows) {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final bundled = "$exeDir${Platform.pathSeparator}add_steam_game.py";
+      if (File(bundled).existsSync()) return bundled;
+    }
+    // Fallback for flutter run (CWD = client/)
+    return "../server/add_steam_game.py";
+  }
+
   // ── Main API ──
 
   Future<SteamIntegrationResult> addToSteam({
@@ -139,12 +187,19 @@ class SteamIntegrationService {
       return SteamIntegrationResult(false, "游戏文件不存在:\n$exePath");
     }
 
+    final py = await _resolvePython();
+    if (py == null) {
+      return SteamIntegrationResult(false,
+        Platform.isWindows
+            ? "未找到 Python 运行环境。请检查程序目录下 python/ 是否存在。"
+            : "未找到 Python。请运行: apt install python3 或 brew install python3");
+    }
+
     final start = startDir ?? File(exePath).parent.path;
     final icon = iconPath ?? exePath;
 
     try {
-      final scriptPath = "../server/add_steam_game.py";
-      final py = Platform.isWindows ? "python" : "python3";
+      final scriptPath = _resolveScriptPath();
       final result = await Process.run(py, [
         scriptPath,
         "--steamroot", steam.root,

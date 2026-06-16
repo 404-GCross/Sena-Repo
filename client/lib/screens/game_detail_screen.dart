@@ -597,6 +597,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
 
     final downloadUrl = "$_baseUrl/api/download/${game.id}/${v.id}";
+    // Build cover and background URLs from scraped metadata
+    String? coverUrl;
+    String? bgUrl;
+    if (game.coverPath != null && game.coverPath!.isNotEmpty) {
+      final name = game.coverPath!.split(RegExp(r'[/\\]')).last;
+      coverUrl = "$_baseUrl/api/files/covers/$name";
+    }
+    if (game.bgPath != null && game.bgPath!.isNotEmpty) {
+      final name = game.bgPath!.split(RegExp(r'[/\\]')).last;
+      bgUrl = "$_baseUrl/api/files/backgrounds/$name";
+    }
     final task = DownloadService().startDownload(
       gameId: game.id,
       versionId: v.id,
@@ -604,6 +615,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       downloadUrl: downloadUrl,
       gameName: game.name,
       companyName: game.companyName ?? "",
+      coverUrl: coverUrl,
+      bgUrl: bgUrl,
     );
     if (mounted) {
       showDialog(
@@ -752,6 +765,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     }
     var result = await SteamIntegrationService().addToSteam(
       gameName: task.gameName, exePath: exe, startDir: task.outputPath,
+      coverUrl: task.coverUrl ?? "",
+      heroUrl: task.bgUrl ?? "",
     );
     if (!result.success && result.message.contains("未配置 Steam 目录")) {
       final picked = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择 Steam steamapps 目录");
@@ -759,6 +774,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         await SteamIntegrationService().setSteamappsDir(picked);
         result = await SteamIntegrationService().addToSteam(
           gameName: task.gameName, exePath: exe, startDir: task.outputPath,
+          coverUrl: task.coverUrl ?? "",
+          heroUrl: task.bgUrl ?? "",
         );
       }
     }

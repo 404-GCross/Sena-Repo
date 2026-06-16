@@ -42,6 +42,8 @@ class DownloadTask {
   bool _cancelled = false;
   bool needsPassword = false;
   bool isApk = false;
+  String? coverUrl;
+  String? bgUrl;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
 
@@ -206,11 +208,15 @@ class DownloadService with WidgetsBindingObserver {
     required String downloadUrl,
     required String gameName,
     required String companyName,
+    String? coverUrl,
+    String? bgUrl,
   }) {
     final task = DownloadTask(
       gameId: gameId, versionId: versionId, fileName: fileName,
       downloadUrl: downloadUrl, gameName: gameName, companyName: companyName,
-    );
+    )
+      ..coverUrl = coverUrl
+      ..bgUrl = bgUrl;
     _tasks.insert(0, task);
     _emit();
     _run(task);

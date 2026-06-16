@@ -322,6 +322,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       gameName: t.gameName,
       exePath: exe,
       startDir: dir,
+      coverUrl: t.coverUrl ?? "",
+      heroUrl: t.bgUrl ?? "",
     );
     // If not configured, let user pick directory and retry
     if (!result.success && result.message.contains("未配置 Steam 目录")) {
@@ -332,6 +334,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         await SteamIntegrationService().setSteamappsDir(picked);
         result = await SteamIntegrationService().addToSteam(
           gameName: t.gameName, exePath: exe, startDir: dir,
+          coverUrl: t.coverUrl ?? "",
+          heroUrl: t.bgUrl ?? "",
         );
       }
     }
@@ -361,6 +365,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         await SteamIntegrationService().setSteamUserId(input);
         result = await SteamIntegrationService().addToSteam(
           gameName: t.gameName, exePath: exe, startDir: dir,
+          coverUrl: t.coverUrl ?? "",
+          heroUrl: t.bgUrl ?? "",
         );
       }
     }

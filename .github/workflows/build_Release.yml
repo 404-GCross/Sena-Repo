@@ -97,6 +97,14 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
+      - name: Bundle Python + VDF script
+        shell: pwsh
+        run: |
+          $releaseDir = "build/windows/x64/runner/Release"
+          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse
+          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py"
+          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
+
       - name: Package Windows
         shell: pwsh
         run: |
