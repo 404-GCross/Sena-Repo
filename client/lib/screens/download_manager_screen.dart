@@ -8,6 +8,12 @@ import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 
+import "dart:convert";
+
+import "package:http/http.dart" as http;
+import "package:provider/provider.dart";
+
+import "../providers/game_provider.dart";
 import "../services/download_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
@@ -318,12 +324,34 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   Future<void> _addToSteam(DownloadTask t, String dir) async {
     final exe = await _pickExe(dir);
     if (exe == null) return;
+
+    // Resolve cover/hero URLs: use task values, or refetch from API if missing
+    String coverUrl = t.coverUrl ?? "";
+    String heroUrl = t.bgUrl ?? "";
+    if ((coverUrl.isEmpty || heroUrl.isEmpty) && t.gameId > 0) {
+      try {
+        final baseUrl = context.read<GameProvider>().api.baseUrl;
+        final resp = await http.get(Uri.parse("$baseUrl/api/games/${t.gameId}"));
+        if (resp.statusCode == 200) {
+          final g = jsonDecode(resp.body);
+          if (coverUrl.isEmpty && g["cover_path"] != null && g["cover_path"].toString().isNotEmpty) {
+            final name = g["cover_path"].toString().split(RegExp(r'[/\\]')).last;
+            coverUrl = "$baseUrl/api/files/covers/$name";
+          }
+          if (heroUrl.isEmpty && g["bg_path"] != null && g["bg_path"].toString().isNotEmpty) {
+            final name = g["bg_path"].toString().split(RegExp(r'[/\\]')).last;
+            heroUrl = "$baseUrl/api/files/backgrounds/$name";
+          }
+        }
+      } catch (_) {}
+    }
+
     var result = await SteamIntegrationService().addToSteam(
       gameName: t.gameName,
       exePath: exe,
       startDir: dir,
-      coverUrl: t.coverUrl ?? "",
-      heroUrl: t.bgUrl ?? "",
+      coverUrl: coverUrl,
+      heroUrl: heroUrl,
     );
     // If not configured, let user pick directory and retry
     if (!result.success && result.message.contains("未配置 Steam 目录")) {

@@ -45,7 +45,7 @@ shortcuts = data.setdefault("shortcuts", {})
 # Check if already added
 for sid, entry in shortcuts.items():
     if isinstance(entry, dict) and entry.get("exe") == args.exe:
-        print(json.dumps({"success": True, "message": f"already in Steam library"}))
+        print(json.dumps({"success": True, "message": f"已在 Steam 库中，无需重复添加。"}))
         sys.exit(0)
 
 # Generate new entry ID (Steam formula: CRC32(exe+name) | 0x80000000)
@@ -78,4 +78,4 @@ with open(shortcuts_path, "wb") as f:
     f.write(vdf.binary_dumps(data))
 
 print(json.dumps({"success": True, "grid_id": grid_id,
-    "message": f"'{args.appname}' added to Steam. Restart Steam to see it."}))
+    "message": f"'{args.appname}' 已添加到 Steam，重启 Steam 客户端后生效。"}))

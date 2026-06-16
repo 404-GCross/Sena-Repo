@@ -763,10 +763,31 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       );
       if (picked != null) exe = picked; else return;
     }
+    // Resolve cover/hero URLs: use task values, or refetch from API if missing
+    String coverUrl = task.coverUrl ?? "";
+    String heroUrl = task.bgUrl ?? "";
+    if ((coverUrl.isEmpty || heroUrl.isEmpty) && task.gameId > 0) {
+      try {
+        final baseUrl = context.read<GameProvider>().api.baseUrl;
+        final resp = await http.get(Uri.parse("$baseUrl/api/games/${task.gameId}"));
+        if (resp.statusCode == 200) {
+          final g = jsonDecode(resp.body);
+          if (coverUrl.isEmpty && g["cover_path"] != null && g["cover_path"].toString().isNotEmpty) {
+            final name = g["cover_path"].toString().split(RegExp(r'[/\\]')).last;
+            coverUrl = "$baseUrl/api/files/covers/$name";
+          }
+          if (heroUrl.isEmpty && g["bg_path"] != null && g["bg_path"].toString().isNotEmpty) {
+            final name = g["bg_path"].toString().split(RegExp(r'[/\\]')).last;
+            heroUrl = "$baseUrl/api/files/backgrounds/$name";
+          }
+        }
+      } catch (_) {}
+    }
+
     var result = await SteamIntegrationService().addToSteam(
       gameName: task.gameName, exePath: exe, startDir: task.outputPath,
-      coverUrl: task.coverUrl ?? "",
-      heroUrl: task.bgUrl ?? "",
+      coverUrl: coverUrl,
+      heroUrl: heroUrl,
     );
     if (!result.success && result.message.contains("未配置 Steam 目录")) {
       final picked = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择 Steam steamapps 目录");
