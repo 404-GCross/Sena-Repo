@@ -29,8 +29,9 @@ if os.path.exists(shortcuts_path):
     try:
         with open(shortcuts_path, "rb") as f:
             data = vdf.binary_loads(f.read())
-    except Exception:
-        data = {"shortcuts": {}}
+    except Exception as e:
+        print(json.dumps({"success": False, "message": f"Failed to parse shortcuts.vdf: {e}"}))
+        sys.exit(0)
 else:
     data = {"shortcuts": {}}
 
@@ -39,13 +40,15 @@ shortcuts = data.setdefault("shortcuts", {})
 # Check if already added
 for sid, entry in shortcuts.items():
     if isinstance(entry, dict) and entry.get("exe") == args.exe:
-        print(json.dumps({"success": True, "message": f"'{args.appname}' already in Steam library"}))
+        print(json.dumps({"success": True, "message": f"already in Steam library"}))
         sys.exit(0)
 
-# Generate new entry ID
-import binascii, ctypes, struct
-raw_id = "".join([args.exe, args.appname])
-entry_id = ctypes.c_int(binascii.crc32(raw_id.encode()) | 0x80000000).value
+# Generate new entry ID (Steam formula: CRC32(exe+name) | 0x80000000)
+import binascii, ctypes
+raw_id = args.exe + args.appname
+crc = binascii.crc32(raw_id.encode()) | 0x80000000
+entry_id = ctypes.c_int(crc).value      # signed (negative), used in shortcuts.vdf
+grid_id = ctypes.c_uint(crc).value      # unsigned, used for grid image filenames
 
 shortcuts[str(entry_id)] = {
     "appname": args.appname,
@@ -69,4 +72,5 @@ shortcuts[str(entry_id)] = {
 with open(shortcuts_path, "wb") as f:
     f.write(vdf.binary_dumps(data))
 
-print(json.dumps({"success": True, "message": f"'{args.appname}' added to Steam. Restart Steam to see it."}))
+print(json.dumps({"success": True, "grid_id": grid_id,
+    "message": f"'{args.appname}' added to Steam. Restart Steam to see it."}))

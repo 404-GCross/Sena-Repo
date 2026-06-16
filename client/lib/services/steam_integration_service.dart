@@ -160,8 +160,8 @@ class SteamIntegrationService {
       }
       final output = jsonDecode(result.stdout.toString().trim()) as Map<String, dynamic>;
       final msg = output["message"]?.toString() ?? "done";
+      final gridId = output["grid_id"] as int? ?? gridAppId(gameName, exePath);
 
-      final gridId = gridAppId(gameName, exePath);
       if (coverUrl.isNotEmpty) await _importCover(coverUrl, gridId, steam.root, steam.userId);
       if (heroUrl.isNotEmpty) await _importHeroToGrid(heroUrl, gridId, steam.root, steam.userId);
 
