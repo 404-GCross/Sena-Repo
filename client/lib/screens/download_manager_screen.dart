@@ -349,7 +349,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     var result = await SteamIntegrationService().addToSteam(
       gameName: t.gameName,
       exePath: exe,
-      startDir: dir,
       coverUrl: coverUrl,
       heroUrl: heroUrl,
     );
@@ -361,7 +360,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       if (picked != null) {
         await SteamIntegrationService().setSteamappsDir(picked);
         result = await SteamIntegrationService().addToSteam(
-          gameName: t.gameName, exePath: exe, startDir: dir,
+          gameName: t.gameName, exePath: exe,
           coverUrl: coverUrl,
           heroUrl: heroUrl,
         );
@@ -392,7 +391,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       if (input != null && input.isNotEmpty) {
         await SteamIntegrationService().setSteamUserId(input);
         result = await SteamIntegrationService().addToSteam(
-          gameName: t.gameName, exePath: exe, startDir: dir,
+          gameName: t.gameName, exePath: exe,
           coverUrl: coverUrl,
           heroUrl: heroUrl,
         );
