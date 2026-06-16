@@ -143,8 +143,9 @@ class SteamIntegrationService {
     final icon = iconPath ?? exePath;
 
     try {
-      final scriptPath = "server/add_steam_game.py";
-      final result = await Process.run("python3", [
+      final scriptPath = "../server/add_steam_game.py";
+      final py = Platform.isWindows ? "python" : "python3";
+      final result = await Process.run(py, [
         scriptPath,
         "--steamroot", steam.root,
         "--userid", steam.userId,
