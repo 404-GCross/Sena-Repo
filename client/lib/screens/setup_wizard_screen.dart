@@ -5,6 +5,7 @@ import "package:http/http.dart" as http;
 import "package:file_picker/file_picker.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
+import "dart:io" show Platform;
 
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
@@ -279,7 +280,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       IconButton.filled(icon: const Icon(Icons.folder_open, size: 20), onPressed: _pickLocalDir),
     ]),
     const SizedBox(height: 20),
-    // ── Notification permission ──
+    // ── Notification permission (Android only) ──
+    if (Platform.isAndroid)
     Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
