@@ -2,7 +2,7 @@
 ///
 /// Cross-platform client for Windows, Android, and Linux.
 
-import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Process, SecurityContext, ServerSocket, exit;
+import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Process, SecurityContext, ServerSocket, Socket, exit;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -31,14 +31,35 @@ Future<bool> _check7zAvailable() async {
 final trayService = TrayService();
 
 ServerSocket? _lockServer;
+const _instancePort = 11452;
 
+/// Acquire single-instance lock. If already running, signal the existing
+/// instance to show itself and return false.
 Future<bool> _acquireSingleInstanceLock() async {
   try {
-    _lockServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 11452);
-    return true; // First instance
+    _lockServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, _instancePort);
+    return true;
   } catch (_) {
-    return false; // Port in use = another instance already running
+    // Another instance is already running — tell it to come to front
+    try {
+      final s = await Socket.connect(
+        InternetAddress.loopbackIPv4, _instancePort,
+        timeout: const Duration(milliseconds: 500),
+      );
+      await s.close();
+    } catch (_) {}
+    return false;
   }
+}
+
+/// Start listening for "show" signals from subsequent launches.
+/// Must be called AFTER windowManager.ensureInitialized().
+void _startInstanceListener() {
+  _lockServer?.listen((Socket s) {
+    s.destroy();
+    windowManager.show();
+    windowManager.focus();
+  });
 }
 
 class _AllowAllCertificates extends HttpOverrides {
@@ -62,6 +83,7 @@ void main() async {
     }
     await windowManager.ensureInitialized();
     windowManager.setTitle("Sena Repo");
+    _startInstanceListener(); // Now windowManager is ready
   }
 
   runApp(const SenaRepoApp());
