@@ -210,11 +210,11 @@ class DownloadService with WidgetsBindingObserver {
     if (!Platform.isAndroid) return true;
     try {
       final dir = await downloadDir;
-      // Use native touch to test real filesystem write (not SAF)
-      final testPath = "$dir/.sena_perm_test";
-      final result = await Process.run("touch", [testPath]);
-      if (result.exitCode == 0) {
-        await Process.run("rm", [testPath]);
+      // Ensure directory exists before testing
+      await Directory(dir).create(recursive: true);
+      // Use shell redirect to test real filesystem write (not SAF)
+      final result = await Process.run("sh", ["-c", "echo 1 > '$dir/.sena_perm_test' 2>/dev/null && rm '$dir/.sena_perm_test' && echo ok"]);
+      if (result.exitCode == 0 && result.stdout.toString().contains("ok")) {
         return true;
       }
     } catch (_) {}
@@ -514,6 +514,7 @@ class DownloadService with WidgetsBindingObserver {
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
+      final mode = await downloadMode; // read once outside retry loop
 
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
@@ -550,7 +551,6 @@ class DownloadService with WidgetsBindingObserver {
         }
 
         // Phase 2: extract (skip if download-only mode)
-        final mode = await downloadMode;
         if (mode == "download_only") {
           final destFile = File("$outDir/${t.fileName}");
           try { await destFile.parent.create(recursive: true); } catch (_) {}
