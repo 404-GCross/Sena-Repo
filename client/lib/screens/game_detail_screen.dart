@@ -32,10 +32,15 @@ class GameDetailScreen extends StatefulWidget {
   State<GameDetailScreen> createState() => _GameDetailScreenState();
 }
 
-class _GameDetailScreenState extends State<GameDetailScreen> {
+class _GameDetailScreenState extends State<GameDetailScreen>
+    with WidgetsBindingObserver {
   GameDetail? _game;
   int _refreshKey = 0;
   bool _isLoading = true;
+
+  // Pending download info — retried after storage permission granted
+  GameDetail? _pendingGame;
+  dynamic _pendingVersion;
 
   ApiClient get _api => context.read<GameProvider>().api;
   String get _baseUrl => _api.baseUrl;
@@ -43,7 +48,35 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _pendingGame != null &&
+        _pendingVersion != null) {
+      _retryPendingDownload();
+    }
+  }
+
+  Future<void> _retryPendingDownload() async {
+    final game = _pendingGame;
+    final v = _pendingVersion;
+    _pendingGame = null;
+    _pendingVersion = null;
+    if (game == null || v == null || !mounted) return;
+    final granted = await DownloadService().checkStoragePermissionGranted();
+    if (granted) {
+      _startDownload(game, v);
+    }
   }
 
   Future<void> _load() async {
@@ -540,6 +573,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         DownloadService().needsStoragePermission(dlDir)) {
       final granted = await DownloadService().checkStoragePermissionGranted();
       if (!granted && mounted) {
+        // Save pending download so we can retry after permission granted
+        _pendingGame = game;
+        _pendingVersion = v;
         await _showStoragePermissionDialog();
         return;
       }
@@ -585,20 +621,25 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         title: const Text("需要存储权限"),
         content: const Text(
           "Android 11+ 解压游戏到共享存储需要「所有文件访问」权限，否则会解压失败。\n\n"
-          "开启后回到本页面重新点击下载即可。",
+          "点击下方按钮跳转系统设置，开启权限后返回应用将自动继续下载。",
         ),
         actions: [
           OutlinedButton.icon(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              DownloadService().openStoragePermissionSettings();
+              await DownloadService().openStoragePermissionSettings();
+              // Result auto-detected via WidgetsBindingObserver when app resumes
             },
             icon: const Icon(Icons.settings, size: 16),
             label: const Text("前往设置"),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("知道了"),
+            onPressed: () {
+              _pendingGame = null;
+              _pendingVersion = null;
+              Navigator.pop(ctx);
+            },
+            child: const Text("取消"),
           ),
         ],
       ),

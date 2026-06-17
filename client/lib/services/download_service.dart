@@ -8,6 +8,8 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 
+import "package:permission_handler/permission_handler.dart";
+
 import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show rootBundle;
 import "package:flutter/widgets.dart" show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
@@ -193,46 +195,15 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   /// Check if MANAGE_EXTERNAL_STORAGE is granted on Android.
-  /// Uses a native shell command to bypass SAF — Flutter's File API
-  /// works through SAF but 7z native binary does not.
   Future<bool> checkStoragePermissionGranted() async {
     if (!Platform.isAndroid) return true;
-    try {
-      final dir = await downloadDir;
-      // Ensure directory exists before testing
-      await Directory(dir).create(recursive: true);
-      // Use shell redirect to test real filesystem write (not SAF)
-      final result = await Process.run("sh", ["-c", "echo 1 > '$dir/.sena_perm_test' 2>/dev/null && rm '$dir/.sena_perm_test' && echo ok"]);
-      if (result.exitCode == 0 && result.stdout.toString().contains("ok")) {
-        return true;
-      }
-    } catch (_) {}
-    // Fallback: check via appops
-    try {
-      final result = await Process.run(
-        "appops", ["get", "com.github.senarepo", "MANAGE_EXTERNAL_STORAGE"],
-      );
-      return result.exitCode == 0 && result.stdout.toString().contains("allow");
-    } catch (_) {}
-    return false;
+    return await Permission.manageExternalStorage.isGranted;
   }
 
   /// Open Android "All files access" settings for this app.
-  Future<void> openStoragePermissionSettings() async {
-    if (!Platform.isAndroid) return;
-    // Use shell wrapper to ensure am runs in proper context
-    const pkg = "com.github.senarepo";
-    try {
-      await Process.run("sh", ["-c",
-        "am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d 'package:$pkg'"
-      ]);
-    } catch (_) {
-      try {
-        await Process.run("sh", ["-c",
-          "am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d 'package:$pkg'"
-        ]);
-      } catch (_) {}
-    }
+  Future<PermissionStatus> openStoragePermissionSettings() async {
+    if (!Platform.isAndroid) return PermissionStatus.granted;
+    return await Permission.manageExternalStorage.request();
   }
 
   // ── public API ──
