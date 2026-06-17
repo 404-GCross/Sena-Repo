@@ -37,6 +37,57 @@ def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
         return None
 
 
+# ── Patch-type keyword matching ──
+
+DEFAULT_TYPE_KEYWORDS = {
+    "translation": ["chinese", "汉化", "中文", "简体", "繁体", "translation", "cn", "zh", "chs", "cht", "schinese", "tchinese", "chinese_patch"],
+    "voice": ["voice", "语音", "配音", "日语", "japanese", "jp", "ja", "cv", "japanese_patch"],
+    "story": ["story", "剧情", "dlc", "追加", "additional", "extra_story", "story_patch"],
+    "extra": ["extra", "额外", "去码", "解码", "decensor", "uncensor", "无修正", "mod", "fix", "修复", "enhancement", "hd", "重制", "extra_patch"],
+    "misc": [],
+}
+
+
+def _get_type_keywords_path(patches_dir: Path) -> Path:
+    return patches_dir / "patch_type_keywords.json"
+
+
+def _load_type_keywords(patches_dir: Path) -> dict[str, list[str]]:
+    """Load patch_type_keywords.json; create with defaults if missing."""
+    kw_path = _get_type_keywords_path(patches_dir)
+    if kw_path.is_file():
+        try:
+            with open(kw_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return {k: v for k, v in data.items() if isinstance(v, list)}
+        except Exception:
+            pass
+    # Create default
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    with open(kw_path, "w", encoding="utf-8") as f:
+        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
+    return dict(DEFAULT_TYPE_KEYWORDS)
+
+
+def _guess_type_by_keywords(filename: str, keywords: dict[str, list[str]]) -> str | None:
+    """Match filename (case-insensitive) against keyword dict; return first matching type."""
+    lower = filename.lower()
+    for ptype, words in keywords.items():
+        if ptype == "misc":
+            continue
+        for w in words:
+            if w.lower() in lower:
+                return ptype
+    return None
+
+
+def _save_type_keywords(patches_dir: Path, keywords: dict[str, list[str]]):
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    with open(_get_type_keywords_path(patches_dir), "w", encoding="utf-8") as f:
+        json.dump(keywords, f, ensure_ascii=False, indent=2)
+
+
 # ── Models ──
 
 class SteamGameInfo(BaseModel):
@@ -69,6 +120,7 @@ async def scan_steam_games(body: ScanRequest):
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index = _load_patches_index(patches_dir)
+    keywords = _load_type_keywords(patches_dir)
     results = []
 
     for game in body.games:
@@ -94,7 +146,13 @@ async def scan_steam_games(body: ScanRequest):
                 match.patch_dir = entry.get("patch_dir", "")
                 match.target_dir = entry.get("target_dir", "")
                 match.label = entry.get("label", "")
-                match.type = entry.get("type", "misc")
+                # Type: keep existing if already set (non-misc), else keyword-guess
+                existing_type = entry.get("type", "misc")
+                if existing_type and existing_type != "misc":
+                    match.type = existing_type
+                else:
+                    guessed = _guess_type_by_keywords(match.patch_filename or "", keywords)
+                    match.type = guessed or existing_type or "misc"
                 results.append(match)
                 continue
 
@@ -104,6 +162,10 @@ async def scan_steam_games(body: ScanRequest):
             match.patch_available = True
             match.patch_filename = patch_file.name
             match.patch_size = patch_file.stat().st_size
+            # Keyword guess for bare files
+            guessed = _guess_type_by_keywords(patch_file.name, keywords)
+            if guessed:
+                match.type = guessed
 
         results.append(match)
 
@@ -185,6 +247,27 @@ async def update_patch(app_id: str, body: PatchUpdate):
             return {"message": "已更新", "app_id": app_id}
 
     raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁条目")
+
+
+# ── Patch type keywords API ──
+
+@router.get("/patch-type-keywords")
+async def get_type_keywords():
+    """Return patch_type_keywords.json content."""
+    patches_dir = _get_patches_dir()
+    return _load_type_keywords(patches_dir)
+
+
+class TypeKeywordsUpdate(BaseModel):
+    keywords: dict[str, list[str]]
+
+
+@router.put("/patch-type-keywords")
+async def update_type_keywords(body: TypeKeywordsUpdate):
+    """Overwrite patch_type_keywords.json."""
+    patches_dir = _get_patches_dir()
+    _save_type_keywords(patches_dir, body.keywords)
+    return {"message": "关键词已更新"}
 
 
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:

@@ -3,27 +3,67 @@
 Usage:
   python scan_patches.py                           # scan, generate template
   python scan_patches.py --dir /path/to/patches    # custom dir
-  python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2"
+  python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2" "translation"
                                                         # add one entry
 """
 import json, os, sys, argparse, re
 from pathlib import Path
 
+# Default keywords for auto type detection (mirrors steam_patch.py)
+DEFAULT_TYPE_KEYWORDS = {
+    "translation": ["chinese", "汉化", "中文", "简体", "繁体", "translation", "cn", "zh", "chs", "cht", "schinese", "tchinese", "chinese_patch"],
+    "voice": ["voice", "语音", "配音", "日语", "japanese", "jp", "ja", "cv", "japanese_patch"],
+    "story": ["story", "剧情", "dlc", "追加", "additional", "extra_story", "story_patch"],
+    "extra": ["extra", "额外", "去码", "解码", "decensor", "uncensor", "无修正", "mod", "fix", "修复", "enhancement", "hd", "重制", "extra_patch"],
+    "misc": [],
+}
+
+
+def _load_keywords(base_dir: Path) -> dict[str, list[str]]:
+    kw_path = base_dir / "patch_type_keywords.json"
+    if kw_path.is_file():
+        try:
+            with open(kw_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return {k: v for k, v in data.items() if isinstance(v, list)}
+        except Exception:
+            pass
+    # Create default
+    base_dir.mkdir(parents=True, exist_ok=True)
+    with open(kw_path, "w", encoding="utf-8") as f:
+        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
+    return dict(DEFAULT_TYPE_KEYWORDS)
+
+
+def _guess_type(filename: str, keywords: dict[str, list[str]]) -> str:
+    """Case-insensitive keyword match against filename; return type or 'misc'."""
+    lower = filename.lower()
+    for ptype, words in keywords.items():
+        if ptype == "misc":
+            continue
+        for w in words:
+            if w.lower() in lower:
+                return ptype
+    return "misc"
+
 
 def scan_patches_dir(base_dir: Path) -> list[dict]:
-    """Scan recurisvely for archive files, auto-detect app_id from name."""
+    """Scan recurisvely for archive files, auto-detect app_id and type from name."""
+    keywords = _load_keywords(base_dir)
     archives = []
     for ext in (".zip", ".rar", ".7z", ".tar", ".gz", ".xz"):
         for f in sorted(base_dir.rglob(f"*{ext}")):
             rel = str(f.relative_to(base_dir)).replace("\\", "/")
             app_id = _guess_app_id(rel)
+            ptype = _guess_type(f.name, keywords)
             archives.append({
                 "app_id": app_id,
                 "file": rel,
                 "patch_dir": "",
                 "target_dir": "",
                 "label": "",
-                "type": "misc",
+                "type": ptype,
             })
     return archives
 

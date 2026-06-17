@@ -297,4 +297,27 @@ class SteamService {
       throw HttpException("Failed to update patch: ${resp.statusCode}");
     }
   }
+
+  /// Fetch patch type keywords from server.
+  static Future<Map<String, dynamic>> getTypeKeywords(ApiClient api) async {
+    final resp = await http.get(
+      Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"),
+    );
+    if (resp.statusCode != 200) {
+      throw HttpException("Failed to load type keywords: ${resp.statusCode}");
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Save patch type keywords to server.
+  static Future<void> saveTypeKeywords(ApiClient api, Map<String, dynamic> keywords) async {
+    final resp = await http.put(
+      Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({"keywords": keywords}),
+    );
+    if (resp.statusCode != 200) {
+      throw HttpException("Failed to save type keywords: ${resp.statusCode}");
+    }
+  }
 }

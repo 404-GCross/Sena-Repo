@@ -135,6 +135,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const SizedBox(width: 12),
               Text("Steam 补丁管理",
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.manage_search, size: 20),
+                tooltip: "关键词快捷匹配",
+                onPressed: () => _showKeywordsDialog(),
+                style: IconButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+                ),
+              ),
             ]),
             const SizedBox(height: 6),
             Text("自动扫描 Steam 库内游戏，匹配服务器上的汉化补丁",
@@ -543,6 +552,92 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       );
       // Refresh the list to show updated values
       _scanAndCheck();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("保存失败: $e")));
+      }
+    }
+  }
+
+  // ── Type keyword quick-match dialog ──
+
+  Future<void> _showKeywordsDialog() async {
+    final api = context.read<GameProvider>().api;
+    Map<String, dynamic> keywords;
+    try {
+      keywords = await SteamService.getTypeKeywords(api);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("加载失败")));
+      return;
+    }
+
+    final ctrls = <String, TextEditingController>{};
+    for (final entry in keywords.entries) {
+      ctrls[entry.key] = TextEditingController(
+        text: (entry.value as List).join(", "),
+      );
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.manage_search, size: 20),
+          SizedBox(width: 8),
+          Text("关键词快捷匹配"),
+        ]),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("补丁文件名包含以下关键词时，自动识别为对应类型",
+                    style: AppText.bodySmall.copyWith(color: hintColor(context))),
+                const SizedBox(height: 16),
+                ..._typeLabels.entries.map((e) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      controller: ctrls[e.key],
+                      decoration: InputDecoration(
+                        labelText: "${e.value}（${e.key}）",
+                        hintText: "逗号分隔多个关键词",
+                        isDense: true,
+                        prefixIcon: _typeBadge(e.key),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("保存")),
+        ],
+      ),
+    );
+
+    if (result != true || !mounted) return;
+
+    // Build updated keywords map
+    final updated = <String, dynamic>{};
+    for (final entry in ctrls.entries) {
+      final words = entry.value.text
+          .split(",")
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      updated[entry.key] = words;
+    }
+
+    try {
+      await SteamService.saveTypeKeywords(api, updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("关键词已保存")));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("保存失败: $e")));
