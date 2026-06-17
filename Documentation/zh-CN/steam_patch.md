@@ -97,8 +97,20 @@ docker exec sena-repo python scan_patches.py \
 4. **客户端操作**：
    - 打开 Steam 补丁管理页
    - 选择 `steamapps` 目录 → 自动扫描匹配
+   - 点击 ✏️ 编辑补丁参数（不用回服务端改 JSON）
    - 有补丁的游戏点击「注入」→ 自动下载解压覆盖
 5. **验证**：Steam 启动游戏，检查补丁是否生效
+
+## 客户端编辑
+
+补丁卡片右上角 ✏️ 按钮可以修改以下字段，修改后自动保存到服务端 `patches.json`：
+
+- **补丁源目录** (`patch_dir`)
+- **目标目录** (`target_dir`)
+- **显示名称** (`label`)
+- **补丁类型** (`type`)
+
+无需手动编辑 JSON 或重启服务端。
 
 ## AppID 获取方式
 
