@@ -36,6 +36,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   int _scanInterval = 24;
   bool _notifGranted = false;
   bool _notifAsked = false;
+  bool _downloadExtract = true; // true=extract, false=download only
 
   // Step 3: Steam
   final _patchDirCtrl = TextEditingController(text: "/steam_patch");
@@ -121,6 +122,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       if (_localDirCtrl.text.trim().isNotEmpty) {
         await prefs.setString("local_download_dir", _localDirCtrl.text.trim());
       }
+      await prefs.setString("download_mode", _downloadExtract ? "extract" : "download_only");
       // Trigger scan
       await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
       // Request Android notification permission
@@ -278,6 +280,46 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       const SizedBox(width: 4),
       IconButton.filled(icon: const Icon(Icons.folder_open, size: 20), onPressed: _pickLocalDir),
     ]),
+    const SizedBox(height: 12),
+    // ── Download mode ──
+    Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(
+            color: _downloadExtract ? Colors.blue.withValues(alpha: 0.12) : Colors.orange.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            _downloadExtract ? Icons.unarchive : Icons.download,
+            size: 20,
+            color: _downloadExtract ? Colors.blue[300] : Colors.orange[300],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("下载模式", style: AppText.body.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(
+              _downloadExtract ? "下载并自动解压" : "仅下载（不解压）",
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+            ),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        Switch(
+          value: _downloadExtract,
+          onChanged: (v) => setState(() => _downloadExtract = v),
+        ),
+      ]),
+    ),
     const SizedBox(height: 20),
     // ── Notification permission ──
     Container(

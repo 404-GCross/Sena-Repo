@@ -596,14 +596,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     }
 
-    // On Android, check storage permission before starting download
+    // On Android extract mode: check storage permission before starting download
     if (Platform.isAndroid &&
         dlDir != null &&
         DownloadService().needsStoragePermission(dlDir)) {
-      final granted = await DownloadService().checkStoragePermissionGranted();
-      if (!granted && mounted) {
-        await _showStoragePermissionDialog();
-        return; // Block download until permission granted
+      final mode = await DownloadService().downloadMode;
+      if (mode != "download_only") {
+        final granted = await DownloadService().checkStoragePermissionGranted();
+        if (!granted && mounted) {
+          await _showStoragePermissionDialog();
+          return; // Block download until permission granted
+        }
       }
     }
 

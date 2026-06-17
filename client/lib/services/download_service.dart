@@ -185,6 +185,17 @@ class DownloadService with WidgetsBindingObserver {
     await Directory(path).create(recursive: true);
   }
 
+  /// "extract" (download + extract) or "download_only" (skip extraction).
+  Future<String> get downloadMode async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("download_mode") ?? "extract";
+  }
+
+  Future<void> setDownloadMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("download_mode", mode);
+  }
+
   /// Check if the path is in Android external storage that needs MANAGE_EXTERNAL_STORAGE.
   bool needsStoragePermission(String path) {
     if (!Platform.isAndroid) return false;
@@ -540,7 +551,22 @@ class DownloadService with WidgetsBindingObserver {
           return;
         }
 
-        // Phase 2: extract
+        // Phase 2: extract (skip if download-only mode)
+        final mode = await downloadMode;
+        if (mode == "download_only") {
+          final destFile = File("$outDir/${t.fileName}");
+          try { await destFile.parent.create(recursive: true); } catch (_) {}
+          try { await tmp.rename(destFile.path); } catch (_) {
+            try { await tmp.copy(destFile.path); await tmp.delete(); } catch (_) {}
+          }
+          t.status = "done";
+          t.outputPath = destFile.path;
+          t.progress = 1.0;
+          _emit();
+          NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
+          return;
+        }
+
         t.status = "extracting";
         t.progress = 0.0;
         _emit();
