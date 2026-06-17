@@ -23,6 +23,7 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
                 "patch_dir": "",
                 "target_dir": "",
                 "label": "",
+                "type": "misc",
             })
     return archives
 
@@ -75,14 +76,14 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
 def main():
     parser = argparse.ArgumentParser(description="Manage patches.json")
     parser.add_argument("--dir", type=str, help="Patch directory path")
-    parser.add_argument("--add", nargs=5, metavar=("APP_ID", "FILE", "PATCH_DIR", "TARGET_DIR", "LABEL"),
-                        help="Add a single entry")
+    parser.add_argument("--add", nargs=6, metavar=("APP_ID", "FILE", "PATCH_DIR", "TARGET_DIR", "LABEL", "TYPE"),
+                        help="Add a single entry (type: translation/voice/story/extra/misc)")
     args = parser.parse_args()
 
     base_dir = Path(args.dir) if args.dir else Path(__file__).parent / "steam_patches"
 
     if args.add:
-        app_id, file_path, patch_dir, target_dir, label = args.add
+        app_id, file_path, patch_dir, target_dir, label, ptype = args.add
         json_path = base_dir / "patches.json"
         existing = load_existing(json_path)
         patches = existing.get("patches", []) if existing else []
@@ -92,6 +93,7 @@ def main():
             "patch_dir": patch_dir,
             "target_dir": target_dir,
             "label": label,
+            "type": ptype,
         })
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)

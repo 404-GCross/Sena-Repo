@@ -398,16 +398,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         child: Row(children: [
           Icon(Icons.archive, size: 14, color: Colors.green[300]),
           const SizedBox(width: 6),
-          Text(m.label ?? m.patchFilename ?? "补丁文件",
-              style: AppText.bodySmall.copyWith(color: Colors.green[200])),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            _typeBadge(m.type),
+            const SizedBox(width: 6),
+            Text(m.label ?? m.patchFilename ?? "补丁文件",
+                style: AppText.bodySmall.copyWith(color: Colors.green[200])),
+          ]),
           const Spacer(),
-          if (m.patchDir != null && m.patchDir!.isNotEmpty) ...[
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.subdirectory_arrow_right, size: 12, color: Colors.green[300]),
-              Text(m.patchDir!, style: AppText.bodySmall.copyWith(color: Colors.green[300])),
-            ]),
-            const SizedBox(width: 8),
-          ],
           Text(_formatSize(m.patchSize),
               style: AppText.bodySmall.copyWith(color: Colors.green[200], fontWeight: FontWeight.w600)),
         ]),
@@ -482,6 +479,36 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         ],
       ]),
     ]);
+  }
+
+  static final _typeLabels = {
+    "translation": "汉化",
+    "voice": "音声",
+    "story": "剧情",
+    "extra": "额外",
+    "misc": "其他",
+  };
+
+  static final _typeColors = {
+    "translation": Colors.blue,
+    "voice": Colors.purple,
+    "story": Colors.orange,
+    "extra": Colors.teal,
+    "misc": Colors.grey,
+  };
+
+  Widget _typeBadge(String? type) {
+    final t = type ?? "misc";
+    final label = _typeLabels[t] ?? "其他";
+    final color = _typeColors[t] ?? Colors.grey;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color[300])),
+    );
   }
 
   // ── Inject logic ──

@@ -35,6 +35,7 @@ class PatchMatch {
   final String? patchDir;
   final String? targetDir;
   final String? label;
+  final String? type;
 
   PatchMatch({
     required this.appId,
@@ -46,6 +47,7 @@ class PatchMatch {
     this.patchDir,
     this.targetDir,
     this.label,
+    this.type,
   });
 
   factory PatchMatch.fromJson(Map<String, dynamic> json) => PatchMatch(
@@ -58,6 +60,7 @@ class PatchMatch {
         patchDir: json["patch_dir"],
         targetDir: json["target_dir"],
         label: json["label"],
+        type: json["type"],
       );
 }
 

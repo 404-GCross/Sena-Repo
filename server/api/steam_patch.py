@@ -55,6 +55,7 @@ class PatchMatch(BaseModel):
     patch_dir: str | None = None
     target_dir: str | None = None
     label: str | None = None
+    type: str | None = None  # translation/voice/story/extra/misc
 
 
 class ScanRequest(BaseModel):
@@ -93,6 +94,7 @@ async def scan_steam_games(body: ScanRequest):
                 match.patch_dir = entry.get("patch_dir", "")
                 match.target_dir = entry.get("target_dir", "")
                 match.label = entry.get("label", "")
+                match.type = entry.get("type", "misc")
                 results.append(match)
                 continue
 

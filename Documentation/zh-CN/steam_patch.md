@@ -1,6 +1,6 @@
 # Steam 补丁注入
 
-为 Steam 正版游戏自动匹配并注入汉化补丁。
+为 Steam 正版游戏自动匹配并注入 额外内容/汉化/音声/剧情 补丁。
 
 ## 目录结构
 
@@ -44,7 +44,8 @@ steam_patches/
       "file": "巧克甜恋/hanhua_v2.zip",
       "patch_dir": "汉化文件",
       "target_dir": "data",
-      "label": "汉化补丁 v2"
+      "label": "汉化补丁 v2",
+      "type": "translation"
     }
   ]
 }
@@ -59,6 +60,17 @@ steam_patches/
 | `patch_dir` | 字符串 | 否 | 解压后取哪个子目录的内容。不填时自动匹配（只有一个子文件夹则取其内容，否则取根） |
 | `target_dir` | 字符串 | 否 | 复制到游戏安装目录的哪个子路径下。不填则覆盖游戏根目录 |
 | `label` | 字符串 | 否 | 在界面上显示的补丁名称 |
+| `type` | 字符串 | 否 | 补丁类型。可选值见下表，不填默认为 `misc` |
+
+### 补丁类型
+
+| 值 | 显示 | 颜色 |
+|------|------|------|
+| `translation` | 汉化 | 蓝 |
+| `voice` | 音声 | 紫 |
+| `story` | 剧情 | 橙 |
+| `extra` | 额外 | 青 |
+| `misc` | 其他 | 灰 |
 
 ## 快速生成
 
@@ -74,7 +86,7 @@ docker exec sena-repo python scan_patches.py
 
 ```bash
 docker exec sena-repo python scan_patches.py \
-  --add 123456 "巧克甜恋/hanhua_v2.zip" "汉化文件" "data" "汉化补丁 v2"
+  --add 123456 "巧克甜恋/hanhua_v2.zip" "汉化文件" "data" "汉化补丁 v2" translation
 ```
 
 ## 使用流程
