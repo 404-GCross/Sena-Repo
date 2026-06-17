@@ -231,12 +231,19 @@ class DownloadService with WidgetsBindingObserver {
   /// Open Android "All files access" settings for this app.
   Future<void> openStoragePermissionSettings() async {
     if (!Platform.isAndroid) return;
+    // Use shell wrapper to ensure am runs in proper context
+    const pkg = "com.github.senarepo";
     try {
-      await Process.run("am", [
-        "start", "-a", "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
-        "-d", "package:com.github.senarepo",
+      await Process.run("sh", ["-c",
+        "am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d 'package:$pkg'"
       ]);
-    } catch (_) {}
+    } catch (_) {
+      try {
+        await Process.run("sh", ["-c",
+          "am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d 'package:$pkg'"
+        ]);
+      } catch (_) {}
+    }
   }
 
   // ── public API ──
