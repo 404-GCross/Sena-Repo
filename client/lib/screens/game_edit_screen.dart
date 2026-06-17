@@ -1300,9 +1300,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body) as Map<String, dynamic>;
           final newPath = data["cover_path"];
-          if (newPath != null) setState(() { _coverPath = newPath.toString(); _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+          if (newPath != null) {
+            setState(() { _coverPath = newPath.toString(); _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+          }
         }
       } catch (_) {}
+      // Reload fresh game data so cover path is consistent with server
+      await _reloadGame();
     }
     await _save(popOnSave: false);
   }
