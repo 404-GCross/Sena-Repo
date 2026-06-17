@@ -204,21 +204,20 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   /// Check if MANAGE_EXTERNAL_STORAGE is granted on Android.
+  /// Uses a native shell command to bypass SAF — Flutter's File API
+  /// works through SAF but 7z native binary does not.
   Future<bool> checkStoragePermissionGranted() async {
     if (!Platform.isAndroid) return true;
-    // Primary: try to write a test file to the download directory
     try {
       final dir = await downloadDir;
-      if (!await Directory(dir).exists()) {
-        await Directory(dir).create(recursive: true);
+      // Use native touch to test real filesystem write (not SAF)
+      final testPath = "$dir/.sena_perm_test";
+      final result = await Process.run("touch", [testPath]);
+      if (result.exitCode == 0) {
+        await Process.run("rm", [testPath]);
+        return true;
       }
-      final testFile = File("$dir/.sena_perm_test");
-      await testFile.writeAsString("1");
-      await testFile.delete();
-      return true;
-    } catch (_) {
-      // File write failed — permission likely not granted
-    }
+    } catch (_) {}
     // Fallback: check via appops
     try {
       final result = await Process.run(
