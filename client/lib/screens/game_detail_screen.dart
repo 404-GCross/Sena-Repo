@@ -68,7 +68,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       appBar: AppBar(
         title: Text(game.name),
         actions: [
-          IconButton(icon: const Icon(Icons.search), tooltip: "搜索元数据", onPressed: () => _showSearchDialog(context, game)),
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
             onPressed: () async {
               final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => GameEditScreen(game: game)));
@@ -469,67 +468,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
   }
 
-  // ── Search Dialog ──
-
-  Future<void> _showSearchDialog(BuildContext context, game) async {
-    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "ymgal": "月幕GalGame"};
-    final srcToId = {"vndb_kana": game.vndbId, "bangumi": game.bangumiId, "steam": game.steamId};
-
-    final src = await showDialog<String>(
-      context: context, builder: (ctx) => AlertDialog(
-        title: const Text("搜索元数据"), content: Column(mainAxisSize: MainAxisSize.min,
-          children: sources.entries.map((e) => ListTile(title: Text(e.value), trailing: const Icon(Icons.chevron_right), onTap: () => Navigator.pop(ctx, e.key))).toList()),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
-      ),
-    );
-    if (src == null || !mounted) return;
-
-    final hasId = srcToId[src] != null && srcToId[src]!.isNotEmpty;
-    final ctrl = TextEditingController(text: hasId ? srcToId[src]! : game.name);
-    final picked = await showDialog<Map<String, dynamic>>(
-      context: context, builder: (ctx) {
-        var results = <Map<String, dynamic>>[];
-        var searching = false;
-        return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
-          title: Text("${sources[src]} — 搜索"),
-          content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Row(children: [
-              Expanded(child: TextField(controller: ctrl, autofocus: true,
-                decoration: InputDecoration(labelText: hasId ? "已有 ID" : "名称/ID", hintText: hasId ? "按 ID 搜索" : "输入名称或ID", isDense: true),
-                onSubmitted: (v) async { setD(() { searching = true; results = []; });
-                  try { final r = await http.get(Uri.parse("$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
-                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>(); } catch (_) {}
-                  setD(() => searching = false); })),
-              const SizedBox(width: 8),
-              IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
-                setD(() { searching = true; results = []; });
-                try { final r = await http.get(Uri.parse("$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
-                  results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>(); } catch (_) {}
-                setD(() => searching = false); }),
-            ]),
-            const SizedBox(height: 8),
-            if (searching) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
-            if (!searching && results.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text("无结果", style: TextStyle(color: Colors.grey))),
-            if (results.isNotEmpty) SizedBox(height: 350, child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
-              final r = results[i]; final cov = (r["cover_url"] ?? "").toString();
-              return ListTile(
-                leading: cov.isNotEmpty ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(cov, width: 50, height: 70, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover())) : _noCover(),
-                title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
-                subtitle: Text("${r["developer"] ?? ""} · ${r["release_date"] ?? ""}", maxLines: 2, style: const TextStyle(fontSize: 11)),
-                onTap: () => Navigator.pop(ctx, r),
-              );
-            })),
-          ])),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
-        ));
-      },
-    );
-    if (picked == null || !mounted) return;
-
-    try { await http.post(Uri.parse("$_baseUrl/api/games/${game.id}/scrape-apply"), headers: {"Content-Type": "application/json"}, body: jsonEncode({"source_id": picked["source_id"] ?? "", "source": src, "cover_url": picked["cover_url"] ?? "", "hero_url": picked["hero_url"] ?? "", "title": picked["title"] ?? "", "developer": picked["developer"] ?? "", "description": picked["description"] ?? "", "release_date": picked["release_date"] ?? ""}));
-      _load(); _showDialog(context, "完成", "元数据已应用"); } catch (e) { _showDialog(context, "错误", "$e"); }
-  }
-
   Future<void> _showDownloadDialog(GameDetail game) async {
     final v = await showDialog<dynamic>(
       context: context,
@@ -637,8 +575,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       );
     }
   }
-
-  Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
 
   Future<void> _showStoragePermissionDialog() async {
     await showDialog(
