@@ -185,17 +185,6 @@ class DownloadService with WidgetsBindingObserver {
     await Directory(path).create(recursive: true);
   }
 
-  /// "extract" (download + extract) or "download_only" (skip extraction).
-  Future<String> get downloadMode async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString("download_mode") ?? "extract";
-  }
-
-  Future<void> setDownloadMode(String mode) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("download_mode", mode);
-  }
-
   /// Check if the path is in Android external storage that needs MANAGE_EXTERNAL_STORAGE.
   bool needsStoragePermission(String path) {
     if (!Platform.isAndroid) return false;
@@ -521,7 +510,6 @@ class DownloadService with WidgetsBindingObserver {
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
-      final mode = await downloadMode; // read once outside retry loop
 
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
@@ -557,41 +545,7 @@ class DownloadService with WidgetsBindingObserver {
           return;
         }
 
-        // Phase 2: extract (skip if download-only mode)
-        if (mode == "download_only") {
-          final destFile = File("$outDir/${t.fileName}");
-          bool moved = false;
-          try {
-            await destFile.parent.create(recursive: true);
-            await tmp.rename(destFile.path);
-            moved = await destFile.exists();
-          } catch (_) {}
-          if (!moved) {
-            try {
-              await tmp.copy(destFile.path);
-              moved = await destFile.exists();
-              if (moved) await tmp.delete();
-            } catch (_) {}
-          }
-          // Fallback: keep in internal downloads if external move failed
-          if (!moved) {
-            final internalDir = "${(await getApplicationSupportDirectory()).path}/downloads";
-            await Directory(internalDir).create(recursive: true);
-            final fallback = File("$internalDir/${t.fileName}");
-            try { await tmp.rename(fallback.path); } catch (_) {
-              try { await tmp.copy(fallback.path); await tmp.delete(); } catch (_) {}
-            }
-            t.outputPath = fallback.path;
-          } else {
-            t.outputPath = destFile.path;
-          }
-          t.status = "done";
-          t.progress = 1.0;
-          _emit();
-          NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
-          return;
-        }
-
+        // Phase 2: extract
         t.status = "extracting";
         t.progress = 0.0;
         _emit();

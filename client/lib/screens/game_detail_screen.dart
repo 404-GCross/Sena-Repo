@@ -596,17 +596,14 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     }
 
-    // On Android extract mode: check storage permission before starting download
+    // On Android: check storage permission before starting download
     if (Platform.isAndroid &&
         dlDir != null &&
         DownloadService().needsStoragePermission(dlDir)) {
-      final mode = await DownloadService().downloadMode;
-      if (mode != "download_only") {
-        final granted = await DownloadService().checkStoragePermissionGranted();
-        if (!granted && mounted) {
-          await _showStoragePermissionDialog();
-          return; // Block download until permission granted
-        }
+      final granted = await DownloadService().checkStoragePermissionGranted();
+      if (!granted && mounted) {
+        await _showStoragePermissionDialog();
+        return;
       }
     }
 
@@ -734,7 +731,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           ])
         else if (_task.status == "done" || _task.status == "cancelled")
           Row(children: [
-            if (_task.status == "done" && _task.outputPath != null && !_task.isApk) ...[
+            // PC-only: Steam + Shortcut buttons (Android has no Steam/desktop)
+            if (_task.status == "done" && _task.outputPath != null && !_task.isApk && !Platform.isAndroid) ...[
               OutlinedButton.icon(
                 onPressed: () => _addToSteamDownload(_task),
                 icon: const Icon(Icons.gamepad, size: 16),

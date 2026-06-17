@@ -31,7 +31,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   List<DownloadTask> _tasks = [];
   StreamSubscription? _sub;
   String _downloadDir = "";
-  String _downloadMode = "extract";
 
   @override
   void initState() {
@@ -46,14 +45,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
 
   Future<void> _loadDir() async {
     final dir = await DownloadService().downloadDir;
-    final mode = await DownloadService().downloadMode;
-    if (mounted) setState(() { _downloadDir = dir; _downloadMode = mode; });
-  }
-
-  Future<void> _toggleMode() async {
-    final newMode = _downloadMode == "extract" ? "download_only" : "extract";
-    await DownloadService().setDownloadMode(newMode);
-    setState(() => _downloadMode = newMode);
+    if (mounted) setState(() => _downloadDir = dir);
   }
 
   Future<void> _changeDir() async {
@@ -75,42 +67,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("下载管理"),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: _toggleMode,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _downloadMode == "extract"
-                      ? Colors.blue.withValues(alpha: 0.15)
-                      : Colors.orange.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(
-                    _downloadMode == "extract" ? Icons.unarchive : Icons.download,
-                    size: 16,
-                    color: _downloadMode == "extract" ? Colors.blue[300] : Colors.orange[300],
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _downloadMode == "extract" ? "解压" : "仅下载",
-                    style: AppText.bodySmall.copyWith(
-                      color: _downloadMode == "extract" ? Colors.blue[300] : Colors.orange[300],
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ]),
-              ),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text("下载管理")),
       body: Column(children: [
         // ── Download directory ──
         Container(
