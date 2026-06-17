@@ -845,14 +845,10 @@ class DownloadService with WidgetsBindingObserver {
       // Rename to match game name if different
       if (folderName != gameDir) {
         final target = "$outDir/$gameDir";
-        // If target already exists (e.g. previous partial extraction), remove it first
-        if (await Directory(target).exists()) {
-          try { await Directory(target).delete(recursive: true); } catch (_) {}
-        }
         try {
           await folder.rename(target);
         } catch (_) {
-          // rename failed → copy + delete
+          // rename failed (target exists or locked) → merge contents
           try {
             await _copyMerge(folder.path, target);
             await folder.delete(recursive: true);
