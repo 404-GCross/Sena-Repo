@@ -69,21 +69,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final api = games.api;
       final prefs = await SharedPreferences.getInstance();
 
-      // ── Client first-run setup: choose download + Steam directories ──
-      final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
-      if (!clientSetupDone) {
-        if (mounted) {
-          await showDialog(context: context, barrierDismissible: false,
-            builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
-          );
-          await prefs.setBool("client_setup_done", true);
-        }
-        if (!mounted) return;
-      }
-
-      // ── Check server setup FIRST (before login) ──
+      // ── Check server setup FIRST (before login & client setup) ──
       // New server with no admin account: run setup wizard to create
-      // admin + configure game dirs + scrapers, then login automatically.
+      // admin + configure game dirs + Steam + scrapers, then login.
+      // Skip _ClientSetupDialog because the wizard already covers download
+      // dir, Steam dir, and Steam user ID.
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
         final setupResult = await Navigator.push<bool>(
@@ -94,8 +84,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (!mounted) return;
 
         // After setup, login with the admin credentials from the wizard.
-        // The wizard already POSTed to /api/setup/initialize which created
-        // the account. Now we need to login to get a token.
         final result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
@@ -111,6 +99,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
         }
         if (!mounted) return;
 
+        // Mark client setup done — wizard already handled it
+        if (!prefs.getBool("client_setup_done") ?? false) {
+          await prefs.setBool("client_setup_done", true);
+        }
+
         await games.loadGames();
         if (mounted) {
           Navigator.pushReplacement(
@@ -119,6 +112,18 @@ class _ConnectScreenState extends State<ConnectScreen> {
           );
         }
         return;
+      }
+
+      // ── Client first-run: only for already-setup servers ──
+      final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
+      if (!clientSetupDone) {
+        if (mounted) {
+          await showDialog(context: context, barrierDismissible: false,
+            builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
+          );
+          await prefs.setBool("client_setup_done", true);
+        }
+        if (!mounted) return;
       }
 
       // ── Normal login: server already set up ──
