@@ -30,6 +30,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _avatarPath;
   int _userId = 0;
 
+  String? get _avatarUrl {
+    if (_avatarPath == null || _avatarPath!.isEmpty) return null;
+    if (_avatarPath!.startsWith("http")) return _avatarPath;
+    final name = _avatarPath!.split(RegExp(r'[/\\]')).last;
+    return "${context.read<GameProvider>().api.baseUrl}/api/files/avatars/$name";
+  }
+
   @override
   void initState() {
     super.initState();
@@ -93,10 +100,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: CircleAvatar(
               radius: 44,
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              backgroundImage: _avatarPath != null && _avatarPath!.isNotEmpty
-                  ? NetworkImage("${context.read<GameProvider>().api.baseUrl}/api/files/avatars/${_avatarPath!.split("/").last}")
+              backgroundImage: _avatarUrl != null
+                  ? NetworkImage(_avatarUrl!)
                   : null,
-              child: _avatarPath == null || _avatarPath!.isEmpty
+              child: _avatarUrl == null
                   ? Text(
                       _username.isNotEmpty ? _username[0].toUpperCase() : "S",
                       style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold,

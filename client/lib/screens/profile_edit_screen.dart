@@ -32,6 +32,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
+  /// Resolve avatar URL from any path format (server filesystem path, API path, or filename).
+  String? get _avatarUrl {
+    if (_avatarPath == null || _avatarPath!.isEmpty) return null;
+    // Already a full URL
+    if (_avatarPath!.startsWith("http")) return _avatarPath;
+    // API path like /api/files/avatars/xxx.jpg
+    if (_avatarPath!.contains("/api/files/avatars/")) return "$_baseUrl$_avatarPath";
+    // Just filename
+    final name = _avatarPath!.split(RegExp(r'[/\\]')).last;
+    return "$_baseUrl/api/files/avatars/$name";
+  }
+
   Future<Map<String, String>> get _authHeaders async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("auth_token") ?? "";
@@ -115,7 +127,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       final resp = await request.send();
       if (resp.statusCode == 200) {
         final data = jsonDecode(await resp.stream.bytesToString()) as Map<String, dynamic>;
-        setState(() { _avatarPath = data["avatar_path"]; _msg = "头像更新成功"; });
+        // Use "url" (API path) not "avatar_path" (server filesystem path)
+        final url = data["url"]?.toString() ?? "";
+        setState(() { _avatarPath = url; _msg = "头像更新成功"; });
       } else {
         setState(() => _error = "头像上传失败");
       }
@@ -156,10 +170,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       child: CircleAvatar(
                         radius: 52,
                         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                        backgroundImage: hasAvatar
-                            ? (_avatarPath!.startsWith("/")
-                                ? FileImage(File(_avatarPath!))
-                                : NetworkImage("$_baseUrl/api/files/avatars/${_avatarPath!.split("/").last}") as ImageProvider)
+                        backgroundImage: hasAvatar && _avatarUrl != null
+                            ? NetworkImage(_avatarUrl!)
                             : null,
                         child: hasAvatar ? null : Text(
                           _userCtrl.text.isNotEmpty ? _userCtrl.text[0].toUpperCase() : "?",
