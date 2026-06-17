@@ -218,8 +218,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Widget _miniBtn(IconData icon, String label, VoidCallback? onTap) {
+    final cs = Theme.of(context).colorScheme;
     return Material(
-      color: cardBorder(context),
+      color: cs.primary.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
@@ -227,9 +228,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 15, color: onTap == null ? Colors.grey : null),
+            Icon(icon, size: 15, color: onTap == null ? cs.outline : cs.primary),
             const SizedBox(width: 5),
-            Text(label, style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w500)),
+            Text(label, style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w500, color: cs.primary)),
           ]),
         ),
       ),
@@ -245,19 +246,19 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(children: [
         Icon(
           available > 0 ? Icons.check_circle_outline : Icons.info_outline,
-          size: 18, color: color[300],
+          size: 18, color: color[600],
         ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(_status!,
-              style: AppText.bodySmall.copyWith(color: color[200])),
+              style: AppText.bodySmall.copyWith(color: color[700], fontWeight: FontWeight.w500)),
         ),
       ]),
     );
@@ -300,9 +301,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     return Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 4),
       child: Row(children: [
-        Icon(icon, size: 16, color: color[300]),
+        Icon(icon, size: 16, color: color[600]),
         const SizedBox(width: 8),
-        Text(title, style: AppText.bodySmall.copyWith(color: color[300], fontWeight: FontWeight.w600)),
+        Text(title, style: AppText.bodySmall.copyWith(color: color[700], fontWeight: FontWeight.w600)),
       ]),
     );
   }
@@ -328,7 +329,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 color: Colors.green.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.download, size: 18, color: Colors.green[300]),
+              child: Icon(Icons.download, size: 18, color: Colors.green[600]),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -337,7 +338,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 const SizedBox(height: 2),
                 Text("AppID ${m.appId}  ·  ${m.installDir}",
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: AppText.bodySmall.copyWith(color: hintColor(context), fontSize: 11)),
+                    style: AppText.bodySmall.copyWith(color: subTextColor(context), fontSize: 11)),
               ]),
             ),
             const SizedBox(width: 4),
@@ -371,14 +372,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(children: [
-        Icon(Icons.block, size: 14, color: Colors.grey[600]),
+        Icon(Icons.block, size: 14, color: subTextColor(context)),
         const SizedBox(width: 10),
         Expanded(
           child: Text(m.gameName, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: AppText.bodySmall.copyWith(color: hintColor(context))),
+              style: AppText.bodySmall.copyWith(color: subTextColor(context))),
         ),
         Text("AppID ${m.appId}",
-            style: AppText.bodySmall.copyWith(color: Colors.grey[600], fontSize: 11)),
+            style: AppText.bodySmall.copyWith(color: subTextColor(context), fontSize: 11)),
       ]),
     );
   }
@@ -410,21 +411,21 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.green.withValues(alpha: 0.05),
+          color: Colors.green.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Row(children: [
-          Icon(Icons.archive, size: 14, color: Colors.green[300]),
+          Icon(Icons.archive, size: 14, color: Colors.green[600]),
           const SizedBox(width: 6),
           Row(mainAxisSize: MainAxisSize.min, children: [
             _typeBadge(m.type),
             const SizedBox(width: 6),
             Text(m.label ?? m.patchFilename ?? "补丁文件",
-                style: AppText.bodySmall.copyWith(color: Colors.green[200])),
+                style: AppText.bodySmall.copyWith(color: Colors.green[700], fontWeight: FontWeight.w500)),
           ]),
           const Spacer(),
           Text(_formatSize(m.patchSize),
-              style: AppText.bodySmall.copyWith(color: Colors.green[200], fontWeight: FontWeight.w600)),
+              style: AppText.bodySmall.copyWith(color: Colors.green[700], fontWeight: FontWeight.w600)),
         ]),
       );
     }
