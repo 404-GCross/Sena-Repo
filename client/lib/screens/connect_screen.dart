@@ -66,9 +66,62 @@ class _ConnectScreenState extends State<ConnectScreen> {
     if (success && mounted) {
       games.connect(host, port, useHttps: _useHttps);
 
-      // Check if we have a saved token → skip login, otherwise show login
       final api = games.api;
       final prefs = await SharedPreferences.getInstance();
+
+      // ── Client first-run setup: choose download + Steam directories ──
+      final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
+      if (!clientSetupDone) {
+        if (mounted) {
+          await showDialog(context: context, barrierDismissible: false,
+            builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
+          );
+          await prefs.setBool("client_setup_done", true);
+        }
+        if (!mounted) return;
+      }
+
+      // ── Check server setup FIRST (before login) ──
+      // New server with no admin account: run setup wizard to create
+      // admin + configure game dirs + scrapers, then login automatically.
+      final needsSetup = await api.checkSetupNeeded();
+      if (needsSetup && mounted) {
+        final setupResult = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
+        );
+        if (setupResult != true) return; // user cancelled setup
+        if (!mounted) return;
+
+        // After setup, login with the admin credentials from the wizard.
+        // The wizard already POSTed to /api/setup/initialize which created
+        // the account. Now we need to login to get a token.
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+        );
+        if (result == null) return;
+        if (result is Map) {
+          final token = result["token"]?.toString() ?? "";
+          await prefs.setString("auth_token", token);
+          await prefs.setString("username", result["username"]?.toString() ?? "");
+          await prefs.setBool("is_admin", result["is_admin"] == true);
+          api.setToken(token);
+          await ProfileService().saveCurrentAsProfile(result["username"]?.toString() ?? "默认");
+        }
+        if (!mounted) return;
+
+        await games.loadGames();
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
+        return;
+      }
+
+      // ── Normal login: server already set up ──
       final savedToken = prefs.getString("auth_token");
       if (savedToken != null && savedToken.isNotEmpty) {
         api.setToken(savedToken);
@@ -90,32 +143,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       if (!mounted) return;
 
-      // ── Client first-run setup: choose download + Steam directories ──
-      final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
-      if (!clientSetupDone) {
-        if (mounted) {
-          await showDialog(context: context, barrierDismissible: false,
-            builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
-          );
-          await prefs.setBool("client_setup_done", true);
-        }
-        if (!mounted) return;
-      }
-
-      // Always check if setup is needed (new server or no roots configured)
-      final needsSetup = await api.checkSetupNeeded();
-      if (needsSetup && mounted) {
-        final result = await Navigator.push<bool>(
-          context,
-          MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
-        );
-        if (result == true) {
-          await games.loadGames();
-        }
-        if (!mounted) return;
-      }
-
-      if (!mounted) return;
       await games.loadGames();
 
       // If no games, ask whether to scan
