@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Load keystore properties; fall back to defaults for CI
+val keystoreProperties = Properties()
+val propsFile = rootProject.file("key.properties")
+if (propsFile.exists()) {
+    keystoreProperties.load(propsFile.inputStream())
 }
 
 android {
@@ -26,9 +35,18 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file(keystoreProperties.getProperty("storeFile", "upload-keystore.jks"))
+            storePassword = keystoreProperties.getProperty("storePassword", "senarepo")
+            keyAlias = keystoreProperties.getProperty("keyAlias", "sena-repo")
+            keyPassword = keystoreProperties.getProperty("keyPassword", "senarepo")
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
