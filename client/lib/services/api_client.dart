@@ -112,6 +112,24 @@ class ApiClient {
     return false;
   }
 
+  // --- Auth ---
+
+  Future<Map<String, dynamic>?> login(String username, String password) async {
+    try {
+      final resp = await _client.post(
+        Uri.parse("$baseUrl/api/auth/login"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"username": username, "password": password}),
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        _token = data["token"]?.toString();
+        return data;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // --- Scraper ---
 
   Future<Map<String, dynamic>> scrapeGame(int gameId) async {

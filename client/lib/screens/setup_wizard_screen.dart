@@ -125,9 +125,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       // Trigger scan
       await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
       // Request Android notification permission
-      await NotificationService().init();
-      await NotificationService().requestPermission();
-      if (mounted) Navigator.pop(context, true);
+      if (Platform.isAndroid) {
+        await NotificationService().init();
+        await NotificationService().requestPermission();
+      }
+      if (mounted) Navigator.pop(context, {
+        "username": _userCtrl.text.trim(),
+        "password": _passCtrl.text,
+      });
     } catch (e) {
       setState(() { _error = "$e"; _loading = false; });
     }

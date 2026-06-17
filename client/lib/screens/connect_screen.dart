@@ -76,20 +76,35 @@ class _ConnectScreenState extends State<ConnectScreen> {
       // dir, Steam dir, and Steam user ID.
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
-        final setupResult = await Navigator.push<bool>(
+        final setupResult = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
         );
-        if (setupResult != true) return; // user cancelled setup
+        if (setupResult == null) return; // user cancelled setup
         if (!mounted) return;
 
-        // After setup, login with the admin credentials from the wizard.
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+        // Auto-login with credentials from the wizard (avoids typing twice)
+        final creds = setupResult as Map;
+        final result = await api.login(
+          creds["username"]?.toString() ?? "",
+          creds["password"]?.toString() ?? "",
         );
-        if (result == null) return;
-        if (result is Map) {
+        if (result == null) {
+          // Auto-login failed — fall back to manual login
+          final loginResult = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+          );
+          if (loginResult == null) return;
+          if (loginResult is Map) {
+            final token = loginResult["token"]?.toString() ?? "";
+            await prefs.setString("auth_token", token);
+            await prefs.setString("username", loginResult["username"]?.toString() ?? "");
+            await prefs.setBool("is_admin", loginResult["is_admin"] == true);
+            api.setToken(token);
+            await ProfileService().saveCurrentAsProfile(loginResult["username"]?.toString() ?? "默认");
+          }
+        } else {
           final token = result["token"]?.toString() ?? "";
           await prefs.setString("auth_token", token);
           await prefs.setString("username", result["username"]?.toString() ?? "");
@@ -100,7 +115,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (!mounted) return;
 
         // Mark client setup done — wizard already handled it
-        if (!prefs.getBool("client_setup_done") ?? false) {
+        if (prefs.getBool("client_setup_done") != true) {
           await prefs.setBool("client_setup_done", true);
         }
 
