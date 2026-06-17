@@ -336,7 +336,6 @@ class DownloadService with WidgetsBindingObserver {
       _emit();
       await Future.delayed(const Duration(milliseconds: 100));
       await _extract(tmp.path, outDir, gameDir, null, password);
-      await _fixLayout(outDir, gameDir);
       await tmp.delete();
       t.status = "done";
       t.outputPath = outDir;
@@ -846,10 +845,14 @@ class DownloadService with WidgetsBindingObserver {
       // Rename to match game name if different
       if (folderName != gameDir) {
         final target = "$outDir/$gameDir";
+        // If target already exists (e.g. previous partial extraction), remove it first
+        if (await Directory(target).exists()) {
+          try { await Directory(target).delete(recursive: true); } catch (_) {}
+        }
         try {
           await folder.rename(target);
         } catch (_) {
-          // rename failed (target exists or locked) → copy + delete
+          // rename failed → copy + delete
           try {
             await _copyMerge(folder.path, target);
             await folder.delete(recursive: true);
