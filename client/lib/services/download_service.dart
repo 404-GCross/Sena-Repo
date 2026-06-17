@@ -195,23 +195,27 @@ class DownloadService with WidgetsBindingObserver {
   /// Check if MANAGE_EXTERNAL_STORAGE is granted on Android.
   Future<bool> checkStoragePermissionGranted() async {
     if (!Platform.isAndroid) return true;
+    // Primary: try to write a test file to the download directory
+    try {
+      final dir = await downloadDir;
+      if (!await Directory(dir).exists()) {
+        await Directory(dir).create(recursive: true);
+      }
+      final testFile = File("$dir/.sena_perm_test");
+      await testFile.writeAsString("1");
+      await testFile.delete();
+      return true;
+    } catch (_) {
+      // File write failed — permission likely not granted
+    }
+    // Fallback: check via appops
     try {
       final result = await Process.run(
         "appops", ["get", "com.github.senarepo", "MANAGE_EXTERNAL_STORAGE"],
       );
       return result.exitCode == 0 && result.stdout.toString().contains("allow");
-    } catch (_) {
-      // Fallback: try to create a test file
-      try {
-        final dir = await downloadDir;
-        final testFile = File("$dir/.sena_perm_test");
-        await testFile.writeAsString("1");
-        await testFile.delete();
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
+    } catch (_) {}
+    return false;
   }
 
   /// Open Android "All files access" settings for this app.

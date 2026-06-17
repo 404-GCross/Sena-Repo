@@ -597,10 +597,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
 
     // On Android, check storage permission before starting download
-    if (Platform.isAndroid && DownloadService().needsStoragePermission(dlDir!)) {
+    if (Platform.isAndroid &&
+        dlDir != null &&
+        DownloadService().needsStoragePermission(dlDir)) {
       final granted = await DownloadService().checkStoragePermissionGranted();
       if (!granted && mounted) {
         await _showStoragePermissionDialog();
+        return; // Block download until permission granted
       }
     }
 
@@ -640,22 +643,26 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   Future<void> _showStoragePermissionDialog() async {
     await showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         icon: Icon(Icons.folder_off, size: 32, color: Colors.orange[300]),
         title: const Text("需要存储权限"),
         content: const Text(
-          "Android 11+ 下载到共享存储需要「所有文件访问」权限。\n\n"
-          "点击「前往设置」→ 权限 → 开启后返回即可。",
+          "Android 11+ 要求开启「所有文件访问」权限才能将游戏下载到共享存储。\n\n"
+          "开启后回到本页面重新点击下载即可。",
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("稍后")),
-          FilledButton.icon(
+          OutlinedButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
               DownloadService().openStoragePermissionSettings();
             },
             icon: const Icon(Icons.settings, size: 16),
             label: const Text("前往设置"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("知道了"),
           ),
         ],
       ),
