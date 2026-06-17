@@ -651,7 +651,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         icon: Icon(Icons.folder_off, size: 32, color: Colors.orange[300]),
         title: const Text("需要存储权限"),
         content: const Text(
-          "Android 11+ 要求开启「所有文件访问」权限才能将游戏下载到共享存储。\n\n"
+          "Android 11+ 解压游戏到共享存储需要「所有文件访问」权限，否则会解压失败。\n\n"
           "开启后回到本页面重新点击下载即可。",
         ),
         actions: [
