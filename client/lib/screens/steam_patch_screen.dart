@@ -398,9 +398,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         child: Row(children: [
           Icon(Icons.archive, size: 14, color: Colors.green[300]),
           const SizedBox(width: 6),
-          Text(m.patchFilename ?? "补丁文件",
+          Text(m.label ?? m.patchFilename ?? "补丁文件",
               style: AppText.bodySmall.copyWith(color: Colors.green[200])),
           const Spacer(),
+          if (m.patchDir != null && m.patchDir!.isNotEmpty) ...[
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.subdirectory_arrow_right, size: 12, color: Colors.green[300]),
+              Text(m.patchDir!, style: AppText.bodySmall.copyWith(color: Colors.green[300])),
+            ]),
+            const SizedBox(width: 8),
+          ],
           Text(_formatSize(m.patchSize),
               style: AppText.bodySmall.copyWith(color: Colors.green[200], fontWeight: FontWeight.w600)),
         ]),
@@ -488,6 +495,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
         installDir: m.installDir,
         api: api,
+        patchDir: m.patchDir,
+        targetDir: m.targetDir,
       );
       await for (final update in stream) {
         if (!mounted) return;

@@ -32,6 +32,9 @@ class PatchMatch {
   final bool patchAvailable;
   final String? patchFilename;
   final int patchSize;
+  final String? patchDir;
+  final String? targetDir;
+  final String? label;
 
   PatchMatch({
     required this.appId,
@@ -40,6 +43,9 @@ class PatchMatch {
     required this.patchAvailable,
     this.patchFilename,
     this.patchSize = 0,
+    this.patchDir,
+    this.targetDir,
+    this.label,
   });
 
   factory PatchMatch.fromJson(Map<String, dynamic> json) => PatchMatch(
@@ -49,6 +55,9 @@ class PatchMatch {
         patchAvailable: json["patch_available"] ?? false,
         patchFilename: json["patch_filename"],
         patchSize: json["patch_size"] ?? 0,
+        patchDir: json["patch_dir"],
+        targetDir: json["target_dir"],
+        label: json["label"],
       );
 }
 
@@ -108,6 +117,8 @@ class SteamService {
     required String downloadUrl,
     required String installDir,
     required ApiClient api,
+    String? patchDir,
+    String? targetDir,
   }) async* {
     final httpClient = http.Client();
     File? tmpFile;
@@ -164,15 +175,24 @@ class SteamService {
         return;
       }
 
-      // Merge: if single subfolder, copy its contents; otherwise copy everything
-      final entries = Directory(tmpExtract).listSync();
+      // Resolve source: patchDir > single subfolder > root
       String sourceDir = tmpExtract;
-      if (entries.length == 1 && entries.first is Directory) {
-        sourceDir = entries.first.path;
+      if (patchDir != null && patchDir!.isNotEmpty) {
+        final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
+        if (await Directory(pd).exists()) sourceDir = pd;
+      } else {
+        final entries = Directory(tmpExtract).listSync();
+        if (entries.length == 1 && entries.first is Directory) {
+          sourceDir = entries.first.path;
+        }
       }
-
-      // Copy files to install dir, overwriting existing
-      await _copyMerge(sourceDir, installDir);
+      // Resolve target: targetDir > installDir root
+      String destDir = installDir;
+      if (targetDir != null && targetDir!.isNotEmpty) {
+        destDir = "$installDir${Platform.pathSeparator}$targetDir";
+      }
+      await Directory(destDir).create(recursive: true);
+      await _copyMerge(sourceDir, destDir);
 
       // Cleanup
       await Directory(tmpExtract).delete(recursive: true);

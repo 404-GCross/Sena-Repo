@@ -1,13 +1,16 @@
-"""Steam patch injection API — PC client feature."""
+"""Steam patch injection API — PC client feature.
 
+Reads patches.json in the patch directory for patch index.
+Falls back to bare file scanning if no patches.json exists.
+"""
 from __future__ import annotations
 
-import re
+import json, re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import load_config
 
@@ -18,6 +21,20 @@ def _get_patches_dir(config=None):
     if config is None:
         config = load_config()
     return Path(config.patch_dir) if config.patch_dir else Path(config.data_path) / "steam_patches"
+
+
+def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
+    """Load patches.json; returns dict keyed by app_id string, or None if no file."""
+    idx_path = patches_dir / "patches.json"
+    if not idx_path.is_file():
+        return None
+    try:
+        with open(idx_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        patches = data.get("patches", [])
+        return {str(p["app_id"]): p for p in patches if p.get("app_id")}
+    except Exception:
+        return None
 
 
 # ── Models ──
@@ -35,10 +52,12 @@ class PatchMatch(BaseModel):
     patch_available: bool
     patch_filename: str | None = None
     patch_size: int = 0
+    patch_dir: str | None = None
+    target_dir: str | None = None
+    label: str | None = None
 
 
 class ScanRequest(BaseModel):
-    """Client sends a list of installed Steam games found locally."""
     games: list[SteamGameInfo]
 
 
@@ -46,15 +65,9 @@ class ScanRequest(BaseModel):
 
 @router.post("/scan", response_model=list[PatchMatch])
 async def scan_steam_games(body: ScanRequest):
-    """Client sends locally detected Steam games, server returns patch availability.
-
-    Client should:
-    1. Let user pick steamapps/common directory via file picker
-    2. Read appmanifest_*.acf files to get App IDs + names
-    3. POST the list to this endpoint
-    """
     config = load_config()
     patches_dir = _get_patches_dir(config)
+    index = _load_patches_index(patches_dir)
     results = []
 
     for game in body.games:
@@ -65,13 +78,30 @@ async def scan_steam_games(body: ScanRequest):
             patch_available=False,
         )
 
-        # Check if a patch exists for this App ID
-        if patches_dir.exists():
-            patch_file = _find_patch(patches_dir, game.app_id)
-            if patch_file:
+        if not patches_dir.exists():
+            results.append(match)
+            continue
+
+        # 1. Try patches.json index
+        if index and game.app_id in index:
+            entry = index[game.app_id]
+            patch_file = patches_dir / entry["file"]
+            if patch_file.is_file():
                 match.patch_available = True
                 match.patch_filename = patch_file.name
                 match.patch_size = patch_file.stat().st_size
+                match.patch_dir = entry.get("patch_dir", "")
+                match.target_dir = entry.get("target_dir", "")
+                match.label = entry.get("label", "")
+                results.append(match)
+                continue
+
+        # 2. Fallback: bare file scan
+        patch_file = _find_patch_fallback(patches_dir, game.app_id)
+        if patch_file:
+            match.patch_available = True
+            match.patch_filename = patch_file.name
+            match.patch_size = patch_file.stat().st_size
 
         results.append(match)
 
@@ -80,60 +110,49 @@ async def scan_steam_games(body: ScanRequest):
 
 @router.get("/patches")
 async def list_patches():
-    """List all available patches on the server."""
     patches_dir = _get_patches_dir()
-
     if not patches_dir.exists():
         return {"patches": [], "message": "No patches directory found"}
 
-    patches = []
-    for f in sorted(patches_dir.rglob("*")):
-        if f.is_file() and f.suffix.lower() in {".zip", ".rar", ".7z", ".tar", ".gz"}:
-            patches.append({
-                "filename": f.name,
-                "path": str(f.relative_to(patches_dir)),
-                "size": f.stat().st_size,
-            })
+    index = _load_patches_index(patches_dir)
+    if index:
+        return {"patches": list(index.values()), "count": len(index), "source": "patches.json"}
 
-    return {"patches": patches, "count": len(patches)}
+    return {"patches": [], "count": 0, "message": "No patches.json found; run scan_patches.py to generate"}
 
 
 @router.get("/patches/{app_id}/download")
 async def download_patch(app_id: str):
-    """Download a patch file for the given Steam App ID."""
     patches_dir = _get_patches_dir()
-
     if not patches_dir.exists():
         raise HTTPException(status_code=404, detail="补丁目录不存在")
 
-    patch_file = _find_patch(patches_dir, app_id)
+    # 1. Try patches.json
+    index = _load_patches_index(patches_dir)
+    if index and app_id in index:
+        entry = index[app_id]
+        patch_file = patches_dir / entry["file"]
+        if patch_file.is_file():
+            return FileResponse(path=str(patch_file), filename=patch_file.name,
+                                media_type="application/octet-stream")
+
+    # 2. Fallback
+    patch_file = _find_patch_fallback(patches_dir, app_id)
     if patch_file is None:
         raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁文件")
-
-    return FileResponse(
-        path=str(patch_file),
-        filename=patch_file.name,
-        media_type="application/octet-stream",
-    )
+    return FileResponse(path=str(patch_file), filename=patch_file.name,
+                        media_type="application/octet-stream")
 
 
-def _find_patch(patches_dir: Path, app_id: str) -> Path | None:
-    """Find a patch file for the given App ID in the patches directory.
-
-    Patches are organized as: steam_patches/<app_id>/ or steam_patches/<app_id>.zip
-    """
-    # Direct file match: steam_patches/123456.zip
+def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
     for ext in (".zip", ".rar", ".7z", ".tar", ".gz"):
         candidate = patches_dir / f"{app_id}{ext}"
         if candidate.exists():
             return candidate
-
-    # Directory match: steam_patches/123456/
     app_dir = patches_dir / app_id
     if app_dir.is_dir():
         for ext in (".zip", ".rar", ".7z"):
             for f in app_dir.iterdir():
                 if f.is_file() and f.suffix.lower() == ext:
                     return f
-
     return None
