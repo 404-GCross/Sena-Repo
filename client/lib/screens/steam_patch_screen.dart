@@ -331,7 +331,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                     style: AppText.bodySmall.copyWith(color: hintColor(context), fontSize: 11)),
               ]),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.edit, size: 16),
+              onPressed: () => _showEditDialog(m),
+              tooltip: "编辑补丁参数",
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.all(6),
+              constraints: const BoxConstraints(),
+            ),
+            const SizedBox(width: 4),
             _buildInjectButton(m),
           ]),
           // Progress or patch info
@@ -479,6 +488,66 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         ],
       ]),
     ]);
+  }
+
+  Future<void> _showEditDialog(PatchMatch m) async {
+    final patchCtrl = TextEditingController(text: m.patchDir ?? "");
+    final targetCtrl = TextEditingController(text: m.targetDir ?? "");
+    final labelCtrl = TextEditingController(text: m.label ?? "");
+    String ptype = m.type ?? "misc";
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("编辑补丁 — ${m.gameName}"),
+        content: SizedBox(width: 380, child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: patchCtrl, decoration: const InputDecoration(labelText: "补丁源目录 (patch_dir)", hintText: "解压后取此子目录", isDense: true)),
+            const SizedBox(height: 10),
+            TextField(controller: targetCtrl, decoration: const InputDecoration(labelText: "目标目录 (target_dir)", hintText: "复制到游戏目录下的子路径", isDense: true)),
+            const SizedBox(height: 10),
+            TextField(controller: labelCtrl, decoration: const InputDecoration(labelText: "显示名称 (label)", hintText: "界面显示的补丁名", isDense: true)),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: ptype,
+              items: _typeLabels.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+              onChanged: (v) => ptype = v ?? "misc",
+              decoration: const InputDecoration(labelText: "补丁类型", isDense: true),
+            ),
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () {
+            Navigator.pop(ctx, {
+              "patch_dir": patchCtrl.text.trim(),
+              "target_dir": targetCtrl.text.trim(),
+              "label": labelCtrl.text.trim(),
+              "type": ptype,
+            });
+          }, child: const Text("保存")),
+        ],
+      ),
+    );
+
+    if (result == null || !mounted) return;
+    try {
+      final api = context.read<GameProvider>().api;
+      await SteamService.updatePatch(
+        api: api, appId: m.appId,
+        patchDir: result["patch_dir"] ?? "",
+        targetDir: result["target_dir"] ?? "",
+        label: result["label"] ?? "",
+        type: result["type"] ?? "misc",
+      );
+      // Refresh the list to show updated values
+      _scanAndCheck();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("保存失败: $e")));
+      }
+    }
   }
 
   static final _typeLabels = {

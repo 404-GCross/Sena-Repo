@@ -271,4 +271,30 @@ class SteamService {
     final List<dynamic> data = jsonDecode(resp.body);
     return data.map((j) => PatchMatch.fromJson(j as Map<String, dynamic>)).toList();
   }
+
+  /// Update patch metadata in server's patches.json.
+  static Future<void> updatePatch({
+    required ApiClient api,
+    required String appId,
+    String? patchDir,
+    String? targetDir,
+    String? label,
+    String? type,
+  }) async {
+    final body = <String, dynamic>{};
+    if (patchDir != null) body["patch_dir"] = patchDir;
+    if (targetDir != null) body["target_dir"] = targetDir;
+    if (label != null) body["label"] = label;
+    if (type != null) body["type"] = type;
+    if (body.isEmpty) return;
+
+    final resp = await http.put(
+      Uri.parse("${api.baseUrl}/api/steam/patches/$appId"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(body),
+    );
+    if (resp.statusCode != 200) {
+      throw HttpException("Failed to update patch: ${resp.statusCode}");
+    }
+  }
 }

@@ -146,6 +146,47 @@ async def download_patch(app_id: str):
                         media_type="application/octet-stream")
 
 
+class PatchUpdate(BaseModel):
+    patch_dir: str | None = None
+    target_dir: str | None = None
+    label: str | None = None
+    type: str | None = None
+
+
+@router.put("/patches/{app_id}")
+async def update_patch(app_id: str, body: PatchUpdate):
+    """Update patch metadata in patches.json."""
+    import json as _json
+    patches_dir = _get_patches_dir()
+    json_path = patches_dir / "patches.json"
+
+    if not json_path.is_file():
+        raise HTTPException(status_code=404, detail="patches.json 不存在")
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+    except Exception:
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
+
+    patches = data.get("patches", [])
+    for p in patches:
+        if str(p.get("app_id", "")) == app_id:
+            if body.patch_dir is not None:
+                p["patch_dir"] = body.patch_dir
+            if body.target_dir is not None:
+                p["target_dir"] = body.target_dir
+            if body.label is not None:
+                p["label"] = body.label
+            if body.type is not None:
+                p["type"] = body.type
+            with open(json_path, "w", encoding="utf-8") as f:
+                _json.dump(data, f, ensure_ascii=False, indent=2)
+            return {"message": "已更新", "app_id": app_id}
+
+    raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁条目")
+
+
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
     for ext in (".zip", ".rar", ".7z", ".tar", ".gz"):
         candidate = patches_dir / f"{app_id}{ext}"
