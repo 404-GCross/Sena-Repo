@@ -560,12 +560,32 @@ class DownloadService with WidgetsBindingObserver {
         // Phase 2: extract (skip if download-only mode)
         if (mode == "download_only") {
           final destFile = File("$outDir/${t.fileName}");
-          try { await destFile.parent.create(recursive: true); } catch (_) {}
-          try { await tmp.rename(destFile.path); } catch (_) {
-            try { await tmp.copy(destFile.path); await tmp.delete(); } catch (_) {}
+          bool moved = false;
+          try {
+            await destFile.parent.create(recursive: true);
+            await tmp.rename(destFile.path);
+            moved = await destFile.exists();
+          } catch (_) {}
+          if (!moved) {
+            try {
+              await tmp.copy(destFile.path);
+              moved = await destFile.exists();
+              if (moved) await tmp.delete();
+            } catch (_) {}
+          }
+          // Fallback: keep in internal downloads if external move failed
+          if (!moved) {
+            final internalDir = "${(await getApplicationSupportDirectory()).path}/downloads";
+            await Directory(internalDir).create(recursive: true);
+            final fallback = File("$internalDir/${t.fileName}");
+            try { await tmp.rename(fallback.path); } catch (_) {
+              try { await tmp.copy(fallback.path); await tmp.delete(); } catch (_) {}
+            }
+            t.outputPath = fallback.path;
+          } else {
+            t.outputPath = destFile.path;
           }
           t.status = "done";
-          t.outputPath = destFile.path;
           t.progress = 1.0;
           _emit();
           NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
