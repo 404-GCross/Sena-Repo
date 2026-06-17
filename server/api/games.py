@@ -90,7 +90,7 @@ async def list_games(
 
     # Ordering
     if sort == "company":
-        query = query.join(Game.company).order_by(Company.name.asc(), Game.name.asc())
+        query = query.outerjoin(Game.company).order_by(Company.name.asc().nulls_last(), Game.name.asc())
     elif sort == "developer":
         query = query.order_by(Game.developer.asc().nulls_last(), Game.name.asc())
     elif sort == "name":
