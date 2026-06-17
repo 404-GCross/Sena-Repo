@@ -617,11 +617,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onPressed: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
-          ),
-          IconButton(
-            icon: Icon(_isGridView ? Icons.list : Icons.grid_view, size: 22),
-            onPressed: () => setState(() => _isGridView = !_isGridView),
-            tooltip: _isGridView ? "列表视图" : "网格视图",
+            tooltip: "下载管理",
           ),
         ],
       ),
