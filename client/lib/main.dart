@@ -31,32 +31,13 @@ Future<bool> _check7zAvailable() async {
 final trayService = TrayService();
 
 ServerSocket? _lockServer;
-const _instancePort = 11452;
 
-/// Acquire single-instance lock on [_instancePort].
-/// Returns true for first instance (starts listening for "show" signals).
-/// Returns false for subsequent instances (sends "show" to first, then exits).
 Future<bool> _acquireSingleInstanceLock() async {
   try {
-    _lockServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, _instancePort);
-    // First instance — listen for requests from subsequent launches
-    _lockServer!.listen((Socket s) {
-      s.destroy(); // Just receiving a connection is the signal
-      windowManager.show();
-      windowManager.focus();
-    });
-    return true;
+    _lockServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 11452);
+    return true; // First instance
   } catch (_) {
-    // Port in use — another instance already running, signal it to show
-    try {
-      final s = await Socket.connect(
-        InternetAddress.loopbackIPv4,
-        _instancePort,
-        timeout: const Duration(milliseconds: 500),
-      );
-      await s.close();
-    } catch (_) {}
-    return false;
+    return false; // Port in use = another instance already running
   }
 }
 
