@@ -360,6 +360,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                           _infoRow("开发商", game.developer, Icons.business),
                           _divider(),
                           _infoRow("发售日", game.releaseDate, Icons.calendar_today),
+                          _divider(),
+                          _infoRow("游戏时长", _formatPlaytime(game), Icons.timer),
                         ]),
                         const SizedBox(height: 20),
                         _section("版本", Icons.folder_outlined),
@@ -493,6 +495,26 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     child: Center(child: Icon(Icons.image, size: 64,
         color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[700] : Colors.grey[400])),
   );
+
+  String _formatPlaytime(GameDetail game) {
+    final minutes = game.lengthMinutes;
+    if (minutes > 0) {
+      final h = minutes ~/ 60;
+      final m = minutes % 60;
+      if (h > 0 && m > 0) return "$h 小时 $m 分";
+      if (h > 0) return "$h 小时";
+      return "$m 分";
+    }
+    // Fallback: VNDB length category
+    switch (game.length) {
+      case 1: return "很短 (< 2h)";
+      case 2: return "短 (2–10h)";
+      case 3: return "中等 (10–30h)";
+      case 4: return "长 (30–50h)";
+      case 5: return "很长 (> 50h)";
+      default: return "—";
+    }
+  }
 
   String _formatSize(int bytes) {
     if (bytes < 1024) return "$bytes B";

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 VNDB_FIELDS = (
     "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
     "image.url,screenshots.url,description,rating,released,"
+    "length,length_minutes,"
     "developers.name,tags.name,tags.rating,tags.spoiler"
 )
 
@@ -82,6 +83,8 @@ class VndbKanaScraper(BaseScraper):
             screenshot_urls=all_shots,
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
+            length=(item.get("length") or 0),
+            length_minutes=(item.get("length_minutes") or 0),
         )
 
     def _pick_title(self, titles: list[dict]) -> str:

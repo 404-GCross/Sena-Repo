@@ -187,6 +187,12 @@ async def _apply_result(
         if result.release_date and (overwrite or not game.release_date):
             game.release_date = result.release_date
             session.add(game)
+        if result.length and (overwrite or not game.length):
+            game.length = result.length
+            session.add(game)
+        if result.length_minutes and (overwrite or not game.length_minutes):
+            game.length_minutes = result.length_minutes
+            session.add(game)
         # Source ID — map scraper to game ID column
         _id_map = {"vndb_kana": "vndb_id", "vndb": "vndb_id",
                    "steam": "steam_id", "bangumi": "bangumi_id"}

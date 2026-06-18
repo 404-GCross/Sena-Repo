@@ -46,6 +46,8 @@ class ScraperResult:
     screenshot_urls: list[str] = field(default_factory=list)  # all screenshots for picker
     source_id: str = ""
     source_name: str = ""
+    length: int = 0         # VNDB length category 1-5
+    length_minutes: int = 0 # average play time in minutes
 
 
 class BaseScraper(ABC):

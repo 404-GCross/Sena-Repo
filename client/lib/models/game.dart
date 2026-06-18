@@ -52,6 +52,8 @@ class GameSummary {
   final String platformSummary;
   final List<String> tagNames;
   final String importedAt;
+  final int length;
+  final int lengthMinutes;
 
   GameSummary({
     required this.id,
@@ -63,6 +65,8 @@ class GameSummary {
     required this.platformSummary,
     required this.tagNames,
     required this.importedAt,
+    this.length = 0,
+    this.lengthMinutes = 0,
   });
 
   factory GameSummary.fromJson(Map<String, dynamic> json) {
@@ -76,6 +80,8 @@ class GameSummary {
       platformSummary: json["platform_summary"] ?? "",
       tagNames: List<String>.from(json["tag_names"] ?? []),
       importedAt: json["imported_at"] ?? "",
+      length: json["length"] ?? 0,
+      lengthMinutes: json["length_minutes"] ?? 0,
     );
   }
 }
@@ -94,6 +100,8 @@ class GameDetail {
   final String? vndbId;
   final String? steamId;
   final String? bangumiId;
+  final int length;
+  final int lengthMinutes;
   final bool isDeleted;
   final String importedAt;
   final String updatedAt;
@@ -114,6 +122,8 @@ class GameDetail {
     this.vndbId,
     this.steamId,
     this.bangumiId,
+    this.length = 0,
+    this.lengthMinutes = 0,
     required this.isDeleted,
     required this.importedAt,
     required this.updatedAt,
@@ -136,6 +146,8 @@ class GameDetail {
       vndbId: json["vndb_id"],
       steamId: json["steam_id"],
       bangumiId: json["bangumi_id"],
+      length: json["length"] ?? 0,
+      lengthMinutes: json["length_minutes"] ?? 0,
       isDeleted: json["is_deleted"] ?? false,
       importedAt: json["imported_at"] ?? "",
       updatedAt: json["updated_at"] ?? "",

@@ -28,6 +28,8 @@ class GameSummary(BaseModel):
     platform_summary: str = ""  # e.g. "PC, KRKR"
     tag_names: list[str] = []
     imported_at: datetime
+    length: int = 0
+    length_minutes: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -47,6 +49,8 @@ class GameDetail(BaseModel):
     vndb_id: str | None = None
     steam_id: str | None = None
     bangumi_id: str | None = None
+    length: int = 0
+    length_minutes: int = 0
     is_deleted: bool
     imported_at: datetime
     updated_at: datetime

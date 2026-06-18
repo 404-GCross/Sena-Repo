@@ -34,6 +34,8 @@ def _game_to_summary(game: Game) -> GameSummary:
         platform_summary=", ".join(platforms),
         tag_names=tag_names,
         imported_at=game.imported_at,
+        length=game.length or 0,
+        length_minutes=game.length_minutes or 0,
     )
 
 
@@ -193,6 +195,8 @@ async def get_game(
         vndb_id=game.vndb_id,
         steam_id=game.steam_id,
         bangumi_id=game.bangumi_id,
+        length=game.length or 0,
+        length_minutes=game.length_minutes or 0,
         is_deleted=game.is_deleted,
         imported_at=game.imported_at,
         updated_at=game.updated_at,

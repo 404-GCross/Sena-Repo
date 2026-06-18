@@ -58,6 +58,9 @@ class Game(Base):
     steam_id = Column(String(32), nullable=True)
     bangumi_id = Column(String(32), nullable=True)
 
+    length = Column(Integer, default=0)
+    length_minutes = Column(Integer, default=0)
+
     is_deleted = Column(Boolean, default=False)
     imported_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
