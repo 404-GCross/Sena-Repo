@@ -8,7 +8,7 @@ from __future__ import annotations
 import json, re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -244,7 +244,7 @@ async def list_patches(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/patches/{app_id}/download")
-async def download_patch(app_id: str):
+async def download_patch(app_id: str, request: Request):
     patches_dir = _get_patches_dir()
     if not patches_dir.exists():
         raise HTTPException(status_code=404, detail="补丁目录不存在")
@@ -256,14 +256,16 @@ async def download_patch(app_id: str):
         patch_file = patches_dir / entry["file"]
         if patch_file.is_file():
             return FileResponse(path=str(patch_file), filename=patch_file.name,
-                                media_type="application/octet-stream")
+                                media_type="application/octet-stream",
+                                headers={"Accept-Ranges": "bytes"})
 
     # 2. Fallback
     patch_file = _find_patch_fallback(patches_dir, app_id)
     if patch_file is None:
         raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁文件")
     return FileResponse(path=str(patch_file), filename=patch_file.name,
-                        media_type="application/octet-stream")
+                        media_type="application/octet-stream",
+                        headers={"Accept-Ranges": "bytes"})
 
 
 class PatchUpdate(BaseModel):

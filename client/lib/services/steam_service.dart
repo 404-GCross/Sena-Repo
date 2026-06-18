@@ -154,13 +154,24 @@ class SteamService {
     try {
       if (state._cancelled) return;
 
-      // Phase 1: download (with Range for resume)
+      // Phase 1: download (with Range for resume, fallback on failure)
       final request = http.Request("GET", Uri.parse(downloadUrl));
       if (isResume && state._received > 0 && tmpFile != null) {
         request.headers["Range"] = "bytes=${state._received}-";
       }
 
-      final resp = await httpClient.send(request);
+      var resp = await httpClient.send(request);
+      if (state._cancelled) return;
+
+      // Range not supported — restart from scratch
+      if (resp.statusCode == 416 || resp.statusCode == 405) {
+        state._received = 0;
+        if (tmpFile != null) { try { await tmpFile.delete(); } catch (_) {} }
+        tmpFile = null;
+        state._tmpFile = null;
+        final retryReq = http.Request("GET", Uri.parse(downloadUrl));
+        resp = await httpClient.send(retryReq);
+      }
       if (state._cancelled) return;
 
       if (resp.statusCode != 200 && resp.statusCode != 206) {
@@ -173,12 +184,12 @@ class SteamService {
           ? (resp.contentLength ?? 0) + state._received
           : resp.contentLength ?? 0;
       final supportDir = (await getApplicationSupportDirectory()).path;
-      if (!isResume) {
+      if (tmpFile == null) {
         tmpFile = File("$supportDir/.patch_${appId}_${DateTime.now().millisecondsSinceEpoch}");
         state._tmpFile = tmpFile;
       }
 
-      final sink = tmpFile!.openWrite(mode: isResume ? FileMode.append : FileMode.write);
+      final sink = tmpFile!.openWrite(mode: state._received > 0 ? FileMode.append : FileMode.write);
       int received = state._received;
       int lastBytes = received;
       DateTime lastTime = DateTime.now();
