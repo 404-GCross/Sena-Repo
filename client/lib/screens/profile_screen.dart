@@ -29,12 +29,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _serverInfo = "";
   String? _avatarPath;
   int _userId = 0;
+  int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
-    if (_avatarPath!.startsWith("http")) return _avatarPath;
     final name = _avatarPath!.split(RegExp(r'[/\\]')).last;
-    return "${context.read<GameProvider>().api.baseUrl}/api/files/avatars/$name";
+    return "${context.read<GameProvider>().api.baseUrl}/api/files/avatars/$name?v=$_avatarVersion";
   }
 
   @override
@@ -66,7 +66,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/$_userId"));
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          if (mounted) setState(() => _avatarPath = data["avatar_path"]);
+          if (mounted) setState(() {
+            _avatarPath = data["avatar_path"];
+            _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+          });
         }
       } catch (_) {}
     }

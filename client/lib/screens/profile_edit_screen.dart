@@ -33,15 +33,20 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
   /// Resolve avatar URL from any path format (server filesystem path, API path, or filename).
+  int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
-    // Already a full URL
-    if (_avatarPath!.startsWith("http")) return _avatarPath;
-    // API path like /api/files/avatars/xxx.jpg
-    if (_avatarPath!.contains("/api/files/avatars/")) return "$_baseUrl$_avatarPath";
-    // Just filename
-    final name = _avatarPath!.split(RegExp(r'[/\\]')).last;
-    return "$_baseUrl/api/files/avatars/$name";
+    String url;
+    if (_avatarPath!.startsWith("http")) {
+      url = _avatarPath!;
+    } else if (_avatarPath!.contains("/api/files/avatars/")) {
+      url = "$_baseUrl$_avatarPath";
+    } else {
+      final name = _avatarPath!.split(RegExp(r'[/\\]')).last;
+      url = "$_baseUrl/api/files/avatars/$name";
+    }
+    return "$url?v=$_avatarVersion";
   }
 
   Future<Map<String, String>> get _authHeaders async {
@@ -66,6 +71,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         if (mounted) setState(() {
           _userCtrl.text = data["username"] ?? "";
           _avatarPath = data["avatar_path"];
+          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
           _userId = data["id"] ?? 0;
           _loading = false;
         });
@@ -129,7 +135,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         final data = jsonDecode(await resp.stream.bytesToString()) as Map<String, dynamic>;
         // Use "url" (API path) not "avatar_path" (server filesystem path)
         final url = data["url"]?.toString() ?? "";
-        setState(() { _avatarPath = url; _msg = "头像更新成功"; });
+        setState(() { _avatarPath = url; _avatarVersion = DateTime.now().millisecondsSinceEpoch; _msg = "头像更新成功"; });
       } else {
         setState(() => _error = "头像上传失败");
       }
