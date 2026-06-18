@@ -234,9 +234,23 @@ class SteamService {
       if (state._cancelled) return;
 
       // Phase 2: extract
+      // Validate: check if download looks like an archive, not an error page
+      if (tmpFile != null) {
+        final size = await tmpFile.length();
+        if (size < 512) {
+          final header = await tmpFile.readAsString();
+          if (header.startsWith("<") || header.startsWith("{")) {
+            yield {"error": "下载的不是压缩包（可能是服务端错误页面），请检查 AppID 是否正确"};
+            _injections.remove(appId);
+            await tmpFile.delete();
+            return;
+          }
+        }
+      }
+
       yield {"stage": "extracting", "progress": 0.0, "received": received, "total": total, "speed": 0};
       final exe = await _getSevenZipPath();
-      final tmpExtract = "${(await getApplicationSupportDirectory()).path}/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+      final tmpExtract = "${workDir}/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
       await Directory(tmpExtract).create(recursive: true);
 
       final proc = await Process.start(exe, ["x", "-y", "-o$tmpExtract", tmpFile.path]);
