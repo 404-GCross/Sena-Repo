@@ -683,7 +683,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         child: Row(children: [
           Icon(Icons.check_circle, size: 14, color: Colors.green[300]),
           const SizedBox(width: 6),
-          Text("注入完成", style: AppText.bodySmall.copyWith(color: Colors.green[300])),
+          Expanded(child: Text("注入完成", style: AppText.bodySmall.copyWith(color: Colors.green[300]))),
+          IconButton(icon: const Icon(Icons.close, size: 14),
+              tooltip: "关闭", visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
+              onPressed: () => setState(() => _injectState.remove(m.appId))),
         ]),
       );
     }
@@ -702,6 +706,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           Expanded(child: Text(state["error"]?.toString() ?? "注入失败",
               maxLines: 2, overflow: TextOverflow.ellipsis,
               style: AppText.bodySmall.copyWith(color: Colors.red[200]))),
+          IconButton(icon: const Icon(Icons.close, size: 14),
+              tooltip: "关闭", visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
+              onPressed: () {
+                SteamService.cancelInjection(m.appId);
+                setState(() => _injectState.remove(m.appId));
+              }),
         ]),
       );
     }
