@@ -336,16 +336,21 @@ class SteamService {
     String? targetDir,
     String? label,
     String? type,
+    String? file,
   }) async {
     final body = <String, dynamic>{};
     if (patchDir != null) body["patch_dir"] = patchDir;
     if (targetDir != null) body["target_dir"] = targetDir;
     if (label != null) body["label"] = label;
     if (type != null) body["type"] = type;
+    if (appId.isNotEmpty && appId != "null" && appId != "None") body["app_id"] = appId;
+    if (file != null && file.isNotEmpty) body["file"] = file;
     if (body.isEmpty) return;
 
+    // Use file as lookup key if app_id is unknown; otherwise use app_id
+    final lookupKey = (appId.isNotEmpty && appId != "null" && appId != "None") ? appId : (file ?? appId);
     final resp = await http.put(
-      Uri.parse("${api.baseUrl}/api/steam/patches/$appId"),
+      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}"),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode(body),
     );

@@ -773,6 +773,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       final api = context.read<GameProvider>().api;
       await SteamService.updatePatch(
         api: api, appId: result["app_id"] ?? m.appId,
+        file: m.patchFilename,
         patchDir: result["patch_dir"] ?? "",
         targetDir: result["target_dir"] ?? "",
         label: result["label"] ?? "",
@@ -781,9 +782,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       // Refresh the list to show updated values
       _scanAndCheck();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("保存失败: $e")));
-      }
+      _showMsg("保存失败: $e", error: true);
     }
   }
 

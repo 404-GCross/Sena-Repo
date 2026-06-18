@@ -271,11 +271,13 @@ class PatchUpdate(BaseModel):
     target_dir: str | None = None
     label: str | None = None
     type: str | None = None
+    app_id: str | None = None  # new app_id to update
+    file: str | None = None    # lookup by file path if app_id is None/unknown
 
 
-@router.put("/patches/{app_id}")
-async def update_patch(app_id: str, body: PatchUpdate):
-    """Update patch metadata in patches.json."""
+@router.put("/patches/{lookup_key}")
+async def update_patch(lookup_key: str, body: PatchUpdate):
+    """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
     import json as _json
     patches_dir = _get_patches_dir()
     json_path = patches_dir / "patches.json"
@@ -291,7 +293,13 @@ async def update_patch(app_id: str, body: PatchUpdate):
 
     patches = data.get("patches", [])
     for p in patches:
-        if str(p.get("app_id", "")) == app_id:
+        # Match by app_id OR by file path
+        matched = str(p.get("app_id", "")) == lookup_key
+        if not matched and p.get("file", "") == lookup_key:
+            matched = True
+        if not matched and body.file and p.get("file", "") == body.file:
+            matched = True
+        if matched:
             if body.patch_dir is not None:
                 p["patch_dir"] = body.patch_dir
             if body.target_dir is not None:
@@ -300,11 +308,13 @@ async def update_patch(app_id: str, body: PatchUpdate):
                 p["label"] = body.label
             if body.type is not None:
                 p["type"] = body.type
+            if body.app_id is not None and body.app_id != "":
+                p["app_id"] = int(body.app_id) if body.app_id.isdigit() else body.app_id
             with open(json_path, "w", encoding="utf-8") as f:
                 _json.dump(data, f, ensure_ascii=False, indent=2)
-            return {"message": "已更新", "app_id": app_id}
+            return {"message": "已更新", "lookup_key": lookup_key}
 
-    raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁条目")
+    raise HTTPException(status_code=404, detail=f"未找到 App ID/File: {lookup_key}")
 
 
 # ── Patch scan endpoint ──
