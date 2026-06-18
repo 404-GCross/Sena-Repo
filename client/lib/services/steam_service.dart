@@ -139,6 +139,7 @@ class SteamService {
     required String appId,
     required String downloadUrl,
     required String installDir,
+    required String patchFilename,
     required ApiClient api,
     String? patchDir,
     String? targetDir,
@@ -193,7 +194,7 @@ class SteamService {
         workDir = await downloadSvc.downloadDir;
       }
       if (tmpFile == null) {
-        tmpFile = File("$workDir/.patch_${appId}_${DateTime.now().millisecondsSinceEpoch}");
+        tmpFile = File("$workDir/$patchFilename");
         state._tmpFile = tmpFile;
       }
 
@@ -259,11 +260,10 @@ class SteamService {
       if (exitCode != 0) {
         await Directory(tmpExtract).delete(recursive: true);
         final stderr = await proc.stderr.transform(utf8.decoder).join();
-        // Clean up corrupt temp file so next attempt starts fresh
-        if (tmpFile != null) { try { await tmpFile.delete(); } catch (_) {} }
+        // Keep downloaded file for manual inspection
         state._received = 0;
         state._tmpFile = null;
-        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)，请重新尝试下载"};
+        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)，已保存至 $tmpFile"};
         _injections.remove(appId);
         return;
       }

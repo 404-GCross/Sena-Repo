@@ -985,6 +985,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         appId: m.appId,
         downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
         installDir: m.installDir,
+        patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
         api: api,
         patchDir: m.patchDir,
         targetDir: m.targetDir,
