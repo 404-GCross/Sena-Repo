@@ -237,7 +237,11 @@ class SteamService {
       if (exitCode != 0) {
         await Directory(tmpExtract).delete(recursive: true);
         final stderr = await proc.stderr.transform(utf8.decoder).join();
-        yield {"error": stderr.isNotEmpty ? stderr : "Extraction failed (exit $exitCode)"};
+        // Clean up corrupt temp file so next attempt starts fresh
+        if (tmpFile != null) { try { await tmpFile.delete(); } catch (_) {} }
+        state._received = 0;
+        state._tmpFile = null;
+        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)，请重新尝试下载"};
         _injections.remove(appId);
         return;
       }
