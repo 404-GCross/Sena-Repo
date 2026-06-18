@@ -114,36 +114,85 @@ class SteamService {
     return match?.group(1);
   }
 
+  // ── Active injection tracking (for pause/resume) ──
+
+  static final Map<String, _InjectionState> _injections = {};
+
+  static void cancelInjection(String appId) {
+    _injections[appId]?._cancelled = true;
+    _injections[appId]?._client?.close();
+    _injections.remove(appId);
+  }
+
+  static void pauseInjection(String appId) {
+    final state = _injections[appId];
+    if (state != null) {
+      state._client?.close();
+      state._client = null;
+    }
+  }
+
   /// Download and inject a patch into the Steam game directory.
-  /// Returns a stream of progress updates: (stage, progress, receivedBytes, totalBytes, speed).
+  /// Supports pause (close stream) and resume (re-download remaining bytes).
   static Stream<Map<String, dynamic>> injectPatch({
+    required String appId,
     required String downloadUrl,
     required String installDir,
     required ApiClient api,
     String? patchDir,
     String? targetDir,
   }) async* {
+    final isResume = _injections.containsKey(appId);
+    final state = isResume ? _injections[appId]! : _InjectionState();
+    _injections[appId] = state;
+    state._cancelled = false;
+
     final httpClient = http.Client();
-    File? tmpFile;
+    state._client = httpClient;
+
+    File? tmpFile = state._tmpFile;
     try {
-      // Phase 1: download
-      final resp = await httpClient.send(http.Request("GET", Uri.parse(downloadUrl)));
-      if (resp.statusCode != 200) {
+      if (state._cancelled) return;
+
+      // Phase 1: download (with Range for resume)
+      final request = http.Request("GET", Uri.parse(downloadUrl));
+      if (isResume && state._received > 0 && tmpFile != null) {
+        request.headers["Range"] = "bytes=${state._received}-";
+      }
+
+      final resp = await httpClient.send(request);
+      if (state._cancelled) return;
+
+      if (resp.statusCode != 200 && resp.statusCode != 206) {
         yield {"error": "HTTP ${resp.statusCode}"};
+        _injections.remove(appId);
         return;
       }
 
-      final total = resp.contentLength ?? 0;
+      final total = resp.statusCode == 206
+          ? (resp.contentLength ?? 0) + state._received
+          : resp.contentLength ?? 0;
       final supportDir = (await getApplicationSupportDirectory()).path;
-      tmpFile = File("$supportDir/.patch_${DateTime.now().millisecondsSinceEpoch}");
-      final sink = tmpFile.openWrite();
+      if (!isResume) {
+        tmpFile = File("$supportDir/.patch_${appId}_${DateTime.now().millisecondsSinceEpoch}");
+        state._tmpFile = tmpFile;
+      }
 
-      int received = 0;
-      int lastBytes = 0;
+      final sink = tmpFile!.openWrite(mode: isResume ? FileMode.append : FileMode.write);
+      int received = state._received;
+      int lastBytes = received;
       DateTime lastTime = DateTime.now();
+
       await for (final chunk in resp.stream) {
+        if (state._cancelled) {
+          await sink.flush();
+          await sink.close();
+          httpClient.close();
+          return;
+        }
         sink.add(chunk);
         received += chunk.length;
+        state._received = received;
         final now = DateTime.now();
         final elapsed = now.difference(lastTime).inMilliseconds;
         int speed = 0;
@@ -163,18 +212,22 @@ class SteamService {
       await sink.flush();
       await sink.close();
 
-      // Phase 2: extract to temp, then merge to install dir
+      if (state._cancelled) return;
+
+      // Phase 2: extract
       yield {"stage": "extracting", "progress": 0.0, "received": received, "total": total, "speed": 0};
       final exe = await _getSevenZipPath();
-      final tmpExtract = "${(await getApplicationSupportDirectory()).path}/.patch_extract_${DateTime.now().millisecondsSinceEpoch}";
+      final tmpExtract = "${(await getApplicationSupportDirectory()).path}/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
       await Directory(tmpExtract).create(recursive: true);
 
       final proc = await Process.start(exe, ["x", "-y", "-o$tmpExtract", tmpFile.path]);
       final exitCode = await proc.exitCode;
+      if (state._cancelled) { await Directory(tmpExtract).delete(recursive: true); return; }
       if (exitCode != 0) {
         await Directory(tmpExtract).delete(recursive: true);
         final stderr = await proc.stderr.transform(utf8.decoder).join();
         yield {"error": stderr.isNotEmpty ? stderr : "Extraction failed (exit $exitCode)"};
+        _injections.remove(appId);
         return;
       }
 
@@ -189,7 +242,6 @@ class SteamService {
           sourceDir = entries.first.path;
         }
       }
-      // Resolve target: targetDir > installDir root
       String destDir = installDir;
       if (targetDir != null && targetDir!.isNotEmpty) {
         destDir = "$installDir${Platform.pathSeparator}$targetDir";
@@ -197,15 +249,19 @@ class SteamService {
       await Directory(destDir).create(recursive: true);
       await _copyMerge(sourceDir, destDir);
 
-      // Cleanup
       await Directory(tmpExtract).delete(recursive: true);
+      _injections.remove(appId);
 
       yield {"stage": "done", "progress": 1.0, "received": received, "total": total, "speed": 0};
     } catch (e) {
-      yield {"error": "$e"};
+      if (!state._cancelled) {
+        yield {"error": "$e"};
+      }
+      _injections.remove(appId);
     } finally {
       httpClient.close();
-      if (tmpFile != null) {
+      state._client = null;
+      if (tmpFile != null && (state._cancelled || _injections.containsKey(appId) == false)) {
         try { await tmpFile.delete(); } catch (_) {}
       }
     }
@@ -342,4 +398,12 @@ class SteamService {
     }
     throw HttpException("Failed to list patches: ${resp.statusCode}");
   }
+}
+
+/// Internal state for pause/resume support in patch injection.
+class _InjectionState {
+  http.Client? _client;
+  File? _tmpFile;
+  int _received = 0;
+  bool _cancelled = false;
 }

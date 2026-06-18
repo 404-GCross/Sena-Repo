@@ -569,19 +569,33 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _buildInjectButton(PatchMatch m) {
     final state = _injectState[m.appId];
-    if (state != null && state["stage"] != "error") return const SizedBox.shrink();
+    final stage = state?["stage"];
+    final isDownloading = stage == "downloading" || stage == "extracting";
+    final isPaused = stage == "paused";
+    final hasError = stage == "error";
 
-    final hasError = state != null && state["stage"] == "error";
-    return FilledButton.tonalIcon(
-      onPressed: () => _startInjection(m),
-      icon: Icon(hasError ? Icons.refresh : Icons.auto_fix_high, size: 16),
-      label: Text(hasError ? "重试" : "注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        minimumSize: Size.zero,
-        backgroundColor: hasError ? Colors.red.withValues(alpha: 0.15) : null,
-      ),
-    );
+    if (isDownloading) return const SizedBox.shrink();
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (isPaused)
+        FilledButton.tonalIcon(
+          onPressed: () => _startInjection(m),
+          icon: const Icon(Icons.play_arrow, size: 16),
+          label: Text("继续", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), minimumSize: Size.zero),
+        )
+      else
+        FilledButton.tonalIcon(
+          onPressed: () => _startInjection(m),
+          icon: Icon(hasError ? Icons.refresh : Icons.auto_fix_high, size: 16),
+          label: Text(hasError ? "重试" : "注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            minimumSize: Size.zero,
+            backgroundColor: hasError ? Colors.red.withValues(alpha: 0.15) : null,
+          ),
+        ),
+    ]);
   }
 
   Widget _buildInjectProgress(PatchMatch m) {
@@ -677,6 +691,34 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             Text("${_formatSize(speed)}/s",
                 style: AppText.bodySmall.copyWith(color: hintColor(context))),
         ],
+        const Spacer(),
+        // Pause / cancel controls
+        if (!isExtracting)
+          IconButton(
+            icon: const Icon(Icons.pause, size: 16),
+            onPressed: () {
+              SteamService.pauseInjection(m.appId);
+              setState(() => _injectState[m.appId] = {
+                "stage": "paused", "progress": progress,
+                "received": received, "total": total, "speed": 0,
+              });
+            },
+            tooltip: "暂停",
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.all(4),
+            constraints: const BoxConstraints(),
+          ),
+        IconButton(
+          icon: const Icon(Icons.close, size: 16),
+          onPressed: () {
+            SteamService.cancelInjection(m.appId);
+            setState(() => _injectState.remove(m.appId));
+          },
+          tooltip: "取消",
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.all(4),
+          constraints: const BoxConstraints(),
+        ),
       ]),
     ]);
   }
@@ -685,15 +727,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final patchCtrl = TextEditingController(text: m.patchDir ?? "");
     final targetCtrl = TextEditingController(text: m.targetDir ?? "");
     final labelCtrl = TextEditingController(text: m.label ?? "");
+    final appIdCtrl = TextEditingController(text: m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty ? m.appId : "");
     String ptype = m.type ?? "misc";
 
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text("编辑补丁 — ${m.gameName}"),
-        content: SizedBox(width: 380, child: Column(
+        content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            TextField(controller: appIdCtrl, decoration: const InputDecoration(labelText: "Steam App ID", hintText: "Steam 商店游戏ID", isDense: true), keyboardType: TextInputType.number),
+            const SizedBox(height: 10),
             TextField(controller: patchCtrl, decoration: const InputDecoration(labelText: "补丁源目录 (patch_dir)", hintText: "解压后取此子目录", isDense: true)),
             const SizedBox(height: 10),
             TextField(controller: targetCtrl, decoration: const InputDecoration(labelText: "目标目录 (target_dir)", hintText: "复制到游戏目录下的子路径", isDense: true)),
@@ -707,11 +752,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               decoration: const InputDecoration(labelText: "补丁类型", isDense: true),
             ),
           ],
-        )),
+        ))),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
           FilledButton(onPressed: () {
             Navigator.pop(ctx, {
+              "app_id": appIdCtrl.text.trim(),
               "patch_dir": patchCtrl.text.trim(),
               "target_dir": targetCtrl.text.trim(),
               "label": labelCtrl.text.trim(),
@@ -726,7 +772,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     try {
       final api = context.read<GameProvider>().api;
       await SteamService.updatePatch(
-        api: api, appId: m.appId,
+        api: api, appId: result["app_id"] ?? m.appId,
         patchDir: result["patch_dir"] ?? "",
         targetDir: result["target_dir"] ?? "",
         label: result["label"] ?? "",
@@ -861,10 +907,20 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _startInjection(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
-    setState(() => _injectState[m.appId] = {"stage": "downloading", "progress": 0.0, "received": 0, "total": 0, "speed": 0});
+    final prev = _injectState[m.appId];
+
+    // Resume from pause: restart download
+    setState(() => _injectState[m.appId] = {
+      "stage": prev?["stage"] == "paused" ? "downloading" : "downloading",
+      "progress": prev?["progress"] ?? 0.0,
+      "received": prev?["received"] ?? 0,
+      "total": prev?["total"] ?? 0,
+      "speed": 0,
+    });
 
     try {
       final stream = SteamService.injectPatch(
+        appId: m.appId,
         downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
         installDir: m.installDir,
         api: api,
@@ -884,7 +940,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _injectState[m.appId] = {"stage": "error", "error": "$e"});
+        final s = _injectState[m.appId];
+        if (s?["stage"] != "paused") {
+          setState(() => _injectState[m.appId] = {"stage": "error", "error": "$e"});
+        }
       }
     }
   }
