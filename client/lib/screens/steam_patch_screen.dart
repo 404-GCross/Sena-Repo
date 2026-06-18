@@ -153,7 +153,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       final scanned = (result["scanned"] as int?) ?? 0;
       await _loadServerPatches();
       if (!mounted) return;
-      _showMsg("扫描完成，找到 $scanned 个补丁文件");
+      // If client steamapps dir is configured, auto-match to local games
+      if (_commonDir != null && _commonDir!.isNotEmpty) {
+        _showMsg("服务端扫描完成，找到 $scanned 个文件。正在匹配本地 Steam 库...");
+        _tabIndex = 0;
+        _scanAndCheck();
+      } else {
+        _showMsg("扫描完成，找到 $scanned 个补丁文件");
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() { _serverLoading = false; _serverStatus = "扫描失败: $e"; });
@@ -308,54 +315,94 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final appId = (p["app_id"] ?? "").toString();
     final matched = (p["matched_game"] ?? "").toString();
     final configured = patchDir.isNotEmpty && targetDir.isNotEmpty;
+    final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: cardBg(context),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder(context)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4, offset: const Offset(0, 2)),
+        ],
       ),
-      child: Row(children: [
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(
-            color: configured ? Colors.green.withValues(alpha: 0.12) : Colors.orange.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(configured ? Icons.check_circle_outline : Icons.info_outline,
-              size: 18, color: configured ? Colors.green[600] : Colors.orange[300]),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              _typeBadge(ptype),
-              const SizedBox(width: 6),
-              Expanded(child: Text(label.isNotEmpty ? label : file.split("/").last,
-                  style: AppText.body.copyWith(fontWeight: FontWeight.w600))),
-            ]),
-            const SizedBox(height: 2),
-            Text([if (appId != "None" && appId != "null" && appId.isNotEmpty) "AppID $appId",
-                  if (matched.isNotEmpty) "匹配: $matched", file].join(" · "),
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: AppText.bodySmall.copyWith(color: subTextColor(context), fontSize: 11)),
-            if (configured)
-              Padding(padding: const EdgeInsets.only(top: 2),
-                child: Text("$patchDir → /$targetDir",
-                    style: AppText.caption.copyWith(color: hintColor(context)))),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: hasAppId
+                    ? Colors.blue.withValues(alpha: 0.1)
+                    : Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(hasAppId ? Icons.videogame_asset : Icons.archive,
+                  size: 20, color: hasAppId ? Colors.blue[400] : Colors.orange[400]),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(child: Text(
+                    label.isNotEmpty ? label : file.split("/").last,
+                    style: AppText.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  )),
+                  const SizedBox(width: 4),
+                  _typeBadge(ptype),
+                  const SizedBox(width: 4),
+                  if (configured)
+                    Icon(Icons.settings, size: 12, color: Colors.green[400]),
+                ]),
+                const SizedBox(height: 4),
+                Row(children: [
+                  if (hasAppId) ...[
+                    _appIdChip(appId),
+                    const SizedBox(width: 6),
+                  ] else ...[
+                    Icon(Icons.warning_amber, size: 12, color: Colors.orange[300]),
+                    const SizedBox(width: 2),
+                    Text("无 AppID", style: AppText.caption.copyWith(color: Colors.orange[300])),
+                    const SizedBox(width: 6),
+                  ],
+                  if (matched.isNotEmpty) ...[
+                    Icon(Icons.link, size: 10, color: hintColor(context)),
+                    const SizedBox(width: 2),
+                    Text(matched, style: AppText.caption.copyWith(color: hintColor(context))),
+                    const SizedBox(width: 4),
+                  ],
+                  Expanded(
+                    child: Text(file, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: AppText.caption.copyWith(color: hintColor(context), fontSize: 10)),
+                  ),
+                ]),
+                if (configured)
+                  Padding(padding: const EdgeInsets.only(top: 4),
+                    child: Row(children: [
+                      Icon(Icons.folder_copy, size: 10, color: hintColor(context)),
+                      const SizedBox(width: 4),
+                      Expanded(child: Text("$patchDir → /$targetDir",
+                          style: AppText.caption.copyWith(color: hintColor(context)))),
+                    ])),
+              ]),
+            ),
+            const SizedBox(width: 4),
+            IconButton(icon: const Icon(Icons.edit, size: 16),
+                onPressed: () => _showEditDialog(PatchMatch(
+                  appId: appId, gameName: label.isNotEmpty ? label : file.split("/").last,
+                  installDir: "", patchAvailable: true, patchFilename: file,
+                  patchDir: patchDir, targetDir: targetDir, label: label, type: ptype,
+                )),
+                tooltip: "编辑", visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6), constraints: const BoxConstraints()),
           ]),
         ),
-        IconButton(icon: const Icon(Icons.edit, size: 16),
-            onPressed: () => _showEditDialog(PatchMatch(
-              appId: appId, gameName: label.isNotEmpty ? label : file.split("/").last,
-              installDir: "", patchAvailable: true, patchFilename: file,
-              patchDir: patchDir, targetDir: targetDir, label: label, type: ptype,
-            )),
-            tooltip: "编辑", visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(6), constraints: const BoxConstraints()),
-      ]),
+      ),
     );
   }
 
@@ -794,7 +841,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     try {
       keywords = await SteamService.getTypeKeywords(api);
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("加载失败")));
+      _showMsg("加载关键词失败", error: true);
       return;
     }
 
@@ -862,13 +909,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
     try {
       await SteamService.saveTypeKeywords(api, updated);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("关键词已保存")));
-      }
+      _showMsg("关键词已保存");
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("保存失败: $e")));
-      }
+      _showMsg("保存失败: $e", error: true);
     }
   }
 
@@ -887,6 +930,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     "extra": Colors.teal,
     "misc": Colors.grey,
   };
+
+  Widget _appIdChip(String appId) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+    decoration: BoxDecoration(
+      color: Colors.blue.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(4),
+    ),
+    child: Text("APP $appId", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.blue[400])),
+  );
 
   Widget _typeBadge(String? type) {
     final t = type ?? "misc";
