@@ -18,6 +18,20 @@ DEFAULT_TYPE_KEYWORDS = {
     "misc": [],
 }
 
+# Suffix patterns to strip when extracting game name from filename
+_NAME_STRIP_PATTERNS = [
+    r"_Steam_.*_Patch",      # _Steam_Chinese_Patch, _Steam_extra_Patch
+    r"_steam_.*_patch",
+    r"_Steam_Patch",
+    r"_steam_patch",
+    r"_Patch$",
+    r"_patch$",
+    r"_Steam$",
+    r"_steam$",
+    r"\[Steam\]",
+    r"\[steam\]",
+]
+
 
 def _load_keywords(base_dir: Path) -> dict[str, list[str]]:
     kw_path = base_dir / "patch_type_keywords.json"
@@ -48,39 +62,86 @@ def _guess_type(filename: str, keywords: dict[str, list[str]]) -> str:
     return "misc"
 
 
+def _extract_game_name(filename: str) -> str:
+    """Extract a candidate game name by stripping type suffixes and extension."""
+    name = filename
+    # Remove file extension
+    for ext in (".zip", ".ZIP", ".rar", ".RAR", ".7z", ".7Z", ".tar", ".TAR", ".gz", ".GZ", ".xz", ".XZ"):
+        if name.endswith(ext):
+            name = name[:-len(ext)]
+            break
+    # Strip known Steam/patch patterns
+    for pattern in _NAME_STRIP_PATTERNS:
+        name = re.sub(pattern, "", name, flags=re.IGNORECASE)
+    # Clean up separators
+    name = name.replace("_", " ").replace("  ", " ").strip()
+    return name
+
+
+def _search_steam_app_id(game_name: str) -> int | None:
+    """Search Steam store for a game by name and return its app_id."""
+    import urllib.request
+    import urllib.parse
+    try:
+        url = "https://store.steampowered.com/api/storesearch/?term=" + urllib.parse.quote(game_name) + "&l=schinese&cc=CN"
+        req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        items = data.get("items", [])
+        if items:
+            # Return the first match's app_id
+            return items[0].get("id")
+    except Exception:
+        pass
+    return None
+
+
+def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
+    """Try to get app_id from filename (numeric ID) or Steam search (game name)."""
+    name = rel_path.split("/")[-1]
+
+    # Try numeric extraction from filename: 123456.zip
+    m = re.match(r"^(\d{3,8})\..+$", name)
+    if m:
+        return int(m.group(1))
+
+    # Try numeric from parent folder: 123456/v2.zip
+    parent = rel_path.split("/")[0] if "/" in rel_path else ""
+    m = re.match(r"^(\d{3,8})$", parent)
+    if m:
+        return int(m.group(1))
+
+    # Steam search by game name
+    search_name = filename or name
+    game_name = _extract_game_name(search_name)
+    if game_name:
+        return _search_steam_app_id(game_name)
+
+    return None
+
+
 def scan_patches_dir(base_dir: Path) -> list[dict]:
     """Scan recurisvely for archive files, auto-detect app_id and type from name."""
+    base_dir.mkdir(parents=True, exist_ok=True)
     keywords = _load_keywords(base_dir)
     archives = []
-    for ext in (".zip", ".rar", ".7z", ".tar", ".gz", ".xz"):
+    exts = (".zip", ".ZIP", ".rar", ".RAR", ".7z", ".7Z", ".tar", ".TAR", ".gz", ".GZ", ".xz", ".XZ")
+    for ext in exts:
         for f in sorted(base_dir.rglob(f"*{ext}")):
             rel = str(f.relative_to(base_dir)).replace("\\", "/")
-            app_id = _guess_app_id(rel)
+            app_id = _guess_app_id(rel, f.name)
             ptype = _guess_type(f.name, keywords)
+            # Use extracted game name as label if available
+            label = _extract_game_name(f.name) if not app_id else ""
             archives.append({
                 "app_id": app_id,
                 "file": rel,
                 "patch_dir": "",
                 "target_dir": "",
-                "label": "",
+                "label": label,
                 "type": ptype,
             })
     return archives
-
-
-def _guess_app_id(rel_path: str) -> int | None:
-    """Try to extract app_id from filename or parent folder name."""
-    name = rel_path.split("/")[-1]
-    # Direct: 123456.zip
-    m = re.match(r"^(\d{3,8})\..+$", name)
-    if m:
-        return int(m.group(1))
-    # Parent folder: 123456/v2.zip
-    parent = rel_path.split("/")[0] if "/" in rel_path else ""
-    m = re.match(r"^(\d{3,8})$", parent)
-    if m:
-        return int(m.group(1))
-    return None
 
 
 def load_existing(json_path: Path) -> dict | None:
@@ -95,7 +156,6 @@ def load_existing(json_path: Path) -> dict | None:
 
 def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
     """Keep user-filled fields from existing, add new files."""
-    # Index existing by file path
     existing_by_file = {}
     for p in existing_patches:
         existing_by_file[p.get("file", "")] = p
@@ -104,12 +164,16 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
     for s in scanned:
         old = existing_by_file.get(s["file"])
         if old:
-            # Keep user's manual entries
+            # Keep user's manual entries but update app_id if newly discovered
+            if not old.get("app_id") and s.get("app_id"):
+                old["app_id"] = s["app_id"]
+            if not old.get("type") or old.get("type") == "misc":
+                if s.get("type") and s["type"] != "misc":
+                    old["type"] = s["type"]
             merged.append(old)
         else:
             merged.append(s)
 
-    # Add entries that are no longer on disk? Keep them with a warning.
     return merged
 
 
@@ -160,6 +224,8 @@ def main():
         print(f"  [{status}] AppID={app_id}  {p['file']}")
         if p.get("patch_dir"):
             print(f"       patch={p['patch_dir']} -> target={p['target_dir']}")
+        if p.get("label"):
+            print(f"       label={p['label']}")
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)

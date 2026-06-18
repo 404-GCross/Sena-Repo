@@ -8,11 +8,15 @@ from __future__ import annotations
 import json, re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import load_config
+from database import get_session
 
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
@@ -24,7 +28,7 @@ def _get_patches_dir(config=None):
 
 
 def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
-    """Load patches.json; returns dict keyed by app_id string, or None if no file."""
+    """Load patches.json; returns dict keyed by app_id string (only for patches with valid app_id)."""
     idx_path = patches_dir / "patches.json"
     if not idx_path.is_file():
         return None
@@ -32,9 +36,27 @@ def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
         with open(idx_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         patches = data.get("patches", [])
-        return {str(p["app_id"]): p for p in patches if p.get("app_id")}
+        idx = {}
+        for p in patches:
+            aid = p.get("app_id")
+            if aid is not None and str(aid) != "None" and aid != 0:
+                idx[str(aid)] = p
+        return idx
     except Exception:
         return None
+
+
+def _load_all_patches(patches_dir: Path) -> list[dict]:
+    """Load ALL patches from patches.json, including those with null app_id."""
+    idx_path = patches_dir / "patches.json"
+    if not idx_path.is_file():
+        return []
+    try:
+        with open(idx_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("patches", [])
+    except Exception:
+        return []
 
 
 # ── Patch-type keyword matching ──
@@ -173,16 +195,52 @@ async def scan_steam_games(body: ScanRequest):
 
 
 @router.get("/patches")
-async def list_patches():
+async def list_patches(session: AsyncSession = Depends(get_session)):
+    """List all patches. Auto-scans if no patches.json. Matches by game name if no app_id."""
     patches_dir = _get_patches_dir()
-    if not patches_dir.exists():
-        return {"patches": [], "message": "No patches directory found"}
+    patches_dir.mkdir(parents=True, exist_ok=True)
 
-    index = _load_patches_index(patches_dir)
-    if index:
-        return {"patches": list(index.values()), "count": len(index), "source": "patches.json"}
+    # Auto-scan if no patches.json
+    json_path = patches_dir / "patches.json"
+    if not json_path.is_file():
+        try:
+            from scan_patches import scan_patches_dir, load_existing, merge
+            scanned = scan_patches_dir(patches_dir)
+            if scanned:
+                existing = load_existing(json_path)
+                existing_list = existing.get("patches", []) if existing else []
+                merged_patches = merge(existing_list, scanned)
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
-    return {"patches": [], "count": 0, "message": "No patches.json found; run scan_patches.py to generate"}
+    patches = _load_all_patches(patches_dir)
+
+    # Match patches without app_id to games in DB by name
+    if patches:
+        try:
+            from models.game import Game as _Game
+            result = await session.execute(
+                select(_Game).where(_Game.is_deleted == False).options(joinedload(_Game.company))
+            )
+            games = result.unique().scalars().all()
+
+            for p in patches:
+                aid = p.get("app_id")
+                if aid is not None and str(aid) != "None" and aid != 0:
+                    continue
+                filename = p.get("file", "").split("/")[-1]
+                for game in games:
+                    if game.name and game.name.lower() in filename.lower():
+                        p["app_id"] = game.id
+                        p["matched_game"] = game.name
+                        p["matched_company"] = game.company.name if game.company else None
+                        break
+        except Exception:
+            pass
+
+    return {"patches": patches, "count": len(patches), "source": "patches.json"}
 
 
 @router.get("/patches/{app_id}/download")
@@ -247,6 +305,27 @@ async def update_patch(app_id: str, body: PatchUpdate):
             return {"message": "已更新", "app_id": app_id}
 
     raise HTTPException(status_code=404, detail=f"未找到 App ID {app_id} 的补丁条目")
+
+
+# ── Patch scan endpoint ──
+
+@router.post("/scan-patches")
+async def scan_patches_endpoint():
+    """Re-scan the patch directory and regenerate patches.json."""
+    patches_dir = _get_patches_dir()
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        from scan_patches import scan_patches_dir, load_existing, merge
+        scanned = scan_patches_dir(patches_dir)
+        json_path = patches_dir / "patches.json"
+        existing = load_existing(json_path)
+        existing_list = existing.get("patches", []) if existing else []
+        merged_patches = merge(existing_list, scanned)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
+        return {"message": "扫描完成", "scanned": len(scanned), "directory": str(patches_dir)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"补丁扫描失败: {e}")
 
 
 # ── Patch type keywords API ──

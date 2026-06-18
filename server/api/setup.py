@@ -92,8 +92,29 @@ async def initialize_setup(
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f)
 
+    # Auto-scan patch directory after setup
+    patches_scanned = 0
+    if body.patch_dir:
+        try:
+            from scan_patches import scan_patches_dir, load_existing, merge
+            from pathlib import Path as _Path
+            patches_dir = _Path(body.patch_dir)
+            patches_dir.mkdir(parents=True, exist_ok=True)
+            scanned = scan_patches_dir(patches_dir)
+            if scanned:
+                json_path = patches_dir / "patches.json"
+                existing = load_existing(json_path)
+                existing_list = existing.get("patches", []) if existing else []
+                merged_patches = merge(existing_list, scanned)
+                with open(json_path, "w", encoding="utf-8") as _f:
+                    json.dump({"patches": merged_patches}, _f, ensure_ascii=False, indent=2)
+                patches_scanned = len(scanned)
+        except Exception:
+            pass
+
     return {
         "message": "Setup complete",
         "admin_created": True,
         "roots_added": roots_added,
+        "patches_scanned": patches_scanned,
     }

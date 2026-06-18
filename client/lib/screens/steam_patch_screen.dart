@@ -18,12 +18,20 @@ class SteamPatchScreen extends StatefulWidget {
 }
 
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
+  int _tabIndex = 0; // 0=客户端, 1=服务端
+
+  // Client tab
   String? _commonDir;
   List<PatchMatch> _matches = [];
   bool _loading = false;
   String? _status;
   bool _showNoPatch = false;
-  final Map<String, Map<String, dynamic>> _injectState = {}; // appId → {stage, progress, received, total, speed}
+  final Map<String, Map<String, dynamic>> _injectState = {};
+
+  // Server tab
+  List<Map<String, dynamic>> _serverPatches = [];
+  bool _serverLoading = false;
+  String? _serverStatus;
 
   @override
   void initState() {
@@ -114,6 +122,80 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   List<PatchMatch> get _noPatchGames =>
       _matches.where((m) => !m.patchAvailable).toList();
 
+  // ── Server tab ──
+
+  Future<void> _loadServerPatches() async {
+    setState(() { _serverLoading = true; _serverStatus = null; });
+    try {
+      final api = context.read<GameProvider>().api;
+      final data = await SteamService.listPatches(api);
+      final patches = (data["patches"] as List).cast<Map<String, dynamic>>();
+      if (!mounted) return;
+      setState(() {
+        _serverPatches = patches;
+        _serverLoading = false;
+        _serverStatus = "共 ${patches.length} 个补丁索引";
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _serverLoading = false;
+        _serverStatus = "加载失败: $e";
+      });
+    }
+  }
+
+  Future<void> _scanServerPatches() async {
+    setState(() { _serverLoading = true; _serverStatus = "正在扫描..."; });
+    try {
+      final api = context.read<GameProvider>().api;
+      final result = await SteamService.scanPatches(api);
+      final scanned = (result["scanned"] as int?) ?? 0;
+      await _loadServerPatches();
+      if (!mounted) return;
+      _showMsg("扫描完成，找到 $scanned 个补丁文件");
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _serverLoading = false; _serverStatus = "扫描失败: $e"; });
+    }
+  }
+
+  void _showMsg(String msg, {bool error = false}) {
+    if (!mounted) return;
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      icon: Icon(error ? Icons.error_outline : Icons.check_circle, size: 28,
+          color: error ? Colors.red[300] : Colors.green[300]),
+      content: Text(msg, style: const TextStyle(fontSize: 14)),
+      actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+    ));
+  }
+
+  Widget _tabBtn(String label, IconData icon, int index) {
+    final active = _tabIndex == index;
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: active ? cs.primary.withValues(alpha: 0.12) : cardBg(context),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () {
+          setState(() => _tabIndex = index);
+          if (index == 1 && _serverPatches.isEmpty && !_serverLoading) _loadServerPatches();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 16, color: active ? cs.primary : subTextColor(context)),
+            const SizedBox(width: 6),
+            Text(label, style: AppText.bodySmall.copyWith(
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                color: active ? cs.primary : subTextColor(context))),
+          ]),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -145,35 +227,134 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 ),
               ),
             ]),
-            const SizedBox(height: 6),
-            Text("自动扫描 Steam 库内游戏，匹配服务器上的汉化补丁",
-                style: AppText.bodyMedium.copyWith(color: subTextColor(context))),
+            const SizedBox(height: 12),
+            Row(children: [
+              _tabBtn("客户端", Icons.computer, 0),
+              const SizedBox(width: 8),
+              _tabBtn("服务端", Icons.dns, 1),
+            ]),
           ]),
         ),
 
-        // ── Directory selector ──
+        if (_tabIndex == 0)
+          Expanded(child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: _buildDirRow(),
+            ),
+            if (_status != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: _buildStatusBar(),
+              ),
+            const SizedBox(height: 8),
+            if (_loading)
+              const Expanded(child: Center(child: CircularProgressIndicator()))
+            else if (_matches.isEmpty)
+              _emptyState()
+            else
+              Expanded(child: _buildResults()),
+          ]))
+        else
+          Expanded(child: _buildServerTab()),
+      ]),
+    );
+  }
+
+  Widget _buildServerTab() {
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        child: Row(children: [
+          _miniBtn(Icons.refresh, "加载", _serverLoading ? null : _loadServerPatches),
+          const SizedBox(width: 8),
+          _miniBtn(Icons.folder, "扫描补丁", _serverLoading ? null : _scanServerPatches),
+        ]),
+      ),
+      if (_serverStatus != null)
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-          child: _buildDirRow(),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: _buildStatusBar(),
         ),
+      const SizedBox(height: 8),
+      if (_serverLoading)
+        const Expanded(child: Center(child: CircularProgressIndicator()))
+      else if (_serverPatches.isEmpty)
+        Expanded(child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.archive_outlined, size: 48, color: placeholderIcon(context)),
+          const SizedBox(height: 12),
+          Text("无补丁索引", style: AppText.bodyMedium.copyWith(color: hintColor(context))),
+          const SizedBox(height: 4),
+          Text('点击「扫描补丁」索引服务端补丁文件', style: AppText.bodySmall.copyWith(color: hintColor(context))),
+        ])))
+      else
+        Expanded(child: _buildServerPatchList()),
+    ]);
+  }
 
-        // ── Status ──
-        if (_status != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-            child: _buildStatusBar(),
+  Widget _buildServerPatchList() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+      children: _serverPatches.map((p) => _serverPatchCard(p)).toList(),
+    );
+  }
+
+  Widget _serverPatchCard(Map<String, dynamic> p) {
+    final file = (p["file"] ?? "").toString();
+    final label = (p["label"] ?? "").toString();
+    final ptype = (p["type"] ?? "misc").toString();
+    final patchDir = (p["patch_dir"] ?? "").toString();
+    final targetDir = (p["target_dir"] ?? "").toString();
+    final appId = (p["app_id"] ?? "").toString();
+    final matched = (p["matched_game"] ?? "").toString();
+    final configured = patchDir.isNotEmpty && targetDir.isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: configured ? Colors.green.withValues(alpha: 0.12) : Colors.orange.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
           ),
-
-        const SizedBox(height: 8),
-
-        // ── Results ──
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _matches.isEmpty
-                  ? _emptyState()
-                  : _buildResults(),
+          child: Icon(configured ? Icons.check_circle_outline : Icons.info_outline,
+              size: 18, color: configured ? Colors.green[600] : Colors.orange[300]),
         ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              _typeBadge(ptype),
+              const SizedBox(width: 6),
+              Expanded(child: Text(label.isNotEmpty ? label : file.split("/").last,
+                  style: AppText.body.copyWith(fontWeight: FontWeight.w600))),
+            ]),
+            const SizedBox(height: 2),
+            Text([if (appId != "None" && appId != "null" && appId.isNotEmpty) "AppID $appId",
+                  if (matched.isNotEmpty) "匹配: $matched", file].join(" · "),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: AppText.bodySmall.copyWith(color: subTextColor(context), fontSize: 11)),
+            if (configured)
+              Padding(padding: const EdgeInsets.only(top: 2),
+                child: Text("$patchDir → /$targetDir",
+                    style: AppText.caption.copyWith(color: hintColor(context)))),
+          ]),
+        ),
+        IconButton(icon: const Icon(Icons.edit, size: 16),
+            onPressed: () => _showEditDialog(PatchMatch(
+              appId: appId, gameName: label.isNotEmpty ? label : file.split("/").last,
+              installDir: "", patchAvailable: true, patchFilename: file,
+              patchDir: patchDir, targetDir: targetDir, label: label, type: ptype,
+            )),
+            tooltip: "编辑", visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.all(6), constraints: const BoxConstraints()),
       ]),
     );
   }
