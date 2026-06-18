@@ -11,10 +11,10 @@ from pathlib import Path
 
 # Default keywords for auto type detection (mirrors steam_patch.py)
 DEFAULT_TYPE_KEYWORDS = {
-    "translation": ["chinese_patch"],
-    "voice": ["voice_patch"],
-    "story": ["story_patch"],
-    "extra": ["extra_patch"],
+    "translation": ["_Steam_Chinese_Patch"],
+    "voice": ["_Steam_Voice_Patch"],
+    "story": ["_Steam_Story_Patch"],
+    "extra": ["_Steam_Extra_Patch"],
     "misc": [],
 }
 

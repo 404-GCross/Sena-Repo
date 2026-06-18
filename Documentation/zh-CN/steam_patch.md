@@ -48,10 +48,10 @@ steam_patches/
 
 | 类型 | 默认关键词 |
 |------|-----------|
-| `translation`（汉化） | `chinese_patch` |
-| `voice`（音声） | `voice_patch` |
-| `story`（剧情） | `story_patch` |
-| `extra`（额外） | `extra_patch` |
+| `translation`（汉化） | `_Steam_Chinese_Patch` |
+| `voice`（音声） | `_Steam_Voice_Patch` |
+| `story`（剧情） | `_Steam_Story_Patch` |
+| `extra`（额外） | `_Steam_Extra_Patch` |
 | `misc`（其他） | 默认 |
 
 关键词映射保存在 `patch_type_keywords.json`，可在客户端 Steam 补丁页右上角 🔍 按钮自定义。默认每种类型只预设一个关键词，用户可根据自己的文件命名习惯自由添加。
@@ -122,10 +122,10 @@ steam_patches/
 
 ```json
 {
-  "translation": ["chinese_patch"],
-  "voice": ["voice_patch"],
-  "story": ["story_patch"],
-  "extra": ["extra_patch"],
+  "translation": ["_Steam_Chinese_Patch"],
+  "voice": ["_Steam_Voice_Patch"],
+  "story": ["_Steam_Story_Patch"],
+  "extra": ["_Steam_Extra_Patch"],
   "misc": []
 }
 ```
