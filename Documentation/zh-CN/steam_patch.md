@@ -48,13 +48,13 @@ steam_patches/
 
 | 类型 | 默认关键词 |
 |------|-----------|
-| `translation`（汉化） | chinese, 汉化, 中文, 简体, 繁体, translation, schinese, tchinese, chinese_patch... |
-| `voice`（音声） | voice, 语音, 配音, 日语, japanese, japanese_patch... |
-| `story`（剧情） | story, 剧情, dlc, 追加, story_patch... |
-| `extra`（额外） | extra, 额外, 去码, 解码, decensor, uncensor, 无修正, mod, fix, 修复, extra_patch... |
+| `translation`（汉化） | `chinese_patch` |
+| `voice`（音声） | `voice_patch` |
+| `story`（剧情） | `story_patch` |
+| `extra`（额外） | `extra_patch` |
 | `misc`（其他） | 默认 |
 
-关键词映射保存在 `patch_type_keywords.json`，可在客户端 Steam 补丁页右上角 🔍 按钮自定义。
+关键词映射保存在 `patch_type_keywords.json`，可在客户端 Steam 补丁页右上角 🔍 按钮自定义。默认每种类型只预设一个关键词，用户可根据自己的文件命名习惯自由添加。
 
 ## patches.json 格式
 
@@ -109,10 +109,10 @@ steam_patches/
 管理服务端 `patches.json` 索引。
 
 - 「加载」获取当前索引列表
-- 「扫描补丁」触发服务端重新扫描，Steam API 自动查 AppID
-- 每条显示：AppID、文件路径、类型标签、匹配的游戏名、源/目标目录
+- 「扫描补丁」触发服务端重新扫描，Steam API 自动查 AppID。扫描完成后如客户端已配置 steamapps 目录则自动切回客户端 Tab 匹配本地游戏
+- 每条显示：类型标签、名称、AppID chip、匹配游戏、文件路径、源/目标配置状态
 - ✏️ 编辑可改：AppID、补丁源目录、目标目录、显示名称、补丁类型
-- 保存后直接写回服务端，无需 SSH
+- 保存后直接写回服务端，无需 SSH。所有操作反馈使用弹窗提示
 
 ## 关键词自定义
 
@@ -122,10 +122,10 @@ steam_patches/
 
 ```json
 {
-  "translation": ["汉化", "中文", "chinese"],
-  "voice": ["语音", "配音", "voice"],
-  "story": ["剧情", "dlc"],
-  "extra": ["去码", "修复", "mod"],
+  "translation": ["chinese_patch"],
+  "voice": ["voice_patch"],
+  "story": ["story_patch"],
+  "extra": ["extra_patch"],
   "misc": []
 }
 ```
