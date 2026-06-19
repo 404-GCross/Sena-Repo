@@ -277,8 +277,10 @@ class DownloadService with WidgetsBindingObserver {
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
       if ((patchDir == null || patchDir.isEmpty) && (targetDir == null || targetDir.isEmpty)) {
+        LoggerService().info("patch extract: $exe x -y -o$destDir ${tmp.path}");
         await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        LoggerService().info("patch extract done: $destDir");
       } else {
         final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
         await Directory(tmpExtract).create(recursive: true);
