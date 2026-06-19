@@ -333,7 +333,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
-        onTap: () => setState(() => _currentTab = index),
+        onTap: () {
+          setState(() => _currentTab = index);
+          if (index == 0) context.read<GameProvider>().loadGames();
+        },
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -466,7 +469,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isWide(context)) return null;
     return NavigationBar(
       selectedIndex: _currentTab,
-      onDestinationSelected: (i) => setState(() => _currentTab = i),
+      onDestinationSelected: (i) {
+        setState(() => _currentTab = i);
+        if (i == 0) context.read<GameProvider>().loadGames();
+      },
       destinations: [
         const NavigationDestination(icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
         if (showSteam)
