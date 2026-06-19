@@ -229,7 +229,22 @@ class SteamService {
 
       if (state._cancelled) return;
 
-      // Validate: check magic bytes to ensure it's a real archive
+      // Validate file size matches expected
+      final fileSize = await tmpFile!.length();
+      if (total > 0 && fileSize != total) {
+        yield {"error": "文件不完整: 预期 ${(total/1048576).toStringAsFixed(1)}MB 实际 ${(fileSize/1048576).toStringAsFixed(1)}MB"};
+        _injections.remove(appId);
+        await tmpFile.delete();
+        return;
+      }
+      if (fileSize == 0) {
+        yield {"error": "未收到任何数据"};
+        _injections.remove(appId);
+        await tmpFile.delete();
+        return;
+      }
+
+      // Validate magic bytes
       if (tmpFile != null) {
         final size = await tmpFile.length();
         if (size < 128) {
