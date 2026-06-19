@@ -291,7 +291,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await downloadDir;
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
+    final tmp = File(_tmpPath(supportDir, t));
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -471,11 +471,17 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── core run loop ──
 
+  /// Build a temp file path using version ID + original extension only
+  /// (ASCII-only to avoid 7z encoding issues with CJK filenames).
+  String _tmpPath(String supportDir, DownloadTask t) {
+    final ext = t.fileName.contains(".") ? t.fileName.substring(t.fileName.lastIndexOf(".")) : "";
+    return "$supportDir/.tmp_${t.versionId}$ext";
+  }
+
   Future<void> _run(DownloadTask t) async {
     final dir = await downloadDir;
-    // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
+    final tmp = File(_tmpPath(supportDir, t));
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -907,7 +913,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      await File("$supportDir/.tmp_${t.versionId}_${t.fileName}").delete();
+      await File(_tmpPath(supportDir, t)).delete();
     } catch (_) {}
   }
 
