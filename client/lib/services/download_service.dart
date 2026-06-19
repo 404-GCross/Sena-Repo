@@ -8,8 +8,6 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 
-import "package:permission_handler/permission_handler.dart";
-
 import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show rootBundle;
 import "package:flutter/widgets.dart" show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
@@ -44,8 +42,6 @@ class DownloadTask {
   bool _cancelled = false;
   bool needsPassword = false;
   bool isApk = false;
-  String? coverUrl;
-  String? bgUrl;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
 
@@ -101,8 +97,22 @@ class DownloadService with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Android: downloads continue in background via ongoing notification.
-    // No auto-pause — the system keeps the process alive while streaming.
+    if (!Platform.isAndroid) return;
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // App going to background / lock screen — pause all active downloads
+      for (final t in _tasks) {
+        if (t.status == "downloading" || t.status == "retrying" || t.status == "extracting") {
+          pauseTask(t);
+        }
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // App back to foreground — resume paused downloads
+      for (final t in _tasks) {
+        if (t.status == "paused") {
+          resumeTask(t);
+        }
+      }
+    }
   }
 
   Future<void> _restoreTasks() async {
@@ -187,25 +197,6 @@ class DownloadService with WidgetsBindingObserver {
     await Directory(path).create(recursive: true);
   }
 
-  /// Check if the path is in Android external storage that needs MANAGE_EXTERNAL_STORAGE.
-  bool needsStoragePermission(String path) {
-    if (!Platform.isAndroid) return false;
-    final extPaths = ["/storage/emulated/0/", "/sdcard/", "/mnt/sdcard/"];
-    return extPaths.any((p) => path.startsWith(p));
-  }
-
-  /// Check if MANAGE_EXTERNAL_STORAGE is granted on Android.
-  Future<bool> checkStoragePermissionGranted() async {
-    if (!Platform.isAndroid) return true;
-    return await Permission.manageExternalStorage.isGranted;
-  }
-
-  /// Open Android "All files access" settings for this app.
-  Future<PermissionStatus> openStoragePermissionSettings() async {
-    if (!Platform.isAndroid) return PermissionStatus.granted;
-    return await Permission.manageExternalStorage.request();
-  }
-
   // ── public API ──
 
   DownloadTask startDownload({
@@ -215,15 +206,11 @@ class DownloadService with WidgetsBindingObserver {
     required String downloadUrl,
     required String gameName,
     required String companyName,
-    String? coverUrl,
-    String? bgUrl,
   }) {
     final task = DownloadTask(
       gameId: gameId, versionId: versionId, fileName: fileName,
       downloadUrl: downloadUrl, gameName: gameName, companyName: companyName,
-    )
-      ..coverUrl = coverUrl
-      ..bgUrl = bgUrl;
+    );
     _tasks.insert(0, task);
     _emit();
     _run(task);
@@ -291,7 +278,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await downloadDir;
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File(_tmpPath(supportDir, t));
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -302,6 +289,7 @@ class DownloadService with WidgetsBindingObserver {
       _emit();
       await Future.delayed(const Duration(milliseconds: 100));
       await _extract(tmp.path, outDir, gameDir, null, password);
+      await _fixLayout(outDir, gameDir);
       await tmp.delete();
       t.status = "done";
       t.outputPath = outDir;
@@ -310,10 +298,7 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       NotificationService().cancel(t.gameId);
       final errStr = "$e";
-      if (Platform.isAndroid && _isPermissionError(errStr)) {
-        t.status = "failed";
-        t.error = "存储权限不足。请在系统设置 → 应用 → Sena Repo → 权限 → 开启「所有文件访问权限」后重试。";
-      } else if (_isEncryptedError(errStr)) {
+      if (_isEncryptedError(errStr)) {
         t.needsPassword = true;
         t.status = "failed";
         t.error = "需要密码";
@@ -471,17 +456,11 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── core run loop ──
 
-  /// Build a temp file path using version ID + original extension only
-  /// (ASCII-only to avoid 7z encoding issues with CJK filenames).
-  String _tmpPath(String supportDir, DownloadTask t) {
-    final ext = t.fileName.contains(".") ? t.fileName.substring(t.fileName.lastIndexOf(".")) : "";
-    return "$supportDir/.tmp_${t.versionId}$ext";
-  }
-
   Future<void> _run(DownloadTask t) async {
     final dir = await downloadDir;
+    // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File(_tmpPath(supportDir, t));
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -541,12 +520,10 @@ class DownloadService with WidgetsBindingObserver {
           if (t.status == "paused") return;
           // Encrypted or no-extractor error — throw immediately, don't waste retries
           final errStr = "$e";
-          if (_isPermissionError(errStr)) rethrow;
           if (_isEncryptedError(errStr)) rethrow;
           if (_isExtractorMissingError(errStr)) rethrow;
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
-            LoggerService().warn("Extraction failed (retry $retry): $e");
             try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
             t.receivedBytes = 0;
             t.totalBytes = 0;
@@ -574,10 +551,8 @@ class DownloadService with WidgetsBindingObserver {
       if (t.status == "paused") return;
       NotificationService().cancel(t.gameId);
       final errStr = "$e";
-      if (Platform.isAndroid && _isPermissionError(errStr)) {
-        t.status = "failed";
-        t.error = "存储权限不足。请在系统设置 → 应用 → Sena Repo → 权限 → 开启「所有文件访问权限」后重试。";
-      } else if (_isEncryptedError(errStr)) {
+      // Check if archive is password-protected
+      if (_isEncryptedError(errStr)) {
         t.needsPassword = true;
         t.status = "failed";
         t.error = "需要密码";
@@ -587,14 +562,6 @@ class DownloadService with WidgetsBindingObserver {
       }
       _emit();
     }
-  }
-
-  bool _isPermissionError(String err) {
-    final lower = err.toLowerCase();
-    return lower.contains("operation not permitted") ||
-        lower.contains("permission denied") ||
-        lower.contains("cannot open output file") ||
-        lower.contains("errno=1");
   }
 
   bool _isEncryptedError(String err) {
@@ -630,7 +597,7 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
           final sz = await dest.length();
-          LoggerService().info("Resume: receivedBytes=${t.receivedBytes} fileSize=$sz");
+          LoggerService().info("Resume: receivedBytes=$t.receivedBytes fileSize=$sz");
           if (sz != t.receivedBytes) t.receivedBytes = sz;
         } else {
           LoggerService().warn("Resume: temp file GONE: ${dest.path}");
@@ -799,11 +766,13 @@ class DownloadService with WidgetsBindingObserver {
     if (entries.length == 1 && entries.first is Directory) {
       final folder = entries.first as Directory;
       final folderName = folder.uri.pathSegments.last;
+      // Rename to match game name if different
       if (folderName != gameDir) {
         final target = "$outDir/$gameDir";
         try {
           await folder.rename(target);
         } catch (_) {
+          // rename failed (target exists or locked) → copy + delete
           try {
             await _copyMerge(folder.path, target);
             await folder.delete(recursive: true);
@@ -911,7 +880,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      await File(_tmpPath(supportDir, t)).delete();
+      await File("$supportDir/.tmp_${t.versionId}_${t.fileName}").delete();
     } catch (_) {}
   }
 
