@@ -27,6 +27,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   bool _saving = false;
   String? _coverPath;
   int _coverVersion = 0;
+  int _bgVersion = 0;
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
   Map<String, String> get _authHeaders => context.read<GameProvider>().api.headers;
@@ -716,7 +717,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
     final url = _bgUrl.text.startsWith("http")
         ? _bgUrl.text
-        : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}";
+        : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion";
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: Image.network(url, fit: BoxFit.cover,
@@ -780,7 +781,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (streamed.statusCode == 200) {
         final data = jsonDecode(await streamed.stream.bytesToString()) as Map<String, dynamic>;
         if (data["bg_path"] != null) {
-          setState(() { _bgUrl.text = data["bg_path"]; });
+          setState(() { _bgUrl.text = data["bg_path"]; _bgVersion = DateTime.now().millisecondsSinceEpoch; });
         }
         _showMsg("大图上传成功");
       } else {
@@ -1214,7 +1215,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                               ? Image.network(
                                   _bgUrl.text.startsWith("http")
                                       ? _bgUrl.text
-                                      : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}",
+                                      : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
                                   width: 180, height: 90, fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => Container(
                                     width: 180, height: 90, color: Colors.grey[800],
