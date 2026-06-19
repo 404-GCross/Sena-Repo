@@ -3,6 +3,7 @@
 
 import "dart:convert";
 import "dart:io";
+import "dart:typed_data";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/services.dart" show rootBundle;
@@ -194,19 +195,15 @@ class SteamService {
         state._tmpFile = tmpFile;
       }
 
-      final sink = tmpFile.openWrite(mode: state._received > 0 ? FileMode.append : FileMode.write);
+      // Download to memory, then flush to disk — avoids stream/pipe issues
+      final chunks = <Uint8List>[];
       int received = state._received;
       int lastBytes = received;
       DateTime lastTime = DateTime.now();
 
       await for (final chunk in resp.stream) {
-        if (state._cancelled) {
-          await sink.flush();
-          await sink.close();
-          httpClient.close();
-          return;
-        }
-        sink.add(chunk);
+        if (state._cancelled) { httpClient.close(); return; }
+        chunks.add(chunk);
         received += chunk.length;
         state._received = received;
         final now = DateTime.now();
@@ -225,10 +222,17 @@ class SteamService {
           "speed": speed,
         };
       }
-      await sink.flush();
-      await sink.close();
 
       if (state._cancelled) return;
+
+      // Write all bytes to disk in one synchronous operation
+      final allBytes = Uint8List(received);
+      int offset = 0;
+      for (final c in chunks) {
+        allBytes.setRange(offset, offset + c.length, c);
+        offset += c.length;
+      }
+      await tmpFile!.writeAsBytes(allBytes, flush: true);
 
       _log("download done: url=$downloadUrl path=${tmpFile!.path} received=$received total=$total");
 
