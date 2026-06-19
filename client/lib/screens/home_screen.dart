@@ -685,7 +685,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
                 child: FadeTransition(opacity: animation, child: child),
               ),
-              child: KeyedSubtree(key: ValueKey(_currentTab), child: pages[_currentTab]),
+              child: IndexedStack(index: _currentTab, children: pages),
             )),
           ]),
         ),
