@@ -1,6 +1,7 @@
 /// Steam patch injection screen — PC-only (Windows / Linux).
 
 import "dart:async";
+import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -138,7 +139,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _startInjection(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
-    final fullPath = _commonDir != null ? "${_commonDir!}\\common\\${m.installDir}" : m.installDir;
+    final fullPath = _commonDir != null ? "${_commonDir!}${Platform.pathSeparator}common${Platform.pathSeparator}${m.installDir}" : m.installDir;
     setState(() => _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
       final result = await SteamService.injectPatch(
