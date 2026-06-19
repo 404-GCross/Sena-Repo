@@ -302,7 +302,7 @@ class DownloadService with WidgetsBindingObserver {
           if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
         }
         LoggerService().info("patch merge: $sourceDir -> $destDir");
-        await _copyMerge2(sourceDir, destDir);
+        await _copyMerge(sourceDir, destDir);
         LoggerService().info("patch merge done");
         await Directory(tmpExtract).delete(recursive: true);
       }
@@ -311,19 +311,6 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       try { await tmp.delete(); } catch (_) {}
       return ("$e", null);
-    }
-  }
-
-  /// Recursive copy/merge, overwriting existing files.
-  Future<void> _copyMerge2(String from, String to) async {
-    await Directory(to).create(recursive: true);
-    await for (final child in Directory(from).list()) {
-      final name = child.uri.pathSegments.last;
-      if (child is Directory) {
-        await _copyMerge2(child.path, "$to${Platform.pathSeparator}$name");
-      } else if (child is File) {
-        await child.copy("$to${Platform.pathSeparator}$name");
-      }
     }
   }
 
