@@ -196,7 +196,7 @@ class SteamService {
       }
 
       // Download to memory, then flush to disk — avoids stream/pipe issues
-      final chunks = <Uint8List>[];
+      final chunks = <List<int>>[];
       int received = state._received;
       int lastBytes = received;
       DateTime lastTime = DateTime.now();
@@ -226,13 +226,9 @@ class SteamService {
       if (state._cancelled) return;
 
       // Write all bytes to disk in one synchronous operation
-      final allBytes = Uint8List(received);
-      int offset = 0;
-      for (final c in chunks) {
-        allBytes.setRange(offset, offset + c.length, c);
-        offset += c.length;
-      }
-      await tmpFile!.writeAsBytes(allBytes, flush: true);
+      final bb = BytesBuilder(copy: false);
+      for (final c in chunks) { bb.add(c); }
+      await tmpFile!.writeAsBytes(bb.toBytes(), flush: true);
 
       _log("download done: url=$downloadUrl path=${tmpFile!.path} received=$received total=$total");
 
