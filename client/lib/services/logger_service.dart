@@ -15,7 +15,7 @@ class LoggerService {
   Future<String> get _dir async {
     if (_logDir != null) return _logDir!;
     final appDir = await getApplicationSupportDirectory();
-    _logDir = "${appDir.path}/logs";
+    _logDir = "${appDir.path}${Platform.pathSeparator}logs";
     await Directory(_logDir!).create(recursive: true);
     return _logDir!;
   }
@@ -32,7 +32,7 @@ class LoggerService {
       final ts = DateTime.now().toString().substring(0, 19);
       var line = "[$ts] [$level] $message";
       if (error != null) line += " | $error";
-      await File("$dir/${_todayFile()}").writeAsString("$line\n", mode: FileMode.append);
+      await File("$dir${Platform.pathSeparator}${_todayFile()}").writeAsString("$line\n", mode: FileMode.append);
     } catch (_) {}
   }
 
