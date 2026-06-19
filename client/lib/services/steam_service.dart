@@ -194,7 +194,9 @@ class SteamService {
         workDir = await downloadSvc.downloadDir;
       }
       if (tmpFile == null) {
-        tmpFile = File("$workDir/$patchFilename");
+        // Use ASCII-only temp name to avoid 7z encoding issues with CJK filenames
+        final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
+        tmpFile = File("$workDir/.patch_${appId}$ext");
         state._tmpFile = tmpFile;
       }
 
