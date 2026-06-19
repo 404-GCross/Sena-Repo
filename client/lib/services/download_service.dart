@@ -800,7 +800,6 @@ class DownloadService with WidgetsBindingObserver {
       final folder = entries.first as Directory;
       final folderName = folder.uri.pathSegments.last;
       if (folderName != gameDir) {
-        // Rename wrapper folder to match game name
         final target = "$outDir/$gameDir";
         try {
           await folder.rename(target);
@@ -810,15 +809,6 @@ class DownloadService with WidgetsBindingObserver {
             await folder.delete(recursive: true);
           } catch (_) {}
         }
-      } else {
-        // Wrapper folder already has correct name — move contents UP one level
-        final parent = folder.parent.path;
-        await for (final child in folder.list()) {
-          try {
-            await child.rename("$parent/${child.uri.pathSegments.last}");
-          } catch (_) {}
-        }
-        try { await folder.delete(); } catch (_) {}
       }
       return;
     }
