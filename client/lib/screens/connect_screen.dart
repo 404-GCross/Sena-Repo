@@ -70,6 +70,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final api = games.api;
       final prefs = await SharedPreferences.getInstance();
 
+      // ── Request notification permission (Android 13+) before any dialogs ──
+      if (Platform.isAndroid) {
+        await NotificationService().init();
+        await NotificationService().requestPermission();
+      }
+
       // ── Check server setup FIRST (before login & client setup) ──
       // New server with no admin account: run setup wizard to create
       // admin + configure game dirs + Steam + scrapers, then login.
@@ -77,11 +83,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
       // dir, Steam dir, and Steam user ID.
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
-        // Request notification permission before setup (Android only)
-        if (Platform.isAndroid) {
-          await NotificationService().init();
-          await NotificationService().requestPermission();
-        }
         final setupResult = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
