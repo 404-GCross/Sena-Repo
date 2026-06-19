@@ -311,7 +311,7 @@ class DownloadService with WidgetsBindingObserver {
       if (child is Directory) {
         await _copyMerge2(child.path, "$to${Platform.pathSeparator}$name");
       } else if (child is File) {
-        try { await child.copy("$to${Platform.pathSeparator}$name"); } catch (_) {}
+        await child.copy("$to${Platform.pathSeparator}$name");
       }
     }
   }
