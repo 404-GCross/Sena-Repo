@@ -157,133 +157,29 @@ class SteamService {
     try {
       if (state._cancelled) return;
 
-      // Phase 1: download (with Range for resume, fallback on failure)
-      final request = http.Request("GET", Uri.parse(downloadUrl));
-      if (isResume && state._received > 0 && tmpFile != null) {
-        request.headers["Range"] = "bytes=${state._received}-";
-      }
-
-      var resp = await httpClient.send(request);
-      if (state._cancelled) return;
-
-      // Range not supported — restart from scratch
-      if (resp.statusCode == 416 || resp.statusCode == 405) {
-        state._received = 0;
-        if (tmpFile != null) { try { await tmpFile.delete(); } catch (_) {} }
-        tmpFile = null;
-        state._tmpFile = null;
-        final retryReq = http.Request("GET", Uri.parse(downloadUrl));
-        resp = await httpClient.send(retryReq);
-      }
-      if (state._cancelled) return;
-
-      if (resp.statusCode != 200 && resp.statusCode != 206) {
-        yield {"error": "HTTP ${resp.statusCode}"};
-        _injections.remove(appId);
-        return;
-      }
-
-      final total = resp.statusCode == 206
-          ? (resp.contentLength ?? 0) + state._received
-          : resp.contentLength ?? 0;
-      // Both platforms: temp files in app support dir (consistent with game downloads)
+      // ── Build temp file path ──
       final workDir = (await getApplicationSupportDirectory()).path;
-      if (tmpFile == null) {
-        // Use ASCII-only temp name to avoid 7z encoding issues with CJK filenames
-        final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
-        tmpFile = File("$workDir/.patch_${appId}$ext");
-        state._tmpFile = tmpFile;
+      final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
+      tmpFile = File("$workDir/.patch_${appId}$ext");
+      state._tmpFile = tmpFile;
+
+      // ── Download: use http.get() — simple, reliable, no stream/pipe issues ──
+      yield {"stage": "downloading", "progress": 0.0, "received": 0, "total": 0, "speed": 0};
+      final getResp = await httpClient.get(Uri.parse(downloadUrl));
+      if (state._cancelled) return;
+      if (getResp.statusCode != 200) {
+        yield {"error": "HTTP ${getResp.statusCode}"};
+        _injections.remove(appId);
+        return;
       }
 
-      // Download to memory, then flush to disk — avoids stream/pipe issues
-      final chunks = <List<int>>[];
-      int received = state._received;
-      int lastBytes = received;
-      DateTime lastTime = DateTime.now();
-
-      await for (final chunk in resp.stream) {
-        if (state._cancelled) { httpClient.close(); return; }
-        chunks.add(chunk);
-        received += chunk.length;
-        state._received = received;
-        final now = DateTime.now();
-        final elapsed = now.difference(lastTime).inMilliseconds;
-        int speed = 0;
-        if (elapsed >= 500) {
-          speed = ((received - lastBytes) * 1000 ~/ elapsed);
-          lastBytes = received;
-          lastTime = now;
-        }
-        yield {
-          "stage": "downloading",
-          "progress": total > 0 ? received / total : 0.0,
-          "received": received,
-          "total": total,
-          "speed": speed,
-        };
-      }
-
+      final bodyBytes = getResp.bodyBytes;
+      final total = bodyBytes.length;
+      final received = total;
       if (state._cancelled) return;
 
-      // Write all bytes to disk in one synchronous operation
-      final bb = BytesBuilder(copy: false);
-      for (final c in chunks) { bb.add(c); }
-      await tmpFile!.writeAsBytes(bb.toBytes(), flush: true);
-
-      _log("download done: url=$downloadUrl path=${tmpFile!.path} received=$received total=$total");
-
-      // Validate file size matches expected
-      final fileSize = await tmpFile!.length();
-      if (total > 0 && fileSize != total) {
-        yield {"error": "文件不完整: 预期 ${(total/1048576).toStringAsFixed(1)}MB 实际 ${(fileSize/1048576).toStringAsFixed(1)}MB"};
-        _injections.remove(appId);
-        await tmpFile.delete();
-        return;
-      }
-      if (fileSize == 0) {
-        yield {"error": "未收到任何数据"};
-        _injections.remove(appId);
-        await tmpFile.delete();
-        return;
-      }
-
-      // Validate magic bytes
-      if (tmpFile != null) {
-        final size = await tmpFile.length();
-        if (size < 128) {
-          yield {"error": "文件过小 ($size bytes)，不是有效压缩包"};
-          _injections.remove(appId);
-          await tmpFile.delete();
-          return;
-        }
-        final raf = await tmpFile.open(mode: FileMode.read);
-        final magic = <int>[];
-        try { for (int i = 0; i < 6; i++) { magic.add(await raf.readByte()); } } catch (_) {}
-        await raf.close();
-        final sig = String.fromCharCodes(magic);
-        // Valid archive signatures
-        final valid = sig.startsWith("PK") ||      // zip
-                     sig.startsWith("7z") ||       // 7z
-                     sig.startsWith("Rar!") ||     // rar
-                     sig.startsWith("\x1f\x8b") || // gz
-                     size > 1024 * 1024;           // large files: trust (tar etc)
-        if (!valid) {
-          final preview = sig.replaceAll(RegExp(r'[^\x20-\x7E]'), '.');
-          yield {"error": "不是压缩包格式 (signature: $preview)，检查服务端补丁文件是否正确"};
-          _injections.remove(appId);
-          await tmpFile.delete();
-          return;
-        }
-      }
-
-      // Diagnostic: log file info before extraction
-      final diagSize = await tmpFile!.length();
-      final diagRaf = await tmpFile.open(mode: FileMode.read);
-      final diagMagic = <int>[];
-      try { for (int i = 0; i < 10; i++) { diagMagic.add(await diagRaf.readByte()); } } catch (_) {}
-      await diagRaf.close();
-      final diagHex = diagMagic.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-      _log("extract diag: path=${tmpFile.path} size=$diagSize magic=[$diagHex]");
+      await tmpFile.writeAsBytes(bodyBytes, flush: true);
+      _log("download done: url=$downloadUrl path=${tmpFile.path} size=$total");
 
       yield {"stage": "extracting", "progress": 0.0, "received": received, "total": total, "speed": 0};
       final exe = await _getSevenZipPath();
@@ -296,8 +192,7 @@ class SteamService {
       if (exitCode != 0) {
         await Directory(tmpExtract).delete(recursive: true);
         final stderr = await proc.stderr.transform(utf8.decoder).join();
-        _log("extract FAIL: exit=$exitCode stderr=$stderr path=${tmpFile.path} size=$diagSize magic=[$diagHex]");
-        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)，文件=$tmpFile.path 大小=$diagSize 头部=$diagHex"};
+        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)"};
         _injections.remove(appId);
         return;
       }
