@@ -5,6 +5,7 @@ import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
+import "dart:io" show Platform;
 
 import "../providers/game_provider.dart";
 import "../providers/theme_provider.dart";
@@ -856,25 +857,28 @@ class _DisplayPageState extends State<_DisplayPage> {
         ]),
       ),
       const SizedBox(height: 24),
-      _sectionTitle("窗口行为"),
-      const SizedBox(height: 8),
-      Container(
-        decoration: BoxDecoration(
-          color: cardBg(context),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cardBorder(context)),
+      if (!Platform.isAndroid) ...[
+        _sectionTitle("窗口行为"),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg(context),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: SwitchListTile(
+            title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
+            subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
+                style: AppText.label.copyWith( color: hintColor(context))),
+            value: _trayEnabled,
+            onChanged: (v) async {
+              setState(() => _trayEnabled = v);
+              await SharedPreferences.getInstance().then((p) => p.setBool("minimize_to_tray", v));
+            },
+          ),
         ),
-        child: SwitchListTile(
-          title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
-          subtitle: Text(_trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
-              style: AppText.label.copyWith( color: hintColor(context))),
-          value: _trayEnabled,
-          onChanged: (v) async {
-            setState(() => _trayEnabled = v);
-            await SharedPreferences.getInstance().then((p) => p.setBool("minimize_to_tray", v));
-          },
-        ),
-      ),
+      ],
+      const SizedBox(height: 24),
     ]),
   );
 
