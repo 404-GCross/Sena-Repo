@@ -570,15 +570,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ]),
             ),
             const SizedBox(width: 4),
-            IconButton(
-              icon: const Icon(Icons.edit, size: 16),
-              onPressed: () => _showEditDialog(m),
-              tooltip: "编辑补丁参数",
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.all(6),
-              constraints: const BoxConstraints(),
-            ),
-            const SizedBox(width: 4),
             _buildInjectButton(m),
           ]),
           // Progress or patch info
