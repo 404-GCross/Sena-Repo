@@ -155,9 +155,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       if (!mounted) return;
       // If client steamapps dir is configured, auto-match to local games
       if (_commonDir != null && _commonDir!.isNotEmpty) {
-        _showMsg("服务端扫描完成，找到 $scanned 个文件。正在匹配本地 Steam 库...");
-        _tabIndex = 0;
+        setState(() => _tabIndex = 0);
         _scanAndCheck();
+        _showMsg("扫描完成，找到 $scanned 个文件。正在匹配本地 Steam 库...");
       } else {
         _showMsg("扫描完成，找到 $scanned 个补丁文件");
       }

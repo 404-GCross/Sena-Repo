@@ -78,6 +78,18 @@ class GameProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Refresh game list silently (no loading indicator).
+  Future<void> refreshGames() async {
+    try {
+      _games = await _api.getGames();
+      _tags = await _api.getTags();
+      _error = null;
+    } catch (_) {
+      // silent
+    }
+    notifyListeners();
+  }
+
   void setFilters({String? platform, String? developer, bool? hasCover}) {
     _filterPlatform = platform;
     _filterDeveloper = developer;

@@ -335,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: InkWell(
         onTap: () {
           setState(() => _currentTab = index);
-          if (index == 0) context.read<GameProvider>().loadGames();
+          if (index == 0) context.read<GameProvider>().refreshGames();
         },
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
@@ -471,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
       selectedIndex: _currentTab,
       onDestinationSelected: (i) {
         setState(() => _currentTab = i);
-        if (i == 0) context.read<GameProvider>().loadGames();
+        if (i == 0) context.read<GameProvider>().refreshGames();
       },
       destinations: [
         const NavigationDestination(icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
