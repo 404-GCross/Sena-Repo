@@ -184,6 +184,7 @@ class SteamService {
   }
 
   /// Download and inject a patch. Uses DownloadService's proven download+extract pipeline.
+  /// [onProgress] receives download progress updates.
   static Future<Map<String, dynamic>> injectPatch({
     required String appId,
     required String downloadUrl,
@@ -191,6 +192,7 @@ class SteamService {
     required String patchFilename,
     String? patchDir,
     String? targetDir,
+    void Function(double progress, int received, int total, int speed)? onProgress,
   }) async {
     final error = await DownloadService().downloadPatch(
       appId: appId,
@@ -199,6 +201,7 @@ class SteamService {
       installDir: installDir,
       patchDir: patchDir,
       targetDir: targetDir,
+      onProgress: onProgress,
     );
     if (error != null) return {"error": error};
     return {"stage": "done"};

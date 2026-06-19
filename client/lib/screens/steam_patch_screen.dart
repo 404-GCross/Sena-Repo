@@ -138,7 +138,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _startInjection(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
-    setState(() => _injectState[m.appId] = "downloading");
+    setState(() => _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
       final result = await SteamService.injectPatch(
         appId: m.appId,
@@ -147,6 +147,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
         patchDir: m.patchDir,
         targetDir: m.targetDir,
+        onProgress: (p, r, t, s) {
+          if (mounted) setState(() => _injectState[m.appId] = "$p|$r|$t|$s");
+        },
       );
       if (!mounted) return;
       if (result["error"] != null) {
@@ -321,7 +324,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             FilledButton.tonalIcon(onPressed: () => _startInjection(m), icon: const Icon(Icons.auto_fix_high, size: 16),
               label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
               style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), minimumSize: Size.zero))
-          else if (state == "downloading")
+          else if (!state.startsWith("error") && state != "done")
             Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
           else if (state.startsWith("error"))
             Row(mainAxisSize: MainAxisSize.min, children: [
@@ -338,6 +341,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const Spacer(),
               Text(_formatSize(m.patchSize), style: AppText.bodySmall.copyWith(color: Colors.green[700], fontWeight: FontWeight.w600)),
             ])),
+        if (state != null && !state.startsWith("error") && state != "done") ...[
+          const SizedBox(height: 6),
+          _buildInjectProgress(m.appId, state),
+        ],
       ]),
     );
   }
@@ -529,6 +536,30 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   Widget _appIdChip(String appId) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
     decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
     child: Text("APP $appId", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.blue[400])));
+
+  Widget _buildInjectProgress(String appId, String state) {
+    final parts = state.split("|");
+    final progress = double.tryParse(parts[0]) ?? 0.0;
+    final received = int.tryParse(parts[1]) ?? 0;
+    final total = int.tryParse(parts[2]) ?? 0;
+    final speed = int.tryParse(parts[3]) ?? 0;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(value: progress > 0 ? progress : null, minHeight: 4, backgroundColor: cardBorder(context)),
+      ),
+      const SizedBox(height: 4),
+      Row(children: [
+        Text("${(progress * 100).toStringAsFixed(0)}%", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+        if (total > 0) ...[
+          const SizedBox(width: 8),
+          Text("${_formatSize(received)} / ${_formatSize(total)}", style: AppText.bodySmall.copyWith(color: hintColor(context))),
+        ],
+        const Spacer(),
+        if (speed > 0) Text("${_formatSize(speed)}/s", style: AppText.bodySmall.copyWith(color: hintColor(context))),
+      ]),
+    ]);
+  }
 
   String _formatSize(int bytes) {
     if (bytes < 1024) return "$bytes B";

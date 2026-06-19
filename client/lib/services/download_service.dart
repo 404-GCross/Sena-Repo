@@ -233,6 +233,7 @@ class DownloadService with WidgetsBindingObserver {
   // ── Patch download (reuses the same pipeline as game downloads) ──
 
   /// Download a patch file to temp, extract to installDir, return error string or null on success.
+  /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed).
   Future<String?> downloadPatch({
     required String appId,
     required String downloadUrl,
@@ -240,6 +241,7 @@ class DownloadService with WidgetsBindingObserver {
     required String installDir,
     String? patchDir,
     String? targetDir,
+    void Function(double progress, int received, int total, int speed)? onProgress,
   }) async {
     final dir = await downloadDir;
     final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
@@ -251,7 +253,18 @@ class DownloadService with WidgetsBindingObserver {
         fileName: patchFilename, downloadUrl: downloadUrl,
         gameName: "Steam Patch", companyName: "Steam",
       );
-      await _download(task, tmp);
+      // Listen to task progress
+      StreamSubscription<List<DownloadTask>>? sub;
+      if (onProgress != null) {
+        sub = _controller.stream.listen((_) {
+          onProgress(task.progress, task.receivedBytes, task.totalBytes, task.speedBytesPerSecond);
+        });
+      }
+      try {
+        await _download(task, tmp);
+      } finally {
+        await sub?.cancel();
+      }
       if (task.status == "failed" || task.status == "paused") return task.error ?? "下载失败";
 
       // Extract and merge
