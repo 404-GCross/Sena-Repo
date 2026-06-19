@@ -45,6 +45,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final saved = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir");
     if (saved != null && saved.isNotEmpty && mounted) {
       setState(() => _commonDir = saved);
+      _scanAndCheck();
     }
   }
 
