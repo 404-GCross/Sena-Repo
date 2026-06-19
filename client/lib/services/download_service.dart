@@ -915,24 +915,20 @@ class DownloadService with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  /// Recursively copy/merge contents of [from] directory into [to] directory.
+  /// Recursively copy/merge ALL contents of [from] into [to], preserving directory structure.
   Future<void> _copyMerge(String from, String to) async {
-    final target = Directory(to);
-    if (!await target.exists()) await target.create(recursive: true);
-    await for (final child in Directory(from).list()) {
-      final name = child.uri.pathSegments.last;
-      LoggerService().info("patch copy item: $name isDir=${child is Directory} isFile=${child is File} path=${child.path}");
+    await for (final child in Directory(from).list(recursive: true)) {
+      final rel = child.path.substring(from.length).replaceFirst(RegExp(r'^[/\\]'), '');
+      final dest = "$to${Platform.pathSeparator}$rel";
       if (child is Directory) {
-        await _copyMerge(child.path, "$to${Platform.pathSeparator}$name");
+        await Directory(dest).create(recursive: true);
       } else if (child is File) {
-        // Overwrite if exists
-        final dest = "$to${Platform.pathSeparator}$name";
         try {
           await child.copy(dest);
-          LoggerService().info("patch copy: $name -> $dest");
+          LoggerService().info("patch copy: $rel -> $dest");
         } catch (e) {
-          LoggerService().warn("patch copy FAIL: $name -> $dest error=$e");
-          throw Exception("无法覆盖 $name: $e");
+          LoggerService().warn("patch copy FAIL: $rel -> $dest error=$e");
+          throw Exception("无法覆盖 $rel: $e");
         }
       }
     }
