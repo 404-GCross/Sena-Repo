@@ -194,7 +194,7 @@ class SteamService {
     String? targetDir,
     void Function(double progress, int received, int total, int speed)? onProgress,
   }) async {
-    final error = await DownloadService().downloadPatch(
+    final (error, outputDir) = await DownloadService().downloadPatch(
       appId: appId,
       downloadUrl: downloadUrl,
       patchFilename: patchFilename,
@@ -204,7 +204,7 @@ class SteamService {
       onProgress: onProgress,
     );
     if (error != null) return {"error": error};
-    return {"stage": "done"};
+    return {"stage": "done", "output": outputDir ?? installDir};
   }
 
 }

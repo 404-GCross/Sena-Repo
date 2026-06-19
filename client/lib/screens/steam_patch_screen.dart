@@ -156,7 +156,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         setState(() => _injectState[m.appId] = "error:${result["error"]}");
       } else {
         setState(() => _injectState.remove(m.appId));
-        _showMsg("注入完成");
+        _showMsg("注入完成\n${result["output"] ?? m.installDir}");
       }
     } catch (e) {
       if (mounted) setState(() => _injectState[m.appId] = "error:$e");

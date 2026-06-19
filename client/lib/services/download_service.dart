@@ -232,9 +232,9 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── Patch download (reuses the same pipeline as game downloads) ──
 
-  /// Download a patch file to temp, extract to installDir, return error string or null on success.
+  /// Download a patch file to temp, extract to installDir, return (error, outputDir) tuple.
   /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed).
-  Future<String?> downloadPatch({
+  Future<(String?, String?)> downloadPatch({
     required String appId,
     required String downloadUrl,
     required String patchFilename,
@@ -265,12 +265,13 @@ class DownloadService with WidgetsBindingObserver {
       } finally {
         await sub?.cancel();
       }
-      if (task.status == "failed" || task.status == "paused") return task.error ?? "下载失败";
+      if (task.status == "failed" || task.status == "paused") return (task.error ?? "下载失败", null);
 
-      // Extract and merge
+      // Extract directly with 7z (skip _extract's fixLayout since we merge manually)
+      final exe = await _getSevenZipPath();
       final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
       await Directory(tmpExtract).create(recursive: true);
-      await _extract(tmp.path, tmpExtract, "");
+      await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800);
       try { await tmp.delete(); } catch (_) {}
 
       // Resolve source and merge to install dir
@@ -289,10 +290,10 @@ class DownloadService with WidgetsBindingObserver {
       await Directory(destDir).create(recursive: true);
       await _copyMerge2(sourceDir, destDir);
       await Directory(tmpExtract).delete(recursive: true);
-      return null; // success
+      return (null, destDir); // success
     } catch (e) {
       try { await tmp.delete(); } catch (_) {}
-      return "$e";
+      return ("$e", null);
     }
   }
 
