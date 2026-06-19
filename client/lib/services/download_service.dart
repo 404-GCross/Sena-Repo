@@ -245,7 +245,7 @@ class DownloadService with WidgetsBindingObserver {
   }) async {
     final dir = await downloadDir;
     final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
-    final tmp = File("$dir/.patch_${appId}$ext");
+    final tmp = File("${dir}${Platform.pathSeparator}.patch_${appId}$ext");
     try {
       // Download via proven stream pipeline
       final task = DownloadTask(
@@ -282,7 +282,7 @@ class DownloadService with WidgetsBindingObserver {
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
         LoggerService().info("patch extract done: $destDir");
       } else {
-        final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+        final tmpExtract = "${dir}${Platform.pathSeparator}.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
         LoggerService().info("patch extract: $exe x -y -o$tmpExtract ${tmp.path}");
         await Directory(tmpExtract).create(recursive: true);
         await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
@@ -922,14 +922,16 @@ class DownloadService with WidgetsBindingObserver {
     await for (final child in Directory(from).list()) {
       final name = child.uri.pathSegments.last;
       if (child is Directory) {
-        await _copyMerge(child.path, "$to/$name");
+        await _copyMerge(child.path, "$to${Platform.pathSeparator}$name");
       } else if (child is File) {
         // Overwrite if exists
+        final dest = "$to${Platform.pathSeparator}$name";
         try {
-          await child.copy("$to/$name");
-          LoggerService().info("patch copy: $name -> $to/$name");
+          await child.copy(dest);
+          LoggerService().info("patch copy: $name -> $dest");
         } catch (e) {
-          LoggerService().warn("patch copy FAIL: $name -> $to/$name error=$e");
+          LoggerService().warn("patch copy FAIL: $name -> $dest error=$e");
+          throw Exception("无法覆盖 $name: $e");
         }
       }
     }
