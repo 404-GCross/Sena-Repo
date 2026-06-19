@@ -283,18 +283,27 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("patch extract done: $destDir");
       } else {
         final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+        LoggerService().info("patch extract: $exe x -y -o$tmpExtract ${tmp.path}");
         await Directory(tmpExtract).create(recursive: true);
         await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        LoggerService().info("patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir");
         String sourceDir = tmpExtract;
         if (patchDir != null && patchDir.isNotEmpty) {
           final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
-          if (await Directory(pd).exists()) sourceDir = pd;
+          LoggerService().info("patch resolve: looking for $pd");
+          if (await Directory(pd).exists()) {
+            sourceDir = pd;
+          } else {
+            return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
+          }
         } else {
           final entries = Directory(tmpExtract).listSync();
           if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
         }
+        LoggerService().info("patch merge: $sourceDir -> $destDir");
         await _copyMerge2(sourceDir, destDir);
+        LoggerService().info("patch merge done");
         await Directory(tmpExtract).delete(recursive: true);
       }
       try { await tmp.delete(); } catch (_) {}
