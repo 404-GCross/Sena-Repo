@@ -229,18 +229,32 @@ class SteamService {
 
       if (state._cancelled) return;
 
-      // Phase 2: extract
-      // Validate: check if download looks like an archive, not an error page
+      // Validate: check magic bytes to ensure it's a real archive
       if (tmpFile != null) {
         final size = await tmpFile.length();
-        if (size < 512) {
-          final header = await tmpFile.readAsString();
-          if (header.startsWith("<") || header.startsWith("{")) {
-            yield {"error": "下载的不是压缩包（可能是服务端错误页面），请检查 AppID 是否正确"};
-            _injections.remove(appId);
-            await tmpFile.delete();
-            return;
-          }
+        if (size < 128) {
+          yield {"error": "文件过小 ($size bytes)，不是有效压缩包"};
+          _injections.remove(appId);
+          await tmpFile.delete();
+          return;
+        }
+        final raf = await tmpFile.open(mode: FileMode.read);
+        final magic = <int>[];
+        try { for (int i = 0; i < 6; i++) { magic.add(await raf.readByte()); } } catch (_) {}
+        await raf.close();
+        final sig = String.fromCharCodes(magic);
+        // Valid archive signatures
+        final valid = sig.startsWith("PK") ||      // zip
+                     sig.startsWith("7z") ||       // 7z
+                     sig.startsWith("Rar!") ||     // rar
+                     sig.startsWith("\x1f\x8b") || // gz
+                     size > 1024 * 1024;           // large files: trust (tar etc)
+        if (!valid) {
+          final preview = sig.replaceAll(RegExp(r'[^\x20-\x7E]'), '.');
+          yield {"error": "不是压缩包格式 (signature: $preview)，检查服务端补丁文件是否正确"};
+          _injections.remove(appId);
+          await tmpFile.delete();
+          return;
         }
       }
 
