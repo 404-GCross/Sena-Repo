@@ -138,12 +138,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _startInjection(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
+    final fullPath = _commonDir != null ? "${_commonDir!}/common/${m.installDir}" : m.installDir;
     setState(() => _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
       final result = await SteamService.injectPatch(
         appId: m.appId,
         downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
-        installDir: m.installDir,
+        installDir: fullPath,
         patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
         patchDir: m.patchDir,
         targetDir: m.targetDir,
@@ -156,7 +157,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         setState(() => _injectState[m.appId] = "error:${result["error"]}");
       } else {
         setState(() => _injectState.remove(m.appId));
-        _showMsg("注入完成\n${result["output"] ?? m.installDir}");
+        _showMsg("注入完成\n${result["output"] ?? fullPath}");
       }
     } catch (e) {
       if (mounted) setState(() => _injectState[m.appId] = "error:$e");
