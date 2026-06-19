@@ -230,6 +230,72 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
+  // ── Patch download (reuses the same pipeline as game downloads) ──
+
+  /// Download a patch file to temp, extract to installDir, return error string or null on success.
+  Future<String?> downloadPatch({
+    required String appId,
+    required String downloadUrl,
+    required String patchFilename,
+    required String installDir,
+    String? patchDir,
+    String? targetDir,
+  }) async {
+    final dir = await downloadDir;
+    final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
+    final tmp = File("$dir/.patch_${appId}$ext");
+    try {
+      // Download via proven stream pipeline
+      final task = DownloadTask(
+        gameId: appId.hashCode, versionId: appId.hashCode,
+        fileName: patchFilename, downloadUrl: downloadUrl,
+        gameName: "Steam Patch", companyName: "Steam",
+      );
+      await _download(task, tmp);
+      if (task.status == "failed" || task.status == "paused") return task.error ?? "下载失败";
+
+      // Extract and merge
+      final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+      await Directory(tmpExtract).create(recursive: true);
+      await _extract(tmp.path, tmpExtract, "");
+      try { await tmp.delete(); } catch (_) {}
+
+      // Resolve source and merge to install dir
+      String sourceDir = tmpExtract;
+      if (patchDir != null && patchDir.isNotEmpty) {
+        final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
+        if (await Directory(pd).exists()) sourceDir = pd;
+      } else {
+        final entries = Directory(tmpExtract).listSync();
+        if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
+      }
+      String destDir = installDir;
+      if (targetDir != null && targetDir.isNotEmpty) {
+        destDir = "$installDir${Platform.pathSeparator}$targetDir";
+      }
+      await Directory(destDir).create(recursive: true);
+      await _copyMerge2(sourceDir, destDir);
+      await Directory(tmpExtract).delete(recursive: true);
+      return null; // success
+    } catch (e) {
+      try { await tmp.delete(); } catch (_) {}
+      return "$e";
+    }
+  }
+
+  /// Recursive copy/merge, overwriting existing files.
+  Future<void> _copyMerge2(String from, String to) async {
+    await Directory(to).create(recursive: true);
+    await for (final child in Directory(from).list()) {
+      final name = child.uri.pathSegments.last;
+      if (child is Directory) {
+        await _copyMerge2(child.path, "$to${Platform.pathSeparator}$name");
+      } else if (child is File) {
+        try { await child.copy("$to${Platform.pathSeparator}$name"); } catch (_) {}
+      }
+    }
+  }
+
   // ── public API ──
 
   DownloadTask startDownload({
