@@ -5,9 +5,12 @@ import "dart:convert";
 import "dart:io";
 
 import "package:file_picker/file_picker.dart";
+import "package:flutter/services.dart" show rootBundle;
 import "package:http/http.dart" as http;
+import "package:path_provider/path_provider.dart";
 
 import "api_client.dart";
+import "logger_service.dart";
 
 class SteamGameInfo {
   final String appId;
@@ -30,6 +33,10 @@ class PatchMatch {
   final bool patchAvailable;
   final String? patchFilename;
   final int patchSize;
+  final String? patchDir;
+  final String? targetDir;
+  final String? label;
+  final String? type;
 
   PatchMatch({
     required this.appId,
@@ -38,6 +45,10 @@ class PatchMatch {
     required this.patchAvailable,
     this.patchFilename,
     this.patchSize = 0,
+    this.patchDir,
+    this.targetDir,
+    this.label,
+    this.type,
   });
 
   factory PatchMatch.fromJson(Map<String, dynamic> json) => PatchMatch(
@@ -47,6 +58,10 @@ class PatchMatch {
         patchAvailable: json["patch_available"] ?? false,
         patchFilename: json["patch_filename"],
         patchSize: json["patch_size"] ?? 0,
+        patchDir: json["patch_dir"],
+        targetDir: json["target_dir"],
+        label: json["label"],
+        type: json["type"],
       );
 }
 
@@ -63,34 +78,25 @@ class SteamService {
   static List<SteamGameInfo> scanInstalledGames(String steamappsDir) {
     final games = <SteamGameInfo>[];
     final dir = Directory(steamappsDir);
-
     if (!dir.existsSync()) return games;
-
     for (final entry in dir.listSync()) {
       if (entry is! File) continue;
       final name = entry.uri.pathSegments.last;
       if (!name.startsWith("appmanifest_") || !name.endsWith(".acf")) continue;
-
       try {
         final content = entry.readAsStringSync();
         final info = _parseAcf(content);
         if (info != null) games.add(info);
-      } catch (_) {
-        // Skip unreadable files
-      }
+      } catch (_) {}
     }
-
     return games;
   }
 
-  /// Parse Valve ACF (KeyValues) format.
   static SteamGameInfo? _parseAcf(String content) {
     final appId = _extractValue(content, "appid");
     final gameName = _extractValue(content, "name");
     final installDir = _extractValue(content, "installdir");
-
     if (appId == null || gameName == null || installDir == null) return null;
-
     return SteamGameInfo(appId: appId, name: gameName, installDir: installDir);
   }
 
@@ -102,24 +108,184 @@ class SteamService {
 
   /// Send scanned games to server for patch matching.
   static Future<List<PatchMatch>> checkPatches(
-    ApiClient api,
-    List<SteamGameInfo> games,
+    ApiClient api, List<SteamGameInfo> games,
   ) async {
-    final body = jsonEncode({
-      "games": games.map((g) => g.toJson()).toList(),
-    });
-
+    final body = jsonEncode({"games": games.map((g) => g.toJson()).toList()});
     final resp = await http.post(
       Uri.parse("${api.baseUrl}/api/steam/scan"),
       headers: {"Content-Type": "application/json"},
       body: body,
     );
-
-    if (resp.statusCode != 200) {
-      throw HttpException("Failed to check patches: ${resp.statusCode}");
-    }
-
+    if (resp.statusCode != 200) throw HttpException("Failed to check patches: ${resp.statusCode}");
     final List<dynamic> data = jsonDecode(resp.body);
     return data.map((j) => PatchMatch.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  /// Update patch metadata in server's patches.json.
+  static Future<void> updatePatch({
+    required ApiClient api,
+    required String appId,
+    String? patchDir,
+    String? targetDir,
+    String? label,
+    String? type,
+    String? file,
+  }) async {
+    final body = <String, dynamic>{};
+    if (patchDir != null) body["patch_dir"] = patchDir;
+    if (targetDir != null) body["target_dir"] = targetDir;
+    if (label != null) body["label"] = label;
+    if (type != null) body["type"] = type;
+    if (appId.isNotEmpty && appId != "null" && appId != "None") body["app_id"] = appId;
+    if (file != null && file.isNotEmpty) body["file"] = file;
+    if (body.isEmpty) return;
+    final lookupKey = (appId.isNotEmpty && appId != "null" && appId != "None") ? appId : (file ?? appId);
+    final resp = await http.put(
+      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(body),
+    );
+    if (resp.statusCode != 200) throw HttpException("Failed to update patch: ${resp.statusCode}");
+  }
+
+  /// Trigger server-side patch directory scan.
+  static Future<Map<String, dynamic>> scanPatches(ApiClient api) async {
+    final resp = await http.post(Uri.parse("${api.baseUrl}/api/steam/scan-patches"));
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to scan patches: ${resp.statusCode}");
+  }
+
+  /// List all indexed patches from server.
+  static Future<Map<String, dynamic>> listPatches(ApiClient api) async {
+    final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patches"));
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to list patches: ${resp.statusCode}");
+  }
+
+  /// Fetch patch type keywords from server.
+  static Future<Map<String, dynamic>> getTypeKeywords(ApiClient api) async {
+    final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"));
+    if (resp.statusCode != 200) throw HttpException("Failed to load type keywords: ${resp.statusCode}");
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Save patch type keywords to server.
+  static Future<void> saveTypeKeywords(ApiClient api, Map<String, dynamic> keywords) async {
+    final resp = await http.put(
+      Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({"keywords": keywords}),
+    );
+    if (resp.statusCode != 200) throw HttpException("Failed to save type keywords: ${resp.statusCode}");
+  }
+
+  // ── Injection ──
+
+  static final Map<String, http.Client> _activeClients = {};
+
+  static void cancelInjection(String appId) {
+    _activeClients.remove(appId)?.close();
+  }
+
+  /// Download and inject a patch into a Steam game directory.
+  /// Uses simple http.get() + writeAsBytes (same reliable pattern as DownloadService).
+  static Future<Map<String, dynamic>> injectPatch({
+    required String appId,
+    required String downloadUrl,
+    required String installDir,
+    required String patchFilename,
+    String? patchDir,
+    String? targetDir,
+  }) async {
+    final client = http.Client();
+    _activeClients[appId] = client;
+    try {
+      // Phase 1: download via http.get() — reliable, no stream issues
+      final resp = await client.get(Uri.parse(downloadUrl));
+      if (resp.statusCode != 200) return {"error": "HTTP ${resp.statusCode}"};
+      final bodyBytes = resp.bodyBytes;
+
+      // Write to temp file
+      final supportDir = (await getApplicationSupportDirectory()).path;
+      final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
+      final tmpFile = File("$supportDir/.patch_${appId}$ext");
+      await tmpFile.writeAsBytes(bodyBytes, flush: true);
+
+      // Phase 2: extract with 7z
+      final exe = await _getSevenZipPath();
+      final tmpExtract = "$supportDir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+      await Directory(tmpExtract).create(recursive: true);
+
+      final proc = await Process.start(exe, ["x", "-y", "-o$tmpExtract", tmpFile.path]);
+      final exitCode = await proc.exitCode;
+      if (exitCode != 0) {
+        await Directory(tmpExtract).delete(recursive: true);
+        final stderr = await proc.stderr.transform(utf8.decoder).join();
+        return {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)"};
+      }
+
+      // Resolve source dir
+      String sourceDir = tmpExtract;
+      if (patchDir != null && patchDir.isNotEmpty) {
+        final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
+        if (await Directory(pd).exists()) sourceDir = pd;
+      } else {
+        final entries = Directory(tmpExtract).listSync();
+        if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
+      }
+      // Merge to install dir
+      String destDir = installDir;
+      if (targetDir != null && targetDir.isNotEmpty) {
+        destDir = "$installDir${Platform.pathSeparator}$targetDir";
+      }
+      await Directory(destDir).create(recursive: true);
+      await _copyMerge(sourceDir, destDir);
+      await Directory(tmpExtract).delete(recursive: true);
+      await tmpFile.delete();
+
+      return {"stage": "done"};
+    } finally {
+      _activeClients.remove(appId);
+      client.close();
+    }
+  }
+
+  static Future<void> _copyMerge(String from, String to) async {
+    await Directory(to).create(recursive: true);
+    await for (final child in Directory(from).list()) {
+      final name = child.uri.pathSegments.last;
+      if (child is Directory) {
+        await _copyMerge(child.path, "$to${Platform.pathSeparator}$name");
+      } else if (child is File) {
+        try { await child.copy("$to${Platform.pathSeparator}$name"); } catch (_) {}
+      }
+    }
+  }
+
+  static String? _sevenZipPath;
+  static Future<String> _getSevenZipPath() async {
+    if (_sevenZipPath != null) return _sevenZipPath!;
+    final dir = await getApplicationSupportDirectory();
+    final exeName = Platform.isWindows ? "7z.exe" : "7zz";
+    final dest = File("${dir.path}/$exeName");
+    if (!await dest.exists()) {
+      try {
+        final data = await rootBundle.load("assets/binaries/$exeName");
+        await dest.writeAsBytes(data.buffer.asUint8List());
+        if (Platform.isWindows) {
+          try {
+            final dll = await rootBundle.load("assets/binaries/7z.dll");
+            await File("${dir.path}/7z.dll").writeAsBytes(dll.buffer.asUint8List());
+          } catch (_) {}
+        }
+        if (!Platform.isWindows && !Platform.isAndroid) {
+          try { await Process.run("chmod", ["+x", dest.path]); } catch (_) {}
+        }
+      } catch (_) {
+        throw Exception("7z binary not found");
+      }
+    }
+    _sevenZipPath = dest.path;
+    return _sevenZipPath!;
   }
 }
