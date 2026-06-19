@@ -32,8 +32,10 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  windows: true
-  linux: true
+  windows:
+    generate: true
+  linux:
+    generate: true
   image_path: "assets/icon.png"
 
 flutter:
