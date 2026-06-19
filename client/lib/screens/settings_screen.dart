@@ -52,7 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
             _menuItem(Icons.grid_view, Colors.teal, "显示", "封面大小、托盘设置",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
-            _menuItem(Icons.palette, Colors.pink, "美化", "背景图片与主题色",
+            _menuItem(Icons.palette, Colors.pink, "美化", "主题色",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
             _menuItem(Icons.bug_report, Colors.grey, "日志", "查看客户端运行日志",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogScreen()))),
