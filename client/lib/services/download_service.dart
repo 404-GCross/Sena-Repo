@@ -42,6 +42,8 @@ class DownloadTask {
   bool _cancelled = false;
   bool needsPassword = false;
   bool isApk = false;
+  String? coverUrl;
+  String? bgUrl;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
 
@@ -197,6 +199,37 @@ class DownloadService with WidgetsBindingObserver {
     await Directory(path).create(recursive: true);
   }
 
+  // ── storage permission (Android) ──
+
+  bool needsStoragePermission(String path) {
+    if (!Platform.isAndroid) return false;
+    final extPaths = ["/storage/emulated/0/", "/sdcard/", "/mnt/sdcard/"];
+    return extPaths.any((p) => path.startsWith(p));
+  }
+
+  Future<bool> checkStoragePermissionGranted() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final dir = await downloadDir;
+      await Directory(dir).create(recursive: true);
+      final result = await Process.run("sh", ["-c", "echo 1 > '$dir/.sena_perm_test' 2>/dev/null && rm '$dir/.sena_perm_test' && echo ok"]);
+      return result.exitCode == 0 && result.stdout.toString().contains("ok");
+    } catch (_) {}
+    return false;
+  }
+
+  Future<void> openStoragePermissionSettings() async {
+    if (!Platform.isAndroid) return;
+    const pkg = "com.github.senarepo";
+    try {
+      await Process.run("sh", ["-c", "am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d 'package:$pkg'"]);
+    } catch (_) {
+      try {
+        await Process.run("sh", ["-c", "am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d 'package:$pkg'"]);
+      } catch (_) {}
+    }
+  }
+
   // ── public API ──
 
   DownloadTask startDownload({
@@ -206,11 +239,15 @@ class DownloadService with WidgetsBindingObserver {
     required String downloadUrl,
     required String gameName,
     required String companyName,
+    String? coverUrl,
+    String? bgUrl,
   }) {
     final task = DownloadTask(
       gameId: gameId, versionId: versionId, fileName: fileName,
       downloadUrl: downloadUrl, gameName: gameName, companyName: companyName,
-    );
+    )
+      ..coverUrl = coverUrl
+      ..bgUrl = bgUrl;
     _tasks.insert(0, task);
     _emit();
     _run(task);
