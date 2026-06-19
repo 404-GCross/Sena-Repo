@@ -8,6 +8,7 @@ import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/profile_service.dart";
+import "../services/notification_service.dart";
 import "home_screen.dart";
 import "profile_switch_screen.dart";
 import "package:file_picker/file_picker.dart";
@@ -76,6 +77,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
       // dir, Steam dir, and Steam user ID.
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
+        // Request notification permission before setup (Android only)
+        if (Platform.isAndroid) {
+          await NotificationService().init();
+          await NotificationService().requestPermission();
+        }
         final setupResult = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
