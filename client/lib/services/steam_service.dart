@@ -10,6 +10,7 @@ import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 
 import "api_client.dart";
+import "logger_service.dart";
 
 class SteamGameInfo {
   final String appId;
@@ -193,7 +194,7 @@ class SteamService {
         state._tmpFile = tmpFile;
       }
 
-      final sink = tmpFile!.openWrite(mode: state._received > 0 ? FileMode.append : FileMode.write);
+      final sink = tmpFile.openWrite(mode: state._received > 0 ? FileMode.append : FileMode.write);
       int received = state._received;
       int lastBytes = received;
       DateTime lastTime = DateTime.now();
@@ -228,6 +229,8 @@ class SteamService {
       await sink.close();
 
       if (state._cancelled) return;
+
+      _log("download done: url=$downloadUrl path=${tmpFile!.path} received=$received total=$total");
 
       // Validate file size matches expected
       final fileSize = await tmpFile!.length();
@@ -273,6 +276,15 @@ class SteamService {
         }
       }
 
+      // Diagnostic: log file info before extraction
+      final diagSize = await tmpFile!.length();
+      final diagRaf = await tmpFile.open(mode: FileMode.read);
+      final diagMagic = <int>[];
+      try { for (int i = 0; i < 10; i++) { diagMagic.add(await diagRaf.readByte()); } } catch (_) {}
+      await diagRaf.close();
+      final diagHex = diagMagic.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+      _log("extract diag: path=${tmpFile.path} size=$diagSize magic=[$diagHex]");
+
       yield {"stage": "extracting", "progress": 0.0, "received": received, "total": total, "speed": 0};
       final exe = await _getSevenZipPath();
       final tmpExtract = "${workDir}/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
@@ -284,10 +296,8 @@ class SteamService {
       if (exitCode != 0) {
         await Directory(tmpExtract).delete(recursive: true);
         final stderr = await proc.stderr.transform(utf8.decoder).join();
-        // Keep downloaded file for manual inspection
-        state._received = 0;
-        state._tmpFile = null;
-        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)，已保存至 $tmpFile"};
+        _log("extract FAIL: exit=$exitCode stderr=$stderr path=${tmpFile.path} size=$diagSize magic=[$diagHex]");
+        yield {"error": stderr.isNotEmpty ? stderr : "解压失败 (exit $exitCode)，文件=$tmpFile.path 大小=$diagSize 头部=$diagHex"};
         _injections.remove(appId);
         return;
       }
@@ -472,4 +482,8 @@ class _InjectionState {
   File? _tmpFile;
   int _received = 0;
   bool _cancelled = false;
+}
+
+void _log(String msg) {
+  LoggerService().info(msg);
 }
