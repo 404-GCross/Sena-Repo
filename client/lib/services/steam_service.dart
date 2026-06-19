@@ -192,7 +192,7 @@ class SteamService {
     required String patchFilename,
     String? patchDir,
     String? targetDir,
-    void Function(double progress, int received, int total, int speed)? onProgress,
+    void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
     final (error, outputDir) = await DownloadService().downloadPatch(
       appId: appId,

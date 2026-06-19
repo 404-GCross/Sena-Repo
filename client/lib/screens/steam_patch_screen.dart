@@ -138,7 +138,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _startInjection(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
-    final fullPath = _commonDir != null ? "${_commonDir!}/common/${m.installDir}" : m.installDir;
+    final fullPath = _commonDir != null ? "${_commonDir!}\\common\\${m.installDir}" : m.installDir;
     setState(() => _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
       final result = await SteamService.injectPatch(
@@ -148,8 +148,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
         patchDir: m.patchDir,
         targetDir: m.targetDir,
-        onProgress: (p, r, t, s) {
-          if (mounted) setState(() => _injectState[m.appId] = "$p|$r|$t|$s");
+        onProgress: (p, r, t, s, stage) {
+          if (mounted) setState(() => _injectState[m.appId] = "$p|$r|$t|$s|$stage");
         },
       );
       if (!mounted) return;
@@ -544,20 +544,25 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final received = int.tryParse(parts[1]) ?? 0;
     final total = int.tryParse(parts[2]) ?? 0;
     final speed = int.tryParse(parts[3]) ?? 0;
+    final stage = parts.length > 4 ? parts[4] : "";
+    final isExtracting = stage == "extracting" || (progress >= 0.99 && total > 0);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       ClipRRect(
         borderRadius: BorderRadius.circular(4),
-        child: LinearProgressIndicator(value: progress > 0 ? progress : null, minHeight: 4, backgroundColor: cardBorder(context)),
+        child: LinearProgressIndicator(
+          value: isExtracting ? null : (progress > 0 ? progress : null),
+          minHeight: 4, backgroundColor: cardBorder(context)),
       ),
       const SizedBox(height: 4),
       Row(children: [
-        Text("${(progress * 100).toStringAsFixed(0)}%", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
-        if (total > 0) ...[
+        Text(isExtracting ? "解压中..." : "${(progress * 100).toStringAsFixed(0)}%",
+            style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+        if (!isExtracting && total > 0) ...[
           const SizedBox(width: 8),
           Text("${_formatSize(received)} / ${_formatSize(total)}", style: AppText.bodySmall.copyWith(color: hintColor(context))),
         ],
         const Spacer(),
-        if (speed > 0) Text("${_formatSize(speed)}/s", style: AppText.bodySmall.copyWith(color: hintColor(context))),
+        if (!isExtracting && speed > 0) Text("${_formatSize(speed)}/s", style: AppText.bodySmall.copyWith(color: hintColor(context))),
       ]),
     ]);
   }

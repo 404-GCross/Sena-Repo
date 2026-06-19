@@ -233,7 +233,7 @@ class DownloadService with WidgetsBindingObserver {
   // ── Patch download (reuses the same pipeline as game downloads) ──
 
   /// Download a patch file to temp, extract to installDir, return (error, outputDir) tuple.
-  /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed).
+  /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed, stage).
   Future<(String?, String?)> downloadPatch({
     required String appId,
     required String downloadUrl,
@@ -241,7 +241,7 @@ class DownloadService with WidgetsBindingObserver {
     required String installDir,
     String? patchDir,
     String? targetDir,
-    void Function(double progress, int received, int total, int speed)? onProgress,
+    void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
     final dir = await downloadDir;
     final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
@@ -253,11 +253,10 @@ class DownloadService with WidgetsBindingObserver {
         fileName: patchFilename, downloadUrl: downloadUrl,
         gameName: "Steam Patch", companyName: "Steam",
       );
-      // Listen to task progress
       StreamSubscription<List<DownloadTask>>? sub;
       if (onProgress != null) {
         sub = _controller.stream.listen((_) {
-          onProgress(task.progress, task.receivedBytes, task.totalBytes, task.speedBytesPerSecond);
+          onProgress(task.progress, task.receivedBytes, task.totalBytes, task.speedBytesPerSecond, task.status);
         });
       }
       try {
@@ -275,14 +274,16 @@ class DownloadService with WidgetsBindingObserver {
       await Directory(destDir).create(recursive: true);
 
       final exe = await _getSevenZipPath();
+      if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
+
       if ((patchDir == null || patchDir.isEmpty) && (targetDir == null || targetDir.isEmpty)) {
-        // No custom paths — extract directly to destination
-        await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800);
+        await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800,
+            onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
       } else {
-        // Custom patchDir → extract to temp, resolve, merge to dest
         final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
         await Directory(tmpExtract).create(recursive: true);
-        await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800);
+        await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
+            onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
         String sourceDir = tmpExtract;
         if (patchDir != null && patchDir.isNotEmpty) {
           final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
@@ -295,7 +296,7 @@ class DownloadService with WidgetsBindingObserver {
         await Directory(tmpExtract).delete(recursive: true);
       }
       try { await tmp.delete(); } catch (_) {}
-      return (null, destDir); // success
+      return (null, destDir);
     } catch (e) {
       try { await tmp.delete(); } catch (_) {}
       return ("$e", null);
