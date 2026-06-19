@@ -267,29 +267,34 @@ class DownloadService with WidgetsBindingObserver {
       }
       if (task.status == "failed" || task.status == "paused") return (task.error ?? "下载失败", null);
 
-      // Extract directly with 7z (skip _extract's fixLayout since we merge manually)
-      final exe = await _getSevenZipPath();
-      final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
-      await Directory(tmpExtract).create(recursive: true);
-      await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800);
-      try { await tmp.delete(); } catch (_) {}
-
-      // Resolve source and merge to install dir
-      String sourceDir = tmpExtract;
-      if (patchDir != null && patchDir.isNotEmpty) {
-        final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
-        if (await Directory(pd).exists()) sourceDir = pd;
-      } else {
-        final entries = Directory(tmpExtract).listSync();
-        if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
-      }
+      // Resolve target directory
       String destDir = installDir;
       if (targetDir != null && targetDir.isNotEmpty) {
         destDir = "$installDir${Platform.pathSeparator}$targetDir";
       }
       await Directory(destDir).create(recursive: true);
-      await _copyMerge2(sourceDir, destDir);
-      await Directory(tmpExtract).delete(recursive: true);
+
+      final exe = await _getSevenZipPath();
+      if ((patchDir == null || patchDir.isEmpty) && (targetDir == null || targetDir.isEmpty)) {
+        // No custom paths — extract directly to destination
+        await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800);
+      } else {
+        // Custom patchDir → extract to temp, resolve, merge to dest
+        final tmpExtract = "$dir/.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+        await Directory(tmpExtract).create(recursive: true);
+        await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800);
+        String sourceDir = tmpExtract;
+        if (patchDir != null && patchDir.isNotEmpty) {
+          final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
+          if (await Directory(pd).exists()) sourceDir = pd;
+        } else {
+          final entries = Directory(tmpExtract).listSync();
+          if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
+        }
+        await _copyMerge2(sourceDir, destDir);
+        await Directory(tmpExtract).delete(recursive: true);
+      }
+      try { await tmp.delete(); } catch (_) {}
       return (null, destDir); // success
     } catch (e) {
       try { await tmp.delete(); } catch (_) {}
