@@ -921,6 +921,7 @@ class DownloadService with WidgetsBindingObserver {
     if (!await target.exists()) await target.create(recursive: true);
     await for (final child in Directory(from).list()) {
       final name = child.uri.pathSegments.last;
+      LoggerService().info("patch copy item: $name isDir=${child is Directory} isFile=${child is File} path=${child.path}");
       if (child is Directory) {
         await _copyMerge(child.path, "$to${Platform.pathSeparator}$name");
       } else if (child is File) {
