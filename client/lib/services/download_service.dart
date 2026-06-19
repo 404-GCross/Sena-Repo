@@ -925,7 +925,12 @@ class DownloadService with WidgetsBindingObserver {
         await _copyMerge(child.path, "$to/$name");
       } else if (child is File) {
         // Overwrite if exists
-        try { await child.copy("$to/$name"); } catch (_) {}
+        try {
+          await child.copy("$to/$name");
+          LoggerService().info("patch copy: $name -> $to/$name");
+        } catch (e) {
+          LoggerService().warn("patch copy FAIL: $name -> $to/$name error=$e");
+        }
       }
     }
   }
