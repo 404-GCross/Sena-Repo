@@ -57,6 +57,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
+
       - name: Build APK (release)
         run: flutter build apk --release
 
@@ -100,6 +103,9 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
 
       - name: Build Windows
         run: flutter build windows --release
@@ -168,6 +174,9 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
 
       - name: Build Linux
         run: flutter build linux --release
