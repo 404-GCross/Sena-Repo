@@ -10,7 +10,6 @@ import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 
 import "api_client.dart";
-import "download_service.dart";
 
 class SteamGameInfo {
   final String appId;
@@ -185,14 +184,8 @@ class SteamService {
       final total = resp.statusCode == 206
           ? (resp.contentLength ?? 0) + state._received
           : resp.contentLength ?? 0;
-      // PC: download to user's download dir; Android: use app support dir
-      String workDir;
-      if (Platform.isAndroid) {
-        workDir = (await getApplicationSupportDirectory()).path;
-      } else {
-        final downloadSvc = DownloadService();
-        workDir = await downloadSvc.downloadDir;
-      }
+      // Both platforms: temp files in app support dir (consistent with game downloads)
+      final workDir = (await getApplicationSupportDirectory()).path;
       if (tmpFile == null) {
         // Use ASCII-only temp name to avoid 7z encoding issues with CJK filenames
         final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
