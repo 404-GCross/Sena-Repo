@@ -145,8 +145,10 @@ jobs:
           Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
 
       - name: Setup fastforge + Inno Setup
+        shell: pwsh
         run: |
           dart pub global activate fastforge
+          Write-Host "fastforge: $((Get-Command fastforge -ErrorAction SilentlyContinue).Source)"
           choco install innosetup -y --no-progress
 
       - name: Install Chinese language for Inno Setup
