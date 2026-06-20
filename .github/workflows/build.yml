@@ -1,14 +1,26 @@
 name: Build Sena Repo Client
 
-env:
-  VERSION: "0.1.0"
-
 on:
   push:
     branches: [main, master, dev]
   pull_request:
     branches: [main, master, dev]
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (留空则从 pubspec.yaml 读取)'
+        required: false
+        default: ''
+        type: string
+      publish:
+        description: '发布到 GitHub Release'
+        required: true
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - pre-release
+          - release
 
 defaults:
   run:
@@ -20,6 +32,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -80,6 +99,13 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $V = "${{ inputs.version }}"
+          if (-not $V) { $V = (Select-String -Path pubspec.yaml -Pattern '^version:' | Select-Object -First 1) -replace 'version: *','' }
+          echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: subosito/flutter-action@v2
         with:
@@ -153,6 +179,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - uses: subosito/flutter-action@v2
         with:
@@ -380,6 +412,38 @@ jobs:
         with:
           name: Sena-Repo_AppImage
           path: client/dist/Sena-Repo_AppImage_*.AppImage
+
+  # ── Publish to GitHub Release ──────────────────
+  publish:
+    needs: [build-android, build-windows, build-linux, build-server]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish != 'none' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V=${{ inputs.version }}
+          if [ -z "$V" ]; then
+            V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//')
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          prerelease: ${{ inputs.publish == 'pre-release' }}
+          files: release/**/*
+          body: |
+            ## 变更
+            版本 ${{ steps.ver.outputs.version }}
 
   # ── Docker Server Image ──────────────────────────
   build-server:
