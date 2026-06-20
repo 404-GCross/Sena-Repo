@@ -49,6 +49,23 @@ begin
     Result := True;
 end;
 
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  AppDataPath: String;
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usPostUninstall then begin
+    if MsgBox('是否同时删除 {{DISPLAY_NAME}} 的应用数据？'#13#10#13#10'（包括下载缓存、日志、设置等）',
+             mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      AppDataPath := ExpandConstant('{localappdata}\senarepo');
+      Exec('cmd.exe', '/C rmdir /S /Q "' + AppDataPath + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      AppDataPath := ExpandConstant('{userappdata}\senarepo');
+      Exec('cmd.exe', '/C rmdir /S /Q "' + AppDataPath + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
+  end;
+end;
+
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
