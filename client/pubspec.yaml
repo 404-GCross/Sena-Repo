@@ -1,0 +1,45 @@
+name: sena_repo
+description: Sena Repo - GalGame Private Library Manager Client
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  provider: ^6.1.0
+  file_picker: ^8.0.0
+  path_provider: ^2.1.0
+  shared_preferences: ^2.2.0
+  permission_handler: ^11.3.0
+  flutter_local_notifications: ^18.0.0
+  font_awesome_flutter: ^10.8.0
+  tray_manager: ^0.5.1
+  window_manager:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/window_manager.git
+      ref: main
+      path: packages/window_manager
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.0
+
+flutter_launcher_icons:
+  android: true
+  windows:
+    generate: true
+  linux:
+    generate: true
+  image_path: "assets/icon.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/binaries/
+    - assets/icon.png

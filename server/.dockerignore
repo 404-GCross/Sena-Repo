@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.env
+.venv
+venv
+*.egg-info
+dist
+build
+.git
+.gitignore
+*.md
+!requirements.txt
+config.yaml

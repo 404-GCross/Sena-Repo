@@ -1,0 +1,60 @@
+import java.util.Properties
+
+plugins {
+    id("com.android.application")
+    id("kotlin-android")
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Load keystore properties; fall back to defaults for CI
+val keystoreProperties = Properties()
+val propsFile = rootProject.file("key.properties")
+if (propsFile.exists()) {
+    keystoreProperties.load(propsFile.inputStream())
+}
+
+android {
+    namespace = "com.github.senarepo"
+    compileSdk = flutter.compileSdkVersion
+
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "com.github.senarepo"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = 1
+        versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file(keystoreProperties.getProperty("storeFile", "upload-keystore.jks"))
+            storePassword = keystoreProperties.getProperty("storePassword", "senarepo")
+            keyAlias = keystoreProperties.getProperty("keyAlias", "sena-repo")
+            keyPassword = keystoreProperties.getProperty("keyPassword", "senarepo")
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}

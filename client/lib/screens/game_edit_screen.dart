@@ -1,0 +1,1329 @@
+/// Full-screen game metadata editor — Playnite style.
+/// Layout: cover right header, left metadata panel, right description, inline download buttons.
+
+import "dart:async";
+import "dart:convert";
+import "package:file_picker/file_picker.dart";
+
+import "package:flutter/material.dart";
+import "package:provider/provider.dart";
+import "package:http/http.dart" as http;
+
+import "../models/game.dart";
+import "../utils/theme_utils.dart";
+import "../providers/game_provider.dart";
+
+class GameEditScreen extends StatefulWidget {
+  final GameDetail game;
+  const GameEditScreen({super.key, required this.game});
+
+  @override
+  State<GameEditScreen> createState() => _GameEditScreenState();
+}
+
+class _GameEditScreenState extends State<GameEditScreen> {
+  late final TextEditingController _name, _dev, _desc, _date,
+      _vndb, _steam, _bgm, _notes, _bgUrl;
+  bool _saving = false;
+  String? _coverPath;
+  int _coverVersion = 0;
+  int _bgVersion = 0;
+
+  String get _baseUrl => context.read<GameProvider>().api.baseUrl;
+  Map<String, String> get _authHeaders => context.read<GameProvider>().api.headers;
+
+  @override
+  void initState() {
+    super.initState();
+    final g = widget.game;
+    _coverPath = g.coverPath;
+    _coverVersion = DateTime.now().millisecondsSinceEpoch;
+    _name = TextEditingController(text: g.name);
+    _dev = TextEditingController(text: g.developer ?? "");
+    _desc = TextEditingController(text: g.description ?? "");
+    _date = TextEditingController(text: g.releaseDate ?? "");
+    _vndb = TextEditingController(text: g.vndbId ?? "");
+    _steam = TextEditingController(text: g.steamId ?? "");
+    _bgm = TextEditingController(text: g.bangumiId ?? "");
+    _bgUrl = TextEditingController(text: g.bgPath ?? "");
+    _notes = TextEditingController();
+  }
+
+  Future<void> _save({bool popOnSave = true}) async {
+    setState(() => _saving = true);
+    try {
+      final g = widget.game;
+      final body = {"name": _name.text.trim(), "developer": _dev.text.trim(),
+        "description": _desc.text.trim(), "release_date": _date.text.trim(),
+        "bg_path": _bgUrl.text.trim(),
+        "vndb_id": _vndb.text.trim(), "steam_id": _steam.text.trim(),
+        "bangumi_id": _bgm.text.trim()};
+      final resp = await http.put(Uri.parse("$_baseUrl/api/games/${g.id}"),
+          headers: {"Content-Type": "application/json", ..._authHeaders},
+          body: jsonEncode(body));
+      if (resp.statusCode != 200) { _showError("保存失败 (${resp.statusCode}): ${resp.body}"); return; }
+      // Also update background image if URL provided
+      if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"), headers: _authHeaders);
+      }
+      if (popOnSave && mounted) Navigator.pop(context, true);
+    } catch (e) { _showError("$e"); }
+    setState(() => _saving = false);
+  }
+
+  Future<void> _downloadFromSource(String source, String label) async {
+    final ctrl = TextEditingController(text: _name.text);
+    final q = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("搜索 $label"),
+        content: TextField(controller: ctrl, autofocus: true,
+          decoration: InputDecoration(labelText: "名称或 ID", hintText: "输入后回车搜索")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text("搜索")),
+        ],
+      ),
+    );
+    if (q == null || q.isEmpty) return;
+
+    List<Map<String, dynamic>> results = [];
+    try {
+      final resp = await http.get(Uri.parse(
+          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$source"));
+      results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+    } catch (_) { _showError("搜索失败"); return; }
+    if (results.isEmpty) { _showError("无结果"); return; }
+
+    // Show results
+    final picked = await showDialog<Object?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("$label — 搜索结果"),
+        content: SizedBox(width: 450, height: 400,
+          child: ListView.builder(
+            itemCount: results.length,
+            itemBuilder: (_, i) {
+              final r = results[i];
+              return ListTile(
+                leading: (r["cover_url"] ?? "").toString().isNotEmpty
+                    ? ClipRRect(borderRadius: BorderRadius.circular(4),
+                        child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
+                            fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
+                    : _noCover(),
+                title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
+                subtitle: Text([r["developer"], r["release_date"]]
+                    .where((s) => s != null && s.toString().isNotEmpty).join(" · "),
+                    style: const TextStyle(fontSize: 12)),
+                onTap: () => Navigator.pop(ctx, r),
+              );
+            },
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final r = picked as Map<String, dynamic>;
+
+    // Apply to form (mark dirty)
+    setState(() {
+      _name.text = (r["title"] ?? "").toString();
+      _dev.text = (r["developer"] ?? "").toString();
+      _desc.text = (r["description"] ?? "").toString();
+      _date.text = (r["release_date"] ?? "").toString();
+    });
+    _showMsg("已填入 $label 数据");
+  }
+
+  Future<void> _moveVersionDialog(version) async {
+    final searchCtrl = TextEditingController();
+    var results = <Map<String, dynamic>>[];
+    final targetId = await showDialog<int>(
+      context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+        title: Text("移动「${version.filename}」"),
+        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            Expanded(child: TextField(controller: searchCtrl, autofocus: true,
+              decoration: const InputDecoration(labelText: "搜索游戏名称", isDense: true),
+              onSubmitted: (v) async {
+                setD(() => results = []);
+                try {
+                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"));
+                  if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+                } catch (_) {}
+                setD(() {});
+              })),
+            const SizedBox(width: 8),
+            IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
+              setD(() => results = []);
+              try {
+                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"));
+                if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+              } catch (_) {}
+              setD(() {});
+            }),
+          ]),
+          const SizedBox(height: 8),
+          if (results.isNotEmpty)
+            SizedBox(height: 250, child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+              final g = results[i];
+              return ListTile(
+                title: Text(g["name"] ?? "", style: const TextStyle(fontSize: 13)),
+                subtitle: Text("${g["company_name"] ?? ""} · ${g["platform_summary"] ?? ""}",
+                    style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.pop(ctx, g["id"] as int),
+              );
+            })),
+          if (results.isEmpty && searchCtrl.text.isNotEmpty)
+            Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
+                style: TextStyle(color: hintColor(context)))),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          TextButton.icon(
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text("创建新条目并移入"),
+              onPressed: () async {
+                final nameCtrl = TextEditingController();
+                final newName = await showDialog<String>(
+                  context: ctx, builder: (c) => AlertDialog(
+                    title: const Text("新建游戏条目"),
+                    content: TextField(
+                      controller: nameCtrl,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: "游戏名称",
+                        hintText: "输入新游戏名称",
+                      ),
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(c), child: const Text("取消")),
+                      FilledButton(onPressed: () {
+                        final name = nameCtrl.text.trim();
+                        if (name.isEmpty) return;
+                        Navigator.pop(c, name);
+                      }, child: const Text("创建")),
+                    ],
+                  ),
+                );
+                if (newName == null || newName.isEmpty) return;
+                try {
+                  final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
+                    headers: {"Content-Type": "application/json", ..._authHeaders},
+                    body: jsonEncode({"name": newName}),
+                  );
+                  if (r.statusCode == 200) {
+                    Navigator.pop(ctx, jsonDecode(r.body)["id"] as int);
+                  }
+                } catch (_) {}
+              },
+            ),
+        ],
+      )),
+    );
+    if (targetId != null && targetId > 0) {
+      try {
+        final g = widget.game;
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/versions/${version.id}/move?to_game_id=$targetId"), headers: _authHeaders);
+        if (mounted) Navigator.pop(context, true);
+      } catch (e) { _showError("$e"); }
+    }
+  }
+
+  Future<void> _mergeGameDialog() async {
+    final searchCtrl = TextEditingController();
+    var results = <Map<String, dynamic>>[];
+    final targetId = await showDialog<int>(
+      context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+        title: const Text("合并到哪个游戏？"),
+        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text("当前游戏的所有版本将移至目标游戏，当前游戏将被删除。",
+              style: AppText.label.copyWith( color: hintColor(context))),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(controller: searchCtrl, autofocus: true,
+              decoration: const InputDecoration(labelText: "搜索游戏名称", isDense: true),
+              onSubmitted: (v) async {
+                setD(() => results = []);
+                try {
+                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"));
+                  if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+                } catch (_) {}
+                setD(() {});
+              })),
+            const SizedBox(width: 8),
+            IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
+              setD(() => results = []);
+              try {
+                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"));
+                if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+              } catch (_) {}
+              setD(() {});
+            }),
+          ]),
+          const SizedBox(height: 8),
+          if (results.isNotEmpty)
+            SizedBox(height: 250, child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+              final g = results[i];
+              return ListTile(
+                title: Text(g["name"] ?? "", style: const TextStyle(fontSize: 13)),
+                subtitle: Text("${g["company_name"] ?? ""} · ${g["platform_summary"] ?? ""}",
+                    style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.pop(ctx, g["id"] as int),
+              );
+            })),
+          if (results.isEmpty && searchCtrl.text.isNotEmpty)
+            Padding(padding: const EdgeInsets.all(16), child: Text("无结果",
+                style: TextStyle(color: hintColor(context)))),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          if (searchCtrl.text.trim().isNotEmpty)
+            TextButton.icon(
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text("创建新条目并合并"),
+              onPressed: () async {
+                try {
+                  final r = await http.put(Uri.parse("$_baseUrl/api/games/quick-create"),
+                    headers: {"Content-Type": "application/json", ..._authHeaders},
+                    body: jsonEncode({"name": searchCtrl.text.trim()}),
+                  );
+                  if (r.statusCode == 200) {
+                    final newId = jsonDecode(r.body)["id"] as int;
+                    Navigator.pop(ctx, newId);
+                  }
+                } catch (_) {}
+              },
+            ),
+        ],
+      )),
+    );
+    if (targetId != null && targetId > 0) {
+      try {
+        final g = widget.game;
+        await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/merge/$targetId"), headers: _authHeaders);
+        if (mounted) Navigator.pop(context, true);
+      } catch (e) { _showError("$e"); }
+    }
+  }
+
+  Future<void> _reloadGame() async {
+    try {
+      final resp = await http.get(Uri.parse("$_baseUrl/api/games/${widget.game.id}"));
+      if (resp.statusCode == 200) {
+        final fresh = GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+        if (mounted) setState(() { _coverPath = fresh.coverPath; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+      }
+    } catch (_) {}
+  }
+
+  void _showMsg(String m) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text("提示"), content: Text(m),
+      actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+    ));
+  }
+  void _showError(String m) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text("错误"), content: Text(m),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭"))],
+    ));
+  }
+
+  Widget _field(String label, TextEditingController ctrl, {int maxLines = 1, IconData? icon, String? sourceId}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (icon != null) ...[
+          Padding(padding: const EdgeInsets.only(top: 8),
+            child: Icon(icon, size: 18, color: hintColor(context))),
+          const SizedBox(width: 8),
+        ],
+        SizedBox(width: 80,
+          child: Padding(padding: const EdgeInsets.only(top: 10),
+            child: Text(label, style: TextStyle(color: subTextColor(context), fontSize: 14)))),
+        Expanded(
+          child: TextField(controller: ctrl, maxLines: maxLines,
+            decoration: _dec(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+            style: const TextStyle(fontSize: 15)),
+        ),
+        if (sourceId != null && sourceId.isNotEmpty)
+          Padding(padding: const EdgeInsets.only(top: 10, left: 6),
+            child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3))),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.check_circle, size: 10, color: Colors.green[300]),
+                const SizedBox(width: 4),
+                Text(sourceId, style: AppText.caption.copyWith(color: Colors.green[300], fontWeight: FontWeight.w500)),
+              ]))),
+      ]),
+    );
+  }
+
+  Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
+
+  Widget _section(String t, [IconData? icon]) => Padding(
+    padding: const EdgeInsets.only(bottom: 8, top: 4),
+    child: Row(children: [
+      if (icon != null) ...[
+        Icon(icon, size: 18, color: sectionIconColor(context)),
+        const SizedBox(width: 6),
+      ],
+      Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sectionTextColor(context))),
+    ]),
+  );
+
+  Widget _fieldCard({required List<Widget> children}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    decoration: BoxDecoration(
+      color: cardBg(context),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: cardBorder(context)),
+    ),
+    child: Column(children: children),
+  );
+
+  Widget _hintCard(String text) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: cardBg(context),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: cardBorder(context)),
+    ),
+    child: Row(children: [
+      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+      const SizedBox(width: 8),
+      Text(text, style: AppText.bodyMedium.copyWith( color: hintColor(context))),
+    ]),
+  );
+
+  Color _platformColor(String platform) {
+    switch (platform.toLowerCase()) {
+      case "windows": return Colors.blue;
+      case "android": return Colors.green;
+      case "linux": return Colors.orange;
+      case "mac": return Colors.grey;
+      default: return Colors.blueGrey;
+    }
+  }
+
+  Widget _divider() => Divider(height: 1, thickness: 0.5, color: cardBorder(context));
+
+  @override
+  Widget build(BuildContext context) {
+    final g = widget.game;
+    final hasCover = _coverPath != null && _coverPath!.isNotEmpty;
+    final isWide = MediaQuery.of(context).size.width > 600;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("编辑游戏"),
+        actions: [
+          OutlinedButton.icon(icon: const Icon(Icons.cloud_download, size: 16),
+            label: const Text("下载元数据"), onPressed: _downloadMetadata),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            tooltip: "删除游戏",
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context, builder: (ctx) => AlertDialog(
+                  title: const Text("确认删除"),
+                  content: Text("确定删除「${widget.game.name}」吗？\n不会删除本地文件。"),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
+                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("删除")),
+                  ],
+                ),
+              );
+              if (confirmed == true && context.mounted) {
+                await context.read<GameProvider>().deleteGame(widget.game.id);
+                if (context.mounted) Navigator.pop(context, true);
+              }
+            },
+          ),
+          const SizedBox(width: 4),
+          FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving ? const SizedBox(width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save, size: 16),
+            label: const Text("保存")),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(isWide ? 28 : 12),
+        child: Column(children: [
+          // ── Hero banner (landscape) full width ──
+          Padding(
+            padding: EdgeInsets.fromLTRB(0, 0, 0, 4),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+              child: _bgHeroPreview(),
+            ),
+          ),
+          Center(
+            child: TextButton.icon(
+              onPressed: _pickLocalBg,
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
+              label: const Text("上传背景", style: TextStyle(fontSize: 12)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // ── Content area ──
+          Center(
+            child: SizedBox(width: 900,
+              child: Column(children: [
+                // ── Header: cover right, name left ──
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    TextField(controller: _name,
+                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, height: 1.2),
+                      decoration: _dec(border: InputBorder.none, isDense: true)),
+                    const SizedBox(height: 6),
+                    if (g.companyName != null && g.companyName!.isNotEmpty)
+                      Text(g.companyName!, style: TextStyle(fontSize: 16, color: subTextColor(context)))
+                    else
+                      Text("无公司信息", style: AppText.bodyMedium.copyWith( color: Colors.grey[600])),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      _sourceBadge("VNDB", g.vndbId),
+                      _sourceBadge("Steam", g.steamId),
+                      _sourceBadge("Bangumi", g.bangumiId),
+                    ]),
+                  ]),
+                ),
+                const SizedBox(width: 24),
+                Column(children: [
+                  Container(
+                    width: isWide ? 200 : 130, height: isWide ? 280 : 182,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 8)),
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 8, offset: const Offset(0, 2)),
+                      ],
+                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: hasCover
+                          ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
+                              fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
+                          : _coverPlaceholder()),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () => _pickLocalCover(),
+                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+                    label: const Text("本地上传", style: TextStyle(fontSize: 12)),
+                  ),
+                ]),
+              ]),
+              const SizedBox(height: 24),
+
+              // ── Body: responsive — wide: Row, narrow: Column ──
+              if (isWide)
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  // Left: metadata grid
+                  Expanded(
+                    flex: 5,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      _section("详细信息", Icons.info_outline),
+                      _fieldCard(children: [
+                        _field("开发商", _dev, icon: Icons.business, sourceId: g.vndbId),
+                        _divider(),
+                        _field("发售日", _date, icon: Icons.calendar_today, sourceId: g.vndbId),
+                        _divider(),
+                        _field("VNDB ID", _vndb, icon: Icons.tag,
+                            sourceId: g.vndbId != null && g.vndbId!.isNotEmpty ? g.vndbId : null),
+                        _divider(),
+                        _field("Steam ID", _steam, icon: Icons.tag,
+                            sourceId: g.steamId != null && g.steamId!.isNotEmpty ? g.steamId : null),
+                        _divider(),
+                        _field("Bangumi ID", _bgm, icon: Icons.tag,
+                            sourceId: g.bangumiId != null && g.bangumiId!.isNotEmpty ? g.bangumiId : null),
+                      ]),
+                      const SizedBox(height: 20),
+                      _section("版本", Icons.folder_outlined),
+                      if (g.versions.isEmpty)
+                        _hintCard("暂无版本信息")
+                      else ...[
+                        _fieldCard(children:
+                          g.versions.asMap().entries.map((e) {
+                            final v = e.value;
+                            final isLast = e.key == g.versions.length - 1;
+                            return Column(children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                child: Row(children: [
+                                  Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: _platformColor(v.platform).withValues(alpha: 0.15),
+                                    ),
+                                    child: Text(v.platform, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert, size: 18),
+                                    onSelected: (action) {
+                                      if (action == "move") _moveVersionDialog(v);
+                                    },
+                                    itemBuilder: (_) => const [
+                                      PopupMenuItem(value: "move", child: Text("移动到其他游戏...")),
+                                    ],
+                                  ),
+                                ]),
+                              ),
+                              if (!isLast) _divider(),
+                            ]);
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.merge, size: 16),
+                          label: const Text("合并到其他游戏..."),
+                          onPressed: _mergeGameDialog,
+                        ),
+                      ],
+                    ]),
+                  ),
+                  const SizedBox(width: 28),
+                  // Right: description + notes
+                  Expanded(
+                    flex: 4,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      _section("简介", Icons.description_outlined),
+                      TextField(controller: _desc, maxLines: 8,
+                        decoration: _dec(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          hintText: "游戏简介..."),
+                        style: AppText.body.copyWith( height: 1.6)),
+                      const SizedBox(height: 20),
+                      _section("备注", Icons.note_outlined),
+                      TextField(controller: _notes, maxLines: 4,
+                        decoration: _dec(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          hintText: "个人备注..."),
+                        style: AppText.body.copyWith( height: 1.6)),
+                      // hero moved to top,
+                    ]),
+                  ),
+                ])
+              else
+                Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _section("简介", Icons.description_outlined),
+                  TextField(controller: _desc, maxLines: 8,
+                    decoration: _dec(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      hintText: "游戏简介..."),
+                    style: AppText.body.copyWith( height: 1.6)),
+                  const SizedBox(height: 20),
+                  _section("详细信息", Icons.info_outline),
+                  _fieldCard(children: [
+                    _field("开发商", _dev, icon: Icons.business, sourceId: g.vndbId),
+                    _divider(),
+                    _field("发售日", _date, icon: Icons.calendar_today, sourceId: g.vndbId),
+                    _divider(),
+                    _field("VNDB ID", _vndb, icon: Icons.tag,
+                        sourceId: g.vndbId != null && g.vndbId!.isNotEmpty ? g.vndbId : null),
+                    _divider(),
+                    _field("Steam ID", _steam, icon: Icons.tag,
+                        sourceId: g.steamId != null && g.steamId!.isNotEmpty ? g.steamId : null),
+                    _divider(),
+                    _field("Bangumi ID", _bgm, icon: Icons.tag,
+                        sourceId: g.bangumiId != null && g.bangumiId!.isNotEmpty ? g.bangumiId : null),
+                  ]),
+                  const SizedBox(height: 20),
+                  _section("版本", Icons.folder_outlined),
+                  if (g.versions.isEmpty)
+                    _hintCard("暂无版本信息")
+                  else ...[
+                    _fieldCard(children:
+                      g.versions.asMap().entries.map((e) {
+                        final v = e.value;
+                        final isLast = e.key == g.versions.length - 1;
+                        return Column(children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(children: [
+                              Icon(Icons.insert_drive_file_outlined, size: 18, color: hintColor(context)),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text(v.filename, style: const TextStyle(fontSize: 14))),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: _platformColor(v.platform).withValues(alpha: 0.15),
+                                ),
+                                child: Text(v.platform, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: _platformColor(v.platform))),
+                              ),
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, size: 18),
+                                onSelected: (action) {
+                                  if (action == "move") _moveVersionDialog(v);
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(value: "move", child: Text("移动到其他游戏...")),
+                                ],
+                              ),
+                            ]),
+                          ),
+                          if (!isLast) _divider(),
+                        ]);
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.merge, size: 16),
+                      label: const Text("合并到其他游戏..."),
+                      onPressed: _mergeGameDialog,
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  _section("备注", Icons.note_outlined),
+                  TextField(controller: _notes, maxLines: 4,
+                    decoration: _dec(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      hintText: "个人备注..."),
+                    style: AppText.body.copyWith( height: 1.6)),
+                ])
+            ]),
+          ),
+        ),
+      ]),
+      ),
+    );
+  }
+
+  Widget _bgHeroPreview() {
+    if (_bgUrl.text.isEmpty) {
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Container(
+          color: placeholderBg(context),
+          child: Center(child: Icon(Icons.image, size: 48, color: placeholderIcon(context))),
+        ),
+      );
+    }
+    final url = _bgUrl.text.startsWith("http")
+        ? _bgUrl.text
+        : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion";
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Image.network(url, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) =>
+          Container(
+            color: placeholderBg(context),
+            child: Center(child: Icon(Icons.broken_image, size: 48, color: placeholderIcon(context))),
+          ),
+      ),
+    );
+  }
+
+  Widget _coverPlaceholder() => Container(
+    decoration: BoxDecoration(
+      color: placeholderBg(context),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    width: 200, height: 280,
+    child: Center(child: Icon(Icons.image, size: 64, color: placeholderIcon(context))),
+  );
+
+  Widget _coverPlaceholderSmall() => Container(
+    width: 90, height: 120,
+    decoration: BoxDecoration(
+      color: placeholderBg(context),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Center(child: Icon(Icons.image, size: 32, color: placeholderIcon(context))),
+  );
+
+  Widget _sourceBadge(String label, String? id) {
+    final active = id != null && id.isNotEmpty;
+    return Padding(padding: const EdgeInsets.only(right: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: active ? Colors.green.withValues(alpha: 0.35) : Colors.white24)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (active)
+            Padding(padding: const EdgeInsets.only(right: 4),
+              child: Icon(Icons.check_circle, size: 12, color: Colors.green[300])),
+          Text(label, style: AppText.label.copyWith( fontWeight: FontWeight.w500, color: active ? Colors.green[300] : Colors.grey)),
+        ])));
+  }
+
+  // ── Single unified download: search all sources → show results → compare → apply ──
+
+  // ── Single unified download: search all sources → show results → compare → apply ──
+
+  Future<void> _pickLocalBg() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
+      if (result == null || result.files.isEmpty || result.files.first.path == null) return;
+      final request = http.MultipartRequest(
+          "POST", Uri.parse("$_baseUrl/api/games/${widget.game.id}/background/upload"));
+      _authHeaders.forEach((k, v) => request.headers[k] = v);
+      request.files.add(await http.MultipartFile.fromPath("file", result.files.first.path!));
+      final streamed = await request.send();
+      if (streamed.statusCode == 200) {
+        final data = jsonDecode(await streamed.stream.bytesToString()) as Map<String, dynamic>;
+        if (data["bg_path"] != null) {
+          setState(() { _bgUrl.text = data["bg_path"]; _bgVersion = DateTime.now().millisecondsSinceEpoch; });
+        }
+        _showMsg("大图上传成功");
+      } else {
+        _showError("上传失败");
+      }
+    } catch (e) {
+      _showError("上传失败: $e");
+    }
+  }
+
+  Future<void> _pickLocalCover() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
+      if (result == null || result.files.isEmpty || result.files.first.path == null) return;
+      final request = http.MultipartRequest(
+          "POST", Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover/upload"));
+      _authHeaders.forEach((k, v) => request.headers[k] = v);
+      request.files.add(await http.MultipartFile.fromPath("file", result.files.first.path!));
+      final streamed = await request.send();
+      if (streamed.statusCode == 200) {
+        final data = jsonDecode(await streamed.stream.bytesToString()) as Map<String, dynamic>;
+        if (data["cover_path"] != null) {
+          setState(() { _coverPath = data["cover_path"]; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+        }
+        _showMsg("封面上传成功");
+      }
+    } catch (e) {
+      _showError("上传失败: $e");
+    }
+  }
+
+  Future<void> _downloadMetadata() async {
+    // Step 1: Pick source
+    final sources = {"vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi", "steam": "Steam", "dlsite": "DLsite", "ymgal": "月幕GalGame"};
+    final src = await showDialog<String>(
+      context: context, builder: (ctx) => AlertDialog(
+        title: const Text("选择数据来源"),
+        content: Column(mainAxisSize: MainAxisSize.min,
+          children: sources.entries.map((e) => ListTile(
+            title: Text(e.value), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.pop(ctx, e.key),
+          )).toList()),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消"))],
+      ),
+    );
+    if (src == null || !mounted) return;
+
+    // Step 2: Search with inline loading + results
+    final ctrl = TextEditingController(text: _name.text);
+    final picked = await showDialog<Object?>(
+      context: context, builder: (ctx) {
+        var results = <Map<String, dynamic>>[];
+        var searching = false;
+        var error = "";
+        return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+          title: Text("${sources[src]} - 搜索"),
+          content: SizedBox(width: 440, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Expanded(child: TextField(controller: ctrl, autofocus: true,
+                decoration: _dec(labelText: "名称/ID", hintText: "游戏名 或 VNDB/Steam/Bangumi ID"),
+                onSubmitted: (v) async {
+                  setD(() { searching = true; results = []; error = ""; });
+                  try {
+                    final r = await http.get(Uri.parse(
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
+                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                  } catch (e) { error = "$e"; }
+                  setD(() => searching = false);
+                })),
+              const SizedBox(width: 8),
+              IconButton.filled(icon: const Icon(Icons.search, size: 18),
+                onPressed: () async {
+                  setD(() { searching = true; results = []; error = ""; });
+                  try {
+                    final r = await http.get(Uri.parse(
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
+                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                  } catch (e) { error = "$e"; }
+                  setD(() => searching = false);
+                }),
+            ]),
+            const SizedBox(height: 8),
+            if (searching) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
+            if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.red)),
+            if (!searching && results.isEmpty && error.isEmpty)
+              const Padding(padding: EdgeInsets.all(16), child: Text("无结果", style: TextStyle(color: Colors.grey))),
+            if (results.isNotEmpty)
+              SizedBox(height: 350,
+                child: ListView.builder(itemCount: results.length, itemBuilder: (_, i) {
+                  final r = results[i];
+                  return ListTile(
+                    title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 14)),
+                    subtitle: Text([r["developer"], r["release_date"]]
+                        .where((s) => s != null && s.toString().isNotEmpty).join(" · "),
+                        maxLines: 1, style: AppText.label.copyWith( color: hintColor(context))),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: () => Navigator.pop(ctx, r),
+                  );
+                })),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, "retry"), child: const Text("重新选择来源")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          ],
+        ));
+      },
+    );
+    if (picked == "retry") {
+      await _downloadMetadata();
+      return;
+    }
+    if (picked == null || !mounted) return;
+    final r = picked as Map<String, dynamic>;
+
+    // Step 2.5: If multiple screenshots, let user pick hero image (like Playnite)
+    final screenshots = (r["screenshots"] as List<dynamic>?)?.cast<String>() ?? [];
+    if (screenshots.length > 1) {
+      final pickedHero = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("选择背景"),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
+            child: GridView.builder(
+              shrinkWrap: true,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 1.6,
+              ),
+              itemCount: screenshots.length,
+              itemBuilder: (_, i) => GestureDetector(
+                onTap: () => Navigator.pop(ctx, screenshots[i]),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(screenshots[i],
+                    fit: BoxFit.cover,
+                    loadingBuilder: (_, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: Colors.grey.withValues(alpha: 0.15),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                          value: progress.expectedTotalBytes != null
+                              ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                              : null)),
+                      );
+                    },
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.grey[800],
+                      child: const Icon(Icons.broken_image, color: Colors.grey),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, screenshots[0]),
+              child: const Text("使用第一张")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("跳过")),
+          ],
+        ),
+      );
+      if (pickedHero != null) {
+        r["hero_url"] = pickedHero;
+      }
+    }
+
+    // Step 3: Preload cover image before showing comparison
+    final coverUrl = (r["cover_url"] ?? "").toString();
+    if (coverUrl.isNotEmpty) {
+      final preloadDone = Completer<void>();
+      showDialog(context: context, barrierDismissible: false,
+        builder: (_) => PopScope(canPop: false, child: AlertDialog(
+          title: const Text("加载中..."),
+          content: SizedBox(
+            width: 200, height: 100,
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Image.network(coverUrl, width: 90, height: 120, fit: BoxFit.cover,
+                loadingBuilder: (_, child, progress) {
+                  if (progress == null) { preloadDone.complete(); return child; }
+                  return Column(mainAxisSize: MainAxisSize.min, children: [
+                    CircularProgressIndicator(
+                      value: progress.expectedTotalBytes != null
+                          ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                          : null),
+                    const SizedBox(height: 8),
+                    Text("${(progress.cumulativeBytesLoaded / 1024).toStringAsFixed(0)} KB",
+                        style: const TextStyle(fontSize: 12)),
+                  ]);
+                },
+                errorBuilder: (_, __, ___) { preloadDone.complete(); return const SizedBox.shrink(); }),
+            ]),
+          ),
+        )),
+      );
+      await preloadDone.future;
+      if (mounted) Navigator.pop(context);
+    }
+
+    // Step 4: Per-field comparison
+    final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
+    final incoming = {
+      "名称": (r["title"] ?? "").toString(),
+      "开发商": (r["developer"] ?? "").toString(),
+      "日期": (r["release_date"] ?? "").toString(),
+      "简介": (r["description"] ?? "").toString(),
+    };
+    final heroUrl = (r["hero_url"] ?? "").toString();
+    final hasCoverDiff = coverUrl.isNotEmpty;
+    final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
+    // Build initial selection state (outside StatefulBuilder so it persists across rebuilds)
+    final useSearch = <String, bool>{};
+    for (final f in fields.keys) {
+      useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
+    }
+    useSearch["封面"] = hasCoverDiff;
+    useSearch["背景"] = hasHeroDiff;
+
+    final confirmed = await showDialog<Map<String, bool>?>(
+      context: context, builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          final anyDiff = useSearch.values.any((v) => v);
+          return AlertDialog(
+          title: Row(children: [
+            Icon(Icons.compare_arrows, size: 22, color: Colors.green[300]),
+            const SizedBox(width: 8),
+            Text("对比 - ${sources[src]}"),
+          ]),
+          content: SizedBox(width: 500,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 480),
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!anyDiff)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(children: [
+                      Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+                      const SizedBox(width: 8),
+                      Text("所有字段与现有数据一致，无需更新", style: AppText.bodySmall.copyWith( color: hintColor(context))),
+                    ]),
+                  ),
+                ...fields.keys.map((f) {
+                  final cur = fields[f]!.text;
+                  final inc = incoming[f] ?? "";
+                  final hasDiff = inc.isNotEmpty && inc != cur;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: hasDiff ? cardBg(context) : cardBg(context),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: hasDiff ? Colors.green.withValues(alpha: 0.2) : cardBorder(context)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text(f, style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        const Spacer(),
+                        if (hasDiff)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text("有变更", style: AppText.caption.copyWith( color: Colors.green[300])),
+                          ),
+                      ]),
+                      const SizedBox(height: 10),
+                      if (hasDiff)
+                        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(cur.isEmpty ? "(空)" : cur,
+                                  style: AppText.bodyMedium.copyWith( color: hintColor(context),
+                                      decoration: TextDecoration.lineThrough)),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: Icon(Icons.arrow_forward, size: 18, color: Colors.green[400]),
+                          ),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(inc.length > 80 ? "${inc.substring(0, 80)}..." : inc,
+                                  style: AppText.bodyMedium.copyWith( color: Colors.green)),
+                            ),
+                          ),
+                        ])
+                      else
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: cardBg(context),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(cur.isEmpty ? "(空)" : cur, style: AppText.bodyMedium.copyWith( color: subTextColor(context))),
+                        ),
+                      if (hasDiff)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(children: [
+                            SizedBox(
+                              width: 20, height: 20,
+                              child: Checkbox(
+                                value: useSearch[f],
+                                onChanged: (v) => setD(() => useSearch[f] = v ?? false),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => setD(() => useSearch[f] = !(useSearch[f] ?? false)),
+                              child: const Text("应用此项", style: TextStyle(fontSize: 13)),
+                            ),
+                          ]),
+                        ),
+                    ]),
+                  );
+                }),
+                if (hasCoverDiff) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text("封面", style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text("有变更", style: AppText.caption.copyWith( color: Colors.green[300])),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: _coverPath != null
+                              ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
+                                  width: 90, height: 120, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => _coverPlaceholderSmall())
+                              : _coverPlaceholderSmall(),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(Icons.arrow_forward, size: 22, color: Colors.green[400]),
+                        ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(coverUrl, width: 90, height: 120, fit: BoxFit.cover,
+                              loadingBuilder: (_, child, progress) {
+                                if (progress == null) return child;
+                                return Container(width: 90, height: 120,
+                                  color: Colors.grey.withValues(alpha: 0.15),
+                                  child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                                    value: progress.expectedTotalBytes != null
+                                        ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                        : null)));
+                              },
+                              errorBuilder: (_, __, ___) => _coverPlaceholderSmall()),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        SizedBox(
+                          width: 20, height: 20,
+                          child: Checkbox(
+                            value: useSearch["封面"],
+                            onChanged: (v) => setD(() => useSearch["封面"] = v ?? false),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setD(() => useSearch["封面"] = !(useSearch["封面"] ?? false)),
+                          child: const Text("下载并替换封面", style: TextStyle(fontSize: 13)),
+                        ),
+                      ]),
+                    ]),
+                  ),
+                ],
+                if (hasHeroDiff) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text("背景", style: AppText.bodySmall.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text("有变更", style: AppText.caption.copyWith( color: Colors.green[300])),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: _bgUrl.text.isNotEmpty
+                              ? Image.network(
+                                  _bgUrl.text.startsWith("http")
+                                      ? _bgUrl.text
+                                      : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
+                                  width: 180, height: 90, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 180, height: 90, color: Colors.grey[800],
+                                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                                  ),
+                                )
+                              : Container(width: 180, height: 90, color: Colors.grey[800],
+                                  child: const Icon(Icons.image, color: Colors.grey)),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(Icons.arrow_forward, size: 22, color: Colors.green[400]),
+                        ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(heroUrl, width: 180, height: 90, fit: BoxFit.cover,
+                            loadingBuilder: (_, child, progress) {
+                              if (progress == null) return child;
+                              return Container(width: 180, height: 90,
+                                color: Colors.grey.withValues(alpha: 0.15),
+                                child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                                  value: progress.expectedTotalBytes != null
+                                      ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                      : null)));
+                            },
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 180, height: 90, color: Colors.grey[800],
+                              child: const Icon(Icons.broken_image, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        SizedBox(width: 20, height: 20,
+                          child: Checkbox(
+                            value: useSearch["背景"],
+                            onChanged: (v) => setD(() => useSearch["背景"] = v ?? false),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setD(() => useSearch["背景"] = !(useSearch["背景"] ?? false)),
+                          child: const Text("应用背景", style: TextStyle(fontSize: 13)),
+                        ),
+                      ]),
+                    ]),
+                  ),
+                ],
+              ]),),),),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton.icon(
+              onPressed: anyDiff ? () => Navigator.pop(ctx, useSearch) : null,
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text("应用所选"),
+            ),
+          ],
+        );}),
+    );
+    if (confirmed == null || !mounted) return;
+
+    if (confirmed is! Map<String, bool>) return;
+    // Apply only selected fields to form
+    final apply = confirmed as Map<String, bool>;
+    setState(() {
+      if (apply["名称"] == true) _name.text = incoming["名称"]!;
+      if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
+      if (apply["日期"] == true) _date.text = incoming["日期"]!;
+      if (apply["简介"] == true) _desc.text = incoming["简介"]!;
+      // Apply landscape hero banner URL to background
+      if (apply["背景"] == true && heroUrl.isNotEmpty) { _bgUrl.text = heroUrl; }
+      final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
+      if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
+        sf[src]!.text = r["source_id"].toString();
+      }
+    });
+    // Download cover then auto-save
+    if (apply["封面"] == true && coverUrl.isNotEmpty) {
+      try {
+        final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"), headers: _authHeaders);
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body) as Map<String, dynamic>;
+          final newPath = data["cover_path"];
+          if (newPath != null) {
+            setState(() { _coverPath = newPath.toString(); _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+          }
+        }
+      } catch (_) {}
+      // Reload fresh game data so cover path is consistent with server
+      await _reloadGame();
+    }
+    await _save(popOnSave: false);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose(); _dev.dispose(); _desc.dispose(); _date.dispose();
+    _vndb.dispose(); _steam.dispose(); _bgm.dispose(); _bgUrl.dispose(); _notes.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _dec({InputBorder? border, bool isDense = true, EdgeInsetsGeometry? contentPadding, String? hintText, String? labelText}) {
+    return InputDecoration(
+      filled: true, fillColor: cardBg(context),
+      border: border, isDense: isDense,
+      contentPadding: contentPadding, hintText: hintText, labelText: labelText,
+    );
+  }
+}

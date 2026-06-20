@@ -1,0 +1,32 @@
+# Sena Repo Server Configuration
+# Copy this file to config.yaml and edit as needed.
+
+server:
+  host: "0.0.0.0"
+  port: 11451
+
+# HTTP proxy for scrapers (e.g. http://127.0.0.1:7890)
+proxy: ""
+
+# Path where game files are stored
+games_path: "/path/to/your/games"
+
+# Path where Sena Repo data (database, covers, etc.) is stored
+data_path: "/path/to/data"
+
+# Custom regex patterns for filename cleaning (optional)
+# Each pattern must have a 'name' group and specify a platform
+custom_regex:
+  # - pattern: '\[(?P<platform>\w+)\](?P<name>.+)'
+  #   platform: "PC"
+  #   description: "Standard [PLATFORM]Name format"
+
+# Scraper API keys (optional, fill in to enable)
+# Bangumi Token: https://bgm.tv/dev/app
+# VNDB Token: https://vndb.org/u/tokens
+# IGDB: https://dev.twitch.tv/console/apps
+scrapers:
+  bangumi_token: ""
+  vndb_token: ""
+  igdb_client_id: ""
+  igdb_client_secret: ""

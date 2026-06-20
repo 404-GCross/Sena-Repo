@@ -1,0 +1,46 @@
+name: Build 7zz for Android ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-7zz-android.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" 2>&1
+
+      - name: Download 7-Zip source
+        run: |
+          # Try official source first, fall back to SourceForge mirror
+          wget -q --user-agent="Wget" "https://sourceforge.net/projects/sevenzip/files/7-Zip/24.09/7z2409-src.7z/download" -O /tmp/7zsrc.7z || \
+          wget -q --user-agent="Wget" "https://7-zip.org/a/7z2409-src.7z" -O /tmp/7zsrc.7z || \
+          wget -q --user-agent="Wget" "https://www.7-zip.org/a/7z2409-src.7z" -O /tmp/7zsrc.7z
+          ls -la /tmp/7zsrc.7z
+          sudo apt-get install -y p7zip-full > /dev/null 2>&1
+          7z x /tmp/7zsrc.7z -o/tmp/7zsrc -y
+
+      - name: Build 7zz for aarch64
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cd /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          # Remove -lpthread and -ldl (Bionic has them built-in)
+          grep -rl '\-lpthread\|\-ldl' /tmp/7zsrc/CPP/7zip/ | xargs -r sed -i 's/-lpthread//g; s/-ldl//g'
+          make -j$(nproc) -f makefile.gcc \
+            CC="$NDK/aarch64-linux-android29-clang" \
+            CXX="$NDK/aarch64-linux-android29-clang++"
+          echo "=== Build output ==="
+          file _o/7zz
+          ls -la _o/7zz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7zz-android-arm64
+          path: /tmp/7zsrc/CPP/7zip/Bundles/Alone2/_o/7zz
