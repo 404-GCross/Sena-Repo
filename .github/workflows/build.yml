@@ -118,7 +118,14 @@ jobs:
           Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py"
           Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
 
-      - name: Package Windows
+      - name: Build Windows installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) { choco install innosetup -y --no-progress }
+          iscc /DMyAppVersion="$env:VERSION" windows\installer\setup.iss
+
+      - name: Package Windows (portable zip)
         shell: pwsh
         run: |
           mkdir -p dist
@@ -131,7 +138,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Windows
-          path: client/dist/Sena-Repo_Windows_*.zip
+          path: client/dist/Sena-Repo_Windows_*
 
   # ── Linux (RPM + Arch + AppImage) ─────────────────
   build-linux:
