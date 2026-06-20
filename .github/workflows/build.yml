@@ -165,9 +165,7 @@ jobs:
 
       - name: Build installer
         run: |
-          $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
-          iscc /? 2>&1 | Select-Object -First 1
-          fastforge package --platform windows --targets exe --verbose
+          fastforge package --platform windows --targets exe
 
       - name: Show dist contents
         shell: pwsh
