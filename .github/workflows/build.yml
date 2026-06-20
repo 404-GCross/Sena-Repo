@@ -126,6 +126,8 @@ jobs:
           flutter config --enable-windows-desktop
           Remove-Item -Recurse -Force windows/ -ErrorAction SilentlyContinue
           flutter create . --project-name sena_repo --org senarepo
+          # Restore packaging config deleted by flutter create
+          Copy-Item -Recurse -Force windows_assets\packaging windows\packaging
 
       - name: Install dependencies
         run: flutter pub get
