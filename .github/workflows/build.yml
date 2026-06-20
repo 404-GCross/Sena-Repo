@@ -157,6 +157,10 @@ jobs:
       - name: Build installer
         run: fastforge package --platform windows --targets exe
 
+      - name: Show dist contents
+        shell: pwsh
+        run: Get-ChildItem -Recurse dist
+
       - name: Package Windows (portable zip)
         shell: pwsh
         run: |
