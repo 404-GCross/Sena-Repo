@@ -158,6 +158,10 @@ jobs:
         run: |
           Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
 
+      - name: Verify packaging files
+        shell: pwsh
+        run: Get-ChildItem -Recurse windows\packaging
+
       - name: Build installer
         run: fastforge package --platform windows --targets exe --verbose
 
