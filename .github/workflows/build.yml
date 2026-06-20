@@ -126,7 +126,7 @@ jobs:
       - name: Install Chinese language for Inno Setup
         shell: pwsh
         run: |
-          Copy-Item "windows\packaging\exe\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+          Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
 
       - name: Build installer
         run: fastforge package --platform windows --targets exe
