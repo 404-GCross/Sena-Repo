@@ -30,6 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _avatarPath;
   int _userId = 0;
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+  int _lastLoadTime = 0;
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
@@ -41,6 +42,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadUserInfo();
+  }
+
+  Future<void> refresh() async => _loadUserInfo();
+
+  void _maybeRefresh() {
+    // Reload if >5s since last load (avoids duplicate loads when switching tabs)
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastLoadTime > 5000) {
+      _loadUserInfo();
+    }
   }
 
   void _switchProfile() {
@@ -69,6 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (mounted) setState(() {
             _avatarPath = data["avatar_path"];
             _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+            _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
           });
         }
       } catch (_) {}
@@ -77,6 +89,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _maybeRefresh();
     final settings = context.watch<SettingsProvider>();
     final hasCover = settings.serverHost.isNotEmpty;
 
