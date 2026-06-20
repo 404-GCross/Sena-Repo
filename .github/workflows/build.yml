@@ -104,7 +104,7 @@ jobs:
         shell: pwsh
         run: |
           $V = "${{ inputs.version }}"
-          if (-not $V) { $V = (Select-String -Path pubspec.yaml -Pattern '^version:' | Select-Object -First 1) -replace 'version: *','' }
+          if (-not $V) { $V = ((Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace 'version: *','').Trim() }
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: subosito/flutter-action@v2
