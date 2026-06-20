@@ -2,6 +2,7 @@
 ///
 /// Cross-platform client for Windows, Android, and Linux.
 
+import "dart:async";
 import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Process, SecurityContext, ServerSocket, Socket, exit;
 
 import "package:flutter/material.dart";
@@ -83,10 +84,67 @@ void main() async {
     }
     await windowManager.ensureInitialized();
     windowManager.setTitle("Sena Repo");
-    _startInstanceListener(); // Now windowManager is ready
+    _startInstanceListener();
+  }
+
+  // Disclaimer / EULA check
+  final prefs = await SharedPreferences.getInstance();
+  if (prefs.getBool("disclaimer_agreed") != true) {
+    final agreed = await _showDisclaimer();
+    if (agreed != true) exit(0);
+    await prefs.setBool("disclaimer_agreed", true);
   }
 
   runApp(const SenaRepoApp());
+}
+
+Future<bool?> _showDisclaimer() async {
+  final result = Completer<bool?>();
+  runApp(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    home: Builder(
+      builder: (context) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Row(children: [
+                Icon(Icons.warning_amber, color: Colors.orange, size: 24),
+                SizedBox(width: 8),
+                Text("免责声明"),
+              ]),
+              content: const SingleChildScrollView(
+                child: Text(
+                  "Sena Repo 是一款 GalGame 私有库管理工具。\n\n"
+                  "1. 本项目仅供个人合法使用，不提供游戏本体、破解资源或任何违规内容。\n\n"
+                  "2. 用户应遵守所在地法律法规，仅管理和下载有权使用的游戏资源。\n\n"
+                  "3. 本项目由 AI 辅助开发，可能存在未知缺陷，使用过程中造成的任何数据损失或系统问题，开发者不承担责任。\n\n"
+                  "4. 本软件按\"现状\"提供，不提供任何明示或暗示的担保。\n\n"
+                  "点击\"同意\"即表示您已阅读并接受以上条款。",
+                  style: TextStyle(fontSize: 14, height: 1.5),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text("不同意"),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("同意"),
+                ),
+              ],
+            ),
+          ).then((value) {
+            result.complete(value);
+          });
+        });
+        return const Scaffold(body: SizedBox.shrink());
+      },
+    ),
+  ));
+  return result.future;
 }
 
 class SenaRepoApp extends StatefulWidget {
