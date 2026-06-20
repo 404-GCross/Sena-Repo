@@ -19,16 +19,34 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 
 [Code]
-procedure KillOldProcess;
+function IsAppRunning: Boolean;
 var ResultCode: Integer;
 begin
-  Exec('taskkill', '/F /IM {{EXECUTABLE_NAME}}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := Exec('tasklist', '/FI "IMAGENAME eq {{EXECUTABLE_NAME}}" /NH', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 function InitializeSetup(): Boolean;
+var ResultCode: Integer;
 begin
-  KillOldProcess;
-  Result := True;
+  if IsAppRunning then begin
+    if MsgBox('检测到 {{DISPLAY_NAME}} 正在运行，需要关闭后才能继续安装。'#13#10#13#10'点击"是"关闭程序并继续安装，点击"否"取消安装。',
+             mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      Exec('taskkill', '/F /IM {{EXECUTABLE_NAME}}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Result := True;
+    end else
+      Result := False;
+  end else
+    Result := True;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  if IsAppRunning then begin
+    MsgBox('请先关闭 {{DISPLAY_NAME}} 再进行卸载。', mbError, MB_OK);
+    Result := False;
+  end else
+    Result := True;
 end;
 
 [Languages]
