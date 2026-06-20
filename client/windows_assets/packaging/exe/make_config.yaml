@@ -3,7 +3,7 @@ app_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 publisher: Sena Repo
 publisher_url: https://github.com/404-GCross/Sena-Repo
 display_name: Sena Repo
-create_desktop_icon: true
+# create_desktop_icon: true
 setup_icon_file: windows\runner\resources\app_icon.ico
 locales:
   - en
