@@ -123,9 +123,7 @@ jobs:
         run: |
           $iscc = Get-Command iscc -ErrorAction SilentlyContinue
           if (-not $iscc) { choco install innosetup -y --no-progress }
-          Push-Location windows\installer
           iscc /DMyAppVersion="$env:VERSION" setup.iss
-          Pop-Location
 
       - name: Package Windows (portable zip)
         shell: pwsh
