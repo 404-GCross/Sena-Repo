@@ -109,20 +109,23 @@ Future<bool?> _showDisclaimer() async {
             context: context,
             barrierDismissible: false,
             builder: (ctx) => AlertDialog(
-              title: const Row(children: [
-                Icon(Icons.warning_amber, color: Colors.orange, size: 24),
-                SizedBox(width: 8),
-                Text("免责声明"),
+              title: const Column(children: [
+                Icon(Icons.videogame_asset, color: Color(0xFF7C3AED), size: 40),
+                SizedBox(height: 8),
+                Text("欢迎使用 Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                SizedBox(height: 4),
+                Text("免责声明", style: TextStyle(fontSize: 13, color: Colors.grey)),
               ]),
-              content: const SingleChildScrollView(
-                child: Text(
-                  "Sena Repo 是一款 GalGame 私有库管理工具。\n\n"
-                  "1. 本项目仅供个人合法使用，不提供游戏本体、破解资源或任何违规内容。\n\n"
-                  "2. 用户应遵守所在地法律法规，仅管理和下载有权使用的游戏资源。\n\n"
-                  "3. 本项目由 AI 辅助开发，可能存在未知缺陷，使用过程中造成的任何数据损失或系统问题，开发者不承担责任。\n\n"
-                  "4. 本软件按\"现状\"提供，不提供任何明示或暗示的担保。\n\n"
-                  "点击\"同意\"即表示您已阅读并接受以上条款。",
-                  style: TextStyle(fontSize: 14, height: 1.5),
+              content: const SizedBox(
+                width: 400,
+                child: SingleChildScrollView(
+                  child: Text(
+                    "本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用。\n\n"
+                    "您需要自行确认资源与第三方组件的合法性。\n\n"
+                    "本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。\n\n"
+                    "本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。",
+                    style: TextStyle(fontSize: 14, height: 1.6),
+                  ),
                 ),
               ),
               actions: [
