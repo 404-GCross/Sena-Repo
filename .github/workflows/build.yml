@@ -159,7 +159,7 @@ jobs:
           Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
 
       - name: Build installer
-        run: fastforge package --platform windows --targets exe
+        run: fastforge package --platform windows --targets exe --verbose
 
       - name: Show dist contents
         shell: pwsh
@@ -184,9 +184,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Windows_Installer
-          path: |
-            client/dist/*.exe
-            client/dist/**/*.exe
+          path: client/dist/**/*.exe
 
   # ── Linux (RPM + Arch + AppImage) ─────────────────
   build-linux:
