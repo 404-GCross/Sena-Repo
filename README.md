@@ -226,4 +226,4 @@ python main.py --host 0.0.0.0 --port 11451 --games-path /path/to/games --data-pa
 
 ## 开源协议
 
-**GNU General Public License v3.0 (GPL-3.0)**
+**GNU Affero General Public License v3.0 (AGPL-3.0)**
