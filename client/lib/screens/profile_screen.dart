@@ -71,20 +71,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
     }
     // Try loading avatar from server
-    if (_userId > 0) {
-      try {
-        final resp = await http.get(Uri.parse(
-            "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/$_userId"));
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          if (mounted) setState(() {
-            _avatarPath = data["avatar_path"];
-            _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-            _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
-          });
-        }
-      } catch (_) {}
-    }
+    try {
+      final resp = await http.get(Uri.parse(
+          "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/me"),
+          headers: {"Authorization": "Bearer ${prefs.getString("auth_token") ?? ""}"});
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        if (mounted) setState(() {
+          _avatarPath = data["avatar_path"];
+          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+          _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
