@@ -156,6 +156,7 @@ jobs:
       - name: Install Chinese language for Inno Setup
         shell: pwsh
         run: |
+          Copy-Item "windows_assets\ChineseSimplified.isl" "windows\packaging\exe\ChineseSimplified.isl"
           Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
 
       - name: Verify packaging files
