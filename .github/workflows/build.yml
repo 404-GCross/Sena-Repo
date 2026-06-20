@@ -167,9 +167,17 @@ jobs:
         run: |
           fastforge package --platform windows --targets exe
 
-      - name: Show dist contents
+      - name: Flatten installer artifact
         shell: pwsh
-        run: Get-ChildItem -Recurse dist
+        run: |
+          $setupExe = Get-ChildItem -Recurse dist -Filter "*.exe" | Where-Object { $_.Name -like "*setup*" -or $_.Name -like "*Setup*" } | Select-Object -First 1
+          if ($setupExe) {
+            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
+            Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
+          } else {
+            Write-Host "No setup exe found! Listing dist:"
+            Get-ChildItem -Recurse dist
+          }
 
       - name: Package Windows (portable zip)
         shell: pwsh
