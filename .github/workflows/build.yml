@@ -171,7 +171,8 @@ jobs:
         with:
           name: Sena-Repo_Windows
           path: |
-            client/dist/Sena-Repo_Windows_*.zip
+            client/dist/*.zip
+            client/dist/*.exe
             client/dist/**/*.exe
 
   # ── Linux (RPM + Arch + AppImage) ─────────────────
