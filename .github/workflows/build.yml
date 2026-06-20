@@ -174,12 +174,17 @@ jobs:
           Copy-Item -Path build/windows/x64/runner/Release/* -Destination $pkg/ -Recurse
           Compress-Archive -Path $pkg -DestinationPath "dist/$pkg.zip"
 
-      - name: Upload Windows
+      - name: Upload Windows Portable
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Windows
+          name: Sena-Repo_Windows_Portable
+          path: client/dist/Sena-Repo_Windows_*.zip
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Windows_Installer
           path: |
-            client/dist/*.zip
             client/dist/*.exe
             client/dist/**/*.exe
 
