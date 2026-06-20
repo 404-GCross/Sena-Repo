@@ -118,15 +118,18 @@ jobs:
           Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py"
           Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
 
-      - name: Build Windows installer (Inno Setup)
+      - name: Setup fastforge + Inno Setup
+        run: |
+          dart pub global activate fastforge
+          choco install innosetup -y --no-progress
+
+      - name: Install Chinese language for Inno Setup
         shell: pwsh
         run: |
-          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
-          if (-not $iscc) { choco install innosetup -y --no-progress }
-          # Download Chinese language file
-          $islDir = (Get-Item (Get-Command iscc).Source).DirectoryName
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$islDir\ChineseSimplified.isl"
-          iscc /DMyAppVersion="$env:VERSION" setup.iss
+          Copy-Item "windows\packaging\exe\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+
+      - name: Build installer
+        run: fastforge package --platform windows --targets exe
 
       - name: Package Windows (portable zip)
         shell: pwsh
@@ -141,7 +144,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Windows
-          path: client/dist/Sena-Repo_Windows_*
+          path: |
+            client/dist/Sena-Repo_Windows_*.zip
+            client/dist/**/*.exe
 
   # ── Linux (RPM + Arch + AppImage) ─────────────────
   build-linux:
