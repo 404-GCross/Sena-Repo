@@ -192,6 +192,15 @@ jobs:
           APPDIR="SenaRepo.AppDir"
           mkdir -p "$APPDIR" && cp -r "$BUNDLE"/* "$APPDIR/"
           mkdir -p "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          # Generate icon from asset or placeholder
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$APPDIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$APPDIR/sena-repo.png"
+          fi
+          cp "$APPDIR/sena-repo.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
+          cp "$APPDIR/sena-repo.png" "$APPDIR/.DirIcon"
           cat > "$APPDIR/sena-repo.desktop" << 'EOF'
           [Desktop Entry]
           Name=Sena Repo
@@ -199,7 +208,7 @@ jobs:
           Exec=sena_repo
           Icon=sena-repo
           Type=Application
-          Categories=Game;Utility;
+          Categories=Utility;
           EOF
           cat > "$APPDIR/AppRun" << 'EOF'
           #!/bin/bash
