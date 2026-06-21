@@ -138,6 +138,12 @@ services:
       - /path/to/games:/games
       - /path/to/data:/data
       - /path/to/steam_patches:/steam_patch
+    environment:
+      - SENA_BANGUMI_TOKEN=your_token      # 可选
+      - SENA_VNDB_TOKEN=your_token         # 可选
+      - SENA_IGDB_CLIENT_ID=your_id        # 可选
+      - SENA_IGDB_CLIENT_SECRET=your_secret # 可选
+      - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
     restart: unless-stopped
 ```
 
