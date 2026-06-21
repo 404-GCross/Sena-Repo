@@ -125,6 +125,24 @@ docker run -d --name sena-repo -p 11451:11451 \
 | `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
 | `SENA_PROXY` | 代理 | 刮削走代理，如 `http://127.0.0.1:7890` |
 
+### 服务端（Docker Tarball 离线部署）
+
+适用于无法直接拉取 GHCR 的环境。从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz`：
+
+```bash
+# 加载镜像
+docker load < Sena-Repo_Server_v0.1.0.tar.gz
+
+# 启动容器
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  sena-repo:latest
+```
+
 ### 服务端（Docker Compose）
 
 ```yaml
