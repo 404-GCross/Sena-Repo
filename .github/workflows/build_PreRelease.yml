@@ -162,7 +162,7 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev rpm zstd file imagemagick libayatana-appindicator3-dev p7zip-full
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev zstd file imagemagick libayatana-appindicator3-dev p7zip-full
       - name: Copy 7z binary
         run: |
           mkdir -p assets/binaries
@@ -212,51 +212,11 @@ jobs:
           export APPIMAGE_EXTRACT_AND_RUN=1
           ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_AppImage_v${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
-          # DEB
-          DEB="sena-repo_${VERSION}_amd64"
-          mkdir -p "$DEB/DEBIAN" "$DEB/opt/sena-repo" "$DEB/usr/bin" "$DEB/usr/share/applications"
-          cp -r "$BUNDLE"/* "$DEB/opt/sena-repo/"
-          ln -s /opt/sena-repo/sena_repo "$DEB/usr/bin/sena-repo"
-          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$DEB/usr/share/applications/"
-          cat > "$DEB/DEBIAN/control" << CONTROL
-          Package: sena-repo
-          Version: ${VERSION}
-          Section: games
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Sena Repo Team
-          Description: GalGame Private Library Manager
-          CONTROL
-          dpkg-deb --build "$DEB" "dist/Sena-Repo_Debian_v${VERSION}.deb"
-          rm -rf "$DEB"
-          # RPM
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          cat > ~/rpmbuild/SPECS/sena-repo.spec << SPEC
-          Name: sena-repo
-          Version: ${VERSION}
-          Release: 1%{?dist}
-          Summary: GalGame Private Library Manager
-          License: AGPL-3.0
-          URL: https://github.com/404-GCross/Sena-Repo
-          BuildArch: x86_64
-          %description
-          GalGame Private Library Manager
-          %install
-          mkdir -p %{buildroot}/opt/sena-repo
-          cp -r $GITHUB_WORKSPACE/client/build/linux/x64/release/bundle/* %{buildroot}/opt/sena-repo/
-          mkdir -p %{buildroot}/usr/bin
-          ln -s /opt/sena-repo/sena_repo %{buildroot}/usr/bin/sena-repo
-          %files
-          /opt/sena-repo/
-          /usr/bin/sena-repo
-          SPEC
-          rpmbuild -bb --target x86_64 ~/rpmbuild/SPECS/sena-repo.spec
-          cp ~/rpmbuild/RPMS/x86_64/sena-repo-*.rpm "dist/Sena-Repo_Fedora_v${VERSION}.rpm"
-      - name: Upload Linux packages
+      - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Linux
-          path: client/dist/Sena-Repo_*
+          path: client/dist/Sena-Repo_AppImage_*
 
   # ── Docker Server ────────────────────────────────
   build-server:
@@ -311,9 +271,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          find . -type f -not -path './.git/*'
-          gh release create "v${{ steps.ver.outputs.version }}" \
-            --prerelease \
-            --title "v${{ steps.ver.outputs.version }}" \
-            --notes "## 变更" \
-            $(find . -type f -not -path './.git/*' -not -name '*.git*')
+          set -euo pipefail
+          TAG="v${{ steps.ver.outputs.version }}"
+          echo "=== Files to upload ==="
+          find . -type f -not -path './.git/*' -not -name '.git*'
+          echo "=== Creating pre-release $TAG ==="
+          gh release create "$TAG" --prerelease --title "$TAG" --notes "## 变更"
+          echo "=== Uploading files ==="
+          find . -type f -not -path './.git/*' -not -name '.git*' -print0 | xargs -0 gh release upload "$TAG" --clobber
+          echo "=== Done ==="
