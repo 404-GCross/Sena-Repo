@@ -10,8 +10,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import get_current_user
 from config import load_config
 from database import get_session
+from models.user import User
 from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.importer import import_from_root
@@ -35,7 +37,7 @@ class RootOut(BaseModel):
 
 
 @router.get("", response_model=list[RootOut])
-async def list_roots(session: AsyncSession = Depends(get_session)):
+async def list_roots(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     """List all root directories."""
     result = await session.execute(select(RootDirectory))
     return result.scalars().all()
@@ -43,6 +45,7 @@ async def list_roots(session: AsyncSession = Depends(get_session)):
 
 @router.post("", response_model=RootOut, status_code=201)
 async def add_root(
+    user: User = Depends(get_current_user),
     body: RootCreate,
     session: AsyncSession = Depends(get_session),
 ):
@@ -63,6 +66,7 @@ async def add_root(
 
 @router.delete("/{root_id}", response_model=MessageResponse)
 async def delete_root(
+    user: User = Depends(get_current_user),
     root_id: int,
     session: AsyncSession = Depends(get_session),
 ):
@@ -81,6 +85,7 @@ async def delete_root(
 
 @router.post("/refresh-all", response_model=dict)
 async def refresh_all_roots(
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan ALL root directories and import/update games, then auto-scrape new games."""
@@ -103,6 +108,7 @@ async def refresh_all_roots(
 
 @router.post("/{root_id}/refresh", response_model=dict)
 async def refresh_root(
+    user: User = Depends(get_current_user),
     root_id: int,
     session: AsyncSession = Depends(get_session),
 ):

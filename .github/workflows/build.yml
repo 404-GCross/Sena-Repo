@@ -1,8 +1,7 @@
 name: Build Sena Repo Client
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 on:
   push:
@@ -195,7 +194,7 @@ jobs:
           name: Sena-Repo_Windows_Installer
           path: client/dist/**/*.exe
 
-  # ── Linux (RPM + Arch + AppImage) ─────────────────
+  # ── Linux (AppImage) ─────────────────
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -216,7 +215,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev rpm zstd file imagemagick \
+            libgtk-3-dev liblzma-dev zstd file imagemagick \
             libayatana-appindicator3-dev p7zip-full
 
       # Linux uses system 7z from p7zip-full (already installed above)
@@ -267,166 +266,40 @@ jobs:
           Categories=Game;Utility;
           DESKTOP
 
-      # ── RPM (Fedora/RHEL) ──
-      - name: Build RPM
-        run: |
-          BUNDLE=build/linux/x64/release/bundle
-          RELEASE="1"
-          ARCH="x86_64"
-
-          # Create RPM build tree
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-
-          # Create spec
-          cat > ~/rpmbuild/SPECS/sena-repo.spec << SPEC
-          Name:           sena-repo
-          Version:        ${VERSION}
-          Release:        ${RELEASE}%{?dist}
-          Summary:        GalGame Private Library Manager
-          License:        GPL-3.0
-          URL:            https://github.com/404-GCross/Sena-Repo
-          BuildArch:      ${ARCH}
-
-          %description
-          Sena Repo is a cross-platform GalGame/Visual Novel private library manager.
-
-          %install
-          mkdir -p %{buildroot}/opt/sena-repo
-          cp -r ${GITHUB_WORKSPACE}/client/build/linux/x64/release/bundle/* %{buildroot}/opt/sena-repo/
-          mkdir -p %{buildroot}/usr/bin
-          ln -s /opt/sena-repo/sena_repo %{buildroot}/usr/bin/sena-repo
-          mkdir -p %{buildroot}/usr/share/applications
-          cp %{buildroot}/opt/sena-repo/usr/share/applications/sena-repo.desktop %{buildroot}/usr/share/applications/
-
-          %files
-          /opt/sena-repo/
-          /usr/bin/sena-repo
-          /usr/share/applications/sena-repo.desktop
-
-          %changelog
-          * $(date +"%a %b %d %Y") Sena Repo Team - ${VERSION}-${RELEASE}
-          - Initial release
-          SPEC
-
-          rpmbuild -bb --target ${ARCH} ~/rpmbuild/SPECS/sena-repo.spec
-          cp ~/rpmbuild/RPMS/${ARCH}/sena-repo-*.rpm "dist/Sena-Repo_Fedora_v${VERSION}.rpm"
-
-      # ── Arch Linux (pacman) ──
-      - name: Build Arch package
-        run: |
-          BUNDLE=build/linux/x64/release/bundle
-          PKG="sena-repo-${VERSION}-1-x86_64"
-
-          mkdir -p "$PKG/opt/sena-repo"
-          cp -r "$BUNDLE"/* "$PKG/opt/sena-repo/"
-          mkdir -p "$PKG/usr/bin"
-          ln -s /opt/sena-repo/sena_repo "$PKG/usr/bin/sena-repo"
-          mkdir -p "$PKG/usr/share/applications"
-          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$PKG/usr/share/applications/"
-
-          # .PKGINFO metadata
-          cat > "$PKG/.PKGINFO" << PKGINFO
-          pkgname = sena-repo
-          pkgbase = sena-repo
-          pkgver = ${VERSION}-1
-          pkgdesc = GalGame Private Library Manager
-          url = https://github.com/404-GCross/Sena-Repo
-          builddate = $(date -u +%s)
-          packager = Sena Repo CI
-          size = $(du -sb "$PKG" | cut -f1)
-          arch = x86_64
-          license = GPL-3.0
-          PKGINFO
-
-          # .MTREE (required by pacman)
-          cd "$PKG"
-          LANG=C bsdtar -czf .MTREE --format=mtree \
-            --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256,link' \
-            opt usr .PKGINFO 2>/dev/null || true
-          cd ..
-
-          # Package as .pkg.tar.zst
-          tar -c -I 'zstd -19' -f "dist/Sena-Repo_Arch_v${VERSION}.pkg.tar.zst" -C "$PKG" .
-          rm -rf "$PKG"
-
       # ── AppImage (universal) ──
       - name: Build AppImage
         run: |
           BUNDLE=build/linux/x64/release/bundle
-
           APPDIR="SenaRepo.AppDir"
-          mkdir -p "$APPDIR"
-          cp -r "$BUNDLE"/* "$APPDIR/"
-
-          # AppRun
+          mkdir -p "$APPDIR" && cp -r "$BUNDLE"/* "$APPDIR/"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$APPDIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$APPDIR/sena-repo.png"
+          fi
+          cp "$APPDIR/sena-repo.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
+          cp "$APPDIR/sena-repo.png" "$APPDIR/.DirIcon"
           cat > "$APPDIR/AppRun" << 'APPRUN'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "$0")")"
           exec "$HERE/sena_repo" "$@"
           APPRUN
           chmod +x "$APPDIR/AppRun"
-
-          # Desktop file
-          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$APPDIR/"
-
-          # Icon (placeholder)
-          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
-          convert -size 256x256 xc:purple -fill white -font Helvetica \
-            -pointsize 120 -gravity center -annotate 0 "S" \
-            "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png" 2>/dev/null || \
-          convert -size 256x256 xc:purple "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
-          ln -sf usr/share/icons/hicolor/256x256/apps/sena-repo.png "$APPDIR/.DirIcon"
-          cp "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png" "$APPDIR/sena-repo.png"
-
-          # Build AppImage
+          cat > "$APPDIR/sena-repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Utility;
+          DESKTOP
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
           ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_AppImage_v${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
-
-      # ── Upload artifacts ──
-      - name: Upload RPM
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sena-Repo_Fedora
-          path: client/dist/Sena-Repo_Fedora_*.rpm
-
-      # ── DEB (Debian/Ubuntu) ──
-      - name: Build DEB
-        run: |
-          BUNDLE=build/linux/x64/release/bundle
-          DEB="sena-repo_${VERSION}_amd64"
-          mkdir -p "$DEB/DEBIAN" "$DEB/opt/sena-repo"
-          cp -r "$BUNDLE"/* "$DEB/opt/sena-repo/"
-          mkdir -p "$DEB/usr/bin" "$DEB/usr/share/applications"
-          ln -s /opt/sena-repo/sena_repo "$DEB/usr/bin/sena-repo"
-          cp "$BUNDLE/usr/share/applications/sena-repo.desktop" "$DEB/usr/share/applications/"
-          cat > "$DEB/DEBIAN/control" << CONTROL
-          Package: sena-repo
-          Version: ${VERSION}
-          Section: games
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Sena Repo Team
-          Description: GalGame Private Library Manager
-           Sena Repo is a cross-platform GalGame/Visual Novel
-           private library manager with multi-source metadata scraping.
-          CONTROL
-          dpkg-deb --build "$DEB" "dist/Sena-Repo_Debian_v${VERSION}.deb"
-          rm -rf "$DEB"
-
-      - name: Upload Debian
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sena-Repo_Debian
-          path: client/dist/Sena-Repo_Debian_*.deb
-
-      - name: Upload Arch
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sena-Repo_Arch
-          path: client/dist/Sena-Repo_Arch_*.pkg.tar.zst
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
@@ -451,20 +324,6 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t sena-repo:latest server/
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push to GHCR
-        run: |
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:latest
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:v${VERSION}
-          docker push ghcr.io/404-gcross/sena-repo:latest
-          docker push ghcr.io/404-gcross/sena-repo:v${VERSION}
 
       - name: Save Docker image (tarball)
         run: |

@@ -266,26 +266,20 @@ jobs:
   publish:
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Resolve version
-        id: ver
-        run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
-          echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Download all artifacts
         uses: actions/download-artifact@v4
-      - name: Publish Release
+        with:
+          path: dist
+      - name: Create Pre-Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          prerelease: true
+          files: dist/**/*
+          generate_release_notes: true
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          TAG="v${{ steps.ver.outputs.version }}"
-          echo "=== Files to upload ==="
-          find . -type f -not -path './.git/*' | grep -v '.iss$\|.yaml$\|.kts$\|.dart$\|.cc$\|pubspec\|analysis_options\|Makefile\|gradlew'
-          echo "=== Creating pre-release $TAG ==="
-          gh release create "$TAG" --prerelease --title "$TAG" --notes "## 变更"
-          echo "=== Uploading files ==="
-          find . -type f -not -path './.git/*' | grep -v '.iss$\|.yaml$\|.kts$\|.dart$\|.cc$\|pubspec\|analysis_options\|Makefile\|gradlew' | xargs gh release upload "$TAG" --clobber
-          echo "=== Done ==="
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

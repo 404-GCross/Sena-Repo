@@ -47,9 +47,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> refresh() async => _loadUserInfo();
 
   void _maybeRefresh() {
-    // Reload if >5s since last load (avoids duplicate loads when switching tabs)
+    // Reload if >10s since last load and user ID is known
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastLoadTime > 5000) {
+    if (now - _lastLoadTime > 10000 && _userId > 0) {
       _loadUserInfo();
     }
   }

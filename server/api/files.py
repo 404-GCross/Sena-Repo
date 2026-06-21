@@ -7,17 +7,19 @@ from pathlib import Path
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pathlib import Path
 from fastapi.responses import FileResponse
 
+from api.auth import get_current_user
 from config import load_config
+from models.user import User
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), user: User = Depends(get_current_user)):
     """Upload an image file. Returns the filename for use in cover/bg URLs."""
     ext = Path(file.filename or "image.jpg").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:

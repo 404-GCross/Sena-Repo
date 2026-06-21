@@ -409,6 +409,7 @@ class DownloadService with WidgetsBindingObserver {
       t.progress = 0.0;
       _emit();
       await Future.delayed(const Duration(milliseconds: 100));
+      if (t._cancelled || t.status == "cancelled") return;
       await _extract(tmp.path, outDir, gameDir, null, password);
       await _fixLayout(outDir, gameDir);
       await tmp.delete();
