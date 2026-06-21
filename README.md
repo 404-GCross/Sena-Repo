@@ -1,14 +1,14 @@
 # Sena Repo - GalGame 私有库管理器
 
-**Sena Repo** 是一款面向多平台的 Galgame/视觉小说私有库管理工具，适合管理部署在远程服务器（如 NAS、树莓派）上的游戏库，让使用者能方便地浏览、搜索、下载和安装自己的游戏收藏。
+**Sena Repo** 是一款面向多平台的视觉小说仓库管理工具，适合管理部署在远程服务器（如 NAS）上的游戏库，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
 
-服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据；客户端（Windows / Android / Linux）通过 HTTP 连接服务端，提供一体化的游戏库浏览和元数据编辑体验。
+服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据；客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
 
 ---
 
 ## 导入及清洗逻辑
 
-### 目录结构
+### 目录结构 （当前仅会社/游戏目录测试通过，其他目录结构支持仍在测试与调整中）
 
 ```
 根目录/
@@ -77,9 +77,9 @@
 
 ---
 
-## 部署
+## 服务端部署
 
-### 服务端（Docker）
+### Docker
 
 ```bash
 # 拉取镜像（AMD64 / ARM64 自动适配）
@@ -125,7 +125,7 @@ docker run -d --name sena-repo -p 11451:11451 \
 | `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
 | `SENA_PROXY` | 代理 | 刮削走代理，如 `http://127.0.0.1:7890` |
 
-### 服务端（Docker Tarball 离线部署）
+### Docker Tarball 离线部署
 
 适用于无法直接拉取 GHCR 的环境。从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz`：
 
@@ -145,7 +145,7 @@ docker run -d \
   sena-repo:latest
 ```
 
-### 服务端（Docker Compose）
+### Docker Compose
 
 ```yaml
 services:
@@ -167,7 +167,7 @@ services:
     restart: unless-stopped
 ```
 
-### 服务端（直接部署）
+### 直接部署
 
 > ⚠️ 此方式未经过充分测试，不推荐使用。建议优先使用 Docker 部署。
 
@@ -193,7 +193,8 @@ cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
 pkill -f "python main.py" && python main.py ...
 ```
 
-### 客户端安装
+
+## 客户端安装
 
 从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载：
 
@@ -201,7 +202,7 @@ pkill -f "python main.py" && python main.py ...
 - **Android**：`.apk`
 - **Linux**：`.AppImage`
 
----
+
 
 ## 使用方法
 
@@ -221,11 +222,11 @@ pkill -f "python main.py" && python main.py ...
 
 ## 免责声明
 
-- 本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用
-- 您需要自行确认资源与第三方组件的合法性
-- 本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持
-- 本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固
-
+- 本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用。
+- 您需要自行确认资源与第三方组件的合法性。
+- 本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。
+- 本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。
+- 本项目在后续更新中可能涉及服务端变动，可能存在无法保数据更新的可能。
 ---
 
 ## 开源协议
