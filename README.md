@@ -123,6 +123,7 @@ docker run -d --name sena-repo -p 11451:11451 \
 | `SENA_VNDB_TOKEN` | VNDB | — |
 | `SENA_IGDB_CLIENT_ID` | IGDB | [dev.twitch.tv](https://dev.twitch.tv/console/apps) |
 | `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
+| `SENA_PROXY` | 代理 | 刮削走代理，如 `http://127.0.0.1:7890` |
 
 ### 服务端（Docker Compose）
 
