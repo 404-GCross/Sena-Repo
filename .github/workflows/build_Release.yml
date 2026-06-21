@@ -266,22 +266,20 @@ jobs:
   publish:
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
-      - name: Publish Release
+        with:
+          path: dist
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          prerelease: false
+          files: dist/**/*
+          generate_release_notes: true
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          TAG="v${{ inputs.version }}"
-          echo "=== Files to upload ==="
-          find . -type f -not -path '*/.git/*' | head -50
-          echo "=== Creating release $TAG ==="
-          gh release create "$TAG" --title "$TAG" --notes "## 变更"
-          echo "=== Uploading files ==="
-          for f in $(find . -type f -not -path '*/.git/*'); do
-            echo "  Uploading: $f"
-            gh release upload "$TAG" "$f" --clobber
-          done
-          echo "=== Done ==="
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
