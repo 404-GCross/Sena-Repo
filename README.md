@@ -79,14 +79,89 @@
 
 ## 部署
 
-### 服务端（推荐 Docker）
+### 服务端（Docker）
+
+```bash
+# 拉取镜像（AMD64 / ARM64 自动适配）
+docker pull ghcr.io/404-gcross/sena-repo:latest
+
+# 启动容器
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  ghcr.io/404-gcross/sena-repo:latest
+```
+
+**挂载说明：**
+
+| 目录 | 作用 | 是否必须 |
+|------|------|---------|
+| `/games` | 游戏文件存放目录 | 是 |
+| `/data` | 数据库、封面、背景、配置 | 是 |
+| `/steam_patch` | Steam 补丁压缩包目录 | Steam 补丁功能需要 |
+
+**刮削 API Key（可选，通过环境变量传入）：**
 
 ```bash
 docker run -d --name sena-repo -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
+  -e SENA_BANGUMI_TOKEN="your_token" \
+  -e SENA_VNDB_TOKEN="your_token" \
+  -e SENA_IGDB_CLIENT_ID="your_id" \
+  -e SENA_IGDB_CLIENT_SECRET="your_secret" \
   ghcr.io/404-gcross/sena-repo:latest
+```
+
+| 环境变量 | 对应刮削源 | 获取地址 |
+|---|---|---|
+| `SENA_BANGUMI_TOKEN` | Bangumi | [bgm.tv/dev/app](https://bgm.tv/dev/app) |
+| `SENA_VNDB_TOKEN` | VNDB | — |
+| `SENA_IGDB_CLIENT_ID` | IGDB | [dev.twitch.tv](https://dev.twitch.tv/console/apps) |
+| `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
+
+### 服务端（Docker Compose）
+
+```yaml
+services:
+  sena-repo:
+    image: ghcr.io/404-gcross/sena-repo:latest
+    container_name: sena-repo
+    ports:
+      - "11451:11451"
+    volumes:
+      - /path/to/games:/games
+      - /path/to/data:/data
+      - /path/to/steam_patches:/steam_patch
+    restart: unless-stopped
+```
+
+### 服务端（直接部署）
+
+```bash
+git clone https://github.com/404-GCross/Sena-Repo.git
+cd Sena-Repo/server
+pip install -r requirements.txt
+python main.py --host 0.0.0.0 --port 11451 \
+  --games-path /path/to/games \
+  --data-path /path/to/data
+```
+
+### 更新
+
+```bash
+# Docker
+docker pull ghcr.io/404-gcross/sena-repo:latest
+docker stop sena-repo && docker rm sena-repo
+# 重新 docker run（挂载目录不变，数据不丢失）
+
+# 直接部署
+cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
+pkill -f "python main.py" && python main.py ...
 ```
 
 > 刮削 API Key 通过环境变量传入（全部可选）：
