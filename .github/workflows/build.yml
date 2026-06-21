@@ -465,8 +465,11 @@ jobs:
         with:
           path: release
 
-      - name: Show release artifacts
-        run: find release -type f
+      - name: Show work dir
+        run: |
+          pwd
+          ls -la
+          ls -la release 2>/dev/null || echo "release dir not found"
 
       - name: Create Release
         env:
