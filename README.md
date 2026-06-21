@@ -140,6 +140,8 @@ docker run -d \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
+  -e SENA_BANGUMI_TOKEN=your_token \
+  -e SENA_PROXY=http://127.0.0.1:7890 \
   sena-repo:latest
 ```
 
