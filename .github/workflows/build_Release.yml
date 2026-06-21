@@ -276,6 +276,8 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
       - name: Publish Release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -283,9 +285,9 @@ jobs:
           set -euo pipefail
           TAG="v${{ steps.ver.outputs.version }}"
           echo "=== Files to upload ==="
-          find . -type f -not -path './.git/*' -not -name '.git*'
+          find artifacts -type f
           echo "=== Creating release $TAG ==="
           gh release create "$TAG" --title "$TAG" --notes "## 变更"
           echo "=== Uploading files ==="
-          find . -type f -not -path './.git/*' -not -name '.git*' -print0 | xargs -0 gh release upload "$TAG" --clobber
+          find artifacts -type f -print0 | xargs -0 gh release upload "$TAG" --clobber
           echo "=== Done ==="
