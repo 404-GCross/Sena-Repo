@@ -142,6 +142,8 @@ services:
 
 ### 服务端（直接部署）
 
+> ⚠️ 此方式未经过充分测试，不推荐使用。建议优先使用 Docker 部署。
+
 ```bash
 git clone https://github.com/404-GCross/Sena-Repo.git
 cd Sena-Repo/server
