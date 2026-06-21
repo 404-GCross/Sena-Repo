@@ -311,9 +311,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          find . -type f -not -path './.git/*'
-          gh release create "v${{ steps.ver.outputs.version }}" \
-            --prerelease \
-            --title "v${{ steps.ver.outputs.version }}" \
-            --notes "## 变更" \
-            $(find . -type f -not -path './.git/*' -not -name '*.git*')
+          set -euo pipefail
+          TAG="v${{ steps.ver.outputs.version }}"
+          echo "=== Files to upload ==="
+          find . -type f -not -path './.git/*' -not -name '.git*'
+          echo "=== Creating pre-release $TAG ==="
+          gh release create "$TAG" --prerelease --title "$TAG" --notes "## 变更"
+          echo "=== Uploading files ==="
+          find . -type f -not -path './.git/*' -not -name '.git*' -print0 | xargs -0 gh release upload "$TAG" --clobber
+          echo "=== Done ==="
