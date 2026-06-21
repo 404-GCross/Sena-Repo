@@ -10,8 +10,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import get_current_user
 from database import get_session
 from models.game import Game, GameVersion
+from models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ router = APIRouter(prefix="/api/download", tags=["download"])
 
 @router.get("/{game_id}/{version_id}")
 async def download_game_version(
+    user: User = Depends(get_current_user),
     game_id: int,
     version_id: int,
     session: AsyncSession = Depends(get_session),

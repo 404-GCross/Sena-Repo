@@ -9,6 +9,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import get_current_user
+from models.user import User
+
 from database import get_session
 from models.game import Game
 from models.ignore_list import IgnoreList
@@ -42,7 +45,7 @@ async def get_scan_settings():
 
 
 @router.put("/scan")
-async def update_scan_settings(body: ScanSettings):
+async def update_scan_settings(body: ScanSettings, user: User = Depends(get_current_user)):
     config = load_config()
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
@@ -67,7 +70,7 @@ class ScraperConfigUpdate(BaseModel):
 
 
 @router.get("/scraper", response_model=ScraperConfigOut)
-async def get_scraper_config():
+async def get_scraper_config(user: User = Depends(get_current_user)):
     """Get current scraper configuration (API keys masked)."""
     from config import load_config
     config = load_config()
@@ -115,7 +118,7 @@ def _write_scraper_config(data: dict):
 
 
 @router.put("/scraper")
-async def update_scraper_config(body: ScraperConfigUpdate):
+async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(get_current_user)):
     """Update scraper configuration, persisted to data directory."""
     from config import load_config
     config = load_config()
@@ -132,7 +135,7 @@ async def update_scraper_config(body: ScraperConfigUpdate):
 
 
 @router.post("/proxy-test")
-async def test_proxy():
+async def test_proxy(user: User = Depends(get_current_user)):
     """Test if the proxy is reachable by accessing a known URL."""
     import httpx
     from config import load_config
@@ -159,7 +162,7 @@ class IgnoreItemOut(BaseModel):
 
 
 @router.get("/ignore-list", response_model=list[IgnoreItemOut])
-async def list_ignored(session: AsyncSession = Depends(get_session)):
+async def list_ignored(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """List all ignored/deleted game paths."""
     result = await session.execute(select(IgnoreList).order_by(IgnoreList.deleted_at.desc()))
     items = result.scalars().all()
@@ -177,6 +180,7 @@ async def list_ignored(session: AsyncSession = Depends(get_session)):
 async def restore_from_ignore(
     ignore_id: int,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Restore a game from the ignore list (un-delete it)."""
     result = await session.execute(

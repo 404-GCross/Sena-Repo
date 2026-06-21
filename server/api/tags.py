@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["tags"])
 
 
 @router.get("/tags", response_model=list[TagOut])
-async def list_tags(session: AsyncSession = Depends(get_session)):
+async def list_tags(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     """List all tags."""
     result = await session.execute(select(Tag).order_by(Tag.name))
     return result.scalars().all()
@@ -26,6 +26,7 @@ async def list_tags(session: AsyncSession = Depends(get_session)):
 
 @router.post("/tags", response_model=TagOut, status_code=201)
 async def create_tag(
+    user: User = Depends(get_current_user),
     body: TagCreate,
     session: AsyncSession = Depends(get_session),
 ):
@@ -45,6 +46,7 @@ async def create_tag(
 
 @router.put("/tags/{tag_id}", response_model=TagOut)
 async def update_tag(
+    user: User = Depends(get_current_user),
     tag_id: int,
     body: TagUpdate,
     session: AsyncSession = Depends(get_session),
@@ -73,6 +75,7 @@ async def update_tag(
 
 @router.delete("/tags/{tag_id}", response_model=MessageResponse)
 async def delete_tag(
+    user: User = Depends(get_current_user),
     tag_id: int,
     session: AsyncSession = Depends(get_session),
 ):
@@ -90,6 +93,7 @@ async def delete_tag(
 # Game-Tag association endpoints
 @router.post("/games/{game_id}/tags/{tag_name}", response_model=MessageResponse)
 async def add_tag_to_game(
+    user: User = Depends(get_current_user),
     game_id: int,
     tag_name: str,
     session: AsyncSession = Depends(get_session),
@@ -121,6 +125,7 @@ async def add_tag_to_game(
 
 @router.delete("/games/{game_id}/tags/{tag_id}", response_model=MessageResponse)
 async def remove_tag_from_game(
+    user: User = Depends(get_current_user),
     game_id: int,
     tag_id: int,
     session: AsyncSession = Depends(get_session),

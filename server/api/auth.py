@@ -32,27 +32,12 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="无效的认证格式")
     token = authorization.removeprefix("Bearer ")
 
-    # Try new random token first
+    # Look up user by random token
     result = await session.execute(
         select(User).where(User.token == token, User.status == "active"))
     user = result.scalar_one_or_none()
-    if user is not None:
-        return user
-
-    # Fallback: legacy token = plain user ID
-    try:
-        user_id = int(token)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="无效的令牌")
-    result = await session.execute(
-        select(User).where(User.id == user_id, User.status == "active"))
-    user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=401, detail="用户不存在")
-    # Upgrade legacy token to random token
-    if user.token is None:
-        user.token = secrets.token_hex(32)
-        await session.commit()
+        raise HTTPException(status_code=401, detail="无效的令牌")
     return user
 
 
@@ -239,7 +224,7 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
 
 
 @router.get("/notifications")
-async def list_notifications(session: AsyncSession = Depends(get_session)):
+async def list_notifications(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     """List recent notifications."""
     result = await session.execute(
         select(Notification).order_by(Notification.created_at.desc()).limit(50)
@@ -251,7 +236,7 @@ async def list_notifications(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/notifications/unread-count")
-async def unread_count(session: AsyncSession = Depends(get_session)):
+async def unread_count(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     result = await session.execute(
         select(func.count()).select_from(Notification).where(Notification.read == False)
     )
@@ -259,7 +244,7 @@ async def unread_count(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/notifications/{note_id}/read")
-async def mark_read(note_id: int, session: AsyncSession = Depends(get_session)):
+async def mark_read(note_id: int, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(Notification).where(Notification.id == note_id))
     note = result.scalar_one_or_none()
     if note:
@@ -269,7 +254,7 @@ async def mark_read(note_id: int, session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/notifications/read-all")
-async def mark_all_read(session: AsyncSession = Depends(get_session)):
+async def mark_all_read(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     result = await session.execute(
         select(Notification).where(Notification.read == False)
     )

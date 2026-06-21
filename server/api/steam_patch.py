@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import load_config
 from database import get_session
+from models.user import User
+from api.auth import get_current_user
 
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
@@ -138,7 +140,7 @@ class ScanRequest(BaseModel):
 # ── Endpoints ──
 
 @router.post("/scan", response_model=list[PatchMatch])
-async def scan_steam_games(body: ScanRequest):
+async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_user)):
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index = _load_patches_index(patches_dir)
@@ -278,7 +280,7 @@ class PatchUpdate(BaseModel):
 
 
 @router.put("/patches/{lookup_key}")
-async def update_patch(lookup_key: str, body: PatchUpdate):
+async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(get_current_user)):
     """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
     import json as _json
     patches_dir = _get_patches_dir()
@@ -322,7 +324,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate):
 # ── Patch scan endpoint ──
 
 @router.post("/scan-patches")
-async def scan_patches_endpoint():
+async def scan_patches_endpoint(user: User = Depends(get_current_user)):
     """Re-scan the patch directory and regenerate patches.json."""
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
@@ -362,11 +364,13 @@ async def update_type_keywords(body: TypeKeywordsUpdate):
 
 
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
+    # Sanitize app_id to prevent path traversal
+    sanitized = app_id.replace("\\", "").replace("/", "").replace("..", "")
     for ext in (".zip", ".rar", ".7z", ".tar", ".gz"):
-        candidate = patches_dir / f"{app_id}{ext}"
+        candidate = patches_dir / f"{sanitized}{ext}"
         if candidate.exists():
             return candidate
-    app_dir = patches_dir / app_id
+    app_dir = patches_dir / sanitized
     if app_dir.is_dir():
         for ext in (".zip", ".rar", ".7z"):
             for f in app_dir.iterdir():

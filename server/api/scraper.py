@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from config import load_config
 from models.game import Game
+from models.user import User
+from api.auth import get_current_user
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
@@ -66,6 +68,7 @@ class JobStatusOut(BaseModel):
 async def search_candidates(
     q: str,
     source: str = "vndb_kana",
+    user: User = Depends(get_current_user),
 ):
     """Search a specific source and return all candidates."""
     config = load_config()
@@ -106,6 +109,7 @@ async def scrape_apply(
     description: str = "",
     release_date: str = "",
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Apply a specific scraper result to a game."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -168,6 +172,7 @@ async def scrape_game_cover(
     game_id: int,
     sources: list[str] | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Manually scrape metadata for a single game.
 
@@ -263,6 +268,7 @@ async def scrape_game_cover(
 async def start_batch_scrape(
     body: BatchScrapeRequest,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Start a batch scrape job for games without covers.
 
@@ -305,7 +311,7 @@ async def start_batch_scrape(
 
 
 @router.post("/scrape/jobs/{job_id}/cancel")
-async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session)):
+async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """Cancel a running scrape job."""
     result = await session.execute(select(ScrapeJob).where(ScrapeJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -320,7 +326,7 @@ async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_ses
 
 
 @router.get("/scrape/jobs", response_model=list[JobStatusOut])
-async def list_scrape_jobs(session: AsyncSession = Depends(get_session)):
+async def list_scrape_jobs(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """List all scrape jobs."""
     result = await session.execute(
         select(ScrapeJob).order_by(ScrapeJob.created_at.desc()).limit(20)
@@ -342,7 +348,7 @@ async def list_scrape_jobs(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/scrape/jobs/{job_id}", response_model=JobStatusOut)
-async def get_scrape_job(job_id: int, session: AsyncSession = Depends(get_session)):
+async def get_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """Get a specific scrape job's status."""
     result = await session.execute(
         select(ScrapeJob).where(ScrapeJob.id == job_id)
@@ -370,6 +376,7 @@ async def update_game_cover(
     game_id: int,
     cover_url: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Update a game's cover via URL or mark it for manual update.
 
@@ -410,6 +417,7 @@ async def upload_game_cover(
     game_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Upload a cover image directly from a local file."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -443,6 +451,7 @@ async def upload_game_cover(
 async def delete_game_cover(
     game_id: int,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Remove a game's cover image."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -467,6 +476,7 @@ async def update_game_background(
     game_id: int,
     bg_url: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Set a custom background image for a game. Pass ?bg_url=<url> to download."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -475,6 +485,7 @@ async def update_game_background(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if bg_url:
+        _validate_public_url(bg_url)
         config = load_config()
         bg_dir = config.backgrounds_path
         bg_dir.mkdir(parents=True, exist_ok=True)
@@ -503,6 +514,7 @@ async def upload_game_background(
     game_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Upload a background/hero image directly from a local file."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -534,6 +546,7 @@ async def upload_game_background(
 async def delete_game_background(
     game_id: int,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Remove a game's custom background image."""
     result = await session.execute(select(Game).where(Game.id == game_id))
