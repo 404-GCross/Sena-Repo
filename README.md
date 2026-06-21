@@ -153,7 +153,7 @@ python main.py --host 0.0.0.0 --port 11451 \
   --data-path /path/to/data
 ```
 
-### 更新
+### 服务端更新方法
 
 ```bash
 # Docker
@@ -166,16 +166,11 @@ cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
 pkill -f "python main.py" && python main.py ...
 ```
 
-> 刮削 API Key 通过环境变量传入（全部可选）：
-> `SENA_BANGUMI_TOKEN`、`SENA_VNDB_TOKEN`、`SENA_IGDB_CLIENT_ID`、`SENA_IGDB_CLIENT_SECRET`
-
-也可直接部署：`pip install -r requirements.txt && python main.py`
-
-### 客户端
+### 客户端安装
 
 从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载：
 
-- **Windows**：安装包 `.exe`（含卸载）或便携 `.zip`
+- **Windows**：安装包 `.exe`（含卸载）或便携版 `.zip`
 - **Android**：`.apk`
 - **Linux**：`.AppImage`
 
@@ -208,4 +203,17 @@ pkill -f "python main.py" && python main.py ...
 
 ## 开源协议
 
-**GNU Affero General Public License v3.0 (AGPL-3.0)**
+本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)**。
+
+**你可以：**
+- 自由使用、复制、修改、分发本项目
+- 将本项目用于商业或非商业用途
+- 将修改后的版本作为网络服务运行
+
+**你需要：**
+- 分发或公开部署修改后的版本时，开源你的修改
+- 即使只通过网络提供服务（不分发二进制），也要提供源代码
+- 保留原始版权声明和许可声明
+- 使用相同的 AGPL-3.0 许可证
+
+**简单来说：** 自己用随便改；如果把修改版给别人用或部署成公共服务，代码也要开源。
