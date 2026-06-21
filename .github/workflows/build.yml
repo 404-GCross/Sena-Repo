@@ -1,8 +1,7 @@
 name: Build Sena Repo Client
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 on:
   push:
@@ -451,20 +450,6 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t sena-repo:latest server/
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push to GHCR
-        run: |
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:latest
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:v${VERSION}
-          docker push ghcr.io/404-gcross/sena-repo:latest
-          docker push ghcr.io/404-gcross/sena-repo:v${VERSION}
 
       - name: Save Docker image (tarball)
         run: |
