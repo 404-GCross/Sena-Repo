@@ -465,15 +465,19 @@ jobs:
         with:
           path: release
 
+      - name: Show release artifacts
+        run: find release -type f
+
       - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          shopt -s globstar
           gh release create "v${{ steps.ver.outputs.version }}" \
             ${{ inputs.publish == 'pre-release' && '--prerelease' || '' }} \
             --title "v${{ steps.ver.outputs.version }}" \
             --notes "## 变更" \
-            release/**/*
+            $(find release -type f)
           body: |
             ## 变更
             版本 ${{ steps.ver.outputs.version }}
