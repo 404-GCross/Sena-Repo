@@ -330,17 +330,17 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     String heroUrl = t.bgUrl ?? "";
     if ((coverUrl.isEmpty || heroUrl.isEmpty) && t.gameId > 0) {
       try {
-        final baseUrl = context.read<GameProvider>().api.baseUrl;
-        final resp = await http.get(Uri.parse("$baseUrl/api/games/${t.gameId}"));
+        final api = context.read<GameProvider>().api;
+        final resp = await http.get(Uri.parse("${api.baseUrl}/api/games/${t.gameId}"), headers: api.headers);
         if (resp.statusCode == 200) {
           final g = jsonDecode(resp.body);
           if (coverUrl.isEmpty && g["cover_path"] != null && g["cover_path"].toString().isNotEmpty) {
             final name = g["cover_path"].toString().split(RegExp(r'[/\\]')).last;
-            coverUrl = "$baseUrl/api/files/covers/$name";
+            coverUrl = "${api.baseUrl}/api/files/covers/$name";
           }
           if (heroUrl.isEmpty && g["bg_path"] != null && g["bg_path"].toString().isNotEmpty) {
             final name = g["bg_path"].toString().split(RegExp(r'[/\\]')).last;
-            heroUrl = "$baseUrl/api/files/backgrounds/$name";
+            heroUrl = "${api.baseUrl}/api/files/backgrounds/$name";
           }
         }
       } catch (_) {}
