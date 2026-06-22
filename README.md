@@ -238,16 +238,14 @@ pkill -f "python main.py" && python main.py ...
 
 本项目在开发过程中参考与学习了以下优秀开源项目（排名不分先后）：
 
-| 项目 | 简介 | 协议 |
-|------|------|------|
-| [Playnite](https://github.com/JosefNemec/Playnite) | 开源游戏库管理器，统一管理多平台游戏 | MIT |
-| [LunaBox](https://github.com/Saramanda9988/LunaBox) | 视觉小说管理与统计工具，含 AI 洞察与云同步 | AGPL-3.0 |
-| [YukiHub](https://github.com/xm486/YukiHub) | Android Galgame 管理启动器，集成 VNDB/Bangumi | GPL-3.0 |
-| [myGal](https://github.com/INK666/myGal) | 本地游戏资源管理工具，支持多源刮削 | MIT |
-| [PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) | Flutter 跨平台第三方 B 站客户端 | GPL-3.0 |
-| [NonSteamLaunchers](https://github.com/moraroy/NonSteamLaunchers-On-Steam-Deck) | Steam Deck 非 Steam 游戏启动器安装脚本 | MIT |
-| [PlayniteVndb](https://github.com/Mithnar/PlayniteVndb) | Playnite VNDB 元数据插件 | MIT |
-| [PlayniteBangumiMetadata](https://github.com/Ivanlon30000/PlayniteBangumiMetadata) | Playnite Bangumi 元数据插件 | MIT |
+- [JosefNemec/Playnite](https://github.com/JosefNemec/Playnite)
+- [Saramanda9988/LunaBox](https://github.com/Saramanda9988/LunaBox)
+- [xm486/YukiHub](https://github.com/xm486/YukiHub)
+- [INK666/myGal](https://github.com/INK666/myGal)
+- [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)
+- [moraroy/NonSteamLaunchers-On-Steam-Deck](https://github.com/moraroy/NonSteamLaunchers-On-Steam-Deck)
+- [Mithnar/PlayniteVndb](https://github.com/Mithnar/PlayniteVndb)
+- [Ivanlon30000/PlayniteBangumiMetadata](https://github.com/Ivanlon30000/PlayniteBangumiMetadata)
 
 感谢以上项目作者的辛勤付出。
 
