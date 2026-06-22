@@ -9,13 +9,14 @@ import "dart:convert";
 import "dart:io";
 
 import "package:flutter/foundation.dart" show debugPrint;
-import "package:flutter/services.dart" show rootBundle;
+import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:flutter/widgets.dart" show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import "../services/logger_service.dart";
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
+import "package:permission_handler/permission_handler.dart";
 import "api_client.dart" show globalToken;
 import "notification_service.dart";
 
@@ -98,24 +99,32 @@ class DownloadService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
+  static const _foregroundChannel = MethodChannel("com.github.senarepo/foreground");
+
+  Future<void> _startForegroundService() async {
+    if (!Platform.isAndroid) return;
+    try { await _foregroundChannel.invokeMethod("start"); } catch (_) {}
+  }
+
+  Future<void> _stopForegroundService() async {
+    if (!Platform.isAndroid) return;
+    try { await _foregroundChannel.invokeMethod("stop"); } catch (_) {}
+  }
+
+  bool _hasActiveDownloads() {
+    return _tasks.any((t) =>
+      t.status == "downloading" || t.status == "retrying" || t.status == "extracting" || t.status == "pending");
+  }
+
+  void _onDownloadStarted() => _startForegroundService();
+
+  void _onDownloadEnded() {
+    if (!_hasActiveDownloads()) _stopForegroundService();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!Platform.isAndroid) return;
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // App going to background / lock screen — pause all active downloads
-      for (final t in _tasks) {
-        if (t.status == "downloading" || t.status == "retrying" || t.status == "extracting") {
-          pauseTask(t);
-        }
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      // App back to foreground — resume paused downloads
-      for (final t in _tasks) {
-        if (t.status == "paused") {
-          resumeTask(t);
-        }
-      }
-    }
+    // Background downloads continue via foreground service — no auto-pause
   }
 
   Future<void> _restoreTasks() async {
@@ -210,25 +219,12 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<bool> checkStoragePermissionGranted() async {
     if (!Platform.isAndroid) return true;
-    try {
-      final dir = await downloadDir;
-      await Directory(dir).create(recursive: true);
-      final result = await Process.run("sh", ["-c", "echo 1 > '$dir/.sena_perm_test' 2>/dev/null && rm '$dir/.sena_perm_test' && echo ok"]);
-      return result.exitCode == 0 && result.stdout.toString().contains("ok");
-    } catch (_) {}
-    return false;
+    return await Permission.manageExternalStorage.isGranted;
   }
 
   Future<void> openStoragePermissionSettings() async {
     if (!Platform.isAndroid) return;
-    const pkg = "com.github.senarepo";
-    try {
-      await Process.run("sh", ["-c", "am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d 'package:$pkg'"]);
-    } catch (_) {
-      try {
-        await Process.run("sh", ["-c", "am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d 'package:$pkg'"]);
-      } catch (_) {}
-    }
+    await Permission.manageExternalStorage.request();
   }
 
   // ── Patch download (reuses the same pipeline as game downloads) ──
@@ -598,6 +594,7 @@ class DownloadService with WidgetsBindingObserver {
 
         // Phase 1: download
         t.status = "downloading";
+        _onDownloadStarted();
         _emit();
         NotificationService().showDownloadProgress(
           id: t.gameId, gameName: t.gameName,
@@ -1018,5 +1015,6 @@ class DownloadService with WidgetsBindingObserver {
   void _emit() {
     _controller.add(List.unmodifiable(_tasks));
     _saveTasks();
+    if (!_hasActiveDownloads()) _stopForegroundService();
   }
 }
