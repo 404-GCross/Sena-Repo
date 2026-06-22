@@ -111,7 +111,7 @@ class SteamService {
     final body = jsonEncode({"games": games.map((g) => g.toJson()).toList()});
     final resp = await http.post(
       Uri.parse("${api.baseUrl}/api/steam/scan"),
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ...api.headers},
       body: body,
     );
     if (resp.statusCode != 200) throw HttpException("Failed to check patches: ${resp.statusCode}");
@@ -140,7 +140,7 @@ class SteamService {
     final lookupKey = (appId.isNotEmpty && appId != "null" && appId != "None") ? appId : (file ?? appId);
     final resp = await http.put(
       Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}"),
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ...api.headers},
       body: jsonEncode(body),
     );
     if (resp.statusCode != 200) throw HttpException("Failed to update patch: ${resp.statusCode}");
@@ -148,21 +148,21 @@ class SteamService {
 
   /// Trigger server-side patch directory scan.
   static Future<Map<String, dynamic>> scanPatches(ApiClient api) async {
-    final resp = await http.post(Uri.parse("${api.baseUrl}/api/steam/scan-patches"));
+    final resp = await http.post(Uri.parse("${api.baseUrl}/api/steam/scan-patches"), headers: api.headers);
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
     throw HttpException("Failed to scan patches: ${resp.statusCode}");
   }
 
   /// List all indexed patches from server.
   static Future<Map<String, dynamic>> listPatches(ApiClient api) async {
-    final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patches"));
+    final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patches"), headers: api.headers);
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
     throw HttpException("Failed to list patches: ${resp.statusCode}");
   }
 
   /// Fetch patch type keywords from server.
   static Future<Map<String, dynamic>> getTypeKeywords(ApiClient api) async {
-    final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"));
+    final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"), headers: api.headers);
     if (resp.statusCode != 200) throw HttpException("Failed to load type keywords: ${resp.statusCode}");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
@@ -171,7 +171,7 @@ class SteamService {
   static Future<void> saveTypeKeywords(ApiClient api, Map<String, dynamic> keywords) async {
     final resp = await http.put(
       Uri.parse("${api.baseUrl}/api/steam/patch-type-keywords"),
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ...api.headers},
       body: jsonEncode({"keywords": keywords}),
     );
     if (resp.statusCode != 200) throw HttpException("Failed to save type keywords: ${resp.statusCode}");
