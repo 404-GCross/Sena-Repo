@@ -16,6 +16,7 @@ import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
+import "package:permission_handler/permission_handler.dart";
 import "api_client.dart" show globalToken;
 import "notification_service.dart";
 
@@ -221,14 +222,7 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<void> openStoragePermissionSettings() async {
     if (!Platform.isAndroid) return;
-    const pkg = "com.github.senarepo";
-    try {
-      await Process.run("sh", ["-c", "am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION -d 'package:$pkg'"]);
-    } catch (_) {
-      try {
-        await Process.run("sh", ["-c", "am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d 'package:$pkg'"]);
-      } catch (_) {}
-    }
+    await openAppSettings();
   }
 
   // ── Patch download (reuses the same pipeline as game downloads) ──
