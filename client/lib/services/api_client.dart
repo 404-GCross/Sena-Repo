@@ -39,7 +39,7 @@ class ApiClient {
     }
   }
 
-  static void setGlobalToken(String? token) async {
+  static Future<void> setGlobalToken(String? token) async {
     globalToken = token;
     if (token != null && token.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
@@ -47,7 +47,7 @@ class ApiClient {
     }
   }
 
-  void setToken(String? token) => setGlobalToken(token);
+  Future<void> setToken(String? token) => setGlobalToken(token);
 
   void connect(String host, {int port = 11451, bool useHttps = false}) {
     final scheme = useHttps ? "https" : "http";
@@ -146,7 +146,7 @@ class ApiClient {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        globalToken = data["token"]?.toString();
+        setGlobalToken(data["token"]?.toString());
         return data;
       }
     } catch (_) {}
