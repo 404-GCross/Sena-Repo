@@ -90,6 +90,11 @@ jobs:
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
           Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
           Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
+      - name: Sync version to pubspec
+        shell: pwsh
+        run: |
+          (Get-Content pubspec.yaml) -replace '^version: .+', "version: $env:VERSION" | Set-Content pubspec.yaml
+          Write-Host "pubspec version set to $env:VERSION"
       - name: Enable Windows
         run: |
           flutter config --enable-windows-desktop
