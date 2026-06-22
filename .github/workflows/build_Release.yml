@@ -290,6 +290,7 @@ jobs:
           name: v${{ inputs.version }}
           prerelease: false
           files: dist/**/*
+          make_latest: true
           body: |
             ## 变更
             ${{ steps.log.outputs.changes }}

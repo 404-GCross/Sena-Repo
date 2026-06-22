@@ -294,6 +294,7 @@ jobs:
           name: v${{ inputs.version }}
           prerelease: true
           files: dist/**/*
+          make_latest: false
           body: |
             ## 变更
             ${{ steps.log.outputs.changes }}
