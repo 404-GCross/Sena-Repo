@@ -1,7 +1,7 @@
 name: sena_repo
 description: Sena Repo - GalGame Private Library Manager Client
 publish_to: "none"
-version: 0.1.0
+version: 0.1.4
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
