@@ -10,6 +10,7 @@ import "dart:io" show Platform;
 import "../providers/game_provider.dart";
 import "../providers/theme_provider.dart";
 import "../utils/theme_utils.dart";
+import "../utils/version.dart";
 import "../services/api_client.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
@@ -87,7 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 6),
-                Text("Sena Repo v0.1.0", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                Text("Sena Repo v$appVersion", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
               ]),
             ),
           ),
