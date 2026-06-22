@@ -62,14 +62,16 @@ class _HomeScreenState extends State<HomeScreen> {
       await Future.delayed(const Duration(seconds: 30));
       if (!mounted) return false;
       try {
-        final base = context.read<GameProvider>().api.baseUrl;
+        final api = context.read<GameProvider>().api;
+        final base = api.baseUrl;
+        final hdrs = api.headers;
         // Poll notifications
-        final nResp = await http.get(Uri.parse("$base/api/auth/notifications/unread-count"));
+        final nResp = await http.get(Uri.parse("$base/api/auth/notifications/unread-count"), headers: hdrs);
         if (mounted && nResp.statusCode == 200) {
           setState(() => _unreadCount = (jsonDecode(nResp.body) as Map)["count"] ?? 0);
         }
         // Poll scrape jobs
-        final jResp = await http.get(Uri.parse("$base/api/scrape/jobs"));
+        final jResp = await http.get(Uri.parse("$base/api/scrape/jobs"), headers: hdrs);
         if (mounted && jResp.statusCode == 200) {
           final jobs = jsonDecode(jResp.body) as List;
           final running = jobs.cast<Map>().where((j) => j["status"] == "running").toList();
@@ -313,7 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result == true) {
       try {
         await http.put(Uri.parse("${provider.api.baseUrl}/api/games/quick-create"),
-          headers: {"Content-Type": "application/json"},
+          headers: {"Content-Type": "application/json", ...provider.api.headers},
           body: jsonEncode({"name": nameCtrl.text.trim()}),
         );
         await provider.loadGames();
@@ -400,9 +402,9 @@ class _HomeScreenState extends State<HomeScreen> {
     ));
     if (confirmed != true || !mounted) return;
     try {
-      final base = context.read<GameProvider>().api.baseUrl;
-      final resp = await http.post(Uri.parse("$base/api/games/batch-delete"),
-          headers: {"Content-Type": "application/json"},
+      final api = context.read<GameProvider>().api;
+      final resp = await http.post(Uri.parse("${api.baseUrl}/api/games/batch-delete"),
+          headers: {"Content-Type": "application/json", ...api.headers},
           body: jsonEncode({"game_ids": _selectedIds.toList()}));
       if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       await context.read<GameProvider>().loadGames();
@@ -414,9 +416,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _batchScrape() async {
     try {
-      final base = context.read<GameProvider>().api.baseUrl;
-      final resp = await http.post(Uri.parse("$base/api/scrape/batch"),
-          headers: {"Content-Type": "application/json"},
+      final api = context.read<GameProvider>().api;
+      final resp = await http.post(Uri.parse("${api.baseUrl}/api/scrape/batch"),
+          headers: {"Content-Type": "application/json", ...api.headers},
           body: jsonEncode({"game_ids": _selectedIds.toList()}));
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
@@ -607,7 +609,7 @@ class _HomeScreenState extends State<HomeScreen> {
             await Navigator.push(context,
                 MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
             try {
-              final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
+              final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"), headers: gameProvider.api.headers);
               if (r.statusCode == 200 && mounted) {
                 setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
               }
@@ -642,7 +644,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 await Navigator.push(context,
                     MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
                 try {
-                  final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"));
+                  final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"), headers: gameProvider.api.headers);
                   if (r.statusCode == 200 && mounted) {
                     setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
                   }

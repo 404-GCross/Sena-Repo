@@ -91,7 +91,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     List<Map<String, dynamic>> results = [];
     try {
       final resp = await http.get(Uri.parse(
-          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$source"));
+          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$source"), headers: await _authHeaders);
       results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
     } catch (_) { _showError("搜索失败"); return; }
     if (results.isEmpty) { _showError("无结果"); return; }
