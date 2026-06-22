@@ -1,4 +1,5 @@
-# Sena Repo 技术文档
+# Sena Repo 技术文档（本文档由ai生成）
+
 
 ## 架构概览
 
@@ -8,8 +9,8 @@
 Windows / Android / Linux        Docker 或 Python 直接部署
     │                                    │
     ├─ Provider 层（状态管理）            ├─ API Router 层
-    ├─ Service 层（业务逻辑）            ├─ Service 层（刮削/扫描）
-    ├─ Screen 层（UI）                   ├─ Model 层（ORM）
+    ├─ Service 层（业务逻辑）             ├─ Service 层（刮削/扫描）
+    ├─ Screen 层（UI）                    ├─ Model 层（ORM）
     └─ HTTP ────────────────────────────→└─ SQLite 数据库
 ```
 

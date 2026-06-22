@@ -26,8 +26,8 @@ async def list_tags(user: User = Depends(get_current_user), session: AsyncSessio
 
 @router.post("/tags", response_model=TagOut, status_code=201)
 async def create_tag(
-    user: User = Depends(get_current_user),
     body: TagCreate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new tag."""
@@ -46,9 +46,9 @@ async def create_tag(
 
 @router.put("/tags/{tag_id}", response_model=TagOut)
 async def update_tag(
-    user: User = Depends(get_current_user),
     tag_id: int,
     body: TagUpdate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Update a tag's name or color."""
@@ -75,8 +75,8 @@ async def update_tag(
 
 @router.delete("/tags/{tag_id}", response_model=MessageResponse)
 async def delete_tag(
-    user: User = Depends(get_current_user),
     tag_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a tag (removes from all games)."""
