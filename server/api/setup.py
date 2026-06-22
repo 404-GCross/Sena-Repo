@@ -112,9 +112,19 @@ async def initialize_setup(
         except Exception:
             pass
 
+    # Auto-scan game directories
+    games_scanned = 0
+    try:
+        from api.roots import _run_scan
+        stats = await _run_scan(load_config())
+        games_scanned = stats.get("total_games", 0)
+    except Exception:
+        pass
+
     return {
         "message": "Setup complete",
         "admin_created": True,
         "roots_added": roots_added,
         "patches_scanned": patches_scanned,
+        "games_scanned": games_scanned,
     }
