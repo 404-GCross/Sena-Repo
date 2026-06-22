@@ -31,7 +31,12 @@
 
 ![游戏库](Documentation/gallery/library.png)
 
+![游戏详情页](Documentation/gallery/detail.png)
+
 ![Steam 补丁](Documentation/gallery/steam-patch.png)
+
+![我的](Documentation/gallery/profile.png)
+
 
 
 
@@ -63,7 +68,7 @@
 - [Mithnar/PlayniteVndb](https://github.com/Mithnar/PlayniteVndb)
 - [Ivanlon30000/PlayniteBangumiMetadata](https://github.com/Ivanlon30000/PlayniteBangumiMetadata)
 
-感谢以上项目作者的辛勤付出。
+感谢以上项目作者的付出。
 
 ---
 
