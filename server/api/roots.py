@@ -101,7 +101,8 @@ async def refresh_all_roots(
 
     # Auto-trigger batch scrape for new games without covers
     # Use asyncio.create_task to preserve async context for SQLAlchemy's greenlet proxy
-    asyncio.create_task(_auto_scrape(config))
+    asyncio.create_task(_auto_scrape(config, "metadata"))
+    asyncio.create_task(_auto_scrape(config, "missing"))
 
     return all_stats
 
@@ -125,7 +126,8 @@ async def refresh_root(
 
     # Auto-trigger batch scrape for new games without covers
     # Use asyncio.create_task to preserve async context for SQLAlchemy's greenlet proxy
-    asyncio.create_task(_auto_scrape(config))
+    asyncio.create_task(_auto_scrape(config, "metadata"))
+    asyncio.create_task(_auto_scrape(config, "missing"))
 
     return stats
 
@@ -141,11 +143,14 @@ async def _run_scan(config):
         for root in roots:
             stats = await import_from_root(root.id, config, session)
             total_games += stats.get("total_games", 0)
+    # Auto-scrape games without metadata after scan
+    asyncio.create_task(_auto_scrape(config, "metadata"))
+    asyncio.create_task(_auto_scrape(config, "missing"))
     return {"total_games": total_games, "roots_scanned": len(roots)}
 
 
-async def _auto_scrape(config):
-    """Background task: batch scrape all games without covers."""
+async def _auto_scrape(config, mode: str = "missing"):
+    """Background task: batch scrape games without covers or metadata."""
     import database
     from models.scrape_job import JobStatus, ScrapeJob
     from services.scraper.orchestrator import run_batch_scrape
@@ -155,6 +160,6 @@ async def _auto_scrape(config):
             job = ScrapeJob(status=JobStatus.PENDING)
             session.add(job)
             await session.commit()
-            await run_batch_scrape(config, None, session, job)
+            await run_batch_scrape(config, None, session, job, mode=mode)
     except Exception:
         logger.exception("Auto-scrape failed")
