@@ -323,7 +323,7 @@ jobs:
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - name: Build Docker image
-        run: docker build -t sena-repo:latest server/
+        run: docker build --no-cache -t sena-repo:latest server/
 
       - name: Save Docker image (tarball)
         run: |
