@@ -9,7 +9,7 @@ import "dart:convert";
 import "dart:io";
 
 import "package:flutter/foundation.dart" show debugPrint;
-import "package:flutter/services.dart" show rootBundle;
+import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:flutter/widgets.dart" show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import "../services/logger_service.dart";
 import "package:http/http.dart" as http;
@@ -99,24 +99,32 @@ class DownloadService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
+  static const _foregroundChannel = MethodChannel("com.github.senarepo/foreground");
+
+  Future<void> _startForegroundService() async {
+    if (!Platform.isAndroid) return;
+    try { await _foregroundChannel.invokeMethod("start"); } catch (_) {}
+  }
+
+  Future<void> _stopForegroundService() async {
+    if (!Platform.isAndroid) return;
+    try { await _foregroundChannel.invokeMethod("stop"); } catch (_) {}
+  }
+
+  bool _hasActiveDownloads() {
+    return _tasks.any((t) =>
+      t.status == "downloading" || t.status == "retrying" || t.status == "extracting" || t.status == "pending");
+  }
+
+  void _onDownloadStarted() => _startForegroundService();
+
+  void _onDownloadEnded() {
+    if (!_hasActiveDownloads()) _stopForegroundService();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!Platform.isAndroid) return;
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // App going to background / lock screen — pause all active downloads
-      for (final t in _tasks) {
-        if (t.status == "downloading" || t.status == "retrying" || t.status == "extracting") {
-          pauseTask(t);
-        }
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      // App back to foreground — resume paused downloads
-      for (final t in _tasks) {
-        if (t.status == "paused") {
-          resumeTask(t);
-        }
-      }
-    }
+    // Background downloads continue via foreground service — no auto-pause
   }
 
   Future<void> _restoreTasks() async {
@@ -586,6 +594,7 @@ class DownloadService with WidgetsBindingObserver {
 
         // Phase 1: download
         t.status = "downloading";
+        _onDownloadStarted();
         _emit();
         NotificationService().showDownloadProgress(
           id: t.gameId, gameName: t.gameName,
@@ -1006,5 +1015,6 @@ class DownloadService with WidgetsBindingObserver {
   void _emit() {
     _controller.add(List.unmodifiable(_tasks));
     _saveTasks();
+    if (!_hasActiveDownloads()) _stopForegroundService();
   }
 }
