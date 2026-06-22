@@ -54,22 +54,12 @@
 
 ## 服务端部署
 
-### 方式一：GHCR 拉取（推荐）
-
-每次 Release 发布时，Docker 镜像会自动推送到 GitHub Container Registry。本仓库公开，镜像可直接拉取，无需登录。
+> 详细部署说明请参阅 [使用说明书 - 服务端部署](Documentation/zh-CN/user-guide.md#服务端部署)。
 
 ```bash
-# 拉取最新版本
+# GHCR 一键部署（推荐）
 docker pull ghcr.io/404-gcross/sena-repo:latest
 
-# 或拉取指定版本
-docker pull ghcr.io/404-gcross/sena-repo:v0.1.0
-```
-
-**启动容器：**
-
-```bash
-# 基础启动
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
@@ -77,118 +67,13 @@ docker run -d \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
   ghcr.io/404-gcross/sena-repo:latest
-
-# 完整启动（含刮削 API Key）
-docker run -d \
-  --name sena-repo \
-  -p 11451:11451 \
-  -v /path/to/games:/games \
-  -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
-  -e SENA_BANGUMI_TOKEN="your_token" \
-  -e SENA_VNDB_TOKEN="your_token" \
-  -e SENA_IGDB_CLIENT_ID="your_id" \
-  -e SENA_IGDB_CLIENT_SECRET="your_secret" \
-  -e SENA_PROXY="http://127.0.0.1:7890" \
-  ghcr.io/404-gcross/sena-repo:latest
 ```
 
-**Docker Compose（GHCR）：**
-
-```yaml
-services:
-  sena-repo:
-    image: ghcr.io/404-gcross/sena-repo:latest
-    container_name: sena-repo
-    ports:
-      - "11451:11451"
-    volumes:
-      - /path/to/games:/games
-      - /path/to/data:/data
-      - /path/to/steam_patches:/steam_patch
-    environment:
-      - SENA_BANGUMI_TOKEN=your_token      # 可选
-      - SENA_VNDB_TOKEN=your_token         # 可选
-      - SENA_IGDB_CLIENT_ID=your_id        # 可选
-      - SENA_IGDB_CLIENT_SECRET=your_secret # 可选
-      - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
-    restart: unless-stopped
-```
-
-### 方式二：Tarball 加载
-
-从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz` 后手动加载。
-
-```bash
-docker load < Sena-Repo_Server_v0.1.0.tar.gz
-
-docker run -d \
-  --name sena-repo \
-  -p 11451:11451 \
-  -v /path/to/games:/games \
-  -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
-  sena-repo:latest
-```
-
-### 挂载说明
-
-| 目录 | 作用 | 是否必须 |
+| 挂载目录 | 作用 | 是否必须 |
 |------|------|---------|
 | `/games` | 游戏文件存放目录 | 是 |
 | `/data` | 数据库、封面、背景、配置 | 是 |
 | `/steam_patch` | Steam 补丁压缩包目录 | Steam 补丁功能需要 |
-
-### 刮削 API Key（可选，通过环境变量传入）
-
-| 环境变量 | 对应刮削源 | 获取地址 |
-|---|---|---|
-| `SENA_BANGUMI_TOKEN` | Bangumi | [bgm.tv/dev/app](https://bgm.tv/dev/app) |
-| `SENA_VNDB_TOKEN` | VNDB | — |
-| `SENA_IGDB_CLIENT_ID` | IGDB | [dev.twitch.tv](https://dev.twitch.tv/console/apps) |
-| `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
-| `SENA_PROXY` | 代理 | 刮削走代理，如 `http://127.0.0.1:7890` |
-
-### 直接部署
-
-> ⚠️ 此方式未经过充分测试，不推荐使用。建议优先使用 Docker 部署。
-
-```bash
-git clone https://github.com/404-GCross/Sena-Repo.git
-cd Sena-Repo/server
-pip install -r requirements.txt
-python main.py --host 0.0.0.0 --port 11451 \
-  --games-path /path/to/games \
-  --data-path /path/to/data
-```
-
-### 服务端更新方法
-
-```bash
-# ── GHCR（推荐）──
-# docker run 方式
-docker pull ghcr.io/404-gcross/sena-repo:latest
-docker stop sena-repo && docker rm sena-repo
-# 重新 docker run（挂载目录不变，数据不丢失）
-
-# docker-compose 方式
-docker pull ghcr.io/404-gcross/sena-repo:latest
-docker-compose down && docker-compose up -d
-
-# ── Tarball ──
-# docker run 方式
-docker load < Sena-Repo_Server_v新版本.tar.gz
-docker stop sena-repo && docker rm sena-repo
-# 重新 docker run（挂载目录不变，数据不丢失）
-
-# docker-compose 方式（需先将 compose 中的 image 改为 sena-repo:latest）
-docker load < Sena-Repo_Server_v新版本.tar.gz
-docker-compose down && docker-compose up -d
-
-# ── 直接部署 ──
-cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
-pkill -f "python main.py" && python main.py ...
-```
 
 ---
 
@@ -203,6 +88,8 @@ pkill -f "python main.py" && python main.py ...
 底部导航切换 → 搜索 / 排序 → 详情页 → 下载或编辑
 
 ### Steam 补丁
+
+> 详见 [使用说明书 - Steam 补丁注入](Documentation/zh-CN/user-guide.md#steam-补丁注入)
 
 打开 Steam 补丁页 → 选择 steamapps 目录 → 自动匹配 → 点击注入
 
