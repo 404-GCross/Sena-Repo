@@ -1,15 +1,18 @@
 <div align="center">
 
-# 🎮 Sena Repo
+<img src="client/assets/icon.png" width="96" alt="Sena Repo" />
+
+# Sena Repo
 
 ![Release](https://img.shields.io/github/v/release/404-GCross/Sena-Repo)
 ![Downloads](https://img.shields.io/github/downloads/404-GCross/Sena-Repo/total)
 ![License](https://img.shields.io/github/license/404-GCross/Sena-Repo)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20Linux-blue)
 
-**Sena Repo** 是一款面向多平台的 Galgame 私有库管理器，适合将游戏库部署在远程服务器（如 NAS）上，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
+**Sena Repo** 是一款面向多平台的视觉小说私有库管理器，适合管理部署在远程服务器（如 NAS）上的游戏，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
 
-服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据；客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
+服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据<br>客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
+
 
 </div>
 
@@ -22,7 +25,7 @@
 - 🖼️ **游戏库浏览** — 网格/列表双视图，按会社、标签、平台筛选，支持搜索与排序
 - 📥 **游戏下载** — 暂停/取消/断点续传，下载完自动解压
 - 🎮 **Steam 补丁注入** — 管理补丁压缩包，关键词快捷匹配类型并可批量注入
-- 🐳 **Docker 部署** — GHCR 镜像拉取即用，挂载目录持久化数据
+
 
 
 
