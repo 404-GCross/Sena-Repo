@@ -277,39 +277,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
-      - name: Generate changelog
-        id: log
-        run: |
-          # Find last tag (prefer pre-release tag for pre-release builds)
-          LAST_TAG=$(git tag --sort=-creatordate | grep -v '^v' | head -1)
-          if [ -z "$LAST_TAG" ]; then
-            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          fi
-          if [ -n "$LAST_TAG" ]; then
-            CHANGES=$(git log --oneline --no-merges "$LAST_TAG..HEAD" | sed 's/^/- /')
-          else
-            CHANGES=$(git log --oneline --no-merges -30 | sed 's/^/- /')
-          fi
-          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version }}
           name: v${{ inputs.version }}
           prerelease: true
+          generate_release_notes: true
           files: dist/**/*
           make_latest: false
-          body: |
-            ## 变更
-            ${{ steps.log.outputs.changes }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
