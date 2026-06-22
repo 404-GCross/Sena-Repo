@@ -292,12 +292,6 @@ pkill -f "python main.py" && python main.py ...
 
 ---
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=404-GCross/Sena-Repo&type=Date)](https://star-history.com/#404-GCross/Sena-Repo&Date)
-
----
-
 ## 免责声明
 
 - 本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用。
