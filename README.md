@@ -239,6 +239,7 @@ pkill -f "python main.py" && python main.py ...
 本项目在开发过程中参考与学习了以下优秀开源项目（排名不分先后）：
 
 - [JosefNemec/Playnite](https://github.com/JosefNemec/Playnite)
+- [huoshen80/ReinaManager](https://github.com/huoshen80/ReinaManager)
 - [Saramanda9988/LunaBox](https://github.com/Saramanda9988/LunaBox)
 - [xm486/YukiHub](https://github.com/xm486/YukiHub)
 - [INK666/myGal](https://github.com/INK666/myGal)
@@ -246,6 +247,8 @@ pkill -f "python main.py" && python main.py ...
 - [moraroy/NonSteamLaunchers-On-Steam-Deck](https://github.com/moraroy/NonSteamLaunchers-On-Steam-Deck)
 - [Mithnar/PlayniteVndb](https://github.com/Mithnar/PlayniteVndb)
 - [Ivanlon30000/PlayniteBangumiMetadata](https://github.com/Ivanlon30000/PlayniteBangumiMetadata)
+
+
 
 感谢以上项目作者的辛勤付出。
 
