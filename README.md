@@ -50,7 +50,7 @@
     <td align="center" width="50%">
       <b>元数据编辑</b><br>
       <i>多源刮削结果逐字段对比勾选</i><br>
-      <img src="Documentation/gallery/detail-2.png" width="95%">
+      <img src="Documentation/gallery/edit.png" width="95%">
     </td>
   </tr>
   <tr valign="top">
