@@ -277,7 +277,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _loadRoots() async {
     setState(() => _loading = true);
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/roots"));
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/roots"), headers: widget.api.headers);
       if (resp.statusCode == 200) {
         _roots = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
       }
@@ -288,25 +288,25 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _addRoot() async {
     final p = _dirCtrl.text.trim(); if (p.isEmpty) return;
     await http.post(Uri.parse("${widget.api.baseUrl}/api/roots"),
-        headers: {"Content-Type": "application/json"}, body: jsonEncode({"path": p}));
+        headers: {"Content-Type": "application/json", ...widget.api.headers}, body: jsonEncode({"path": p}));
     _dirCtrl.clear(); _loadRoots();
   }
 
   Future<void> _delRoot(int id) async {
-    await http.delete(Uri.parse("${widget.api.baseUrl}/api/roots/$id"));
+    await http.delete(Uri.parse("${widget.api.baseUrl}/api/roots/$id"), headers: widget.api.headers);
     _loadRoots();
   }
 
   Future<void> _scanNow() async {
     setState(() => _loading = true);
-    await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
+    await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"), headers: widget.api.headers);
     _loadRoots();
     if (mounted) _toast(context, "扫描已触发");
   }
 
   Future<void> _checkActiveJob() async {
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs"));
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs"), headers: widget.api.headers);
       if (resp.statusCode == 200) {
         final jobs = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
         final running = jobs.cast<Map<String, dynamic>?>().firstWhere(
@@ -331,7 +331,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     setState(() => _scraping = true);
     try {
       final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
-          headers: {"Content-Type": "application/json"}, body: jsonEncode(result));
+          headers: {"Content-Type": "application/json", ...widget.api.headers}, body: jsonEncode(result));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final jobId = data["job_id"] as int;
@@ -352,7 +352,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
       try {
-        final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId"));
+        final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId"), headers: widget.api.headers);
         if (resp.statusCode == 200) {
           final job = jsonDecode(resp.body) as Map<String, dynamic>;
           if (mounted) setState(() => _scrapeJob = job);
@@ -670,7 +670,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   Future<void> _cancelJob(int jobId) async {
     try {
-      await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId/cancel"));
+      await http.post(Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId/cancel"), headers: widget.api.headers);
       setState(() => _scraping = false);
     } catch (_) {}
   }
@@ -703,7 +703,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   Future<void> _loadScraperSettings() async {
     try {
-      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"));
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"), headers: widget.api.headers);
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         for (final k in _keys.keys) { _keys[k]?.text = data[k] ?? ""; }
@@ -721,7 +721,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     final body = <String, String>{};
     for (final k in _keys.keys) { body[k] = _keys[k]!.text; }
     await http.put(Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
-        headers: {"Content-Type": "application/json"}, body: jsonEncode(body));
+        headers: {"Content-Type": "application/json", ...widget.api.headers}, body: jsonEncode(body));
     final prefs = await SharedPreferences.getInstance();
     for (final src in _sources.keys) {
       await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
@@ -731,7 +731,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   Future<void> _testProxy() async {
     try {
-      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"));
+      final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/settings/proxy-test"), headers: widget.api.headers);
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       if (mounted) _toast(context, data["ok"] == true
           ? "连接成功: ${data["latency_ms"]}ms"
