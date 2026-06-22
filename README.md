@@ -99,12 +99,27 @@ docker pull ghcr.io/404-gcross/sena-repo:v0.1.0
 **启动容器：**
 
 ```bash
+# 基础启动
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
+  ghcr.io/404-gcross/sena-repo:latest
+
+# 完整启动（含刮削 API Key）
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  -e SENA_BANGUMI_TOKEN="your_token" \
+  -e SENA_VNDB_TOKEN="your_token" \
+  -e SENA_IGDB_CLIENT_ID="your_id" \
+  -e SENA_IGDB_CLIENT_SECRET="your_secret" \
+  -e SENA_PROXY="http://127.0.0.1:7890" \
   ghcr.io/404-gcross/sena-repo:latest
 ```
 
@@ -180,17 +195,27 @@ python main.py --host 0.0.0.0 --port 11451 \
 ### 服务端更新方法
 
 ```bash
-# GHCR（推荐）
+# ── GHCR（推荐）──
+# docker run 方式
 docker pull ghcr.io/404-gcross/sena-repo:latest
 docker stop sena-repo && docker rm sena-repo
 # 重新 docker run（挂载目录不变，数据不丢失）
 
-# Tarball
+# docker-compose 方式
+docker pull ghcr.io/404-gcross/sena-repo:latest
+docker-compose down && docker-compose up -d
+
+# ── Tarball ──
+# docker run 方式
 docker load < Sena-Repo_Server_v新版本.tar.gz
 docker stop sena-repo && docker rm sena-repo
 # 重新 docker run（挂载目录不变，数据不丢失）
 
-# 直接部署
+# docker-compose 方式（需先将 compose 中的 image 改为 sena-repo:latest）
+docker load < Sena-Repo_Server_v新版本.tar.gz
+docker-compose down && docker-compose up -d
+
+# ── 直接部署 ──
 cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
 pkill -f "python main.py" && python main.py ...
 ```
