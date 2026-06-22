@@ -274,10 +274,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Generate changelog
+        id: log
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            CHANGES=$(git log --oneline --no-merges "$LAST_TAG..HEAD" | sed 's/^/- /')
+          else
+            CHANGES=$(git log --oneline --no-merges -30 | sed 's/^/- /')
+          fi
+          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -285,6 +301,8 @@ jobs:
           name: v${{ inputs.version }}
           prerelease: false
           files: dist/**/*
-          generate_release_notes: true
+          body: |
+            ## 变更
+            ${{ steps.log.outputs.changes }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
