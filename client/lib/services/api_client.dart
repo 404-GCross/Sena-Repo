@@ -19,15 +19,29 @@ class ApiClient {
   bool get isConnected => _baseUrl != null;
 
   Map<String, String> get headers {
-    if (globalToken != null && globalToken!.isNotEmpty) {
-      return {"Authorization": "Bearer $globalToken"};
+    final t = globalToken;
+    if (t != null && t.isNotEmpty) {
+      return {"Authorization": "Bearer $t"};
     }
     return {};
   }
 
-  static void setGlobalToken(String? token) => globalToken = token;
+  /// Called at app start to restore token from disk.
+  static Future<void> restoreToken() async {
+    if (globalToken != null && globalToken!.isNotEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    globalToken = prefs.getString("auth_token");
+  }
 
-  void setToken(String? token) => globalToken = token;
+  static void setGlobalToken(String? token) async {
+    globalToken = token;
+    if (token != null && token.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("auth_token", token);
+    }
+  }
+
+  void setToken(String? token) => setGlobalToken(token);
 
   void connect(String host, {int port = 11451, bool useHttps = false}) {
     final scheme = useHttps ? "https" : "http";
