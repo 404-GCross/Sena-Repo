@@ -1,6 +1,6 @@
 # 贡献指南
 
-欢迎为 Sena Repo 做出贡献！无论是 bug 反馈、功能建议，还是代码贡献，都非常感谢。
+欢迎为 Sena-Repo 做出贡献！无论是 bug 反馈、功能建议，还是代码贡献，都非常感谢。
 
 ## 开始之前
 
@@ -11,9 +11,8 @@
 
 ### 报告 Bug
 
-1. 使用 Bug Report 模板（若有）
-2. 描述问题现象和复现步骤
-3. 提供运行环境信息（操作系统、Docker 版本等）
+1. 描述清除问题现象和复现步骤
+2. 提供运行环境信息（操作系统、Docker 版本等）
 
 ### 提交代码
 
@@ -22,29 +21,6 @@
 3. 编写或更新测试以覆盖你的改动
 4. 确保所有测试通过
 5. 提交清晰描述更改内容的 Pull Request 到 `dev` 分支
-
-## 项目结构
-
-```
-Sena-Repo/
-├── client/          # Flutter 客户端（Windows / Android / Linux）
-│   ├── lib/
-│   │   ├── models/      # 数据模型
-│   │   ├── providers/   # 状态管理
-│   │   ├── screens/     # 页面
-│   │   ├── services/    # API 客户端、下载服务等
-│   │   ├── utils/       # 工具类
-│   │   └── widgets/     # 可复用组件
-│   └── pubspec.yaml
-├── server/          # Python 服务端
-│   ├── api/             # FastAPI 路由
-│   ├── schemas/         # Pydantic 模型
-│   ├── services/        # 业务逻辑（扫描、刮削等）
-│   └── Dockerfile
-├── docs/            # 文档
-├── 7z/              # 各平台 7z 二进制文件
-└── 参考项目源码/     # 参考的优秀开源项目
-```
 
 ## 构建与运行
 
