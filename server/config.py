@@ -74,11 +74,21 @@ def _parse_args() -> argparse.Namespace:
     return known
 
 
+_cached_config: Config | None = None
+
+
 def load_config(config_path: str | None = None) -> Config:
     """Load configuration from YAML file, env vars, and CLI args.
 
     Priority: CLI args > env vars > YAML file > defaults
+
+    Returns a singleton — subsequent calls return the same instance,
+    so dynamic attributes (e.g. auto_scan) set via API are visible everywhere.
     """
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
+
     config = Config()
     args = _parse_args()
 
@@ -137,4 +147,5 @@ def load_config(config_path: str | None = None) -> Config:
     if args.data_path:
         config.data_path = args.data_path
 
+    _cached_config = config
     return config
