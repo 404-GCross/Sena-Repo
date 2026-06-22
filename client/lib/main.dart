@@ -112,17 +112,21 @@ Future<bool?> _showDisclaimer() async {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: Column(children: [
                 const SizedBox(height: 8),
-                Container(
-                  width: 72, height: 72,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                      colors: [Color(0xFF7C3AED), Color(0xFFA855F7)],
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.asset("assets/icon.png", width: 72, height: 72, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 72, height: 72,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft, end: Alignment.bottomRight,
+                          colors: [Color(0xFF7C3AED), Color(0xFFA855F7)],
+                        ),
+                      ),
+                      child: const Icon(Icons.videogame_asset, size: 36, color: Colors.white),
                     ),
-                    boxShadow: [BoxShadow(color: const Color(0xFF7C3AED).withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 4))],
                   ),
-                  child: const Icon(Icons.videogame_asset, size: 36, color: Colors.white),
                 ),
                 const SizedBox(height: 16),
                 const Text("欢迎使用 Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
