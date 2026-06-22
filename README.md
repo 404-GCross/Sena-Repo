@@ -29,9 +29,9 @@
 
 ## 截图
 
-![游戏库](Documentation/gallery/image.png)
+![游戏库](Documentation/gallery/library.png)
 
-![Steam 补丁](Documentation/gallery/image-1.png)
+![Steam 补丁](Documentation/gallery/steam-patch.png)
 
 
 
