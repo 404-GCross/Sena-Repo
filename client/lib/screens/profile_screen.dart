@@ -246,23 +246,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _menuDivider() => Divider(height: 1, indent: 68, color: cardBorder(context));
 
   void _showAbout(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Row(children: [
-          Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(width: 8),
-          const Text("关于"),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Column(children: [
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFFA855F7)]),
+            ),
+            child: const Icon(Icons.videogame_asset, size: 28, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          const Text("Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          Text("v$appVersion", style: TextStyle(fontSize: 13, color: cs.primary)),
         ]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Sena Repo", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text("版本: $appVersion", style: AppText.bodyMedium.copyWith( color: hintColor(context))),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text("GalGame 私有库管理器", style: AppText.bodyMedium.copyWith(color: subTextColor(context))),
             const SizedBox(height: 12),
-            Text("GalGame 私人图书馆管理器", style: AppText.bodySmall.copyWith( color: subTextColor(context))),
+            InkWell(
+              onTap: () {},
+              child: Text("github.com/404-GCross/Sena-Repo",
+                  style: TextStyle(fontSize: 12, color: cs.primary.withValues(alpha: 0.8))),
+            ),
           ],
         ),
         actions: [
