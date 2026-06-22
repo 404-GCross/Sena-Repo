@@ -8,38 +8,26 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 
+/// Global token store — always accessible, survives Provider rebuilds.
+String? _globalToken;
+
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
-  String? _token;
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
-  bool get isLoggedIn => _token != null;
-
-  String? get _effectiveToken {
-    if (_token != null && _token!.isNotEmpty) return _token;
-    // Fallback: read from SharedPreferences via sync, or return null
-    return _token; // SharedPreferences is async, so return whatever we have
-  }
 
   Map<String, String> get headers {
-    final t = _effectiveToken;
-    if (t != null && t.isNotEmpty) {
-      return {"Authorization": "Bearer $t"};
+    if (_globalToken != null && _globalToken!.isNotEmpty) {
+      return {"Authorization": "Bearer $_globalToken"};
     }
     return {};
   }
 
-  /// Reload token from persistent storage (fallback when in-memory token is lost).
-  Future<void> reloadToken() async {
-    if (_token == null || _token!.isEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      _token = prefs.getString("auth_token");
-    }
-  }
+  static void setGlobalToken(String? token) => _globalToken = token;
 
-  void setToken(String? token) => _token = token;
+  void setToken(String? token) => _globalToken = token;
 
   void connect(String host, {int port = 11451, bool useHttps = false}) {
     final scheme = useHttps ? "https" : "http";
@@ -138,7 +126,7 @@ class ApiClient {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _token = data["token"]?.toString();
+        _globalToken = data["token"]?.toString();
         return data;
       }
     } catch (_) {}
