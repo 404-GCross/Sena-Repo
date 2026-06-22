@@ -21,9 +21,13 @@ ArchitecturesInstallIn64BitMode=x64
 
 [Code]
 function IsAppRunning: Boolean;
-var ResultCode: Integer;
+var
+  Output: AnsiString;
+  ResultCode: Integer;
 begin
-  Result := Exec('tasklist', '/FI "IMAGENAME eq {{EXECUTABLE_NAME}}" /NH', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  Exec('cmd.exe', '/C tasklist /FI "IMAGENAME eq {{EXECUTABLE_NAME}}" 2>nul | findstr "{{EXECUTABLE_NAME}}"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := (ResultCode = 0);
 end;
 
 function InitializeSetup(): Boolean;
