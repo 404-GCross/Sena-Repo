@@ -211,18 +211,12 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<bool> checkStoragePermissionGranted() async {
     if (!Platform.isAndroid) return true;
-    try {
-      final dir = await downloadDir;
-      await Directory(dir).create(recursive: true);
-      final result = await Process.run("sh", ["-c", "echo 1 > '$dir/.sena_perm_test' 2>/dev/null && rm '$dir/.sena_perm_test' && echo ok"]);
-      return result.exitCode == 0 && result.stdout.toString().contains("ok");
-    } catch (_) {}
-    return false;
+    return await Permission.manageExternalStorage.isGranted;
   }
 
   Future<void> openStoragePermissionSettings() async {
     if (!Platform.isAndroid) return;
-    await openAppSettings();
+    await Permission.manageExternalStorage.request();
   }
 
   // ── Patch download (reuses the same pipeline as game downloads) ──
