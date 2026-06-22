@@ -1,79 +1,51 @@
-# Sena Repo - GalGame 私有库管理器
+<div align="center">
 
-**Sena Repo** 是一款面向多平台的视觉小说仓库管理工具，适合管理部署在远程服务器（如 NAS）上的游戏库，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
+# 🎮 Sena Repo
+
+![Release](https://img.shields.io/github/v/release/404-GCross/Sena-Repo)
+![Downloads](https://img.shields.io/github/downloads/404-GCross/Sena-Repo/total)
+![License](https://img.shields.io/github/license/404-GCross/Sena-Repo)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20Linux-blue)
+
+**Sena Repo** 是一款面向多平台的 Galgame 私有库管理器，适合将游戏库部署在远程服务器（如 NAS）上，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
 
 服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据；客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
 
----
-
-## 导入及清洗逻辑
-
-### 目录结构 （当前仅会社/游戏目录测试通过，其他目录结构支持仍在测试与调整中）
-
-```
-根目录/
-  ├── 会社A/                    ← 第一级：会社文件夹
-  │   ├── 游戏1/                ← 第二级：游戏文件夹
-  │   │   ├── [PC]游戏1.rar
-  │   │   └── [Ty]游戏1.zip
-  │   ├── 游戏2/
-  │   │   ├── [PC]游戏2.zip
-  │   │   └── [KRKR]游戏2.zip
-  │   └── 游戏3/
-  │       └── 直装_游戏3.apk
-  └── 会社B/
-      └── 游戏4/
-          └── 游戏4安卓直装版.apk
-```
-
-### 处理流程
-
-**扫描 → 清洗 → 导入 → 刮削**
-
-1. **第一级** → 识别为**会社**，自动作为标签附加，并填入**开发商**字段
-2. **第二级** → 识别为**游戏项目**
-3. **第三级** → 识别为游戏对应的**压缩包文件**，同一游戏可包含多平台版本
-
-### 清洗规则
-
-| 文件名 | 游戏名 | 平台 |
-|-------|-------|------|
-| `[PC]游戏1.rar` | 游戏1 | PC |
-| `[KRKR]游戏2.zip` | 游戏2 | KRKR |
-| `[Ty]游戏4.zip` | 游戏4 | Tyranor |
-| `直装_游戏5.apk` | 游戏5 | 安卓直装 |
-
-支持的平台标识：`PC`、`KRKR`、`Ty`、`ONS`、`直装`，末尾 `.apk` 或含"安卓""直装"字样自动归类。
-
-### 导入规则
-
-- 会社名自动填入**开发商**字段（不覆盖手动修改）
-- 同一游戏多平台压缩包各生成独立版本
-- 非压缩包文件自动过滤
-- 会社名自动作为标签
-
-### 刮削
-
-| 刮削源 | 说明 |
-|--------|------|
-| VNDB Kana v2 | 免认证，含游戏时长 |
-| Bangumi | 免认证 |
-| Steam | 免认证 |
-| DLsite | 免认证 |
-| 月幕 GalGame | 免认证 |
+</div>
 
 ---
 
 ## 主要功能
 
-- **游戏库浏览** — 网格/列表双视图，搜索、排序、游戏时长显示
-- **元数据编辑** — 下载元数据逐字段对比勾选，封面上传即时生效
-- **用户系统** — 登录/注册，管理员审批，头像上传
-- **游戏下载** — 暂停/取消/断点续传，Android 外部存储解压
-- **初始化向导** — 首次连接自动创建管理员 + 配置目录
-- **Steam 补丁注入**（PC）— 双 Tab 客户端/服务端管理，关键词快捷匹配类型，注入进度条
-- **Windows 安装包** — 便携 zip + 安装包 exe，开始菜单 + 卸载入口
-- **个性化** — 主题色，最小化托盘，双击拉起已运行实例
+- 🌐 **多源刮削** — VNDB Kana v2 / Bangumi / Steam / DLsite / 月幕 GalGame，均免认证
+- 🖼️ **游戏库浏览** — 网格 / 列表双视图，搜索、排序、游戏时长显示
+- ✏️ **元数据编辑** — 逐字段对比勾选，封面上传即时生效
+- 👥 **用户系统** — 登录 / 注册，管理员审批，头像上传
+- 📥 **游戏下载** — 暂停 / 取消 / 断点续传，Android 外部存储解压
+- 🧭 **初始化向导** — 首次连接自动创建管理员 + 配置目录
+- 🎮 **Steam 补丁注入**（PC）— 双 Tab 客户端/服务端管理，关键词快捷匹配类型，注入进度条
+- 💻 **Windows 安装包** — 便携 zip + 安装包 exe，开始菜单 + 卸载入口
+- 🎨 **个性化** — 主题色，最小化托盘，双击拉起已运行实例
+
+---
+
+## 客户端安装
+
+从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载对应平台的安装包：
+
+- **Windows** — 安装包 `.exe`（含卸载）或便携版 `.zip`
+- **Android** — `.apk`
+- **Linux** — `.AppImage`
+
+---
+
+## 截图
+
+![主页](screenshots/home.png)
+
+![详情页](screenshots/detail.png)
+
+![游戏库](screenshots/library.png)
 
 ---
 
@@ -215,8 +187,7 @@ cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
 pkill -f "python main.py" && python main.py ...
 ```
 
-
-
+---
 
 ## 使用方法
 
@@ -226,11 +197,77 @@ pkill -f "python main.py" && python main.py ...
 
 ### 游戏库
 
-底部导航切换 → 搜索/排序 → 详情页 → 下载或编辑
+底部导航切换 → 搜索 / 排序 → 详情页 → 下载或编辑
 
 ### Steam 补丁
 
 打开 Steam 补丁页 → 选择 steamapps 目录 → 自动匹配 → 点击注入
+
+---
+
+## 导入及清洗逻辑
+
+### 目录结构
+
+> 当前仅会社/游戏目录测试通过，其他目录结构支持仍在测试与调整中。
+
+```
+根目录/
+  ├── 会社A/                    ← 第一级：会社文件夹
+  │   ├── 游戏1/                ← 第二级：游戏文件夹
+  │   │   ├── [PC]游戏1.rar
+  │   │   └── [Ty]游戏1.zip
+  │   ├── 游戏2/
+  │   │   ├── [PC]游戏2.zip
+  │   │   └── [KRKR]游戏2.zip
+  │   └── 游戏3/
+  │       └── 直装_游戏3.apk
+  └── 会社B/
+      └── 游戏4/
+          └── 游戏4安卓直装版.apk
+```
+
+### 处理流程
+
+**扫描 → 清洗 → 导入 → 刮削**
+
+1. **第一级** → 识别为**会社**，自动作为标签附加，并填入**开发商**字段
+2. **第二级** → 识别为**游戏项目**
+3. **第三级** → 识别为游戏对应的**压缩包文件**，同一游戏可包含多平台版本
+
+### 清洗规则
+
+| 文件名 | 游戏名 | 平台 |
+|-------|-------|------|
+| `[PC]游戏1.rar` | 游戏1 | PC |
+| `[KRKR]游戏2.zip` | 游戏2 | KRKR |
+| `[Ty]游戏4.zip` | 游戏4 | Tyranor |
+| `直装_游戏5.apk` | 游戏5 | 安卓直装 |
+
+支持的平台标识：`PC`、`KRKR`、`Ty`、`ONS`、`直装`，末尾 `.apk` 或含"安卓""直装"字样自动归类。
+
+### 导入规则
+
+- 会社名自动填入**开发商**字段（不覆盖手动修改）
+- 同一游戏多平台压缩包各生成独立版本
+- 非压缩包文件自动过滤
+- 会社名自动作为标签
+
+### 刮削源
+
+| 刮削源 | 说明 |
+|--------|------|
+| VNDB Kana v2 | 免认证，含游戏时长 |
+| Bangumi | 免认证 |
+| Steam | 免认证 |
+| DLsite | 免认证 |
+| 月幕 GalGame | 免认证 |
+
+---
+
+## 贡献
+
+欢迎任何形式的贡献！请查看 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解如何开始。
 
 ---
 
@@ -248,10 +285,15 @@ pkill -f "python main.py" && python main.py ...
 - [Mithnar/PlayniteVndb](https://github.com/Mithnar/PlayniteVndb)
 - [Ivanlon30000/PlayniteBangumiMetadata](https://github.com/Ivanlon30000/PlayniteBangumiMetadata)
 
-
-
 感谢以上项目作者的辛勤付出。
 
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=404-GCross/Sena-Repo&type=Date)](https://star-history.com/#404-GCross/Sena-Repo&Date)
+
+---
 
 ## 免责声明
 
@@ -259,7 +301,8 @@ pkill -f "python main.py" && python main.py ...
 - 您需要自行确认资源与第三方组件的合法性。
 - 本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。
 - 本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。
-- 本项目在后续更新中可能涉及服务端变动，可能存在无法保数据更新的可能。
+- 本项目在后续更新中可能涉及服务端变动，可能存在无法保证数据更新的可能。
+
 ---
 
 ## 开源协议
