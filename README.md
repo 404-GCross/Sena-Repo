@@ -13,6 +13,8 @@
 
 服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据<br>客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
 
+Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的站点
+
 </div>
 
 ---
