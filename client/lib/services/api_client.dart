@@ -23,6 +23,7 @@ class ApiClient {
     if (t != null && t.isNotEmpty) {
       return {"Authorization": "Bearer $t"};
     }
+    print("[ApiClient] WARN: headers called with no token set!");
     return {};
   }
 
@@ -31,6 +32,11 @@ class ApiClient {
     if (globalToken != null && globalToken!.isNotEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     globalToken = prefs.getString("auth_token");
+    if (globalToken != null) {
+      print("[ApiClient] Token restored from disk: ${globalToken!.substring(0, 8)}...");
+    } else {
+      print("[ApiClient] No token found on disk");
+    }
   }
 
   static void setGlobalToken(String? token) async {
