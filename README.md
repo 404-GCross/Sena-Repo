@@ -81,20 +81,15 @@
 
 ### 方式一：GHCR 拉取（推荐）
 
-每次 Release 发布时，Docker 镜像会自动推送到 GitHub Container Registry。无需下载 tarball，直接拉取即可。
+每次 Release 发布时，Docker 镜像会自动推送到 GitHub Container Registry。本仓库公开，镜像可直接拉取，无需登录。
 
 ```bash
-# 登录 GHCR（使用 GitHub 账号 + Personal Access Token）
-echo "YOUR_GITHUB_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
-
 # 拉取最新版本
 docker pull ghcr.io/404-gcross/sena-repo:latest
 
 # 或拉取指定版本
 docker pull ghcr.io/404-gcross/sena-repo:v0.1.0
 ```
-
-**GitHub Token 获取：** [Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)，勾选 `read:packages` 权限即可。
 
 **启动容器：**
 
