@@ -117,9 +117,10 @@ async def initialize_setup(
     try:
         from api.roots import _run_scan
         stats = await _run_scan(load_config())
-        games_scanned = stats.get("total_games", 0)
-    except Exception:
-        pass
+        games_scanned = stats.get("total_games", 0) if stats else 0
+    except Exception as e:
+        import logging
+        logging.getLogger("sena-repo").error(f"Auto-scan during setup failed: {e}")
 
     return {
         "message": "Setup complete",
