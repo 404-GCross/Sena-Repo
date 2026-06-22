@@ -216,14 +216,6 @@ pkill -f "python main.py" && python main.py ...
 ```
 
 
-## 客户端安装
-
-从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载：
-
-- **Windows**：安装包 `.exe`（含卸载）或便携版 `.zip`
-- **Android**：`.apk`
-- **Linux**：`.AppImage`
-
 
 
 ## 使用方法
