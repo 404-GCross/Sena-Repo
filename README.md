@@ -39,18 +39,7 @@
 
 ## 快速开始
 
-> 📖 完整的使用说明、服务端部署、导入规则等请参阅 **[使用说明书](Documentation/zh-CN/user-guide.md)**。
-
-```bash
-# 服务端 GHCR 一键部署
-docker run -d --name sena-repo -p 11451:11451 \
-  -v /path/to/games:/games \
-  -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
-  ghcr.io/404-gcross/sena-repo:latest
-
-# 客户端从 Releases 下载安装，连接 http://<服务器IP>:11451
-```
+> 📖 部署、安装、使用等完整说明请参阅 **[使用说明书](Documentation/zh-CN/user-guide.md)**。
 
 ---
 
