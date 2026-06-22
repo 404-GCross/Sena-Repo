@@ -16,6 +16,7 @@ import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
+import "api_client.dart" show globalToken;
 import "notification_service.dart";
 
 // ────────────────────────────────────────────────────
@@ -758,6 +759,10 @@ class DownloadService with WidgetsBindingObserver {
     IOSink? sink;
     try {
       final req = http.Request("GET", Uri.parse(t.downloadUrl));
+      // Add auth header for server authentication
+      if (globalToken != null && globalToken!.isNotEmpty) {
+        req.headers["Authorization"] = "Bearer $globalToken";
+      }
 
       // Range for resume
       if (t.receivedBytes > 0 && await dest.exists()) {

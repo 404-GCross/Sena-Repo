@@ -9,7 +9,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "../models/game.dart";
 
 /// Global token store — always accessible, survives Provider rebuilds.
-String? _globalToken;
+String? globalToken;
 
 class ApiClient {
   final http.Client _client = http.Client();
@@ -19,15 +19,15 @@ class ApiClient {
   bool get isConnected => _baseUrl != null;
 
   Map<String, String> get headers {
-    if (_globalToken != null && _globalToken!.isNotEmpty) {
-      return {"Authorization": "Bearer $_globalToken"};
+    if (globalToken != null && globalToken!.isNotEmpty) {
+      return {"Authorization": "Bearer $globalToken"};
     }
     return {};
   }
 
-  static void setGlobalToken(String? token) => _globalToken = token;
+  static void setGlobalToken(String? token) => globalToken = token;
 
-  void setToken(String? token) => _globalToken = token;
+  void setToken(String? token) => globalToken = token;
 
   void connect(String host, {int port = 11451, bool useHttps = false}) {
     final scheme = useHttps ? "https" : "http";
@@ -126,7 +126,7 @@ class ApiClient {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _globalToken = data["token"]?.toString();
+        globalToken = data["token"]?.toString();
         return data;
       }
     } catch (_) {}

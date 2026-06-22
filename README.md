@@ -82,8 +82,8 @@
 ### Docker
 
 ```bash
-# 拉取镜像（AMD64 / ARM64 自动适配）
-docker pull ghcr.io/404-gcross/sena-repo:latest
+# 从 Releases 下载 tarball 后加载镜像
+docker load < Sena-Repo_Server_v0.1.0.tar.gz
 
 # 启动容器
 docker run -d \
@@ -92,7 +92,7 @@ docker run -d \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
-  ghcr.io/404-gcross/sena-repo:latest
+  sena-repo:latest
 ```
 
 **挂载说明：**
@@ -114,7 +114,7 @@ docker run -d --name sena-repo -p 11451:11451 \
   -e SENA_VNDB_TOKEN="your_token" \
   -e SENA_IGDB_CLIENT_ID="your_id" \
   -e SENA_IGDB_CLIENT_SECRET="your_secret" \
-  ghcr.io/404-gcross/sena-repo:latest
+  sena-repo:latest
 ```
 
 | 环境变量 | 对应刮削源 | 获取地址 |
@@ -125,32 +125,12 @@ docker run -d --name sena-repo -p 11451:11451 \
 | `SENA_IGDB_CLIENT_SECRET` | IGDB | 同上 |
 | `SENA_PROXY` | 代理 | 刮削走代理，如 `http://127.0.0.1:7890` |
 
-### Docker Tarball 离线部署
-
-适用于无法直接拉取 GHCR 的环境。从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz`：
-
-```bash
-# 加载镜像
-docker load < Sena-Repo_Server_v0.1.0.tar.gz
-
-# 启动容器
-docker run -d \
-  --name sena-repo \
-  -p 11451:11451 \
-  -v /path/to/games:/games \
-  -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
-  -e SENA_BANGUMI_TOKEN=your_token \
-  -e SENA_PROXY=http://127.0.0.1:7890 \
-  sena-repo:latest
-```
-
 ### Docker Compose
 
 ```yaml
 services:
   sena-repo:
-    image: ghcr.io/404-gcross/sena-repo:latest
+    image: sena-repo:latest
     container_name: sena-repo
     ports:
       - "11451:11451"
@@ -184,7 +164,7 @@ python main.py --host 0.0.0.0 --port 11451 \
 
 ```bash
 # Docker
-docker pull ghcr.io/404-gcross/sena-repo:latest
+docker load < Sena-Repo_Server_v新版本.tar.gz
 docker stop sena-repo && docker rm sena-repo
 # 重新 docker run（挂载目录不变，数据不丢失）
 
