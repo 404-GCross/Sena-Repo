@@ -96,12 +96,27 @@ services:
 ```bash
 docker load < Sena-Repo_Server_v0.1.0.tar.gz
 
+# 基础启动
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
+  sena-repo:latest
+
+# 完整启动（含刮削 API Key）
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  -e SENA_BANGUMI_TOKEN="your_token" \
+  -e SENA_VNDB_TOKEN="your_token" \
+  -e SENA_IGDB_CLIENT_ID="your_id" \
+  -e SENA_IGDB_CLIENT_SECRET="your_secret" \
+  -e SENA_PROXY="http://127.0.0.1:7890" \
   sena-repo:latest
 ```
 
