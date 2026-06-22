@@ -130,4 +130,5 @@ class GameProvider extends ChangeNotifier {
     await _api.scrapeGame(gameId);
     await loadGames();
   }
+
 }

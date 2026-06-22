@@ -22,9 +22,9 @@ router = APIRouter(prefix="/api/download", tags=["download"])
 
 @router.get("/{game_id}/{version_id}")
 async def download_game_version(
-    user: User = Depends(get_current_user),
     game_id: int,
     version_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Download a specific game version archive file.

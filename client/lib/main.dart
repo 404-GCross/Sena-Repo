@@ -109,34 +109,45 @@ Future<bool?> _showDisclaimer() async {
             context: context,
             barrierDismissible: false,
             builder: (ctx) => AlertDialog(
-              title: const Column(children: [
-                Icon(Icons.videogame_asset, color: Color(0xFF7C3AED), size: 40),
-                SizedBox(height: 8),
-                Text("欢迎使用 Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                SizedBox(height: 4),
-                Text("免责声明", style: TextStyle(fontSize: 13, color: Colors.grey)),
-              ]),
-              content: const SizedBox(
-                width: 400,
-                child: SingleChildScrollView(
-                  child: Text(
-                    "本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用。\n\n"
-                    "您需要自行确认资源与第三方组件的合法性。\n\n"
-                    "本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。\n\n"
-                    "本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。",
-                    style: TextStyle(fontSize: 14, height: 1.6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Column(children: [
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.asset("assets/icon.png", width: 72, height: 72, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 72, height: 72,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft, end: Alignment.bottomRight,
+                          colors: [Color(0xFF7C3AED), Color(0xFFA855F7)],
+                        ),
+                      ),
+                      child: const Icon(Icons.videogame_asset, size: 36, color: Colors.white),
+                    ),
                   ),
                 ),
+                const SizedBox(height: 16),
+                const Text("欢迎使用 Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                const Text("免责声明", style: TextStyle(fontSize: 13, color: Colors.grey)),
+              ]),
+              content: const SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(children: [
+                    Divider(height: 1),
+                    SizedBox(height: 12),
+                    _DisclaimerItem(icon: Icons.folder_special, text: "本项目为开源项目，仅用于合法用途，管理您有权使用的游戏与应用。"),
+                    _DisclaimerItem(icon: Icons.shield, text: "您需要自行确认资源与第三方组件的合法性。"),
+                    _DisclaimerItem(icon: Icons.block, text: "本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。"),
+                    _DisclaimerItem(icon: Icons.warning_amber, text: "本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。"),
+                  ]),
+                ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text("不同意"),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text("同意"),
-                ),
+              actions: const [
+                _DisclaimerActions(),
               ],
             ),
           ).then((value) {
@@ -148,6 +159,37 @@ Future<bool?> _showDisclaimer() async {
     ),
   ));
   return result.future;
+}
+
+class _DisclaimerItem extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _DisclaimerItem({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 18, color: const Color(0xFF7C3AED).withValues(alpha: 0.7)),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text, style: const TextStyle(fontSize: 14, height: 1.5))),
+      ]),
+    );
+  }
+}
+
+class _DisclaimerActions extends StatelessWidget {
+  const _DisclaimerActions();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("不同意")),
+      const SizedBox(width: 8),
+      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text("同意")),
+    ]);
+  }
 }
 
 class SenaRepoApp extends StatefulWidget {

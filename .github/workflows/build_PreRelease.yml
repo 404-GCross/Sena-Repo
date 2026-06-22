@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 defaults:
   run:
@@ -90,6 +89,13 @@ jobs:
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
           Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
           Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
+      - name: Sync version to source files
+        shell: pwsh
+        run: |
+          $ver = $env:VERSION
+          (Get-Content pubspec.yaml) -replace '^version: .+', "version: $ver" | Set-Content pubspec.yaml
+          (Get-Content lib\utils\version.dart) -replace '0\.\d+\.\d+', $ver | Set-Content lib\utils\version.dart
+          Write-Host "Version set to $ver"
       - name: Enable Windows
         run: |
           flutter config --enable-windows-desktop
@@ -242,18 +248,6 @@ jobs:
           echo "VERSION=$V" >> "$GITHUB_ENV"
       - name: Build Docker image
         run: docker build -t sena-repo:latest server/
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push to GHCR
-        run: |
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:latest
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:v${VERSION}
-          docker push ghcr.io/404-gcross/sena-repo:latest
-          docker push ghcr.io/404-gcross/sena-repo:v${VERSION}
       - name: Save tarball
         run: docker save sena-repo:latest | gzip > "Sena-Repo_Server_v${VERSION}.tar.gz"
       - name: Upload Server Image
@@ -269,10 +263,30 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Generate changelog
+        id: log
+        run: |
+          # Find last tag (prefer pre-release tag for pre-release builds)
+          LAST_TAG=$(git tag --sort=-creatordate | grep -v '^v' | head -1)
+          if [ -z "$LAST_TAG" ]; then
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          fi
+          if [ -n "$LAST_TAG" ]; then
+            CHANGES=$(git log --oneline --no-merges "$LAST_TAG..HEAD" | sed 's/^/- /')
+          else
+            CHANGES=$(git log --oneline --no-merges -30 | sed 's/^/- /')
+          fi
+          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v2
         with:
@@ -280,6 +294,9 @@ jobs:
           name: v${{ inputs.version }}
           prerelease: true
           files: dist/**/*
-          generate_release_notes: true
+          make_latest: false
+          body: |
+            ## 变更
+            ${{ steps.log.outputs.changes }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

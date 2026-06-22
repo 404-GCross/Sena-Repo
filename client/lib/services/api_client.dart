@@ -4,27 +4,30 @@ import "dart:convert";
 import "dart:io";
 
 import "package:http/http.dart" as http;
+import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
+
+/// Global token store — always accessible, survives Provider rebuilds.
+String? globalToken;
 
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
-  String? _token;
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
-  bool get isLoggedIn => _token != null;
 
   Map<String, String> get headers {
-    if (_token != null && _token!.isNotEmpty) {
-      return {"Authorization": "Bearer $_token"};
+    if (globalToken != null && globalToken!.isNotEmpty) {
+      return {"Authorization": "Bearer $globalToken"};
     }
-    // Fall back to reading from prefs for backward compat
     return {};
   }
 
-  void setToken(String? token) => _token = token;
+  static void setGlobalToken(String? token) => globalToken = token;
+
+  void setToken(String? token) => globalToken = token;
 
   void connect(String host, {int port = 11451, bool useHttps = false}) {
     final scheme = useHttps ? "https" : "http";
@@ -123,7 +126,7 @@ class ApiClient {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _token = data["token"]?.toString();
+        globalToken = data["token"]?.toString();
         return data;
       }
     } catch (_) {}

@@ -9,6 +9,7 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
+import "../utils/version.dart";
 import "../services/profile_service.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
@@ -159,7 +160,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _menuItem(
             icon: Icons.info_outline,
             title: "关于",
-            trailing: "Sena Repo v0.1.0",
+            trailing: "Sena Repo v$appVersion",
             onTap: () => _showAbout(context),
           ),
         ]),
@@ -259,7 +260,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Text("Sena Repo", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text("版本: 0.1.0", style: AppText.bodyMedium.copyWith( color: hintColor(context))),
+            Text("版本: $appVersion", style: AppText.bodyMedium.copyWith( color: hintColor(context))),
             const SizedBox(height: 12),
             Text("GalGame 私人图书馆管理器", style: AppText.bodySmall.copyWith( color: subTextColor(context))),
           ],

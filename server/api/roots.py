@@ -45,8 +45,8 @@ async def list_roots(user: User = Depends(get_current_user), session: AsyncSessi
 
 @router.post("", response_model=RootOut, status_code=201)
 async def add_root(
-    user: User = Depends(get_current_user),
     body: RootCreate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Add a new root directory."""
@@ -66,8 +66,8 @@ async def add_root(
 
 @router.delete("/{root_id}", response_model=MessageResponse)
 async def delete_root(
-    user: User = Depends(get_current_user),
     root_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Remove a root directory (does not delete files)."""
@@ -108,8 +108,8 @@ async def refresh_all_roots(
 
 @router.post("/{root_id}/refresh", response_model=dict)
 async def refresh_root(
-    user: User = Depends(get_current_user),
     root_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan a root directory and import/update games, then auto-scrape."""
@@ -134,11 +134,14 @@ async def _run_scan(config):
     """Internal helper for auto-scan. Runs refresh-all without HTTP."""
     import database
     from sqlalchemy import select
+    total_games = 0
     async with database._session_factory() as session:
         result = await session.execute(select(RootDirectory))
         roots = result.scalars().all()
         for root in roots:
-            await import_from_root(root.id, config, session)
+            stats = await import_from_root(root.id, config, session)
+            total_games += stats.get("total_games", 0)
+    return {"total_games": total_games, "roots_scanned": len(roots)}
 
 
 async def _auto_scrape(config):
