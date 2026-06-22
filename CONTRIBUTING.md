@@ -24,7 +24,7 @@
 
 ## 构建与运行
 
-### 本地构建
+### 本地构建（本部分未测试，为ai生成，推荐使用GitHub Action）
 
 **服务端**
 
@@ -58,11 +58,7 @@ flutter run
 
 > 使用前需在 Fork 仓库的 Settings → Actions → General → Workflow permissions 中勾选 "Read and write permissions"，否则 Release 创建会失败。
 
-**Fork 后需要修改的地方：**
 
-1. **GHCR 推送地址** — 将 `build_Release.yml` 和 `build_PreRelease.yml` 中的 `ghcr.io/404-gcross/sena-repo` 替换为 `ghcr.io/<你的用户名>/<你的仓库名>`
-2. **Artifact / 文件名** — 产物命名包含 `Sena-Repo_*` 前缀，可按需替换为你的项目名
-3. `build.yml`（自动构建）不需要任何修改即可使用
 
 ## 代码风格
 

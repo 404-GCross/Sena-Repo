@@ -71,7 +71,7 @@
 
 ## 快速开始
 
-> 📖 部署、安装、使用等完整说明请参阅 **[使用说明书](Documentation/zh-CN/user-guide.md)**。
+> 📖 部署、安装等完整说明请参阅 **[部署说明书](Documentation/zh-CN/user-guide.md)**。
 
 ---
 
