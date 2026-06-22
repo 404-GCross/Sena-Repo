@@ -247,7 +247,7 @@ jobs:
           if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
       - name: Build Docker image
-        run: docker build -t sena-repo:latest server/
+        run: docker build --no-cache -t sena-repo:latest server/
       - name: Save tarball
         run: docker save sena-repo:latest | gzip > "Sena-Repo_Server_v${VERSION}.tar.gz"
       - name: Upload Server Image
