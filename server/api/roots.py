@@ -134,11 +134,14 @@ async def _run_scan(config):
     """Internal helper for auto-scan. Runs refresh-all without HTTP."""
     import database
     from sqlalchemy import select
+    total_games = 0
     async with database._session_factory() as session:
         result = await session.execute(select(RootDirectory))
         roots = result.scalars().all()
         for root in roots:
-            await import_from_root(root.id, config, session)
+            stats = await import_from_root(root.id, config, session)
+            total_games += stats.get("total_games", 0)
+    return {"total_games": total_games, "roots_scanned": len(roots)}
 
 
 async def _auto_scrape(config):
