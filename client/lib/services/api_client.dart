@@ -4,6 +4,7 @@ import "dart:convert";
 import "dart:io";
 
 import "package:http/http.dart" as http;
+import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 
@@ -16,12 +17,26 @@ class ApiClient {
   bool get isConnected => _baseUrl != null;
   bool get isLoggedIn => _token != null;
 
+  String? get _effectiveToken {
+    if (_token != null && _token!.isNotEmpty) return _token;
+    // Fallback: read from SharedPreferences via sync, or return null
+    return _token; // SharedPreferences is async, so return whatever we have
+  }
+
   Map<String, String> get headers {
-    if (_token != null && _token!.isNotEmpty) {
-      return {"Authorization": "Bearer $_token"};
+    final t = _effectiveToken;
+    if (t != null && t.isNotEmpty) {
+      return {"Authorization": "Bearer $t"};
     }
-    // Fall back to reading from prefs for backward compat
     return {};
+  }
+
+  /// Reload token from persistent storage (fallback when in-memory token is lost).
+  Future<void> reloadToken() async {
+    if (_token == null || _token!.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      _token = prefs.getString("auth_token");
+    }
   }
 
   void setToken(String? token) => _token = token;

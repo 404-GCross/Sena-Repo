@@ -122,12 +122,15 @@ class GameProvider extends ChangeNotifier {
   }
 
   Future<void> refreshRoot(int rootId) async {
+    await _api.reloadToken();
     await _api.refreshRoot(rootId);
     await loadGames();
   }
 
   Future<void> scrapeGame(int gameId) async {
+    await _api.reloadToken();
     await _api.scrapeGame(gameId);
     await loadGames();
   }
+
 }
