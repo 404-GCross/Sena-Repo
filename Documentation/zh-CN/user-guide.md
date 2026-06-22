@@ -96,12 +96,27 @@ services:
 ```bash
 docker load < Sena-Repo_Server_v0.1.0.tar.gz
 
+# 基础启动
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
+  sena-repo:latest
+
+# 完整启动（含刮削 API Key）
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  -e SENA_BANGUMI_TOKEN="your_token" \
+  -e SENA_VNDB_TOKEN="your_token" \
+  -e SENA_IGDB_CLIENT_ID="your_id" \
+  -e SENA_IGDB_CLIENT_SECRET="your_secret" \
+  -e SENA_PROXY="http://127.0.0.1:7890" \
   sena-repo:latest
 ```
 
@@ -178,8 +193,8 @@ pkill -f "python main.py" && python main.py ...
 
 Android 用户安装后需授予「所有文件访问」权限，否则无法解压到共享存储。
 
-在下载之前APP会检查该权限，如果没有授予会弹窗提示，可点击弹窗内的按钮实现跳转
-
+在下载游戏之前APP会检查该权限，如果没有授予会弹窗提示，可点击弹窗内的按钮实现跳转
+![权限配置弹窗](/Documentation/gallery/all-files-access.jpg)
 
 
 ---
@@ -512,14 +527,7 @@ steam_patches/
 
 ---
 
-## 回收站
 
-删除的游戏不会立即清除，而是进入回收站。在设置页「回收站」中可查看已删除的游戏，支持：
-
-- **恢复** — 将游戏恢复到游戏库
-- **彻底删除** — 永久删除游戏及关联的版本、封面等数据
-
----
 
 ## 导入及清洗逻辑
 
