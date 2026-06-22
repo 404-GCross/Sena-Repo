@@ -288,6 +288,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                             _infoRow("开发商", game.developer, Icons.business),
                             _divider(),
                             _infoRow("发售日", game.releaseDate, Icons.calendar_today),
+                            _divider(),
+                            _infoRow("游戏时长", _formatPlaytime(game), Icons.timer),
                           ]),
                           const SizedBox(height: 20),
                           _section("版本", Icons.folder_outlined),
