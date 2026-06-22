@@ -272,7 +272,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   final _keys = {"vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
 
   @override
-  void initState() { super.initState(); _loadRoots(); _loadScraperSettings(); _checkActiveJob(); }
+  void initState() { super.initState(); _loadRoots(); _loadScanSettings(); _loadScraperSettings(); _checkActiveJob(); }
 
   Future<void> _loadRoots() async {
     setState(() => _loading = true);
@@ -283,6 +283,37 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       }
     } catch (_) {}
     setState(() => _loading = false);
+  }
+
+  Future<void> _loadScanSettings() async {
+    try {
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/settings/scan"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        if (mounted) setState(() {
+          _autoScan = data["auto_scan"] ?? false;
+          _interval = data["scan_interval"] ?? 24;
+          _structure = data["scan_structure"] ?? "company_game";
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveScanSettings() async {
+    try {
+      await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/scan"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({
+          "auto_scan": _autoScan,
+          "scan_interval": _interval,
+          "scan_structure": _structure,
+        }),
+      );
+    } catch (_) {}
   }
 
   Future<void> _addRoot() async {
@@ -556,7 +587,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               subtitle: Text(_autoScan ? "每 $_interval 小时" : "关闭",
                   style: AppText.bodySmall.copyWith( color: hintColor(context))),
               value: _autoScan,
-              onChanged: (v) => setState(() => _autoScan = v),
+              onChanged: (v) { setState(() => _autoScan = v); _saveScanSettings(); },
               dense: true,
             ),
             if (_autoScan) ...[
@@ -575,7 +606,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     ),
                     onChanged: (v) {
                       final n = int.tryParse(v);
-                      if (n != null && n > 0) setState(() => _interval = n);
+                      if (n != null && n > 0) { setState(() => _interval = n); _saveScanSettings(); }
                     },
                   ),
                 ),

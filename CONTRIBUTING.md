@@ -24,7 +24,9 @@
 
 ## 构建与运行
 
-### 服务端
+### 本地构建（本部分未测试，为ai生成，推荐使用GitHub Action）
+
+**服务端**
 
 ```bash
 cd server
@@ -34,7 +36,7 @@ python main.py --host 0.0.0.0 --port 11451 \
   --data-path /path/to/data
 ```
 
-### 客户端
+**客户端**
 
 需要安装 [Flutter SDK](https://flutter.dev/docs/get-started/install)（3.29+）。
 
@@ -43,6 +45,20 @@ cd client
 flutter pub get
 flutter run
 ```
+
+### 使用 GitHub Actions
+
+项目提供三个 CI 工作流，Fork 后可直接使用：
+
+**自动构建（`build.yml`）** — 推送或 PR 到 `dev`/`main` 分支时自动触发，编译 Android APK + Windows + Linux AppImage + Server Tarball，产物上传为 Artifact。不发布 Release。
+
+**发布 PreRelease（`build_PreRelease.yml`）** — 手动触发。在 Actions 页面选择此工作流，填入版本号（如 `0.2.0-pre1`），编译全部平台并发布 Pre-Release，同时推送 Docker 镜像到 GHCR（tag 为 `pre-release` 和 `v版本号`）。
+
+**发布 Release（`build_Release.yml`）** — 手动触发。填入版本号（如 `0.2.0`），编译全部平台并发布正式 Release，同时推送 Docker 镜像到 GHCR（tag 为 `latest` 和 `v版本号`）。
+
+> 使用前需在 Fork 仓库的 Settings → Actions → General → Workflow permissions 中勾选 "Read and write permissions"，否则 Release 创建会失败。
+
+
 
 ## 代码风格
 

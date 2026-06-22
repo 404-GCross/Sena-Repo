@@ -22,24 +22,56 @@
 - 🌐 **多源刮削** — VNDB Kana v2 / Bangumi / Steam / DLsite / 月幕 GalGame，自动匹配已有游戏
 - 📂 **目录扫描** — 识别会社/游戏/压缩包三级目录，自动清洗文件名并归类平台与版本
 - 🖼️ **游戏库浏览** — 网格/列表双视图，按会社、标签、平台筛选，支持搜索与排序
-- 📥 **游戏下载** — 暂停/取消/断点续传，下载完自动解压
 - 🎮 **Steam 补丁注入** — 管理补丁压缩包，关键词快捷匹配类型并可批量注入
 
 ---
 
 ## 截图
 
-![主页](screenshots/home.png)
+<table align="center">
+  <tr valign="top">
+    <td align="center" width="50%">
+      <b>游戏库</b><br>
+      <i>网格 / 列表双视图，按会社、标签、平台筛选</i><br>
+      <img src="Documentation/gallery/library.png" width="95%">
+    </td>
+    <td align="center" width="50%">
+      <b>游戏详情页</b><br>
+      <i>封面、背景、简介、标签、版本列表与下载</i><br>
+      <img src="Documentation/gallery/detail-1.png" width="95%">
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="50%">
+      <b>Steam 补丁管理</b><br>
+      <i>客户端 / 服务端双 Tab，自动匹配与注入</i><br>
+      <img src="Documentation/gallery/steam-patch.png" width="95%">
+    </td>
+    <td align="center" width="50%">
+      <b>元数据编辑</b><br>
+      <i>多源刮削结果逐字段对比勾选</i><br>
+      <img src="Documentation/gallery/edit.png" width="95%">
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="50%">
+      <b>我的</b><br>
+      <i>个人信息、用户管理与设置</i><br>
+      <img src="Documentation/gallery/profile.png" width="95%">
+    </td>
+    <td align="center" width="50%">
+    </td>
+  </tr>
+</table>
 
-![详情页](screenshots/detail.png)
 
-![游戏库](screenshots/library.png)
+
 
 ---
 
 ## 快速开始
 
-> 📖 部署、安装、使用等完整说明请参阅 **[使用说明书](Documentation/zh-CN/user-guide.md)**。
+> 📖 部署、安装等完整说明请参阅 **[部署说明书](Documentation/zh-CN/user-guide.md)**。
 
 ---
 
@@ -63,17 +95,18 @@
 - [Mithnar/PlayniteVndb](https://github.com/Mithnar/PlayniteVndb)
 - [Ivanlon30000/PlayniteBangumiMetadata](https://github.com/Ivanlon30000/PlayniteBangumiMetadata)
 
-感谢以上项目作者的辛勤付出。
+感谢以上项目作者的付出。
 
 ---
 
 ## 免责声明
 
-- 本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用。
+- 本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用，如有侵权请告知。
 - 您需要自行确认资源与第三方组件的合法性。
 - 本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。
 - 本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。
 - 本项目在后续更新中可能涉及服务端变动，可能存在无法保证数据更新的可能。
+
 
 ---
 
