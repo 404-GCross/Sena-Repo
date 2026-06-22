@@ -53,6 +53,23 @@ async def lifespan(app: FastAPI):
     # Store config in app state for route access
     app.state.config = config
 
+    # Auto-scan on first start if roots exist but no games yet
+    try:
+        from sqlalchemy import select, func
+        from database import get_session as _get_session
+        from models.game import Game
+        from models.root_directory import RootDirectory
+        async for _s in _get_session():
+            root_count = (await _s.execute(select(func.count()).select_from(RootDirectory))).scalar()
+            game_count = (await _s.execute(select(func.count()).select_from(Game).where(Game.is_deleted == False))).scalar()
+            if root_count > 0 and game_count == 0:
+                logger.info(f"Found {root_count} roots, 0 games — triggering initial scan")
+                from api.roots import _run_scan
+                stats = await _run_scan(config)
+                logger.info(f"Initial scan complete: {stats.get('total_games', 0)} games")
+    except Exception as e:
+        logger.warning(f"Initial scan check skipped: {e}")
+
     # Start auto-scan background task
     task = asyncio.create_task(_auto_scan_task(config, logger))
 
