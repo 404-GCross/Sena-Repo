@@ -7,6 +7,7 @@ import "package:provider/provider.dart";
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
+import "../services/api_client.dart";
 import "../services/profile_service.dart";
 import "../services/notification_service.dart";
 import "home_screen.dart";
@@ -57,6 +58,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   Future<void> _connect() async {
+    await ApiClient.restoreToken();
     final settings = context.read<SettingsProvider>();
     final games = context.read<GameProvider>();
 

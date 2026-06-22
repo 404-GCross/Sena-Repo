@@ -97,7 +97,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     try {
       final api = context.read<GameProvider>().api;
       final data = await SteamService.listPatches(api);
-      final patches = (data["patches"] as List).cast<Map<String, dynamic>>();
+      final patches = (data["patches"] as List?)?.cast<Map<String, dynamic>>() ?? [];
       if (!mounted) return;
       setState(() { _serverPatches = patches; _serverLoading = false; _serverStatus = "共 ${patches.length} 个补丁索引"; });
     } catch (e) {

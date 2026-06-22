@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
                 stats = await _run_scan(config)
                 logger.info(f"Initial scan complete: {stats.get('total_games', 0)} games")
     except Exception as e:
-        logger.warning(f"Initial scan check skipped: {e}")
+        logger.error(f"Initial auto-scan failed: {e}", exc_info=True)
 
     # Start auto-scan background task
     task = asyncio.create_task(_auto_scan_task(config, logger))

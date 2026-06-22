@@ -288,6 +288,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                             _infoRow("开发商", game.developer, Icons.business),
                             _divider(),
                             _infoRow("发售日", game.releaseDate, Icons.calendar_today),
+                            _divider(),
+                            _infoRow("游戏时长", _formatPlaytime(game), Icons.timer),
                           ]),
                           const SizedBox(height: 20),
                           _section("版本", Icons.folder_outlined),
@@ -808,17 +810,17 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     String heroUrl = task.bgUrl ?? "";
     if ((coverUrl.isEmpty || heroUrl.isEmpty) && task.gameId > 0) {
       try {
-        final baseUrl = context.read<GameProvider>().api.baseUrl;
-        final resp = await http.get(Uri.parse("$baseUrl/api/games/${task.gameId}"));
+        final api = context.read<GameProvider>().api;
+        final resp = await http.get(Uri.parse("${api.baseUrl}/api/games/${task.gameId}"), headers: api.headers);
         if (resp.statusCode == 200) {
           final g = jsonDecode(resp.body);
           if (coverUrl.isEmpty && g["cover_path"] != null && g["cover_path"].toString().isNotEmpty) {
             final name = g["cover_path"].toString().split(RegExp(r'[/\\]')).last;
-            coverUrl = "$baseUrl/api/files/covers/$name";
+            coverUrl = "${api.baseUrl}/api/files/covers/$name";
           }
           if (heroUrl.isEmpty && g["bg_path"] != null && g["bg_path"].toString().isNotEmpty) {
             final name = g["bg_path"].toString().split(RegExp(r'[/\\]')).last;
-            heroUrl = "$baseUrl/api/files/backgrounds/$name";
+            heroUrl = "${api.baseUrl}/api/files/backgrounds/$name";
           }
         }
       } catch (_) {}

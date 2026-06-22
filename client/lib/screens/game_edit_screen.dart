@@ -91,7 +91,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     List<Map<String, dynamic>> results = [];
     try {
       final resp = await http.get(Uri.parse(
-          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$source"));
+          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$source"), headers: await _authHeaders);
       results = ((jsonDecode(resp.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
     } catch (_) { _showError("搜索失败"); return; }
     if (results.isEmpty) { _showError("无结果"); return; }
@@ -150,7 +150,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               onSubmitted: (v) async {
                 setD(() => results = []);
                 try {
-                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"));
+                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"), headers: await _authHeaders);
                   if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
                 } catch (_) {}
                 setD(() {});
@@ -159,7 +159,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
               setD(() => results = []);
               try {
-                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"));
+                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"), headers: await _authHeaders);
                 if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
               } catch (_) {}
               setD(() {});
@@ -248,7 +248,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               onSubmitted: (v) async {
                 setD(() => results = []);
                 try {
-                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"));
+                  final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(v)}&page_size=10"), headers: await _authHeaders);
                   if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
                 } catch (_) {}
                 setD(() {});
@@ -257,7 +257,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             IconButton.filled(icon: const Icon(Icons.search, size: 18), onPressed: () async {
               setD(() => results = []);
               try {
-                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"));
+                final r = await http.get(Uri.parse("$_baseUrl/api/games/search?q=${Uri.encodeComponent(searchCtrl.text)}&page_size=10"), headers: await _authHeaders);
                 if (r.statusCode == 200) results = (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
               } catch (_) {}
               setD(() {});
@@ -846,7 +846,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   setD(() { searching = true; results = []; error = ""; });
                   try {
                     final r = await http.get(Uri.parse(
-                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"));
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"), headers: await _authHeaders);
                     results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
                   } catch (e) { error = "$e"; }
                   setD(() => searching = false);
@@ -857,7 +857,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   setD(() { searching = true; results = []; error = ""; });
                   try {
                     final r = await http.get(Uri.parse(
-                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"));
+                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"), headers: await _authHeaders);
                     results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
                   } catch (e) { error = "$e"; }
                   setD(() => searching = false);
