@@ -30,34 +30,36 @@
 
 <table align="center">
   <tr valign="top">
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <b>游戏库</b><br>
       <i>网格 / 列表双视图，按会社、标签、平台筛选</i><br>
       <img src="Documentation/gallery/library.png" width="95%">
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <b>游戏详情页</b><br>
       <i>封面、背景、简介、标签、版本列表与下载</i><br>
       <img src="Documentation/gallery/detail-1.png" width="95%">
     </td>
-    <td align="center" width="33%">
+  </tr>
+  <tr valign="top">
+    <td align="center" width="50%">
       <b>Steam 补丁管理</b><br>
       <i>客户端 / 服务端双 Tab，自动匹配与注入</i><br>
       <img src="Documentation/gallery/steam-patch.png" width="95%">
     </td>
-  </tr>
-  <tr valign="top">
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <b>元数据编辑</b><br>
       <i>多源刮削结果逐字段对比勾选</i><br>
       <img src="Documentation/gallery/detail-2.png" width="95%">
     </td>
-    <td align="center" width="33%">
+  </tr>
+  <tr valign="top">
+    <td align="center" width="50%">
       <b>我的</b><br>
       <i>个人信息、用户管理与设置</i><br>
       <img src="Documentation/gallery/profile.png" width="95%">
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="50%">
     </td>
   </tr>
 </table>
