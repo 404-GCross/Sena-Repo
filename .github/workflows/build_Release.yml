@@ -285,7 +285,7 @@ jobs:
       - name: Generate changelog
         id: log
         run: |
-          LAST_TAG=$(git tag --sort=-creatordate | head -1)
+          LAST_TAG=$(git tag --sort=-creatordate | grep -v 'pre\|Pre' | head -1)
           if [ -n "$LAST_TAG" ]; then
             CHANGES=$(git log --oneline --no-merges "$LAST_TAG..HEAD" | sed 's/^/- /')
           else
