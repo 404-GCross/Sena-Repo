@@ -29,11 +29,11 @@
 
 ## 截图
 
-![主页](screenshots/home.png)
+![游戏库](Documentation/gallery/image.png)
 
-![详情页](screenshots/detail.png)
+![Steam 补丁](Documentation/gallery/image-1.png)
 
-![游戏库](screenshots/library.png)
+
 
 ---
 
