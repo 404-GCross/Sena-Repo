@@ -24,7 +24,7 @@
 
 ## 构建与运行
 
-### 本地运行
+### 本地构建
 
 **服务端**
 
@@ -57,6 +57,12 @@ flutter run
 **发布 Release（`build_Release.yml`）** — 手动触发。填入版本号（如 `0.2.0`），编译全部平台并发布正式 Release，同时推送 Docker 镜像到 GHCR（tag 为 `latest` 和 `v版本号`）。
 
 > 使用前需在 Fork 仓库的 Settings → Actions → General → Workflow permissions 中勾选 "Read and write permissions"，否则 Release 创建会失败。
+
+**Fork 后需要修改的地方：**
+
+1. **GHCR 推送地址** — 将 `build_Release.yml` 和 `build_PreRelease.yml` 中的 `ghcr.io/404-gcross/sena-repo` 替换为 `ghcr.io/<你的用户名>/<你的仓库名>`
+2. **Artifact / 文件名** — 产物命名包含 `Sena-Repo_*` 前缀，可按需替换为你的项目名
+3. `build.yml`（自动构建）不需要任何修改即可使用
 
 ## 代码风格
 
