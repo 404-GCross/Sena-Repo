@@ -139,7 +139,10 @@ jobs:
         shell: pwsh
         run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
       - name: Build installer
-        run: fastforge package --platform windows --targets exe
+        run: |
+          Write-Host "=== Release dir before installer ==="
+          Get-ChildItem build/windows/x64/runner/Release -Directory | Select-Object Name
+          fastforge package --platform windows --targets exe
       - name: Flatten installer
         shell: pwsh
         run: |
@@ -153,8 +156,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $pkg="Sena-Repo_Windows_v${env:VERSION}"
-          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-          Copy-Item -Path build/windows/x64/runner/Release/* -Destination $pkg/ -Recurse
+          $releaseDir = "build/windows/x64/runner/Release"
+          robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
           if (Test-Path "$pkg/python/python.exe") {
             Write-Host "OK: python/ included in portable package"
           } else {
