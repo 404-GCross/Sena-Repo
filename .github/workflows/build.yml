@@ -132,35 +132,43 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Setup fastforge + Inno Setup
-        shell: pwsh
-        run: |
-          dart pub global activate fastforge
-          Write-Host "fastforge: $((Get-Command fastforge -ErrorAction SilentlyContinue).Source)"
-          choco install innosetup -y --no-progress
+      - name: Setup Inno Setup
+        run: choco install innosetup -y --no-progress
 
       - name: Install Chinese language for Inno Setup
         shell: pwsh
-        run: |
-          Copy-Item "windows_assets\ChineseSimplified.isl" "windows\packaging\exe\ChineseSimplified.isl"
-          Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+        run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
 
-      - name: Verify packaging files
-        shell: pwsh
-        run: Get-ChildItem -Recurse windows\packaging
-
-      - name: Bundle Python + VDF (for installer)
+      - name: Bundle Python + VDF
         shell: pwsh
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
           Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
           Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
           Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
-          Write-Host "OK: bundled for installer"
 
-      - name: Build installer
+      - name: Build installer (ISCC)
+        shell: pwsh
         run: |
-          fastforge package --platform windows --targets exe
+          $ver = $env:VERSION
+          $releaseDir = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $template = Get-Content "windows_assets/packaging/exe/inno_setup.iss" -Raw
+          $iss = $template `
+            -replace '\{\{APP_ID\}\}', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' `
+            -replace '\{\{APP_VERSION\}\}', $ver `
+            -replace '\{\{DISPLAY_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
+            -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
+            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
+            -replace '\{\{SETUP_ICON_FILE\}\}', "windows\runner\resources\app_icon.ico" `
+            -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
+            -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
+            -replace '\{\{SOURCE_DIR\}\}', $releaseDir `
+            -replace '^OutputDir=\.', 'OutputDir=dist'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $iss | Out-File -FilePath "dist/setup.iss" -Encoding UTF8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "dist/setup.iss"
 
       - name: Flatten installer artifact
         shell: pwsh
@@ -169,23 +177,6 @@ jobs:
           if ($setupExe) {
             Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
-          } else {
-            Write-Host "No setup exe found! Listing dist:"
-            Get-ChildItem -Recurse dist
-          }
-
-      - name: Bundle Python + VDF (after installer rebuild)
-        shell: pwsh
-        run: |
-          $releaseDir = "build/windows/x64/runner/Release"
-          Write-Host "Copying python/ to $releaseDir/python ..."
-          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
-          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
-          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
-          if (Test-Path "$releaseDir/python/python.exe") {
-            Write-Host "OK: python.exe bundled successfully"
-          } else {
-            throw "python.exe not found in $releaseDir after copy!"
           }
 
       - name: Package Windows (portable zip)
