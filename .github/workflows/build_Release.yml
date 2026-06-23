@@ -140,7 +140,9 @@ jobs:
             -replace '\{\{SETUP_ICON_FILE\}\}', "windows\runner\resources\app_icon.ico" `
             -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
             -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
-            -replace '\{\{SOURCE_DIR\}\}', $releaseDir
+            -replace '\{\{SOURCE_DIR\}\}', $releaseDir `
+            -replace '^OutputDir=\.', 'OutputDir=dist'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
           $iss | Out-File -FilePath "dist/setup.iss" -Encoding UTF8
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "dist/setup.iss"
 
