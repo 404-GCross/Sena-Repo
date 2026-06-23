@@ -404,32 +404,34 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       controller: _patchDirCtrl,
       decoration: const InputDecoration(labelText: "服务端补丁存放目录", hintText: "/data/steam_patches", prefixIcon: Icon(Icons.dns)),
     ),
-    const SizedBox(height: 12),
-    TextField(
-      controller: _steamCommonCtrl,
-      decoration: InputDecoration(
-        labelText: "本机 Steam 库目录",
-        hintText: "C:/Steam/steamapps",
-        prefixIcon: const Icon(Icons.computer),
-        suffixIcon: IconButton(
-          icon: const Icon(Icons.folder_open),
-          onPressed: _pickSteamDir,
-          tooltip: "选择文件夹",
+    if (!Platform.isAndroid) ...[
+      const SizedBox(height: 12),
+      TextField(
+        controller: _steamCommonCtrl,
+        decoration: InputDecoration(
+          labelText: "本机 Steam 库目录",
+          hintText: "C:/Steam/steamapps",
+          prefixIcon: const Icon(Icons.computer),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.folder_open),
+            onPressed: _pickSteamDir,
+            tooltip: "选择文件夹",
+          ),
         ),
       ),
-    ),
-    const SizedBox(height: 8),
-    Text("PC 端专属，可稍后在设置中配置", style: AppText.label.copyWith( color: hintColor(context))),
-    const SizedBox(height: 12),
-    TextField(
-      controller: _steamIdCtrl,
-      decoration: const InputDecoration(
-        labelText: "Steam 用户 ID（可选）",
-        hintText: "Steam好友代码，一串纯数字",
-        prefixIcon: Icon(Icons.person),
+      const SizedBox(height: 8),
+      Text("PC 端专属，可稍后在设置中配置", style: AppText.label.copyWith( color: hintColor(context))),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _steamIdCtrl,
+        decoration: const InputDecoration(
+          labelText: "Steam 用户 ID（可选）",
+          hintText: "Steam好友代码，一串纯数字",
+          prefixIcon: Icon(Icons.person),
+        ),
+        keyboardType: TextInputType.number,
       ),
-      keyboardType: TextInputType.number,
-    ),
+    ],
   ];
 
   Widget _buildScraperRow(String label, bool enabled, bool needsApi, VoidCallback onToggle, {Widget? apiFields}) {
