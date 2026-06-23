@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
+from config import load_config
 from models.user import User
 
 from database import get_session
@@ -34,9 +36,38 @@ class ScanSettingsOut(BaseModel):
     scan_structure: str
 
 
+def _scan_settings_path(config) -> Path:
+    return Path(config.data_path) / "scan_settings.json"
+
+
+def _load_scan_settings(config):
+    """Load persisted scan settings from JSON file."""
+    path = _scan_settings_path(config)
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            config._auto_scan = data.get("auto_scan", False)
+            config._scan_interval = data.get("scan_interval", 24)
+            config._scan_structure = data.get("scan_structure", "company_game")
+        except Exception:
+            pass
+
+
+def _save_scan_settings(config):
+    """Persist scan settings to JSON file."""
+    path = _scan_settings_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "auto_scan": getattr(config, "_auto_scan", False),
+        "scan_interval": getattr(config, "_scan_interval", 24),
+        "scan_structure": getattr(config, "_scan_structure", "company_game"),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 @router.get("/scan", response_model=ScanSettingsOut)
 async def get_scan_settings():
     config = load_config()
+    _load_scan_settings(config)  # restore persisted settings into memory
     return ScanSettingsOut(
         auto_scan=getattr(config, "_auto_scan", False),
         scan_interval=getattr(config, "_scan_interval", 24),
@@ -50,6 +81,7 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(get_curr
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
     config._scan_structure = body.scan_structure
+    _save_scan_settings(config)  # persist to disk
     return {"message": "保存成功"}
 
 
