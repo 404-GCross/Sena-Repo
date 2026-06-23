@@ -120,6 +120,8 @@ def load_config(config_path: str | None = None) -> Config:
         config.games_path = os.environ["SENA_GAMES_PATH"]
     if os.environ.get("SENA_DATA_PATH"):
         config.data_path = os.environ["SENA_DATA_PATH"]
+    if os.environ.get("SENA_PATCH_DIR"):
+        config.patch_dir = os.environ["SENA_PATCH_DIR"]
     if os.environ.get("SENA_HOST"):
         config.server.host = os.environ["SENA_HOST"]
     if os.environ.get("SENA_PORT"):
