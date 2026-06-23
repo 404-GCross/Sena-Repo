@@ -117,17 +117,27 @@ jobs:
       - name: Install Chinese language
         shell: pwsh
         run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
-      - name: Bundle Python + VDF (for installer)
+      - name: Build installer
+        run: fastforge package --platform windows --targets exe
+
+      - name: Bundle Python + VDF
         shell: pwsh
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
           Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
           Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
           Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
-          Write-Host "OK: bundled for installer"
 
-      - name: Build installer
-        run: fastforge package --platform windows --targets exe
+      - name: Rebuild installer with python (ISCC)
+        shell: pwsh
+        run: |
+          $iss = Get-ChildItem -Recurse -Path build,dist -Filter "*.iss" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($iss) {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $iss.FullName
+            Write-Host "Installer rebuilt with python"
+          } else {
+            Write-Host "WARNING: No ISS found, installer lacks python"
+          }
 
       - name: Flatten installer
         shell: pwsh
@@ -137,7 +147,8 @@ jobs:
             Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
-      - name: Bundle Python + VDF (after installer rebuild)
+
+      - name: Bundle Python + VDF (for portable)
         shell: pwsh
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
