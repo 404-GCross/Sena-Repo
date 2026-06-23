@@ -90,6 +90,8 @@ jobs:
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
           Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
           Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
+          Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7z.txt
+          Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7z.txt
       - name: Sync version to source files
         shell: pwsh
         run: |
