@@ -103,6 +103,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         actions: [
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
             onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              final isAdmin = prefs.getBool("is_admin") ?? false;
+              if (!isAdmin) {
+                if (mounted) _showDialog(context, "权限不足", "仅限管理员可操作");
+                return;
+              }
               final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => GameEditScreen(game: game)));
               if (changed == true) _load();
             }),
