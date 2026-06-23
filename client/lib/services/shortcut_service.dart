@@ -88,12 +88,12 @@ class ShortcutService {
   }
 
   /// Escape a string for safe use inside a PowerShell double-quoted string.
+  /// Backtick is the PowerShell escape char; backslash is literal and left as-is.
   static String _psEscape(String s) {
     return s
         .replaceAll('`', '``')
         .replaceAll('\$', '`\$')
-        .replaceAll('"', '""')
-        .replaceAll('\\', '\\\\');
+        .replaceAll('"', '""');
   }
 
   static Future<bool> _createWindowsShortcut(

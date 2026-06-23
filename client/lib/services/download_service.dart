@@ -398,7 +398,7 @@ class DownloadService with WidgetsBindingObserver {
     final supportDir = (await getApplicationSupportDirectory()).path;
     final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
     final outDir = _outDir(t, dir);
-    final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
+    final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
@@ -581,7 +581,7 @@ class DownloadService with WidgetsBindingObserver {
     final supportDir = (await getApplicationSupportDirectory()).path;
     final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
     final outDir = _outDir(t, dir);
-    final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
+    final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);

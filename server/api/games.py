@@ -294,10 +294,10 @@ class QuickCreate(BaseModel):
 @router.put("/quick-create")
 async def quick_create_game(
     body: QuickCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Quick-create a minimal game entry (for version moving)."""
+    """Quick-create a minimal game entry for version moving (admin only)."""
     game = Game(name=body.name, root_id=0, folder_path=f"/virtual/{body.name}")
     session.add(game)
     await session.commit()

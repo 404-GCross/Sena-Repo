@@ -65,7 +65,7 @@ def _save_scan_settings(config):
 
 
 @router.get("/scan", response_model=ScanSettingsOut)
-async def get_scan_settings():
+async def get_scan_settings(user: User = Depends(get_current_user)):
     config = load_config()
     _load_scan_settings(config)  # restore persisted settings into memory
     return ScanSettingsOut(

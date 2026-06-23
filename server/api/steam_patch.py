@@ -376,13 +376,15 @@ def _safe_patch_path(patches_dir: Path, filename: str) -> Path | None:
 
 
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
-    # Sanitize app_id to prevent path traversal
-    sanitized = app_id.replace("\\", "").replace("/", "").replace("..", "")
+    # Only use basename of app_id to prevent path traversal
+    safe_name = Path(app_id.replace("\\", "/")).name
+    if not safe_name or safe_name in (".", ".."):
+        return None
     for ext in (".zip", ".rar", ".7z", ".tar", ".gz"):
-        candidate = patches_dir / f"{sanitized}{ext}"
-        if candidate.exists():
+        candidate = patches_dir / f"{safe_name}{ext}"
+        if candidate.is_file():
             return candidate
-    app_dir = patches_dir / sanitized
+    app_dir = patches_dir / safe_name
     if app_dir.is_dir():
         for ext in (".zip", ".rar", ".7z"):
             for f in app_dir.iterdir():
