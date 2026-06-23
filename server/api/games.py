@@ -16,6 +16,7 @@ from models.ignore_list import IgnoreList
 from models.tag import Tag
 from schemas.common import MessageResponse
 from schemas.game import GameDetail, GameSummary
+from services.importer import cleanup_empty_companies
 
 router = APIRouter(prefix="/api/games", tags=["games"])
 
@@ -220,10 +221,10 @@ async def get_game(
 @router.delete("/{game_id}", response_model=MessageResponse)
 async def delete_game(
     game_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Soft-delete a game: mark as deleted and add folder to ignore list."""
+    """Soft-delete a game (admin only)."""
     result = await session.execute(
         select(Game).where(Game.id == game_id)
     )
@@ -242,6 +243,7 @@ async def delete_game(
     if existing.scalar_one_or_none() is None:
         session.add(IgnoreList(path=game.folder_path))
 
+    await cleanup_empty_companies(session)
     await session.commit()
     return MessageResponse(message=f"Game '{game.name}' removed")
 
@@ -254,10 +256,10 @@ class BatchDeleteRequest(BaseModel):
 @router.post("/batch-delete", response_model=MessageResponse)
 async def batch_delete_games(
     body: BatchDeleteRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Soft-delete multiple games at once."""
+    """Soft-delete multiple games at once (admin only)."""
     if not body.game_ids:
         return MessageResponse(message="没有要删除的游戏")
     # Single query for all games
@@ -280,6 +282,7 @@ async def batch_delete_games(
             session.add(IgnoreList(path=game.folder_path))
             ignored_paths.add(game.folder_path)
         deleted += 1
+    await cleanup_empty_companies(session)
     await session.commit()
     return MessageResponse(message=f"已删除 {deleted} 个游戏")
 
@@ -363,10 +366,10 @@ async def move_version(
 async def merge_games(
     from_id: int,
     to_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Merge game A into game B: move all versions and delete game A."""
+    """Merge game A into game B: move all versions and delete game A (admin only)."""
     from_game = await session.execute(select(Game).where(Game.id == from_id))
     to_game = await session.execute(select(Game).where(Game.id == to_id))
     if from_game.scalar_one_or_none() is None or to_game.scalar_one_or_none() is None:
@@ -385,5 +388,6 @@ async def merge_games(
     from_g.updated_at = datetime.utcnow()
     session.add(IgnoreList(path=from_g.folder_path))
 
+    await cleanup_empty_companies(session)
     await session.commit()
     return {"message": "合并完成"}

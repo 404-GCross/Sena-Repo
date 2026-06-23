@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
@@ -109,7 +109,28 @@ async def import_from_root(
     )
     stats["total_games"] = len(count_result.scalars().all())
 
+    # Clean up companies that no longer have any games
+    await cleanup_empty_companies(session)
+
     return stats
+
+
+async def cleanup_empty_companies(session: AsyncSession) -> int:
+    """Delete companies that have zero games after import/delete."""
+    # Find companies with no non-deleted games
+    sub = select(func.count(Game.id)).where(
+        Game.company_id == Company.id,
+        Game.is_deleted == False,
+    ).correlate(Company).scalar_subquery()
+    result = await session.execute(
+        select(Company).where(sub == 0)
+    )
+    empty = result.scalars().all()
+    for c in empty:
+        await session.delete(c)
+    if empty:
+        await session.flush()
+    return len(empty)
 
 
 async def _upsert_company(session: AsyncSession, name: str) -> Company:
