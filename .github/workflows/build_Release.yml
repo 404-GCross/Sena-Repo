@@ -110,16 +110,11 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Setup fastforge + Inno Setup
-        run: |
-          dart pub global activate fastforge
-          choco install innosetup -y --no-progress
+      - name: Setup Inno Setup
+        run: choco install innosetup -y --no-progress
       - name: Install Chinese language
         shell: pwsh
         run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
-      - name: Build installer
-        run: fastforge package --platform windows --targets exe
-
       - name: Bundle Python + VDF
         shell: pwsh
         run: |
@@ -128,16 +123,26 @@ jobs:
           Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
           Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
 
-      - name: Rebuild installer with python (ISCC)
+      - name: Build installer (ISCC)
         shell: pwsh
         run: |
-          $iss = Get-ChildItem -Recurse -Path build,dist -Filter "*.iss" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($iss) {
-            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $iss.FullName
-            Write-Host "Installer rebuilt with python"
-          } else {
-            Write-Host "WARNING: No ISS found, installer lacks python"
-          }
+          $ver = $env:VERSION
+          $releaseDir = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $template = Get-Content "windows_assets/packaging/exe/inno_setup.iss" -Raw
+          $iss = $template `
+            -replace '\{\{APP_ID\}\}', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' `
+            -replace '\{\{APP_VERSION\}\}', $ver `
+            -replace '\{\{DISPLAY_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
+            -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
+            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
+            -replace '\{\{SETUP_ICON_FILE\}\}', "windows\runner\resources\app_icon.ico" `
+            -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
+            -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
+            -replace '\{\{SOURCE_DIR\}\}', $releaseDir
+          $iss | Out-File -FilePath "dist/setup.iss" -Encoding UTF8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "dist/setup.iss"
 
       - name: Flatten installer
         shell: pwsh
@@ -147,15 +152,6 @@ jobs:
             Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
-
-      - name: Bundle Python + VDF (for portable)
-        shell: pwsh
-        run: |
-          $releaseDir = "build/windows/x64/runner/Release"
-          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
-          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
-          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
-          Write-Host "OK: bundled for portable"
 
       - name: Package portable zip
         shell: pwsh
