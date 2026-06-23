@@ -8,7 +8,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from database import get_session
 from models.user import User
 from models.game import Company, Game, GameVersion, GameTag
@@ -317,10 +317,10 @@ class GameUpdate(BaseModel):
 async def update_game(
     game_id: int,
     body: GameUpdate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Edit game metadata."""
+    """Edit game metadata (admin only)."""
     result = await session.execute(select(Game).where(Game.id == game_id))
     game = result.scalar_one_or_none()
     if game is None:

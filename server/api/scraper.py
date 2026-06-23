@@ -18,7 +18,7 @@ from database import get_session
 from config import load_config
 from models.game import Game
 from models.user import User
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
@@ -109,7 +109,7 @@ async def scrape_apply(
     description: str = "",
     release_date: str = "",
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Apply a specific scraper result to a game."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -172,7 +172,7 @@ async def scrape_game_cover(
     game_id: int,
     sources: list[str] | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Manually scrape metadata for a single game.
 
@@ -268,7 +268,7 @@ async def scrape_game_cover(
 async def start_batch_scrape(
     body: BatchScrapeRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Start a batch scrape job for games without covers.
 
@@ -311,7 +311,7 @@ async def start_batch_scrape(
 
 
 @router.post("/scrape/jobs/{job_id}/cancel")
-async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(require_admin)):
     """Cancel a running scrape job."""
     result = await session.execute(select(ScrapeJob).where(ScrapeJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -376,7 +376,7 @@ async def update_game_cover(
     game_id: int,
     cover_url: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Update a game's cover via URL or mark it for manual update.
 
@@ -417,7 +417,7 @@ async def upload_game_cover(
     game_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Upload a cover image directly from a local file."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -451,7 +451,7 @@ async def upload_game_cover(
 async def delete_game_cover(
     game_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Remove a game's cover image."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -476,7 +476,7 @@ async def update_game_background(
     game_id: int,
     bg_url: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Set a custom background image for a game. Pass ?bg_url=<url> to download."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -514,7 +514,7 @@ async def upload_game_background(
     game_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Upload a background/hero image directly from a local file."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -546,7 +546,7 @@ async def upload_game_background(
 async def delete_game_background(
     game_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Remove a game's custom background image."""
     result = await session.execute(select(Game).where(Game.id == game_id))
