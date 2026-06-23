@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import load_config
 from database import get_session
 from models.user import User
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
@@ -246,7 +246,7 @@ async def list_patches(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/patches/{app_id}/download")
-async def download_patch(app_id: str, request: Request):
+async def download_patch(app_id: str, request: Request, user: User = Depends(get_current_user)):
     patches_dir = _get_patches_dir()
     if not patches_dir.exists():
         raise HTTPException(status_code=404, detail="补丁目录不存在")
@@ -255,8 +255,8 @@ async def download_patch(app_id: str, request: Request):
     index = _load_patches_index(patches_dir)
     if index and app_id in index:
         entry = index[app_id]
-        patch_file = patches_dir / entry["file"]
-        if patch_file.is_file():
+        patch_file = _safe_patch_path(patches_dir, entry.get("file", ""))
+        if patch_file and patch_file.is_file():
             return FileResponse(path=str(patch_file), filename=patch_file.name,
                                 media_type="application/octet-stream",
                                 headers={"Accept-Ranges": "bytes"})
@@ -280,7 +280,7 @@ class PatchUpdate(BaseModel):
 
 
 @router.put("/patches/{lookup_key}")
-async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(get_current_user)):
+async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(require_admin)):
     """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
     import json as _json
     patches_dir = _get_patches_dir()
@@ -324,7 +324,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
 # ── Patch scan endpoint ──
 
 @router.post("/scan-patches")
-async def scan_patches_endpoint(user: User = Depends(get_current_user)):
+async def scan_patches_endpoint(user: User = Depends(require_admin)):
     """Re-scan the patch directory and regenerate patches.json."""
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
@@ -356,11 +356,23 @@ class TypeKeywordsUpdate(BaseModel):
 
 
 @router.put("/patch-type-keywords")
-async def update_type_keywords(body: TypeKeywordsUpdate):
-    """Overwrite patch_type_keywords.json."""
+async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(require_admin)):
+    """Overwrite patch_type_keywords.json (admin only)."""
     patches_dir = _get_patches_dir()
     _save_type_keywords(patches_dir, body.keywords)
     return {"message": "关键词已更新"}
+
+
+def _safe_patch_path(patches_dir: Path, filename: str) -> Path | None:
+    """Resolve a patch file path and verify it stays within patches_dir."""
+    if not filename:
+        return None
+    resolved = (patches_dir / filename).resolve()
+    try:
+        resolved.relative_to(patches_dir.resolve())
+    except ValueError:
+        return None  # path traversal attempt
+    return resolved
 
 
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:

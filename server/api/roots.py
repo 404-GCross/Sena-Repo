@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
 from models.user import User
@@ -37,7 +37,7 @@ class RootOut(BaseModel):
 
 
 @router.get("", response_model=list[RootOut])
-async def list_roots(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+async def list_roots(user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """List all root directories."""
     result = await session.execute(select(RootDirectory))
     return result.scalars().all()
@@ -46,7 +46,7 @@ async def list_roots(user: User = Depends(get_current_user), session: AsyncSessi
 @router.post("", response_model=RootOut, status_code=201)
 async def add_root(
     body: RootCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Add a new root directory."""
@@ -67,7 +67,7 @@ async def add_root(
 @router.delete("/{root_id}", response_model=MessageResponse)
 async def delete_root(
     root_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Remove a root directory (does not delete files)."""
@@ -85,7 +85,7 @@ async def delete_root(
 
 @router.post("/refresh-all", response_model=dict)
 async def refresh_all_roots(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan ALL root directories and import/update games, then auto-scrape new games."""
@@ -110,7 +110,7 @@ async def refresh_all_roots(
 @router.post("/{root_id}/refresh", response_model=dict)
 async def refresh_root(
     root_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan a root directory and import/update games, then auto-scrape."""

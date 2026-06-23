@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from config import load_config
 from models.user import User
 
@@ -76,7 +76,7 @@ async def get_scan_settings():
 
 
 @router.put("/scan")
-async def update_scan_settings(body: ScanSettings, user: User = Depends(get_current_user)):
+async def update_scan_settings(body: ScanSettings, user: User = Depends(require_admin)):
     config = load_config()
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
@@ -150,8 +150,8 @@ def _write_scraper_config(data: dict):
 
 
 @router.put("/scraper")
-async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(get_current_user)):
-    """Update scraper configuration, persisted to data directory."""
+async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(require_admin)):
+    """Update scraper configuration, persisted to data directory (admin only)."""
     from config import load_config
     config = load_config()
     data = _read_scraper_config()

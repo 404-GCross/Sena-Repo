@@ -396,7 +396,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await downloadDir;
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -579,7 +579,7 @@ class DownloadService with WidgetsBindingObserver {
     final dir = await downloadDir;
     // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
     try {
@@ -606,7 +606,7 @@ class DownloadService with WidgetsBindingObserver {
         // Check if APK — move to output dir, skip extraction
         if (t.fileName.toLowerCase().endsWith(".apk")) {
           t.isApk = true;
-          final apkFile = File("$outDir/${t.fileName}");
+          final apkFile = File("$outDir/${_safeName(t.fileName)}");
           try { await apkFile.parent.create(recursive: true); } catch (_) {}
           try { await tmp.rename(apkFile.path); } catch (e) {
             try { await tmp.copy(apkFile.path); await tmp.delete(); } catch (_) {
@@ -990,6 +990,9 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── helpers ──
 
+  /// Strip path traversal sequences from a filename, keeping only the basename.
+  String _safeName(String name) => name.split(RegExp(r"[/\\]")).last;
+
   String _outDir(DownloadTask t, String dir) {
     final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";
     // Extract directly to 会社/, letting archive folder name be the game folder
@@ -1008,7 +1011,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      await File("$supportDir/.tmp_${t.versionId}_${t.fileName}").delete();
+      await File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}").delete();
     } catch (_) {}
   }
 

@@ -225,10 +225,11 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
 
 @router.get("/notifications")
 async def list_notifications(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
-    """List recent notifications."""
-    result = await session.execute(
-        select(Notification).order_by(Notification.created_at.desc()).limit(50)
-    )
+    """List recent notifications (admins see all, users see their own)."""
+    query = select(Notification).order_by(Notification.created_at.desc()).limit(50)
+    if not user.is_admin:
+        query = query.where(Notification.target_user_id == user.id)
+    result = await session.execute(query)
     notes = result.scalars().all()
     return [{"id": n.id, "type": n.type, "title": n.title, "body": n.body,
              "target_user_id": n.target_user_id, "read": n.read, "created_at": str(n.created_at)}
@@ -237,15 +238,19 @@ async def list_notifications(user: User = Depends(get_current_user), session: As
 
 @router.get("/notifications/unread-count")
 async def unread_count(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
-    result = await session.execute(
-        select(func.count()).select_from(Notification).where(Notification.read == False)
-    )
+    query = select(func.count()).select_from(Notification).where(Notification.read == False)
+    if not user.is_admin:
+        query = query.where(Notification.target_user_id == user.id)
+    result = await session.execute(query)
     return {"count": result.scalar()}
 
 
 @router.post("/notifications/{note_id}/read")
 async def mark_read(note_id: int, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Notification).where(Notification.id == note_id))
+    query = select(Notification).where(Notification.id == note_id)
+    if not user.is_admin:
+        query = query.where(Notification.target_user_id == user.id)
+    result = await session.execute(query)
     note = result.scalar_one_or_none()
     if note:
         note.read = True
@@ -255,9 +260,10 @@ async def mark_read(note_id: int, user: User = Depends(get_current_user), sessio
 
 @router.post("/notifications/read-all")
 async def mark_all_read(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
-    result = await session.execute(
-        select(Notification).where(Notification.read == False)
-    )
+    query = select(Notification).where(Notification.read == False)
+    if not user.is_admin:
+        query = query.where(Notification.target_user_id == user.id)
+    result = await session.execute(query)
     for note in result.scalars().all():
         note.read = True
     await session.commit()

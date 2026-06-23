@@ -87,22 +87,31 @@ class ShortcutService {
     return false;
   }
 
+  /// Escape a string for safe use inside a PowerShell double-quoted string.
+  static String _psEscape(String s) {
+    return s
+        .replaceAll('`', '``')
+        .replaceAll('\$', '`\$')
+        .replaceAll('"', '""')
+        .replaceAll('\\', '\\\\');
+  }
+
   static Future<bool> _createWindowsShortcut(
       String name, String target, String? iconPath, [String? workingDir]) async {
     final desktopDir = _desktopDir();
     if (desktopDir == null) return false;
     final lnkPath = "$desktopDir\\${_safeName(name)}.lnk";
 
-    // Build PowerShell script to create shortcut
+    // Build PowerShell script to create shortcut (values escaped to prevent injection)
+    final es = _psEscape; // shorthand
     final script = StringBuffer();
     script.writeln(r'$WshShell = New-Object -ComObject WScript.Shell');
-    script.writeln(r'$Shortcut = $WshShell.CreateShortcut("' + lnkPath.replaceAll('\\', '\\\\') + r'")');
-    script.writeln(r'$Shortcut.TargetPath = "' + target.replaceAll('\\', '\\\\') + r'"');
+    script.writeln(r'$Shortcut = $WshShell.CreateShortcut("' + es(lnkPath) + r'")');
+    script.writeln(r'$Shortcut.TargetPath = "' + es(target) + r'"');
     script.writeln(r'$Shortcut.WorkingDirectory = "' +
-        (workingDir ?? File(target).parent.path).replaceAll('\\', '\\\\') + r'"');
+        es(workingDir ?? File(target).parent.path) + r'"');
     if (iconPath != null && File(iconPath).existsSync()) {
-      script.writeln(r'$Shortcut.IconLocation = "' +
-          iconPath.replaceAll('\\', '\\\\') + r'"');
+      script.writeln(r'$Shortcut.IconLocation = "' + es(iconPath) + r'"');
     }
     script.writeln(r'$Shortcut.Save()');
 

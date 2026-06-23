@@ -342,9 +342,10 @@ async def move_version(
     game_id: int,
     version_id: int,
     to_game_id: int,
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Move a game version to another game."""
+    """Move a game version to another game (admin only)."""
     result = await session.execute(
         select(GameVersion).where(GameVersion.id == version_id, GameVersion.game_id == game_id)
     )

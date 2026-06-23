@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api", tags=["scraper"])
 
 def _validate_public_url(url: str) -> None:
     """Reject non-HTTP(S) and internal/private URLs (SSRF prevention)."""
+    import socket
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="仅支持 HTTP/HTTPS URL")
@@ -42,7 +43,19 @@ def _validate_public_url(url: str) -> None:
             if ip.is_loopback or ip.is_private or ip.is_link_local:
                 raise HTTPException(status_code=400, detail="不允许使用内网地址")
         except ValueError:
-            pass  # Hostname (not IP) is fine
+            # Hostname — resolve DNS and check all resolved IPs
+            try:
+                socket.setdefaulttimeout(3)
+                addrs = socket.getaddrinfo(parsed.hostname, None)
+                for addr in addrs:
+                    ip_str = addr[4][0]
+                    ip = ipaddress.ip_address(ip_str)
+                    if ip.is_loopback or ip.is_private or ip.is_link_local:
+                        raise HTTPException(status_code=400, detail="不允许使用内网地址")
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # DNS failure — allow (fail-open for availability)
 
 
 class BatchScrapeRequest(BaseModel):
@@ -461,8 +474,15 @@ async def delete_game_cover(
 
     if game.cover_path:
         import os
-        if os.path.isfile(game.cover_path):
-            os.remove(game.cover_path)
+        config = load_config()
+        cover_path = Path(game.cover_path)
+        try:
+            cover_path.resolve().relative_to(config.covers_path.resolve())
+        except ValueError:
+            pass  # path outside covers dir — skip deletion
+        else:
+            if cover_path.is_file():
+                os.remove(str(cover_path))
         game.cover_path = None
         await session.commit()
 
@@ -556,8 +576,15 @@ async def delete_game_background(
 
     if game.bg_path:
         import os
-        if os.path.isfile(game.bg_path):
-            os.remove(game.bg_path)
+        config = load_config()
+        bg_path = Path(game.bg_path)
+        try:
+            bg_path.resolve().relative_to(config.backgrounds_path.resolve())
+        except ValueError:
+            pass  # path outside backgrounds dir — skip deletion
+        else:
+            if bg_path.is_file():
+                os.remove(str(bg_path))
         game.bg_path = None
         await session.commit()
 
