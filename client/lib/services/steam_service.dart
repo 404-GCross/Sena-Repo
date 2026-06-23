@@ -12,7 +12,7 @@ import "download_service.dart";
 
 class SteamGameInfo {
   final String appId;
-  final String name;
+  String name;
   final String installDir;
 
   SteamGameInfo({required this.appId, required this.name, required this.installDir});
@@ -102,6 +102,24 @@ class SteamService {
     final regex = RegExp('"$key"\\s+"([^"]+)"');
     final match = regex.firstMatch(content);
     return match?.group(1);
+  }
+
+  /// Resolve Chinese game names for a list of AppIDs via server Steam API.
+  static Future<Map<String, String>> resolveGameNames(
+    ApiClient api, List<String> appids,
+  ) async {
+    if (appids.isEmpty) return {};
+    try {
+      final resp = await http.post(
+        Uri.parse("${api.baseUrl}/api/steam/game-names"),
+        headers: {"Content-Type": "application/json", ...api.headers},
+        body: jsonEncode({"appids": appids}),
+      );
+      if (resp.statusCode == 200) {
+        return Map<String, String>.from(jsonDecode(resp.body) as Map);
+      }
+    } catch (_) {}
+    return {};
   }
 
   /// Send scanned games to server for patch matching.

@@ -377,3 +377,41 @@ def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
                 if f.is_file() and f.suffix.lower() == ext:
                     return f
     return None
+
+
+# ── Steam game name resolution ──
+
+class AppIdList(BaseModel):
+    appids: list[str]
+
+
+@router.post("/game-names")
+async def get_game_names(body: AppIdList):
+    """Resolve Steam AppIDs to Chinese game names via Store API."""
+    import httpx
+    import asyncio
+
+    results: dict[str, str] = {}
+    sem = asyncio.Semaphore(5)
+
+    async def resolve(appid: str):
+        async with sem:
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                    for lang in ("schinese", "english"):
+                        resp = await client.get(
+                            f"https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}"
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            details = (data.get(str(appid)) or {}).get("data") or {}
+                            name = details.get("name", "")
+                            if name:
+                                results[appid] = name
+                                return
+            except Exception:
+                pass
+
+    tasks = [resolve(a) for a in body.appids]
+    await asyncio.gather(*tasks)
+    return results
