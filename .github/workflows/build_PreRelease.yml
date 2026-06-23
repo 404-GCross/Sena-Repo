@@ -139,7 +139,7 @@ jobs:
             -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
             -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
             -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
-            -replace '\{\{SETUP_ICON_FILE\}\}', "windows\runner\resources\app_icon.ico" `
+            -replace '\{\{SETUP_ICON_FILE\}\}', (Resolve-Path "windows\runner\resources\app_icon.ico").Path `
             -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
             -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
             -replace '\{\{SOURCE_DIR\}\}', $releaseDir `
