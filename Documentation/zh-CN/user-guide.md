@@ -94,7 +94,7 @@ services:
 从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz` 后手动加载。
 
 ```bash
-docker load < Sena-Repo_Server_v0.1.0.tar.gz
+docker load < Sena-Repo_Server_v0.1.0.tar.gz #记得改成对应的版本号
 
 # 基础启动
 docker run -d \
@@ -105,7 +105,7 @@ docker run -d \
   -v /path/to/steam_patches:/steam_patch \
   sena-repo:latest
 
-# 完整启动（含刮削 API Key）
+# 完整启动（含刮削 API Key 与代理，配置请根据实际情况进行变更）
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
@@ -116,7 +116,7 @@ docker run -d \
   -e SENA_VNDB_TOKEN="your_token" \
   -e SENA_IGDB_CLIENT_ID="your_id" \
   -e SENA_IGDB_CLIENT_SECRET="your_secret" \
-  -e SENA_PROXY="http://127.0.0.1:7890" \
+  -e SENA_PROXY="http://127.0.0.1:7890" \ 
   sena-repo:latest
 ```
 
