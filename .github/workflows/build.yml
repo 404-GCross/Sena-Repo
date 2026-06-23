@@ -189,12 +189,15 @@ jobs:
       - name: Package Windows (portable zip)
         shell: pwsh
         run: |
+          # Diagnostic: what's actually in Release dir right now?
+          Write-Host "=== Release dir contents ==="
+          Get-ChildItem build/windows/x64/runner/Release -Directory | Select-Object Name
+          Write-Host "=== Release dir files ==="
+          Get-ChildItem build/windows/x64/runner/Release -File | Select-Object Name | Select-Object -First 15
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $pkg="Sena-Repo_Windows_v${env:VERSION}"
           $releaseDir = "build/windows/x64/runner/Release"
-          # Use robocopy to avoid pwsh wildcard issues with directories
           robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
-          # robocopy exit codes: 0-7 = success, 8+ = failure
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
           if (Test-Path "$pkg/python/python.exe") {
             Write-Host "OK: python/ included in portable package"
