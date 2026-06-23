@@ -867,8 +867,8 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       throw Exception("解压组件未就绪: $e");
     }
-    final args = ["x", "-y", "-o$outDir", filePath];
-    if (password != null) args.insert(1, "-p$password");
+    final args = ["x", "-y", "-p-", "-o$outDir", filePath];
+    if (password != null) { args.remove("-p-"); args.insert(1, "-p$password"); }
     // Skip integrity test on Android (saves time, verified during extraction)
     if (password == null && !Platform.isAndroid) {
       try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
