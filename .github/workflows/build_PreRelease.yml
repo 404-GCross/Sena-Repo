@@ -153,6 +153,12 @@ jobs:
           $pkg="Sena-Repo_Windows_v${env:VERSION}"
           New-Item -ItemType Directory -Force -Path $pkg | Out-Null
           Copy-Item -Path build/windows/x64/runner/Release/* -Destination $pkg/ -Recurse
+          if (Test-Path "$pkg/python/python.exe") {
+            Write-Host "OK: python/ included in portable package"
+          } else {
+            Write-Host "WARNING: python/ missing! Package contents:"
+            Get-ChildItem $pkg -Directory | Select-Object Name
+          }
           Compress-Archive -Path $pkg -DestinationPath "dist/$pkg.zip"
       - name: Upload Windows Portable
         uses: actions/upload-artifact@v4
