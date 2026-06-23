@@ -136,9 +136,22 @@ jobs:
         shell: pwsh
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
-          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse
-          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py"
-          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
+          if (-not (Test-Path "python/python.exe")) {
+            Write-Host "=== python dir contents ==="
+            Get-ChildItem python -Recurse | Select-Object FullName, Length
+            throw "python/python.exe not found in source!"
+          }
+          Write-Host "Copying python/ to $releaseDir/python ..."
+          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
+          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
+          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
+          if (Test-Path "$releaseDir/python/python.exe") {
+            Write-Host "OK: python.exe bundled successfully"
+          } else {
+            Write-Host "=== release dir contents ==="
+            Get-ChildItem "$releaseDir" -Directory | Select-Object Name
+            throw "python.exe not found in $releaseDir after copy!"
+          }
 
       - name: Setup fastforge + Inno Setup
         shell: pwsh
