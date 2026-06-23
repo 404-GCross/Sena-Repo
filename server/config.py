@@ -29,6 +29,8 @@ class ScraperConfig:
     vndb_token: str = ""
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
+    ymgal_client_id: str = "ymgal"
+    ymgal_client_secret: str = "luna0327"
 
 
 @dataclass
@@ -138,6 +140,10 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.igdb_client_id = os.environ["SENA_IGDB_CLIENT_ID"]
     if os.environ.get("SENA_IGDB_CLIENT_SECRET"):
         config.scrapers.igdb_client_secret = os.environ["SENA_IGDB_CLIENT_SECRET"]
+    if os.environ.get("SENA_YMGAL_CLIENT_ID"):
+        config.scrapers.ymgal_client_id = os.environ["SENA_YMGAL_CLIENT_ID"]
+    if os.environ.get("SENA_YMGAL_CLIENT_SECRET"):
+        config.scrapers.ymgal_client_secret = os.environ["SENA_YMGAL_CLIENT_SECRET"]
 
     # 3. CLI arg overrides
     if args.host:

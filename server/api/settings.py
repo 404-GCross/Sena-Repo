@@ -90,6 +90,8 @@ class ScraperConfigOut(BaseModel):
     vndb_token: str = ""
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
+    ymgal_client_id: str = ""
+    ymgal_client_secret: str = ""
     proxy: str = ""
 
 
@@ -98,6 +100,8 @@ class ScraperConfigUpdate(BaseModel):
     vndb_token: str | None = None
     igdb_client_id: str | None = None
     igdb_client_secret: str | None = None
+    ymgal_client_id: str | None = None
+    ymgal_client_secret: str | None = None
     proxy: str | None = None
 
 
@@ -118,7 +122,9 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         vndb_token=_mask(s.vndb_token),
         igdb_client_id=_mask(s.igdb_client_id),
         igdb_client_secret=_mask(s.igdb_client_secret),
-        proxy=config.proxy,
+        ymgal_client_id=_mask(s.ymgal_client_id),
+        ymgal_client_secret=_mask(s.ymgal_client_secret),
+        proxy=_mask(config.proxy),
     )
 
 
@@ -156,7 +162,8 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     config = load_config()
     data = _read_scraper_config()
 
-    for key in ("bangumi_token", "vndb_token", "igdb_client_id", "igdb_client_secret", "proxy"):
+    for key in ("bangumi_token", "vndb_token", "igdb_client_id", "igdb_client_secret",
+                 "ymgal_client_id", "ymgal_client_secret", "proxy"):
         val = getattr(body, key, None)
         if val is not None:
             setattr(config.scrapers, key, val) if key != "proxy" else setattr(config, "proxy", val)
@@ -179,8 +186,8 @@ async def test_proxy(user: User = Depends(get_current_user)):
         async with httpx.AsyncClient(**kwargs) as client:
             resp = await client.get("https://www.google.com")
             return {"ok": True, "status": resp.status_code, "proxy": config.proxy or "直连", "latency_ms": round(resp.elapsed.total_seconds() * 1000)}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "proxy": config.proxy or "直连"}
+    except Exception:
+        return {"ok": False, "error": "代理连接失败，请检查代理地址和网络状态", "proxy": config.proxy or "直连"}
 
 
 # --- Ignore List ---

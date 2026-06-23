@@ -342,8 +342,8 @@ async def get_my_profile(
 
 
 @router.get("/profile/{user_id}")
-async def get_profile(user_id: int, session: AsyncSession = Depends(get_session)):
-    """Get user profile info."""
+async def get_profile(user_id: int, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    """Get user profile info (authenticated users only)."""
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
