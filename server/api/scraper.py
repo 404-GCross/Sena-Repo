@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import ipaddress
+from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime
 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/api", tags=["scraper"])
 def _validate_public_url(url: str) -> None:
     """Reject non-HTTP(S) and internal/private URLs (SSRF prevention)."""
     import socket
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="仅支持 HTTP/HTTPS URL")
@@ -43,15 +45,19 @@ def _validate_public_url(url: str) -> None:
             if ip.is_loopback or ip.is_private or ip.is_link_local:
                 raise HTTPException(status_code=400, detail="不允许使用内网地址")
         except ValueError:
-            # Hostname — resolve DNS and check all resolved IPs
+            # Hostname — resolve DNS with 3s per-host timeout
             try:
-                socket.setdefaulttimeout(3)
-                addrs = socket.getaddrinfo(parsed.hostname, None)
+                future = ThreadPoolExecutor(max_workers=1).submit(
+                    socket.getaddrinfo, parsed.hostname, None
+                )
+                addrs = future.result(timeout=3)
                 for addr in addrs:
                     ip_str = addr[4][0]
                     ip = ipaddress.ip_address(ip_str)
                     if ip.is_loopback or ip.is_private or ip.is_link_local:
                         raise HTTPException(status_code=400, detail="不允许使用内网地址")
+            except FuturesTimeout:
+                pass  # DNS timeout — allow (fail-open)
             except HTTPException:
                 raise
             except Exception:
@@ -448,10 +454,17 @@ async def upload_game_cover(
     covers_dir = config.covers_path
     covers_dir.mkdir(parents=True, exist_ok=True)
 
-    # Delete old cover if exists
-    if game.cover_path and os.path.isfile(game.cover_path):
-        try: os.remove(game.cover_path)
-        except Exception: pass
+    # Delete old cover if exists (validate path is within covers dir)
+    if game.cover_path:
+        cover_path_obj = Path(game.cover_path)
+        try:
+            cover_path_obj.resolve().relative_to(config.covers_path.resolve())
+        except ValueError:
+            pass  # path outside covers dir — skip deletion
+        else:
+            if cover_path_obj.is_file():
+                try: os.remove(str(cover_path_obj))
+                except Exception: pass
 
     cover_path = covers_dir / f"{game_id}_upload{ext}"
     cover_path.write_bytes(await file.read())
@@ -551,9 +564,17 @@ async def upload_game_background(
     bg_dir = config.backgrounds_path
     bg_dir.mkdir(parents=True, exist_ok=True)
 
-    if game.bg_path and os.path.isfile(game.bg_path):
-        try: os.remove(game.bg_path)
-        except Exception: pass
+    # Delete old background if exists (validate path is within backgrounds dir)
+    if game.bg_path:
+        bg_path_obj = Path(game.bg_path)
+        try:
+            bg_path_obj.resolve().relative_to(config.backgrounds_path.resolve())
+        except ValueError:
+            pass  # path outside backgrounds dir — skip deletion
+        else:
+            if bg_path_obj.is_file():
+                try: os.remove(str(bg_path_obj))
+                except Exception: pass
 
     bg_path = bg_dir / f"{game_id}_hero{ext}"
     bg_path.write_bytes(await file.read())

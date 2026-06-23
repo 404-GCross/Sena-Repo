@@ -162,8 +162,8 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
         # 1. Try patches.json index
         if index and game.app_id in index:
             entry = index[game.app_id]
-            patch_file = patches_dir / entry["file"]
-            if patch_file.is_file():
+            patch_file = _safe_patch_path(patches_dir, entry.get("file", ""))
+            if patch_file and patch_file.is_file():
                 match.patch_available = True
                 match.patch_filename = patch_file.name
                 match.patch_size = patch_file.stat().st_size
@@ -197,7 +197,7 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
 
 
 @router.get("/patches")
-async def list_patches(session: AsyncSession = Depends(get_session)):
+async def list_patches(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """List all patches. Auto-scans if no patches.json. Matches by game name if no app_id."""
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
@@ -345,7 +345,7 @@ async def scan_patches_endpoint(user: User = Depends(require_admin)):
 # ── Patch type keywords API ──
 
 @router.get("/patch-type-keywords")
-async def get_type_keywords():
+async def get_type_keywords(user: User = Depends(get_current_user)):
     """Return patch_type_keywords.json content."""
     patches_dir = _get_patches_dir()
     return _load_type_keywords(patches_dir)
@@ -398,7 +398,7 @@ class AppIdList(BaseModel):
 
 
 @router.post("/game-names")
-async def get_game_names(body: AppIdList):
+async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)):
     """Resolve Steam AppIDs to Chinese game names via Store API."""
     import httpx
     import asyncio
