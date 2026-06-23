@@ -126,6 +126,9 @@ jobs:
       - name: Build installer (ISCC)
         shell: pwsh
         run: |
+          Write-Host "=== Release dir check before ISCC ==="
+          Test-Path "build/windows/x64/runner/Release/python/python.exe" | ForEach-Object { "python.exe: $_" }
+          Get-ChildItem build/windows/x64/runner/Release -Directory | Select-Object Name
           $ver = $env:VERSION
           $releaseDir = (Resolve-Path "build/windows/x64/runner/Release").Path
           $template = Get-Content "windows_assets/packaging/exe/inno_setup.iss" -Raw
