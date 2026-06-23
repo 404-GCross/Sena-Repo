@@ -5,7 +5,7 @@ Falls back to bare file scanning if no patches.json exists.
 """
 from __future__ import annotations
 
-import json, re
+import json, logging, re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +19,8 @@ from config import load_config
 from database import get_session
 from models.user import User
 from api.auth import get_current_user, require_admin
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
@@ -339,7 +341,8 @@ async def scan_patches_endpoint(user: User = Depends(require_admin)):
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(patches_dir)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"补丁扫描失败: {e}")
+        logger.error(f"Patch scan failed: {e}")
+        raise HTTPException(status_code=500, detail="补丁扫描失败，请查看服务端日志")
 
 
 # ── Patch type keywords API ──

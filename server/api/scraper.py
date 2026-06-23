@@ -110,8 +110,8 @@ async def search_candidates(
                 for r in results
             ],
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="搜索失败，请查看服务端日志")
     finally:
         await scraper.close()
 
@@ -426,7 +426,8 @@ async def update_game_cover(
                 await session.commit()
                 return {"message": "Cover updated", "cover_path": game.cover_path}
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Failed to download cover: {type(e).__name__}: {e}")
+                logger.warning(f"Cover download failed: {e}")
+                raise HTTPException(status_code=400, detail="封面下载失败")
 
     return MessageResponse(message="No cover URL provided")
 
@@ -537,7 +538,8 @@ async def update_game_background(
                 await session.commit()
                 return MessageResponse(message="Background updated from URL")
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Failed to download background: {e}")
+                logger.warning(f"Background download failed: {e}")
+                raise HTTPException(status_code=400, detail="背景下载失败")
 
     return MessageResponse(message="No background URL provided")
 

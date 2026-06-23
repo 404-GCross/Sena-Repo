@@ -200,6 +200,9 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
         raise HTTPException(status_code=400, detail="该用户不在待审批状态")
 
     user.status = "active" if body.approve else "rejected"
+    # Prevent self-service admin escalation — approval always resets to regular user
+    if body.approve:
+        user.is_admin = False
 
     # Mark related approval notification as read
     related = await session.execute(
