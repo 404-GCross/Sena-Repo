@@ -109,28 +109,7 @@ jobs:
         run: dart run flutter_launcher_icons
       - name: Build Windows
         run: flutter build windows --release
-      - name: Bundle Python + VDF
-        shell: pwsh
-        run: |
-          $releaseDir = "build/windows/x64/runner/Release"
-          # Verify python source exists before copy
-          if (-not (Test-Path "python/python.exe")) {
-            Write-Host "=== python dir contents ==="
-            Get-ChildItem python -Recurse | Select-Object FullName, Length
-            throw "python/python.exe not found in source!"
-          }
-          Write-Host "Copying python/ to $releaseDir/python ..."
-          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
-          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
-          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
-          # Verify copy succeeded
-          if (Test-Path "$releaseDir/python/python.exe") {
-            Write-Host "OK: python.exe bundled successfully"
-          } else {
-            Write-Host "=== release dir contents ==="
-            Get-ChildItem "$releaseDir" -Directory | Select-Object Name
-            throw "python.exe not found in $releaseDir after copy!"
-          }
+
       - name: Setup fastforge + Inno Setup
         run: |
           dart pub global activate fastforge
@@ -138,11 +117,18 @@ jobs:
       - name: Install Chinese language
         shell: pwsh
         run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
-      - name: Build installer
+      - name: Bundle Python + VDF (for installer)
+        shell: pwsh
         run: |
-          Write-Host "=== Release dir before installer ==="
-          Get-ChildItem build/windows/x64/runner/Release -Directory | Select-Object Name
-          fastforge package --platform windows --targets exe
+          $releaseDir = "build/windows/x64/runner/Release"
+          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
+          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
+          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
+          Write-Host "OK: bundled for installer"
+
+      - name: Build installer
+        run: fastforge package --platform windows --targets exe
+
       - name: Flatten installer
         shell: pwsh
         run: |
@@ -151,6 +137,15 @@ jobs:
             Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
+      - name: Bundle Python + VDF (after installer rebuild)
+        shell: pwsh
+        run: |
+          $releaseDir = "build/windows/x64/runner/Release"
+          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
+          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
+          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
+          Write-Host "OK: bundled for portable"
+
       - name: Package portable zip
         shell: pwsh
         run: |
@@ -159,6 +154,7 @@ jobs:
           $releaseDir = "build/windows/x64/runner/Release"
           robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
           if (Test-Path "$pkg/python/python.exe") {
             Write-Host "OK: python/ included in portable package"
           } else {
