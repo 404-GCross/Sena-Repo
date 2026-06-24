@@ -282,23 +282,37 @@ jobs:
           V="${{ inputs.version }}"
           if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
-      - name: Build Docker image
-        run: docker build --no-cache -t sena-repo:latest server/
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export AMD64 tarball
+        run: |
+          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --load
+          docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
+
+      - name: Build and export ARM64 tarball
+        run: |
+          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --load
+          docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push to GHCR
+
+      - name: Push to GHCR (multi-arch)
         run: |
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:latest
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:v${VERSION}
-          docker push ghcr.io/404-gcross/sena-repo:latest
-          docker push ghcr.io/404-gcross/sena-repo:v${VERSION}
-      - name: Save tarball
-        run: docker save sena-repo:latest | gzip > "Sena-Repo_Server_v${VERSION}.tar.gz"
-      - name: Upload Server Image
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/404-gcross/sena-repo:latest \
+            -t ghcr.io/404-gcross/sena-repo:v${VERSION} \
+            server/ --push
+
+      - name: Upload Server Images
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Server
