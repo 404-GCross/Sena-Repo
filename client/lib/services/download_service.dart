@@ -867,16 +867,51 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       throw Exception("解压组件未就绪: $e");
     }
-    final args = ["x", "-y", "-p-", "-o$outDir", filePath];
-    if (password != null) { args.remove("-p-"); args.insert(1, "-p$password"); }
-    // Skip integrity test on Android (saves time, verified during extraction)
-    if (password == null && !Platform.isAndroid) {
-      try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+    // Extract to a temp subdirectory so _fixLayout only sees the new content
+    // and isn't confused by pre-existing sibling game folders in outDir.
+    final extractTempDir = "$outDir${Platform.pathSeparator}.sena_tmp_${gameDir.hashCode.abs()}";
+    // Clean up any leftover from a previous crashed extraction
+    try { await Directory(extractTempDir).delete(recursive: true); } catch (_) {}
+    try {
+      final args = ["x", "-y", "-p-", "-o$extractTempDir", filePath];
+      if (password != null) { args.remove("-p-"); args.insert(1, "-p$password"); }
+      // Skip integrity test on Android (saves time, verified during extraction)
+      if (password == null && !Platform.isAndroid) {
+        try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+      }
+      debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
+      await _runTool(exe, args, onProgress: onProgress,
+        timeout: Platform.isAndroid ? 600 : 1800); // Android: 10min timeout
+      await _fixLayout(extractTempDir, gameDir);
+      // Move result from temp to final location
+      final finalDir = "$outDir${Platform.pathSeparator}$gameDir";
+      final source = "$extractTempDir${Platform.pathSeparator}$gameDir";
+      if (await Directory(source).exists()) {
+        // _fixLayout produced a subfolder named gameDir → move it out
+        // Remove stale empty dir from prior attempt
+        try { if (await Directory(finalDir).exists()) await Directory(finalDir).delete(recursive: true); } catch (_) {}
+        try {
+          await Directory(source).rename(finalDir);
+        } catch (_) {
+          // rename failed (may be cross-volume) → copy+delete fallback
+          await _copyMerge(source, finalDir);
+          await Directory(source).delete(recursive: true);
+        }
+      } else {
+        // _fixLayout case 2 (already named correctly) or no subfolder produced
+        // Move the whole temp dir to final location
+        try { if (await Directory(finalDir).exists()) await Directory(finalDir).delete(recursive: true); } catch (_) {}
+        try {
+          await Directory(extractTempDir).rename(finalDir);
+        } catch (_) {
+          await _copyMerge(extractTempDir, finalDir);
+          await Directory(extractTempDir).delete(recursive: true);
+        }
+      }
+    } finally {
+      // Clean up temp directory
+      try { await Directory(extractTempDir).delete(recursive: true); } catch (_) {}
     }
-    debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
-    await _runTool(exe, args, onProgress: onProgress,
-      timeout: Platform.isAndroid ? 600 : 1800); // Android: 10min timeout
-    await _fixLayout(outDir, gameDir);
   }
 
   /// Ensure clean output: rename archive folder to [gameDir] if different,
