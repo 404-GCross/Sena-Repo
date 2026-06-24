@@ -12,19 +12,6 @@ docker logs sena-repo 2>&1 | tail -30
 
 常见原因：`config.yaml` 字段拼写错误、数据库文件损坏、端口被占用。
 
-### 503 Service Unavailable
-
-服务端进程正在启动但尚未就绪，或启动过程中崩溃。
-
-```bash
-docker ps -a | grep sena-repo
-docker logs sena-repo --tail 20
-docker exec sena-repo python3 -c \
-  "import urllib.request; print(urllib.request.urlopen('http://localhost:11451/api/health').read())"
-```
-
-常见原因：数据库损坏、容器内存不足、首次全量扫描耗时过长、`games_path` 路径不存在。
-
 ### 游戏扫描不到文件
 
 执行扫描后游戏库仍为空。
@@ -78,9 +65,22 @@ docker exec sena-repo python3 -c \
 
 ## 客户端
 
-### 连接不上服务端
+### 连接报 503 Service Unavailable
 
-**超时 / 拒绝连接：**
+服务端进程正在启动但尚未就绪，或启动过程中崩溃。症状是客户端发起请求后收到 503。
+
+排查：
+
+```bash
+docker ps -a | grep sena-repo
+docker logs sena-repo --tail 20
+docker exec sena-repo python3 -c \
+  "import urllib.request; print(urllib.request.urlopen('http://localhost:11451/api/health').read())"
+```
+
+常见原因：数据库损坏、容器内存不足、首次全量扫描耗时过长、`games_path` 路径不存在。
+
+### 连接超时或拒绝
 - 服务端是否绑定 `--host 0.0.0.0`
 - 防火墙是否放行 11451 端口
 - Docker 端口映射 `-p 11451:11451` 是否正确
