@@ -411,7 +411,7 @@ class DownloadService with WidgetsBindingObserver {
       await _fixLayout(outDir, gameDir);
       await tmp.delete();
       t.status = "done";
-      t.outputPath = "$outDir/$gameDir";
+      t.outputPath = "${outDir}${Platform.pathSeparator}$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
@@ -659,7 +659,7 @@ class DownloadService with WidgetsBindingObserver {
 
       // Phase 3: done
       t.status = "done";
-      t.outputPath = "$outDir/$gameDir";
+      t.outputPath = "${outDir}${Platform.pathSeparator}$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
@@ -913,7 +913,7 @@ class DownloadService with WidgetsBindingObserver {
     try {
       await Directory(wrap).create();
       for (final e in entries) {
-        try { await e.rename("$wrap/${e.uri.pathSegments.last}"); } catch (_) {}
+        try { await e.rename("${wrap}${Platform.pathSeparator}${e.uri.pathSegments.last}"); } catch (_) {}
       }
     } catch (_) {}
   }
