@@ -1297,6 +1297,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
     });
     // Download cover then auto-save
+    bool coverChanged = false;
     if (apply["封面"] == true && coverUrl.isNotEmpty) {
       try {
         final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"), headers: _authHeaders);
@@ -1304,12 +1305,17 @@ class _GameEditScreenState extends State<GameEditScreen> {
           final data = jsonDecode(resp.body) as Map<String, dynamic>;
           final newPath = data["cover_path"];
           if (newPath != null) {
-            setState(() { _coverPath = newPath.toString(); _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+            _coverPath = newPath.toString();
+            coverChanged = true;
           }
         }
       } catch (_) {}
-      // Reload fresh game data so cover path is consistent with server
       await _reloadGame();
+      if (!coverChanged) coverChanged = true; // server may have updated path
+    }
+    if (coverChanged) {
+      _coverVersion = DateTime.now().millisecondsSinceEpoch;
+      if (mounted) setState(() {});
     }
     await _save(popOnSave: false);
   }
