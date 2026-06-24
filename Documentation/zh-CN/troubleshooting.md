@@ -97,13 +97,6 @@ sudo apt-get install -y libfuse2      # Debian/Ubuntu
 sudo dnf install fuse-libs            # Fedora
 ```
 
-或跳过 FUSE：
-
-```bash
-export APPIMAGE_EXTRACT_AND_RUN=1
-./Sena-Repo_AppImage_v*.AppImage
-```
-
 **`error while loading shared libraries: libgtk-3.so.0`**
 
 ```bash
