@@ -820,7 +820,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   Future<void> _addToSteamDownload(DownloadTask task) async {
     if (task.outputPath == null) return;
-    final exes = ShortcutService.findAllExecutables(task.outputPath!);
+    final exes = ShortcutService.findAllExecutables(task.outputPath!, gameName: task.gameName);
     if (exes.isEmpty) {
       _showDialog(context, "提示", "未找到可执行文件");
       return;
@@ -886,7 +886,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   Future<void> _createShortcut(DownloadTask task) async {
     if (task.outputPath == null) return;
-    final exes = ShortcutService.findAllExecutables(task.outputPath!);
+    final exes = ShortcutService.findAllExecutables(task.outputPath!, gameName: task.gameName);
     if (exes.isEmpty) {
       _showDialog(context, "提示", "未找到可执行文件");
       return;

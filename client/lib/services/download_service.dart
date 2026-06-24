@@ -411,7 +411,7 @@ class DownloadService with WidgetsBindingObserver {
       await _fixLayout(outDir, gameDir);
       await tmp.delete();
       t.status = "done";
-      t.outputPath = outDir;
+      t.outputPath = "$outDir/$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
@@ -659,7 +659,7 @@ class DownloadService with WidgetsBindingObserver {
 
       // Phase 3: done
       t.status = "done";
-      t.outputPath = outDir;
+      t.outputPath = "$outDir/$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {

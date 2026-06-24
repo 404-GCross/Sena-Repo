@@ -8,23 +8,48 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 class ShortcutService {
-  /// Find a likely game executable in [dir]. Prefers root-level exe.
-  static String? findExecutable(String dir) {
-    final all = findAllExecutables(dir);
+  /// Find a likely game executable in [dir], limited to [gameDir] if provided.
+  static String? findExecutable(String dir, {String? gameName}) {
+    // If a game-specific subdirectory exists, scan only that
+    String scanDir = dir;
+    if (gameName != null && gameName.isNotEmpty) {
+      final gamePath = "$dir/$gameName";
+      if (Directory(gamePath).existsSync()) {
+        final gameExes = findAllExecutables(gamePath);
+        if (gameExes.isNotEmpty) {
+          final rootExe = gameExes.firstWhere(
+            (f) => File(f).parent.path == gamePath,
+            orElse: () => gameExes.first,
+          );
+          return rootExe;
+        }
+      }
+    }
+    // Fall back to scanning the whole output dir
+    final all = findAllExecutables(scanDir);
     if (all.isEmpty) return null;
-    // Pick first root-level exe; fall back to first overall
     final rootExe = all.firstWhere(
-      (f) => File(f).parent.path == dir,
+      (f) => File(f).parent.path == scanDir,
       orElse: () => all.first,
     );
     return rootExe;
   }
 
   /// Find all executable files in [dir], sorted by size descending.
-  static List<String> findAllExecutables(String dir) {
-    if (!Directory(dir).existsSync()) return [];
+  /// If [gameName] is provided and a matching subdirectory exists, scan only that.
+  static List<String> findAllExecutables(String dir, {String? gameName}) {
+    String scanDir = dir;
+    if (gameName != null && gameName.isNotEmpty) {
+      final gamePath = "$dir/$gameName";
+      if (Directory(gamePath).existsSync()) scanDir = gamePath;
+    }
+    return _scanExes(scanDir, dir);
+  }
+
+  static List<String> _scanExes(String scanDir, String rootDir) {
+    if (!Directory(scanDir).existsSync()) return [];
     try {
-      final files = Directory(dir)
+      final files = Directory(scanDir)
           .listSync(recursive: true, followLinks: false)
           .whereType<File>()
           .where((f) {
@@ -38,8 +63,8 @@ class ShortcutService {
       if (files.isEmpty) return [];
       // Sort: root-level files first, then by size descending
       files.sort((a, b) {
-        final aRoot = File(a.path).parent.path == dir;
-        final bRoot = File(b.path).parent.path == dir;
+        final aRoot = File(a.path).parent.path == scanDir;
+        final bRoot = File(b.path).parent.path == scanDir;
         if (aRoot && !bRoot) return -1;
         if (!aRoot && bRoot) return 1;
         return b.lengthSync().compareTo(a.lengthSync());
