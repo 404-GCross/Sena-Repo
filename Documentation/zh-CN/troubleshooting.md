@@ -90,9 +90,11 @@ docker exec sena-repo python3 -c \
 
 ### Linux AppImage 启动报错
 
+Flutter 桌面应用依赖 Qt/GTK 运行时库，精简版 Linux 发行版可能缺少以下依赖：
+
 **`dlopen(): error loading libfuse.so.2`**
 
-```
+```bash
 sudo apt-get install -y libfuse2      # Debian/Ubuntu
 sudo dnf install fuse-libs            # Fedora
 ```
@@ -104,20 +106,47 @@ sudo apt-get install -y libgtk-3-0    # Debian/Ubuntu
 sudo dnf install gtk3                 # Fedora
 ```
 
-**`error while loading shared libraries: libayatana-appindicator3.so.1`**
+**`libayatana-appindicator3.so.1`**
 
 ```bash
 sudo apt-get install -y libayatana-appindicator3-1   # Debian/Ubuntu
-# Fedora 上该库可能不可用，不影响主窗口显示，可忽略
+# Fedora 上该库可能不可用，不影响主窗口显示
 ```
 
-**必须依赖汇总：**
+**`libEGL.so.1`**
 
-| 依赖 | Debian/Ubuntu | Fedora |
-|------|------|------|
-| FUSE | `libfuse2` | `fuse-libs` |
-| GTK3 | `libgtk-3-0` | `gtk3` |
-| AppIndicator（托盘） | `libayatana-appindicator3-1` | 不适用 |
+```bash
+sudo apt-get install -y libegl1 libegl-mesa0
+```
+
+**`libGL.so.1 or libOpenGL.so.0`**
+
+```bash
+sudo apt-get install -y libgl1 libopengl0 libegl1 libegl-mesa0
+```
+
+**字体缺失 / 中文显示为方块**
+
+```bash
+sudo apt-get install -y fonts-noto-cjk fonts-wqy-microhei
+```
+
+**一键全装（Debian/Ubuntu）：**
+
+```bash
+sudo apt-get install -y libfuse2 libgtk-3-0 libayatana-appindicator3-1 libegl1 libgles2 libgl1 libopengl0 fonts-noto-cjk fonts-wqy-microhei
+```
+
+**依赖汇总：**
+
+| 依赖 | Debian/Ubuntu | Fedora | 用途 |
+|------|------|------|------|
+| FUSE | `libfuse2` | `fuse-libs` | AppImage 挂载 |
+| GTK3 | `libgtk-3-0` | `gtk3` | 窗口框架 |
+| EGL | `libegl1 libegl-mesa0` | `mesa-libEGL` | GPU 渲染 |
+| OpenGL | `libgl1 libopengl0` | `mesa-libGL` | 3D 加速 |
+| AppIndicator | `libayatana-appindicator3-1` | — | 系统托盘 |
+| 中文字体 | `fonts-noto-cjk fonts-wqy-microhei` | `google-noto-cjk-fonts` | UI 文字 |
 
 如仍缺其他 `.so`，搜包名：
 
