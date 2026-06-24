@@ -996,7 +996,7 @@ class DownloadService with WidgetsBindingObserver {
   String _outDir(DownloadTask t, String dir) {
     final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";
     // Extract directly to 会社/, letting archive folder name be the game folder
-    return "$dir/$sub";
+    return "${dir}${Platform.pathSeparator}$sub";
   }
 
   bool _stopped(DownloadTask t) => t._cancelled || t.status == "paused";

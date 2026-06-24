@@ -13,7 +13,7 @@ class ShortcutService {
     // If a game-specific subdirectory exists, scan only that
     String scanDir = dir;
     if (gameName != null && gameName.isNotEmpty) {
-      final gamePath = "$dir/$gameName";
+      final gamePath = "${dir}${Platform.pathSeparator}$gameName";
       if (Directory(gamePath).existsSync()) {
         final gameExes = findAllExecutables(gamePath);
         if (gameExes.isNotEmpty) {
@@ -40,7 +40,7 @@ class ShortcutService {
   static List<String> findAllExecutables(String dir, {String? gameName}) {
     // First try the game-specific subdirectory if it exists
     if (gameName != null && gameName.isNotEmpty) {
-      final gamePath = "$dir/$gameName";
+      final gamePath = "${dir}${Platform.pathSeparator}$gameName";
       if (Directory(gamePath).existsSync()) {
         final gameExes = _scanExes(gamePath, gamePath);
         if (gameExes.isNotEmpty) return gameExes;
