@@ -352,8 +352,14 @@ jobs:
           docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --load
           docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
 
-      - name: Upload Server Images
+      - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Server
-          path: Sena-Repo_Server_*.tar.gz
+          name: Sena-Repo_Server_amd64
+          path: Sena-Repo_Server_amd64_*.tar.gz
+
+      - name: Upload Server Image (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Server_arm64
+          path: Sena-Repo_Server_arm64_*.tar.gz
