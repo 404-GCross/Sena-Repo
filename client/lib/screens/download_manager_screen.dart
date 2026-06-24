@@ -290,7 +290,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
             if (!Platform.isAndroid && t.outputPath != null) ...[
               const SizedBox(height: 6),
               Builder(builder: (_) {
-                final exes = ShortcutService.findAllExecutables(t.outputPath!);
+                final exes = ShortcutService.findAllExecutables(t.outputPath!, gameName: t.gameName);
                 if (exes.isEmpty) return const SizedBox.shrink();
                 final exeCount = exes.length > 1 ? " (${exes.length}个)" : "";
                 return Row(mainAxisSize: MainAxisSize.min, children: [
