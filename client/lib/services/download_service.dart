@@ -892,7 +892,7 @@ class DownloadService with WidgetsBindingObserver {
       final folderName = folder.uri.pathSegments.last;
       // Rename to match game name if different
       if (folderName != gameDir) {
-        final target = "$outDir/$gameDir";
+        final target = "${outDir}${Platform.pathSeparator}$gameDir";
         try {
           await folder.rename(target);
         } catch (_) {
@@ -909,7 +909,7 @@ class DownloadService with WidgetsBindingObserver {
     // Multiple items = archive has no wrapper → create game folder and move in
     if (entries.any((e) => e is Directory && e.uri.pathSegments.last == gameDir)) return;
 
-    final wrap = "$outDir/$gameDir";
+    final wrap = "${outDir}${Platform.pathSeparator}$gameDir";
     try {
       await Directory(wrap).create();
       for (final e in entries) {
