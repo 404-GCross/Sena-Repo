@@ -38,12 +38,16 @@ class ShortcutService {
   /// Find all executable files in [dir], sorted by size descending.
   /// If [gameName] is provided and a matching subdirectory exists, scan only that.
   static List<String> findAllExecutables(String dir, {String? gameName}) {
-    String scanDir = dir;
+    // First try the game-specific subdirectory if it exists
     if (gameName != null && gameName.isNotEmpty) {
       final gamePath = "$dir/$gameName";
-      if (Directory(gamePath).existsSync()) scanDir = gamePath;
+      if (Directory(gamePath).existsSync()) {
+        final gameExes = _scanExes(gamePath, gamePath);
+        if (gameExes.isNotEmpty) return gameExes;
+      }
     }
-    return _scanExes(scanDir, dir);
+    // Fall back to scanning the whole output directory
+    return _scanExes(dir, dir);
   }
 
   static List<String> _scanExes(String scanDir, String rootDir) {
