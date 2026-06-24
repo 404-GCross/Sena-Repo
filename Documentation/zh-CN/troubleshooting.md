@@ -88,6 +88,51 @@ docker exec sena-repo python3 -c \
 
 **自签名 HTTPS 证书：** 客户端仅对配置过的服务器 host 允许自签名证书。更换服务器 IP/域名后在连接页重新输入地址即可。
 
+### Linux AppImage 启动报错
+
+**`dlopen(): error loading libfuse.so.2`**
+
+```
+sudo apt-get install -y libfuse2      # Debian/Ubuntu
+sudo dnf install fuse-libs            # Fedora
+```
+
+或跳过 FUSE：
+
+```bash
+export APPIMAGE_EXTRACT_AND_RUN=1
+./Sena-Repo_AppImage_v*.AppImage
+```
+
+**`error while loading shared libraries: libgtk-3.so.0`**
+
+```bash
+sudo apt-get install -y libgtk-3-0    # Debian/Ubuntu
+sudo dnf install gtk3                 # Fedora
+```
+
+**`error while loading shared libraries: libayatana-appindicator3.so.1`**
+
+```bash
+sudo apt-get install -y libayatana-appindicator3-1   # Debian/Ubuntu
+# Fedora 上该库可能不可用，不影响主窗口显示，可忽略
+```
+
+**必须依赖汇总：**
+
+| 依赖 | Debian/Ubuntu | Fedora |
+|------|------|------|
+| FUSE | `libfuse2` | `fuse-libs` |
+| GTK3 | `libgtk-3-0` | `gtk3` |
+| AppIndicator（托盘） | `libayatana-appindicator3-1` | 不适用 |
+
+如仍缺其他 `.so`，搜包名：
+
+```bash
+# Debian/Ubuntu
+apt-file search <文件名>      # 或: dnf provides <文件名> (Fedora)
+```
+
 ### 下载加密压缩包卡住
 
 7z 遇到有密码的压缩包且未提供密码时，旧版会等待终端输入直到超时（最长 30 分钟）。新版已默认携带 `-p-`，会立即报"需要密码"。如仍卡住，确保客户端和服务端都是最新版本。
