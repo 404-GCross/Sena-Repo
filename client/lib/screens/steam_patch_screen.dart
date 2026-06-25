@@ -380,7 +380,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
               ),
             ])
-          else if (!state.startsWith("error") && state != "done") ...[
+          else if (!state.startsWith("error") && state != "done" && state != "paused") ...[
             Builder(builder: (_) {
               final parts = state.split("|");
               final stage = parts.length > 4 ? parts[4] : "";
@@ -417,7 +417,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const Spacer(),
               Text(_formatSize(m.patchSize), style: AppText.bodySmall.copyWith(color: Colors.green[700], fontWeight: FontWeight.w600)),
             ])),
-        if (state != null && !state.startsWith("error") && state != "done") ...[
+        if (state != null && !state.startsWith("error") && state != "done" && state != "paused") ...[
           const SizedBox(height: 6),
           _buildInjectProgress(m.appId, state),
         ],
