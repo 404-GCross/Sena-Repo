@@ -299,6 +299,11 @@ class DownloadService with WidgetsBindingObserver {
           onProgress(task.progress, task.receivedBytes, task.totalBytes, task.speedBytesPerSecond, task.status);
         });
       }
+      // Restore partial download from paused state so Range resume works
+      if (await tmp.exists()) {
+        final existingSize = await tmp.length();
+        if (existingSize > 0) task.receivedBytes = existingSize;
+      }
       try {
         task.status = "downloading";
         await _download(task, tmp);
@@ -306,7 +311,7 @@ class DownloadService with WidgetsBindingObserver {
         await sub?.cancel();
       }
       if (_stopped(task)) {
-        try { await tmp.delete(); } catch (_) {}
+        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       if (task.status == "failed") return (task.error ?? "下载失败", null);
@@ -337,7 +342,7 @@ class DownloadService with WidgetsBindingObserver {
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
         if (_stopped(task)) {
           try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
-          try { await tmp.delete(); } catch (_) {}
+          if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
           return (task.status == "paused" ? "已暂停" : "已取消", null);
         }
         LoggerService().info("patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir");
@@ -361,14 +366,14 @@ class DownloadService with WidgetsBindingObserver {
         await Directory(tmpExtract).delete(recursive: true);
       }
       if (_stopped(task)) {
-        try { await tmp.delete(); } catch (_) {}
+        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       try { await tmp.delete(); } catch (_) {}
       return (null, destDir);
     } catch (e) {
       if (_stopped(task)) {
-        try { await tmp.delete(); } catch (_) {}
+        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       try { await tmp.delete(); } catch (_) {}
