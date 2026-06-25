@@ -332,6 +332,10 @@ class DownloadService with WidgetsBindingObserver {
         await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800,
             injectionAppId: appId,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        if (_stopped(task)) {
+          if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+          return (task.status == "paused" ? "已暂停" : "已取消", null);
+        }
         LoggerService().info("patch extract done: $destDir");
       } else {
         final tmpExtract = "${dir}${Platform.pathSeparator}.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
@@ -1144,7 +1148,6 @@ class DownloadService with WidgetsBindingObserver {
 class _PatchInjection {
   final DownloadTask task;
   final String tempPath;
-  http.Client? client;
   Process? extractProcess;
   bool cancelled = false;
   bool paused = false;
