@@ -65,6 +65,8 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
 
 # ── Patch-type keyword matching ──
 
+_KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
+
 DEFAULT_TYPE_KEYWORDS = {
     "translation": ["_Steam_Chinese_Patch"],
     "voice": ["_Steam_Voice_Patch"],
@@ -79,20 +81,21 @@ def _get_type_keywords_path(patches_dir: Path) -> Path:
 
 
 def _load_type_keywords(patches_dir: Path) -> dict[str, list[str]]:
-    """Load patch_type_keywords.json; create with defaults if missing."""
+    """Load patch_type_keywords.json; create/overwrite with defaults if missing or outdated."""
     kw_path = _get_type_keywords_path(patches_dir)
     if kw_path.is_file():
         try:
             with open(kw_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, dict):
-                return {k: v for k, v in data.items() if isinstance(v, list)}
+            if isinstance(data, dict) and data.get("_version") == _KEYWORD_VERSION:
+                return {k: v for k, v in data.items() if k != "_version" and isinstance(v, list)}
         except Exception:
             pass
-    # Create default
+    # Create / overwrite with current defaults
     patches_dir.mkdir(parents=True, exist_ok=True)
+    defaults = {"_version": _KEYWORD_VERSION, **DEFAULT_TYPE_KEYWORDS}
     with open(kw_path, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
+        json.dump(defaults, f, ensure_ascii=False, indent=2)
     return dict(DEFAULT_TYPE_KEYWORDS)
 
 
@@ -110,8 +113,9 @@ def _guess_type_by_keywords(filename: str, keywords: dict[str, list[str]]) -> st
 
 def _save_type_keywords(patches_dir: Path, keywords: dict[str, list[str]]):
     patches_dir.mkdir(parents=True, exist_ok=True)
+    data = {"_version": _KEYWORD_VERSION, **keywords}
     with open(_get_type_keywords_path(patches_dir), "w", encoding="utf-8") as f:
-        json.dump(keywords, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 # ── Models ──
