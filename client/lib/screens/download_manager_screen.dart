@@ -31,6 +31,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   List<DownloadTask> _tasks = [];
   StreamSubscription? _sub;
   String _downloadDir = "";
+  final _pwdCtrls = <int, TextEditingController>{};
 
   @override
   void initState() {
@@ -183,25 +184,57 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               child: Text("取消", style: AppText.label.copyWith( color: Colors.red)),
             )
           else if (t.status == "failed")
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              if (t.needsPassword)
-                FilledButton(
-                  onPressed: () => _passwordDialog(t),
-                  child: const Text("填写密码", style: TextStyle(fontSize: 12)),
-                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
-                )
-              else
+            t.needsPassword
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  SizedBox(
+                    width: 130,
+                    height: 32,
+                    child: TextField(
+                      controller: _pwdCtrls.putIfAbsent(t.versionId, () => TextEditingController()),
+                      obscureText: true,
+                      style: const TextStyle(fontSize: 12),
+                      decoration: const InputDecoration(
+                        hintText: "解压密码", isDense: true,
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  FilledButton(
+                    onPressed: () {
+                      final pwd = (_pwdCtrls[t.versionId]?.text ?? "").trim();
+                      if (pwd.isNotEmpty) DownloadService().retryWithPassword(t, pwd);
+                    },
+                    child: const Text("带密码重试", style: TextStyle(fontSize: 12)),
+                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
+                  ),
+                  const SizedBox(width: 6),
+                  FilledButton(
+                    onPressed: () => DownloadService().retryTask(t),
+                    child: const Text("无密码重试", style: TextStyle(fontSize: 12)),
+                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => DownloadService().removeTask(t),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ]),
+              ])
+            : Row(mainAxisSize: MainAxisSize.min, children: [
                 FilledButton(
                   onPressed: () => DownloadService().retryTask(t),
                   child: const Text("重试", style: TextStyle(fontSize: 12)),
                   style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
                 ),
-              IconButton(
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: () => DownloadService().removeTask(t),
-                visualDensity: VisualDensity.compact,
-              ),
-            ])
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => DownloadService().removeTask(t),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ])
           else if (t.status == "done" || t.status == "cancelled")
             IconButton(
               icon: const Icon(Icons.close, size: 18),
@@ -257,7 +290,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
             if (!Platform.isAndroid && t.outputPath != null) ...[
               const SizedBox(height: 6),
               Builder(builder: (_) {
-                final exes = ShortcutService.findAllExecutables(t.outputPath!);
+                final exes = ShortcutService.findAllExecutables(t.outputPath!, gameName: t.gameName);
                 if (exes.isEmpty) return const SizedBox.shrink();
                 final exeCount = exes.length > 1 ? " (${exes.length}个)" : "";
                 return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -436,40 +469,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
       ),
     );
-  }
-
-  Future<void> _passwordDialog(DownloadTask t) async {
-    final ctrl = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(children: [
-          Icon(Icons.lock, size: 20, color: Colors.orange),
-          SizedBox(width: 8),
-          Text("输入解压密码"),
-        ]),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          obscureText: true,
-          decoration: const InputDecoration(
-            hintText: "压缩包密码",
-            prefixIcon: Icon(Icons.key),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text),
-            child: const Text("解压"),
-          ),
-        ],
-      ),
-    );
-    if (result != null && result.isNotEmpty && mounted) {
-      DownloadService().retryWithPassword(t, result);
-    }
   }
 
   String _fmtSize(int bytes) {

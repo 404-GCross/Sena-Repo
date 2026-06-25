@@ -8,23 +8,52 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 class ShortcutService {
-  /// Find a likely game executable in [dir]. Prefers root-level exe.
-  static String? findExecutable(String dir) {
-    final all = findAllExecutables(dir);
+  /// Find a likely game executable in [dir], limited to [gameDir] if provided.
+  static String? findExecutable(String dir, {String? gameName}) {
+    // If a game-specific subdirectory exists, scan only that
+    String scanDir = dir;
+    if (gameName != null && gameName.isNotEmpty) {
+      final gamePath = "${dir}${Platform.pathSeparator}$gameName";
+      if (Directory(gamePath).existsSync()) {
+        final gameExes = findAllExecutables(gamePath);
+        if (gameExes.isNotEmpty) {
+          final rootExe = gameExes.firstWhere(
+            (f) => File(f).parent.path == gamePath,
+            orElse: () => gameExes.first,
+          );
+          return rootExe;
+        }
+      }
+    }
+    // Fall back to scanning the whole output dir
+    final all = findAllExecutables(scanDir);
     if (all.isEmpty) return null;
-    // Pick first root-level exe; fall back to first overall
     final rootExe = all.firstWhere(
-      (f) => File(f).parent.path == dir,
+      (f) => File(f).parent.path == scanDir,
       orElse: () => all.first,
     );
     return rootExe;
   }
 
   /// Find all executable files in [dir], sorted by size descending.
-  static List<String> findAllExecutables(String dir) {
-    if (!Directory(dir).existsSync()) return [];
+  /// If [gameName] is provided and a matching subdirectory exists, scan only that.
+  static List<String> findAllExecutables(String dir, {String? gameName}) {
+    // First try the game-specific subdirectory if it exists
+    if (gameName != null && gameName.isNotEmpty) {
+      final gamePath = "${dir}${Platform.pathSeparator}$gameName";
+      if (Directory(gamePath).existsSync()) {
+        final gameExes = _scanExes(gamePath, gamePath);
+        if (gameExes.isNotEmpty) return gameExes;
+      }
+    }
+    // Fall back to scanning the whole output directory
+    return _scanExes(dir, dir);
+  }
+
+  static List<String> _scanExes(String scanDir, String rootDir) {
+    if (!Directory(scanDir).existsSync()) return [];
     try {
-      final files = Directory(dir)
+      final files = Directory(scanDir)
           .listSync(recursive: true, followLinks: false)
           .whereType<File>()
           .where((f) {
@@ -38,8 +67,8 @@ class ShortcutService {
       if (files.isEmpty) return [];
       // Sort: root-level files first, then by size descending
       files.sort((a, b) {
-        final aRoot = File(a.path).parent.path == dir;
-        final bRoot = File(b.path).parent.path == dir;
+        final aRoot = File(a.path).parent.path == scanDir;
+        final bRoot = File(b.path).parent.path == scanDir;
         if (aRoot && !bRoot) return -1;
         if (!aRoot && bRoot) return 1;
         return b.lengthSync().compareTo(a.lengthSync());
@@ -87,22 +116,31 @@ class ShortcutService {
     return false;
   }
 
+  /// Escape a string for safe use inside a PowerShell double-quoted string.
+  /// Backtick is the PowerShell escape char; backslash is literal and left as-is.
+  static String _psEscape(String s) {
+    return s
+        .replaceAll('`', '``')
+        .replaceAll('\$', '`\$')
+        .replaceAll('"', '""');
+  }
+
   static Future<bool> _createWindowsShortcut(
       String name, String target, String? iconPath, [String? workingDir]) async {
     final desktopDir = _desktopDir();
     if (desktopDir == null) return false;
     final lnkPath = "$desktopDir\\${_safeName(name)}.lnk";
 
-    // Build PowerShell script to create shortcut
+    // Build PowerShell script to create shortcut (values escaped to prevent injection)
+    final es = _psEscape; // shorthand
     final script = StringBuffer();
     script.writeln(r'$WshShell = New-Object -ComObject WScript.Shell');
-    script.writeln(r'$Shortcut = $WshShell.CreateShortcut("' + lnkPath.replaceAll('\\', '\\\\') + r'")');
-    script.writeln(r'$Shortcut.TargetPath = "' + target.replaceAll('\\', '\\\\') + r'"');
+    script.writeln(r'$Shortcut = $WshShell.CreateShortcut("' + es(lnkPath) + r'")');
+    script.writeln(r'$Shortcut.TargetPath = "' + es(target) + r'"');
     script.writeln(r'$Shortcut.WorkingDirectory = "' +
-        (workingDir ?? File(target).parent.path).replaceAll('\\', '\\\\') + r'"');
+        es(workingDir ?? File(target).parent.path) + r'"');
     if (iconPath != null && File(iconPath).existsSync()) {
-      script.writeln(r'$Shortcut.IconLocation = "' +
-          iconPath.replaceAll('\\', '\\\\') + r'"');
+      script.writeln(r'$Shortcut.IconLocation = "' + es(iconPath) + r'"');
     }
     script.writeln(r'$Shortcut.Save()');
 

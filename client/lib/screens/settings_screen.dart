@@ -304,7 +304,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   Future<void> _saveScanSettings() async {
     try {
-      await http.put(
+      final resp = await http.put(
         Uri.parse("${widget.api.baseUrl}/api/settings/scan"),
         headers: {"Content-Type": "application/json", ...widget.api.headers},
         body: jsonEncode({
@@ -313,7 +313,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           "scan_structure": _structure,
         }),
       );
-    } catch (_) {}
+      if (resp.statusCode != 200) {
+        if (mounted) _toast(context, "保存扫描设置失败 (${resp.statusCode})");
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "保存扫描设置失败: $e");
+    }
   }
 
   Future<void> _addRoot() async {

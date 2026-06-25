@@ -64,11 +64,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     setState(() { _loading = true; _status = "正在扫描本地 Steam 库..."; _matches = []; });
     final games = SteamService.scanInstalledGames(_commonDir!);
     if (!mounted) return;
-    setState(() => _status = "扫描到 ${games.length} 个游戏，正在匹配补丁...");
     try {
       final api = context.read<GameProvider>().api;
+      setState(() => _status = "正在匹配补丁 (${games.length} 个游戏)...");
       final matches = await SteamService.checkPatches(api, games);
       if (!mounted) return;
+      // Server returns Chinese game_name from patches.json for patched games
       matches.sort((a, b) {
         if (a.patchAvailable != b.patchAvailable) return a.patchAvailable ? -1 : 1;
         return a.gameName.compareTo(b.gameName);
@@ -156,6 +157,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       );
       if (!mounted) return;
       if (result["error"] != null) {
+        final err = result["error"] as String;
+        if (err == "已暂停") {
+          setState(() => _injectState[m.appId] = "paused");
+          return;
+        }
+        if (err == "已取消") {
+          setState(() => _injectState.remove(m.appId));
+          return;
+        }
         setState(() => _injectState[m.appId] = "error:${result["error"]}");
         _showMsg("注入失败\n${result["error"]}", error: true);
       } else {
@@ -165,6 +175,20 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     } catch (e) {
       if (mounted) setState(() => _injectState[m.appId] = "error:$e");
     }
+  }
+
+  void _cancelInjection(String appId) {
+    SteamService.cancelInjection(appId);
+    setState(() => _injectState.remove(appId));
+  }
+
+  void _pauseInjection(String appId) {
+    SteamService.pauseInjection(appId);
+    // State will update via onProgress callback → "paused" detected in _startInjection
+  }
+
+  void _resumeInjection(PatchMatch m) {
+    _startInjection(m);
   }
 
   // ── Build ──
@@ -328,8 +352,44 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             FilledButton.tonalIcon(onPressed: () => _startInjection(m), icon: const Icon(Icons.auto_fix_high, size: 16),
               label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
               style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), minimumSize: Size.zero))
-          else if (!state.startsWith("error") && state != "done")
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+          else if (state == "paused")
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Text("已暂停", style: AppText.bodySmall.copyWith(color: Colors.orange[300], fontWeight: FontWeight.w600)),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => _resumeInjection(m),
+                child: const Text("继续", style: TextStyle(fontSize: 12)),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              ),
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () => _cancelInjection(m.appId),
+                child: Text("取消", style: AppText.label.copyWith(color: Colors.red)),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              ),
+            ])
+          else if (!state.startsWith("error") && state != "done" && state != "paused") ...[
+            Builder(builder: (_) {
+              final parts = state.split("|");
+              final stage = parts.length > 4 ? parts[4] : "";
+              final canPause = stage != "extracting";
+              return Row(mainAxisSize: MainAxisSize.min, children: [
+                if (canPause)
+                  TextButton(
+                    onPressed: () => _pauseInjection(m.appId),
+                    child: const Text("暂停", style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                  ),
+                TextButton(
+                  onPressed: () => _cancelInjection(m.appId),
+                  child: Text("取消", style: AppText.label.copyWith(color: Colors.red)),
+                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                ),
+                const SizedBox(width: 4),
+                SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+              ]);
+            }),
+          ]
           else if (state.startsWith("error"))
             Row(mainAxisSize: MainAxisSize.min, children: [
               Text(state.substring(6), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.bodySmall.copyWith(color: Colors.red[200])),
@@ -345,7 +405,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const Spacer(),
               Text(_formatSize(m.patchSize), style: AppText.bodySmall.copyWith(color: Colors.green[700], fontWeight: FontWeight.w600)),
             ])),
-        if (state != null && !state.startsWith("error") && state != "done") ...[
+        if (state != null && !state.startsWith("error") && state != "done" && state != "paused") ...[
           const SizedBox(height: 6),
           _buildInjectProgress(m.appId, state),
         ],

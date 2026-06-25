@@ -5,7 +5,7 @@ Falls back to bare file scanning if no patches.json exists.
 """
 from __future__ import annotations
 
-import json, re
+import json, logging, re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,7 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import load_config
 from database import get_session
 from models.user import User
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
@@ -63,6 +65,8 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
 
 # ── Patch-type keyword matching ──
 
+_KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
+
 DEFAULT_TYPE_KEYWORDS = {
     "translation": ["_Steam_Chinese_Patch"],
     "voice": ["_Steam_Voice_Patch"],
@@ -77,20 +81,21 @@ def _get_type_keywords_path(patches_dir: Path) -> Path:
 
 
 def _load_type_keywords(patches_dir: Path) -> dict[str, list[str]]:
-    """Load patch_type_keywords.json; create with defaults if missing."""
+    """Load patch_type_keywords.json; create/overwrite with defaults if missing or outdated."""
     kw_path = _get_type_keywords_path(patches_dir)
     if kw_path.is_file():
         try:
             with open(kw_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, dict):
-                return {k: v for k, v in data.items() if isinstance(v, list)}
+            if isinstance(data, dict) and data.get("_version") == _KEYWORD_VERSION:
+                return {k: v for k, v in data.items() if k != "_version" and isinstance(v, list)}
         except Exception:
             pass
-    # Create default
+    # Create / overwrite with current defaults
     patches_dir.mkdir(parents=True, exist_ok=True)
+    defaults = {"_version": _KEYWORD_VERSION, **DEFAULT_TYPE_KEYWORDS}
     with open(kw_path, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
+        json.dump(defaults, f, ensure_ascii=False, indent=2)
     return dict(DEFAULT_TYPE_KEYWORDS)
 
 
@@ -108,8 +113,9 @@ def _guess_type_by_keywords(filename: str, keywords: dict[str, list[str]]) -> st
 
 def _save_type_keywords(patches_dir: Path, keywords: dict[str, list[str]]):
     patches_dir.mkdir(parents=True, exist_ok=True)
+    data = {"_version": _KEYWORD_VERSION, **keywords}
     with open(_get_type_keywords_path(patches_dir), "w", encoding="utf-8") as f:
-        json.dump(keywords, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 # ── Models ──
@@ -162,14 +168,17 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
         # 1. Try patches.json index
         if index and game.app_id in index:
             entry = index[game.app_id]
-            patch_file = patches_dir / entry["file"]
-            if patch_file.is_file():
+            patch_file = _safe_patch_path(patches_dir, entry.get("file", ""))
+            if patch_file and patch_file.is_file():
                 match.patch_available = True
                 match.patch_filename = patch_file.name
                 match.patch_size = patch_file.stat().st_size
                 match.patch_dir = entry.get("patch_dir", "")
                 match.target_dir = entry.get("target_dir", "")
                 match.label = entry.get("label", "")
+                # Use game_name from patches.json if available (Chinese name from Steam)
+                if entry.get("game_name"):
+                    match.game_name = entry["game_name"]
                 # Type: keep existing if already set (non-misc), else keyword-guess
                 existing_type = entry.get("type", "misc")
                 if existing_type and existing_type != "misc":
@@ -197,7 +206,7 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
 
 
 @router.get("/patches")
-async def list_patches(session: AsyncSession = Depends(get_session)):
+async def list_patches(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """List all patches. Auto-scans if no patches.json. Matches by game name if no app_id."""
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
@@ -246,7 +255,7 @@ async def list_patches(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/patches/{app_id}/download")
-async def download_patch(app_id: str, request: Request):
+async def download_patch(app_id: str, request: Request, user: User = Depends(get_current_user)):
     patches_dir = _get_patches_dir()
     if not patches_dir.exists():
         raise HTTPException(status_code=404, detail="补丁目录不存在")
@@ -255,8 +264,8 @@ async def download_patch(app_id: str, request: Request):
     index = _load_patches_index(patches_dir)
     if index and app_id in index:
         entry = index[app_id]
-        patch_file = patches_dir / entry["file"]
-        if patch_file.is_file():
+        patch_file = _safe_patch_path(patches_dir, entry.get("file", ""))
+        if patch_file and patch_file.is_file():
             return FileResponse(path=str(patch_file), filename=patch_file.name,
                                 media_type="application/octet-stream",
                                 headers={"Accept-Ranges": "bytes"})
@@ -280,7 +289,7 @@ class PatchUpdate(BaseModel):
 
 
 @router.put("/patches/{lookup_key}")
-async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(get_current_user)):
+async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(require_admin)):
     """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
     import json as _json
     patches_dir = _get_patches_dir()
@@ -324,7 +333,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
 # ── Patch scan endpoint ──
 
 @router.post("/scan-patches")
-async def scan_patches_endpoint(user: User = Depends(get_current_user)):
+async def scan_patches_endpoint(user: User = Depends(require_admin)):
     """Re-scan the patch directory and regenerate patches.json."""
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
@@ -339,13 +348,14 @@ async def scan_patches_endpoint(user: User = Depends(get_current_user)):
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(patches_dir)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"补丁扫描失败: {e}")
+        logger.error(f"Patch scan failed: {e}")
+        raise HTTPException(status_code=500, detail="补丁扫描失败，请查看服务端日志")
 
 
 # ── Patch type keywords API ──
 
 @router.get("/patch-type-keywords")
-async def get_type_keywords():
+async def get_type_keywords(user: User = Depends(get_current_user)):
     """Return patch_type_keywords.json content."""
     patches_dir = _get_patches_dir()
     return _load_type_keywords(patches_dir)
@@ -356,24 +366,76 @@ class TypeKeywordsUpdate(BaseModel):
 
 
 @router.put("/patch-type-keywords")
-async def update_type_keywords(body: TypeKeywordsUpdate):
-    """Overwrite patch_type_keywords.json."""
+async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(require_admin)):
+    """Overwrite patch_type_keywords.json (admin only)."""
     patches_dir = _get_patches_dir()
     _save_type_keywords(patches_dir, body.keywords)
     return {"message": "关键词已更新"}
 
 
+def _safe_patch_path(patches_dir: Path, filename: str) -> Path | None:
+    """Resolve a patch file path and verify it stays within patches_dir."""
+    if not filename:
+        return None
+    resolved = (patches_dir / filename).resolve()
+    try:
+        resolved.relative_to(patches_dir.resolve())
+    except ValueError:
+        return None  # path traversal attempt
+    return resolved
+
+
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
-    # Sanitize app_id to prevent path traversal
-    sanitized = app_id.replace("\\", "").replace("/", "").replace("..", "")
+    # Only use basename of app_id to prevent path traversal
+    safe_name = Path(app_id.replace("\\", "/")).name
+    if not safe_name or safe_name in (".", ".."):
+        return None
     for ext in (".zip", ".rar", ".7z", ".tar", ".gz"):
-        candidate = patches_dir / f"{sanitized}{ext}"
-        if candidate.exists():
+        candidate = patches_dir / f"{safe_name}{ext}"
+        if candidate.is_file():
             return candidate
-    app_dir = patches_dir / sanitized
+    app_dir = patches_dir / safe_name
     if app_dir.is_dir():
         for ext in (".zip", ".rar", ".7z"):
             for f in app_dir.iterdir():
                 if f.is_file() and f.suffix.lower() == ext:
                     return f
     return None
+
+
+# ── Steam game name resolution ──
+
+class AppIdList(BaseModel):
+    appids: list[str]
+
+
+@router.post("/game-names")
+async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)):
+    """Resolve Steam AppIDs to Chinese game names via Store API."""
+    import httpx
+    import asyncio
+
+    results: dict[str, str] = {}
+    sem = asyncio.Semaphore(5)
+
+    async def resolve(appid: str):
+        async with sem:
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                    for lang in ("schinese", "english"):
+                        resp = await client.get(
+                            f"https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}"
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            details = (data.get(str(appid)) or {}).get("data") or {}
+                            name = details.get("name", "")
+                            if name:
+                                results[appid] = name
+                                return
+            except Exception:
+                pass
+
+    tasks = [resolve(a) for a in body.appids]
+    await asyncio.gather(*tasks)
+    return results

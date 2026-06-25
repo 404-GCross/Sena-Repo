@@ -10,6 +10,8 @@ import json, os, sys, argparse, re
 from pathlib import Path
 
 # Default keywords for auto type detection (mirrors steam_patch.py)
+_KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
+
 DEFAULT_TYPE_KEYWORDS = {
     "translation": ["_Steam_Chinese_Patch"],
     "voice": ["_Steam_Voice_Patch"],
@@ -39,14 +41,15 @@ def _load_keywords(base_dir: Path) -> dict[str, list[str]]:
         try:
             with open(kw_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, dict):
-                return {k: v for k, v in data.items() if isinstance(v, list)}
+            if isinstance(data, dict) and data.get("_version") == _KEYWORD_VERSION:
+                return {k: v for k, v in data.items() if k != "_version" and isinstance(v, list)}
         except Exception:
             pass
-    # Create default
+    # Create / overwrite with current defaults
     base_dir.mkdir(parents=True, exist_ok=True)
+    defaults = {"_version": _KEYWORD_VERSION, **DEFAULT_TYPE_KEYWORDS}
     with open(kw_path, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
+        json.dump(defaults, f, ensure_ascii=False, indent=2)
     return dict(DEFAULT_TYPE_KEYWORDS)
 
 
@@ -96,6 +99,24 @@ def _search_steam_app_id(game_name: str) -> int | None:
     return None
 
 
+def _fetch_game_name(app_id: int) -> str:
+    """Fetch game name from Steam Store API by app_id. Prefers schinese, falls back to english."""
+    import urllib.request
+    try:
+        for lang in ("schinese", "english"):
+            url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l={lang}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            details = (data.get(str(app_id)) or {}).get("data") or {}
+            name = details.get("name", "")
+            if name:
+                return name
+    except Exception:
+        pass
+    return ""
+
+
 def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
     """Try to get app_id from filename (numeric ID) or Steam search (game name)."""
     name = rel_path.split("/")[-1]
@@ -140,6 +161,7 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
                 "target_dir": "",
                 "label": label,
                 "type": ptype,
+                "game_name": _fetch_game_name(app_id) if app_id else "",
             })
     return archives
 
@@ -164,12 +186,14 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
     for s in scanned:
         old = existing_by_file.get(s["file"])
         if old:
-            # Keep user's manual entries but update app_id if newly discovered
+            # Keep user's manual entries but update discovered fields
             if not old.get("app_id") and s.get("app_id"):
                 old["app_id"] = s["app_id"]
             if not old.get("type") or old.get("type") == "misc":
                 if s.get("type") and s["type"] != "misc":
                     old["type"] = s["type"]
+            if not old.get("game_name") and s.get("game_name"):
+                old["game_name"] = s["game_name"]
             merged.append(old)
         else:
             merged.append(s)

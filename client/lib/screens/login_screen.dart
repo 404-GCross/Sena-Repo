@@ -21,7 +21,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   String? _error;
   bool _showRegister = false;
-  bool _regAsAdmin = false;
 
   Future<void> _login() async {
     if (_userCtrl.text.trim().isEmpty || _passCtrl.text.isEmpty) {
@@ -71,7 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
         body: jsonEncode({
           "username": _userCtrl.text.trim(),
           "password": _passCtrl.text,
-          "is_admin": _regAsAdmin,
+          "is_admin": false,
         }),
       );
       final body = jsonDecode(resp.body);
@@ -134,13 +133,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: const InputDecoration(
                           labelText: "确认密码", prefixIcon: Icon(Icons.lock)),
                       obscureText: true,
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      title: const Text("注册为管理员"),
-                      value: _regAsAdmin,
-                      onChanged: (v) => setState(() => _regAsAdmin = v),
-                      dense: true,
                     ),
                   ],
                   if (_error != null)

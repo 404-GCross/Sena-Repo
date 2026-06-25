@@ -252,13 +252,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Column(children: [
-          Container(
-            width: 56, height: 56,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFFA855F7)]),
-            ),
-            child: const Icon(Icons.videogame_asset, size: 28, color: Colors.white),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.asset("assets/icon.png", width: 56, height: 56),
           ),
           const SizedBox(height: 12),
           const Text("Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),

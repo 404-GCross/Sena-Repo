@@ -90,6 +90,8 @@ jobs:
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
           Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
           Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
+          Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7z.txt
+          Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7z.txt
       - name: Sync version to source files
         shell: pwsh
         run: |
@@ -109,22 +111,45 @@ jobs:
         run: dart run flutter_launcher_icons
       - name: Build Windows
         run: flutter build windows --release
+
+      - name: Setup Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Install Chinese language
+        shell: pwsh
+        run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+
       - name: Bundle Python + VDF
         shell: pwsh
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
-          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse
-          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py"
-          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
-      - name: Setup fastforge + Inno Setup
-        run: |
-          dart pub global activate fastforge
-          choco install innosetup -y --no-progress
-      - name: Install Chinese language
+          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
+          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
+          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
+
+      - name: Build installer (ISCC)
         shell: pwsh
-        run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
-      - name: Build installer
-        run: fastforge package --platform windows --targets exe
+        run: |
+          $ver = $env:VERSION
+          $releaseDir = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $template = Get-Content "windows_assets/packaging/exe/inno_setup.iss" -Raw
+          $iss = $template `
+            -replace '\{\{APP_ID\}\}', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' `
+            -replace '\{\{APP_VERSION\}\}', $ver `
+            -replace '\{\{DISPLAY_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
+            -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
+            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
+            -replace '\{\{SETUP_ICON_FILE\}\}', (Resolve-Path "windows\runner\resources\app_icon.ico").Path `
+            -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
+            -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
+            -replace '\{\{SOURCE_DIR\}\}', $releaseDir `
+            -replace '^OutputDir=\.', 'OutputDir=dist'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $iss | Out-File -FilePath "dist/setup.iss" -Encoding UTF8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "dist/setup.iss"
+
       - name: Flatten installer
         shell: pwsh
         run: |
@@ -133,13 +158,22 @@ jobs:
             Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
+
       - name: Package portable zip
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $pkg="Sena-Repo_Windows_v${env:VERSION}"
-          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-          Copy-Item -Path build/windows/x64/runner/Release/* -Destination $pkg/ -Recurse
+          $releaseDir = "build/windows/x64/runner/Release"
+          robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
+          if (Test-Path "$pkg/python/python.exe") {
+            Write-Host "OK: python/ included in portable package"
+          } else {
+            Write-Host "WARNING: python/ missing! Package contents:"
+            Get-ChildItem $pkg -Directory | Select-Object Name
+          }
           Compress-Archive -Path $pkg -DestinationPath "dist/$pkg.zip"
       - name: Upload Windows Portable
         uses: actions/upload-artifact@v4
@@ -247,27 +281,47 @@ jobs:
           V="${{ inputs.version }}"
           if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
-      - name: Build Docker image
-        run: docker build --no-cache -t sena-repo:latest server/
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export AMD64 tarball
+        run: |
+          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --load
+          docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
+
+      - name: Build and export ARM64 tarball
+        run: |
+          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --load
+          docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push to GHCR
+
+      - name: Push to GHCR (multi-arch)
         run: |
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:pre-release
-          docker tag sena-repo:latest ghcr.io/404-gcross/sena-repo:v${VERSION}
-          docker push ghcr.io/404-gcross/sena-repo:pre-release
-          docker push ghcr.io/404-gcross/sena-repo:v${VERSION}
-      - name: Save tarball
-        run: docker save sena-repo:latest | gzip > "Sena-Repo_Server_v${VERSION}.tar.gz"
-      - name: Upload Server Image
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/404-gcross/sena-repo:pre-release \
+            -t ghcr.io/404-gcross/sena-repo:v${VERSION} \
+            server/ --push
+
+      - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Server
-          path: Sena-Repo_Server_*.tar.gz
+          name: Sena-Repo_Server_amd64
+          path: Sena-Repo_Server_amd64_*.tar.gz
+
+      - name: Upload Server Image (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Server_arm64
+          path: Sena-Repo_Server_arm64_*.tar.gz
 
   # ── Publish Release ──────────────────────────────
   publish:

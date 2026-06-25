@@ -12,7 +12,7 @@ import "download_service.dart";
 
 class SteamGameInfo {
   final String appId;
-  final String name;
+  String name;
   final String installDir;
 
   SteamGameInfo({required this.appId, required this.name, required this.installDir});
@@ -104,6 +104,24 @@ class SteamService {
     return match?.group(1);
   }
 
+  /// Resolve Chinese game names for a list of AppIDs via server Steam API.
+  static Future<Map<String, String>> resolveGameNames(
+    ApiClient api, List<String> appids,
+  ) async {
+    if (appids.isEmpty) return {};
+    try {
+      final resp = await http.post(
+        Uri.parse("${api.baseUrl}/api/steam/game-names"),
+        headers: {"Content-Type": "application/json", ...api.headers},
+        body: jsonEncode({"appids": appids}),
+      );
+      if (resp.statusCode == 200) {
+        return Map<String, String>.from(jsonDecode(resp.body) as Map);
+      }
+    } catch (_) {}
+    return {};
+  }
+
   /// Send scanned games to server for patch matching.
   static Future<List<PatchMatch>> checkPatches(
     ApiClient api, List<SteamGameInfo> games,
@@ -179,8 +197,35 @@ class SteamService {
 
   // ── Injection (delegates to DownloadService's proven pipeline) ──
 
+  /// Active injection DownloadService instances, keyed by appId.
+  /// Kept here so pause/cancel can reach the same instance that is running the extraction.
+  static final Map<String, DownloadService> _activeInjections = {};
+
   static void cancelInjection(String appId) {
-    // Managed by DownloadService internally
+    final svc = _activeInjections[appId];
+    if (svc != null) {
+      svc.cancelPatchInjection(appId);
+    } else {
+      // Fallback: create an instance to access static _patchInjections
+      DownloadService().cancelPatchInjection(appId);
+    }
+    _activeInjections.remove(appId);
+  }
+
+  static void pauseInjection(String appId) {
+    final svc = _activeInjections[appId];
+    if (svc != null) {
+      svc.pausePatchInjection(appId);
+    } else {
+      DownloadService().pausePatchInjection(appId);
+    }
+  }
+
+  /// Resume a paused injection by restarting the download.
+  /// The caller should re-invoke [injectPatch] with the same parameters.
+  static void resumeInjection(String appId) {
+    _activeInjections.remove(appId);
+    // The UI re-calls injectPatch to restart
   }
 
   /// Download and inject a patch. Uses DownloadService's proven download+extract pipeline.
@@ -194,17 +239,23 @@ class SteamService {
     String? targetDir,
     void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
-    final (error, outputDir) = await DownloadService().downloadPatch(
-      appId: appId,
-      downloadUrl: downloadUrl,
-      patchFilename: patchFilename,
-      installDir: installDir,
-      patchDir: patchDir,
-      targetDir: targetDir,
-      onProgress: onProgress,
-    );
-    if (error != null) return {"error": error};
-    return {"stage": "done", "output": outputDir ?? installDir};
+    final svc = DownloadService();
+    _activeInjections[appId] = svc;
+    try {
+      final (error, outputDir) = await svc.downloadPatch(
+        appId: appId,
+        downloadUrl: downloadUrl,
+        patchFilename: patchFilename,
+        installDir: installDir,
+        patchDir: patchDir,
+        targetDir: targetDir,
+        onProgress: onProgress,
+      );
+      if (error != null) return {"error": error};
+      return {"stage": "done", "output": outputDir ?? installDir};
+    } finally {
+      _activeInjections.remove(appId);
+    }
   }
 
 }

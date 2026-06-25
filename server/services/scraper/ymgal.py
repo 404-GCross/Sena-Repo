@@ -12,8 +12,6 @@ from .base import BaseScraper, ScraperResult, clean_title
 logger = logging.getLogger(__name__)
 
 YMGAL_BASE = "https://www.ymgal.games"
-YMGAL_CLIENT_ID = "ymgal"
-YMGAL_CLIENT_SECRET = "luna0327"
 
 
 class YmgalScraper(BaseScraper):
@@ -28,10 +26,14 @@ class YmgalScraper(BaseScraper):
         self,
         proxy: str = "",
         client: httpx.AsyncClient | None = None,
+        client_id: str = "ymgal",
+        client_secret: str = "luna0327",
     ):
         super().__init__(proxy=proxy, client=client)
         self._token: str = ""
         self._token_expires: float = 0.0
+        self._client_id = client_id
+        self._client_secret = client_secret
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
         """Get or refresh OAuth2 access token."""
@@ -43,8 +45,8 @@ class YmgalScraper(BaseScraper):
             f"{YMGAL_BASE}/oauth/token",
             params={
                 "grant_type": "client_credentials",
-                "client_id": YMGAL_CLIENT_ID,
-                "client_secret": YMGAL_CLIENT_SECRET,
+                "client_id": self._client_id,
+                "client_secret": self._client_secret,
                 "scope": "public",
             },
             headers={"Accept": "application/json;charset=utf-8"},

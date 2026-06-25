@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from database import get_session
 from models.user import User
 from models.game import Game, GameTag
@@ -27,7 +27,7 @@ async def list_tags(user: User = Depends(get_current_user), session: AsyncSessio
 @router.post("/tags", response_model=TagOut, status_code=201)
 async def create_tag(
     body: TagCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new tag."""
@@ -48,10 +48,10 @@ async def create_tag(
 async def update_tag(
     tag_id: int,
     body: TagUpdate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update a tag's name or color."""
+    """Update a tag's name or color (admin only)."""
     result = await session.execute(select(Tag).where(Tag.id == tag_id))
     tag = result.scalar_one_or_none()
     if tag is None:
@@ -76,10 +76,10 @@ async def update_tag(
 @router.delete("/tags/{tag_id}", response_model=MessageResponse)
 async def delete_tag(
     tag_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a tag (removes from all games)."""
+    """Delete a tag (admin only)."""
     result = await session.execute(select(Tag).where(Tag.id == tag_id))
     tag = result.scalar_one_or_none()
     if tag is None:
@@ -95,10 +95,10 @@ async def delete_tag(
 async def add_tag_to_game(
     game_id: int,
     tag_name: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Add a tag to a game by tag name. Creates the tag if it doesn't exist."""
+    """Add a tag to a game by tag name (admin only)."""
     # Verify game exists
     game = await session.execute(select(Game).where(Game.id == game_id))
     if game.scalar_one_or_none() is None:
@@ -127,10 +127,10 @@ async def add_tag_to_game(
 async def remove_tag_from_game(
     game_id: int,
     tag_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Remove a tag from a game."""
+    """Remove a tag from a game (admin only)."""
     result = await session.execute(
         select(GameTag).where(GameTag.game_id == game_id, GameTag.tag_id == tag_id)
     )

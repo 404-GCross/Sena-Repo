@@ -11,6 +11,9 @@ import "../models/game.dart";
 /// Global token store — always accessible, survives Provider rebuilds.
 String? globalToken;
 
+/// Hostname of the configured server — only bypasses TLS for this host.
+String? trustedServerHost;
+
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
@@ -52,6 +55,7 @@ class ApiClient {
   void connect(String host, {int port = 11451, bool useHttps = false}) {
     final scheme = useHttps ? "https" : "http";
     _baseUrl = "$scheme://$host:$port";
+    trustedServerHost = host;
   }
 
 

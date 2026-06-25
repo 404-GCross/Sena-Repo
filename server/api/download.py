@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
+from config import load_config
 from database import get_session
 from models.game import Game, GameVersion
 from models.user import User
@@ -55,9 +56,17 @@ async def download_game_version(
         if version is None:
             raise HTTPException(status_code=404, detail="Version not found")
 
-        file_path = Path(version.file_path)
+        file_path = Path(version.file_path).resolve()
+        # Verify file is within configured games directory
+        config = load_config()
+        games_root = Path(config.games_path).resolve()
+        try:
+            file_path.relative_to(games_root)
+        except ValueError:
+            raise HTTPException(status_code=403, detail="File outside games directory")
+
         if not file_path.is_file():
-            raise HTTPException(status_code=404, detail=f"File not found: {version.file_path}")
+            raise HTTPException(status_code=404, detail="File not found")
 
         return FileResponse(
             path=str(file_path),
@@ -68,4 +77,4 @@ async def download_game_version(
         raise
     except Exception as e:
         logger.error(f"Download failed gid={game_id} vid={version_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="下载失败，请查看服务端日志")

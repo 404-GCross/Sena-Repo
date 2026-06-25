@@ -132,34 +132,43 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Bundle Python + VDF script
-        shell: pwsh
-        run: |
-          $releaseDir = "build/windows/x64/runner/Release"
-          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse
-          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py"
-          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse
-
-      - name: Setup fastforge + Inno Setup
-        shell: pwsh
-        run: |
-          dart pub global activate fastforge
-          Write-Host "fastforge: $((Get-Command fastforge -ErrorAction SilentlyContinue).Source)"
-          choco install innosetup -y --no-progress
+      - name: Setup Inno Setup
+        run: choco install innosetup -y --no-progress
 
       - name: Install Chinese language for Inno Setup
         shell: pwsh
-        run: |
-          Copy-Item "windows_assets\ChineseSimplified.isl" "windows\packaging\exe\ChineseSimplified.isl"
-          Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+        run: Copy-Item "windows_assets\ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
 
-      - name: Verify packaging files
+      - name: Bundle Python + VDF
         shell: pwsh
-        run: Get-ChildItem -Recurse windows\packaging
-
-      - name: Build installer
         run: |
-          fastforge package --platform windows --targets exe
+          $releaseDir = "build/windows/x64/runner/Release"
+          Copy-Item -Path "python" -Destination "$releaseDir/python" -Recurse -ErrorAction Stop
+          Copy-Item -Path "../server/add_steam_game.py" -Destination "$releaseDir/add_steam_game.py" -ErrorAction Stop
+          Copy-Item -Path "../server/vdf" -Destination "$releaseDir/vdf" -Recurse -ErrorAction Stop
+
+      - name: Build installer (ISCC)
+        shell: pwsh
+        run: |
+          $ver = $env:VERSION
+          $releaseDir = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $template = Get-Content "windows_assets/packaging/exe/inno_setup.iss" -Raw
+          $iss = $template `
+            -replace '\{\{APP_ID\}\}', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' `
+            -replace '\{\{APP_VERSION\}\}', $ver `
+            -replace '\{\{DISPLAY_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
+            -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
+            -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
+            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
+            -replace '\{\{SETUP_ICON_FILE\}\}', (Resolve-Path "windows\runner\resources\app_icon.ico").Path `
+            -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
+            -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
+            -replace '\{\{SOURCE_DIR\}\}', $releaseDir `
+            -replace '^OutputDir=\.', 'OutputDir=dist'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $iss | Out-File -FilePath "dist/setup.iss" -Encoding UTF8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "dist/setup.iss"
 
       - name: Flatten installer artifact
         shell: pwsh
@@ -168,9 +177,6 @@ jobs:
           if ($setupExe) {
             Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
-          } else {
-            Write-Host "No setup exe found! Listing dist:"
-            Get-ChildItem -Recurse dist
           }
 
       - name: Package Windows (portable zip)
@@ -178,8 +184,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $pkg="Sena-Repo_Windows_v${env:VERSION}"
-          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-          Copy-Item -Path build/windows/x64/runner/Release/* -Destination $pkg/ -Recurse
+          $releaseDir = "build/windows/x64/runner/Release"
+          robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0  # robocopy success codes 0-7 are normal, reset for Actions
+          if (Test-Path "$pkg/python/python.exe") {
+            Write-Host "OK: python/ included in portable package"
+          } else {
+            Write-Host "WARNING: python/ missing! Package contents:"
+            Get-ChildItem $pkg -Directory | Select-Object Name
+          }
           Compress-Archive -Path $pkg -DestinationPath "dist/$pkg.zip"
 
       - name: Upload Windows Portable
@@ -322,15 +336,30 @@ jobs:
           if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
-      - name: Build Docker image
-        run: docker build --no-cache -t sena-repo:latest server/
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Save Docker image (tarball)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export AMD64 tarball
         run: |
-          docker save sena-repo:latest | gzip > "Sena-Repo_Server_v${VERSION}.tar.gz"
+          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --load
+          docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
 
-      - name: Upload Server Image
+      - name: Build and export ARM64 tarball
+        run: |
+          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --load
+          docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
+
+      - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Server
-          path: Sena-Repo_Server_*.tar.gz
+          name: Sena-Repo_Server_amd64
+          path: Sena-Repo_Server_amd64_*.tar.gz
+
+      - name: Upload Server Image (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Server_arm64
+          path: Sena-Repo_Server_arm64_*.tar.gz

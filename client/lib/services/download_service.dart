@@ -187,6 +187,44 @@ class DownloadService with WidgetsBindingObserver {
   final List<DownloadTask> _tasks = [];
   final _controller = StreamController<List<DownloadTask>>.broadcast();
 
+  // ── patch injection tracking (static so SteamService cross-instance access works) ──
+  static final Map<String, _PatchInjection> _patchInjections = {};
+
+  void cancelPatchInjection(String appId) {
+    final inj = _patchInjections[appId];
+    if (inj == null) return;
+    inj.cancelled = true;
+    inj.paused = false;
+    inj.task._client?.close();
+    inj.task._client = null;
+    inj.extractProcess?.kill();
+    inj.extractProcess = null;
+    // Also kill via instance-level _extractionProcess in case _runTool is mid-flight
+    _killExtractor();
+    inj.task._cancelled = true;
+    inj.task.status = "cancelled";
+    inj.task.error = "已取消";
+    try { File(inj.tempPath).delete(); } catch (_) {}
+    _patchInjections.remove(appId);
+    _emit();
+  }
+
+  void pausePatchInjection(String appId) {
+    final inj = _patchInjections[appId];
+    if (inj == null) return;
+    inj.paused = true;
+    if (inj.task.status == "downloading" || inj.task.status == "retrying" || inj.task.status == "pending") {
+      inj.task._client?.close();
+      inj.task._client = null;
+    } else if (inj.task.status == "extracting") {
+      inj.extractProcess?.kill();
+      inj.extractProcess = null;
+      _killExtractor();
+    }
+    inj.task.status = "paused";
+    _emit();
+  }
+
   Stream<List<DownloadTask>> get tasks => _controller.stream;
   List<DownloadTask> get currentTasks => List.unmodifiable(_tasks);
 
@@ -231,6 +269,7 @@ class DownloadService with WidgetsBindingObserver {
 
   /// Download a patch file to temp, extract to installDir, return (error, outputDir) tuple.
   /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed, stage).
+  /// Patch injection can be cancelled/paused via [cancelPatchInjection]/[pausePatchInjection].
   Future<(String?, String?)> downloadPatch({
     required String appId,
     required String downloadUrl,
@@ -242,26 +281,40 @@ class DownloadService with WidgetsBindingObserver {
   }) async {
     final dir = await downloadDir;
     final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
-    final tmp = File("${dir}${Platform.pathSeparator}.patch_${appId}$ext");
+    final tmpPath = "${dir}${Platform.pathSeparator}.patch_${appId}$ext";
+    final tmp = File(tmpPath);
+    // Track injection state for cross-instance cancellation
+    final task = DownloadTask(
+      gameId: appId.hashCode, versionId: appId.hashCode,
+      fileName: patchFilename, downloadUrl: downloadUrl,
+      gameName: "Steam Patch", companyName: "Steam",
+    );
+    final inj = _PatchInjection(task: task, tempPath: tmpPath);
+    _patchInjections[appId] = inj;
     try {
       // Download via proven stream pipeline
-      final task = DownloadTask(
-        gameId: appId.hashCode, versionId: appId.hashCode,
-        fileName: patchFilename, downloadUrl: downloadUrl,
-        gameName: "Steam Patch", companyName: "Steam",
-      );
       StreamSubscription<List<DownloadTask>>? sub;
       if (onProgress != null) {
         sub = _controller.stream.listen((_) {
           onProgress(task.progress, task.receivedBytes, task.totalBytes, task.speedBytesPerSecond, task.status);
         });
       }
+      // Restore partial download from paused state so Range resume works
+      if (await tmp.exists()) {
+        final existingSize = await tmp.length();
+        if (existingSize > 0) task.receivedBytes = existingSize;
+      }
       try {
+        task.status = "downloading";
         await _download(task, tmp);
       } finally {
         await sub?.cancel();
       }
-      if (task.status == "failed" || task.status == "paused") return (task.error ?? "下载失败", null);
+      if (_stopped(task)) {
+        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
+      }
+      if (task.status == "failed") return (task.error ?? "下载失败", null);
 
       // Resolve target directory
       String destDir = installDir;
@@ -271,19 +324,31 @@ class DownloadService with WidgetsBindingObserver {
       await Directory(destDir).create(recursive: true);
 
       final exe = await _getSevenZipPath();
+      task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
       if ((patchDir == null || patchDir.isEmpty) && (targetDir == null || targetDir.isEmpty)) {
         LoggerService().info("patch extract: $exe x -y -o$destDir ${tmp.path}");
         await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800,
+            injectionAppId: appId,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        if (_stopped(task)) {
+          if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+          return (task.status == "paused" ? "已暂停" : "已取消", null);
+        }
         LoggerService().info("patch extract done: $destDir");
       } else {
         final tmpExtract = "${dir}${Platform.pathSeparator}.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
         LoggerService().info("patch extract: $exe x -y -o$tmpExtract ${tmp.path}");
         await Directory(tmpExtract).create(recursive: true);
         await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
+            injectionAppId: appId,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        if (_stopped(task)) {
+          try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
+          if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+          return (task.status == "paused" ? "已暂停" : "已取消", null);
+        }
         LoggerService().info("patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir");
         String sourceDir = tmpExtract;
         if (patchDir != null && patchDir.isNotEmpty) {
@@ -292,6 +357,7 @@ class DownloadService with WidgetsBindingObserver {
           if (await Directory(pd).exists()) {
             sourceDir = pd;
           } else {
+            try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
             return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
           }
         } else {
@@ -303,11 +369,21 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("patch merge done");
         await Directory(tmpExtract).delete(recursive: true);
       }
+      if (_stopped(task)) {
+        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
+      }
       try { await tmp.delete(); } catch (_) {}
       return (null, destDir);
     } catch (e) {
+      if (_stopped(task)) {
+        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
+      }
       try { await tmp.delete(); } catch (_) {}
       return ("$e", null);
+    } finally {
+      _patchInjections.remove(appId);
     }
   }
 
@@ -396,9 +472,9 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await downloadDir;
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
     final outDir = _outDir(t, dir);
-    final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
+    final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
@@ -411,7 +487,7 @@ class DownloadService with WidgetsBindingObserver {
       await _fixLayout(outDir, gameDir);
       await tmp.delete();
       t.status = "done";
-      t.outputPath = outDir;
+      t.outputPath = "${outDir}${Platform.pathSeparator}$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
@@ -431,7 +507,8 @@ class DownloadService with WidgetsBindingObserver {
 
   void cancelTask(DownloadTask task) {
     if (task.status == "downloading" || task.status == "pending" ||
-        task.status == "retrying" || task.status == "extracting") {
+        task.status == "retrying" || task.status == "extracting" ||
+        task.status == "paused") {
       task._client?.close();
       task._client = null;
       _killExtractor();
@@ -579,9 +656,9 @@ class DownloadService with WidgetsBindingObserver {
     final dir = await downloadDir;
     // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${t.fileName}");
+    final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
     final outDir = _outDir(t, dir);
-    final gameDir = t.gameName.isNotEmpty ? t.gameName : t.fileName;
+    final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
@@ -606,7 +683,7 @@ class DownloadService with WidgetsBindingObserver {
         // Check if APK — move to output dir, skip extraction
         if (t.fileName.toLowerCase().endsWith(".apk")) {
           t.isApk = true;
-          final apkFile = File("$outDir/${t.fileName}");
+          final apkFile = File("$outDir/${_safeName(t.fileName)}");
           try { await apkFile.parent.create(recursive: true); } catch (_) {}
           try { await tmp.rename(apkFile.path); } catch (e) {
             try { await tmp.copy(apkFile.path); await tmp.delete(); } catch (_) {
@@ -659,7 +736,7 @@ class DownloadService with WidgetsBindingObserver {
 
       // Phase 3: done
       t.status = "done";
-      t.outputPath = outDir;
+      t.outputPath = "${outDir}${Platform.pathSeparator}$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
@@ -867,16 +944,51 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       throw Exception("解压组件未就绪: $e");
     }
-    final args = ["x", "-y", "-o$outDir", filePath];
-    if (password != null) args.insert(1, "-p$password");
-    // Skip integrity test on Android (saves time, verified during extraction)
-    if (password == null && !Platform.isAndroid) {
-      try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+    // Extract to a temp subdirectory so _fixLayout only sees the new content
+    // and isn't confused by pre-existing sibling game folders in outDir.
+    final extractTempDir = "$outDir${Platform.pathSeparator}.sena_tmp_${gameDir.hashCode.abs()}";
+    // Clean up any leftover from a previous crashed extraction
+    try { await Directory(extractTempDir).delete(recursive: true); } catch (_) {}
+    try {
+      final args = ["x", "-y", "-p-", "-o$extractTempDir", filePath];
+      if (password != null) { args.remove("-p-"); args.insert(1, "-p$password"); }
+      // Skip integrity test on Android (saves time, verified during extraction)
+      if (password == null && !Platform.isAndroid) {
+        try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+      }
+      debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
+      await _runTool(exe, args, onProgress: onProgress,
+        timeout: Platform.isAndroid ? 600 : 1800); // Android: 10min timeout
+      await _fixLayout(extractTempDir, gameDir);
+      // Move result from temp to final location
+      final finalDir = "$outDir${Platform.pathSeparator}$gameDir";
+      final source = "$extractTempDir${Platform.pathSeparator}$gameDir";
+      if (await Directory(source).exists()) {
+        // _fixLayout produced a subfolder named gameDir → move it out
+        // Remove stale empty dir from prior attempt
+        try { if (await Directory(finalDir).exists()) await Directory(finalDir).delete(recursive: true); } catch (_) {}
+        try {
+          await Directory(source).rename(finalDir);
+        } catch (_) {
+          // rename failed (may be cross-volume) → copy+delete fallback
+          await _copyMerge(source, finalDir);
+          await Directory(source).delete(recursive: true);
+        }
+      } else {
+        // _fixLayout case 2 (already named correctly) or no subfolder produced
+        // Move the whole temp dir to final location
+        try { if (await Directory(finalDir).exists()) await Directory(finalDir).delete(recursive: true); } catch (_) {}
+        try {
+          await Directory(extractTempDir).rename(finalDir);
+        } catch (_) {
+          await _copyMerge(extractTempDir, finalDir);
+          await Directory(extractTempDir).delete(recursive: true);
+        }
+      }
+    } finally {
+      // Clean up temp directory
+      try { await Directory(extractTempDir).delete(recursive: true); } catch (_) {}
     }
-    debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
-    await _runTool(exe, args, onProgress: onProgress,
-      timeout: Platform.isAndroid ? 600 : 1800); // Android: 10min timeout
-    await _fixLayout(outDir, gameDir);
   }
 
   /// Ensure clean output: rename archive folder to [gameDir] if different,
@@ -892,7 +1004,7 @@ class DownloadService with WidgetsBindingObserver {
       final folderName = folder.uri.pathSegments.last;
       // Rename to match game name if different
       if (folderName != gameDir) {
-        final target = "$outDir/$gameDir";
+        final target = "${outDir}${Platform.pathSeparator}$gameDir";
         try {
           await folder.rename(target);
         } catch (_) {
@@ -909,11 +1021,11 @@ class DownloadService with WidgetsBindingObserver {
     // Multiple items = archive has no wrapper → create game folder and move in
     if (entries.any((e) => e is Directory && e.uri.pathSegments.last == gameDir)) return;
 
-    final wrap = "$outDir/$gameDir";
+    final wrap = "${outDir}${Platform.pathSeparator}$gameDir";
     try {
       await Directory(wrap).create();
       for (final e in entries) {
-        try { await e.rename("$wrap/${e.uri.pathSegments.last}"); } catch (_) {}
+        try { await e.rename("${wrap}${Platform.pathSeparator}${e.uri.pathSegments.last}"); } catch (_) {}
       }
     } catch (_) {}
   }
@@ -938,7 +1050,7 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   Future<void> _runTool(String exe, List<String> args,
-      {void Function(double)? onProgress, int timeout = 1800}) async {
+      {void Function(double)? onProgress, int timeout = 1800, String? injectionAppId}) async {
     // Android: bypass noexec by using dynamic linker to load the ELF
     if (Platform.isAndroid) {
       args = [exe, ...args];
@@ -946,6 +1058,10 @@ class DownloadService with WidgetsBindingObserver {
     }
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
+    // Also track in patch injection state for cross-instance cancellation
+    if (injectionAppId != null) {
+      _patchInjections[injectionAppId]?.extractProcess = proc;
+    }
 
     // 7z outputs progress (e.g. " 45%") to stderr, not stdout.
     // Parse stderr for both progress and error messages.
@@ -972,15 +1088,21 @@ class DownloadService with WidgetsBindingObserver {
       await stdoutSub.cancel();
       await stderrSub.cancel();
       _extractionProcess = null;
+      if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("超时（${timeout}s）");
     } catch (e) {
       proc.kill();
+      await stdoutSub.cancel();
+      await stderrSub.cancel();
+      _extractionProcess = null;
+      if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("$e");
     }
 
     await stdoutSub.cancel();
     await stderrSub.cancel();
     _extractionProcess = null;
+    if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
 
     if (exitCode != 0) {
       final err = String.fromCharCodes(stderrChunks).trim();
@@ -990,10 +1112,13 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── helpers ──
 
+  /// Strip path traversal sequences from a filename, keeping only the basename.
+  String _safeName(String name) => name.split(RegExp(r"[/\\]")).last;
+
   String _outDir(DownloadTask t, String dir) {
     final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";
     // Extract directly to 会社/, letting archive folder name be the game folder
-    return "$dir/$sub";
+    return "${dir}${Platform.pathSeparator}$sub";
   }
 
   bool _stopped(DownloadTask t) => t._cancelled || t.status == "paused";
@@ -1008,7 +1133,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      await File("$supportDir/.tmp_${t.versionId}_${t.fileName}").delete();
+      await File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}").delete();
     } catch (_) {}
   }
 
@@ -1017,4 +1142,15 @@ class DownloadService with WidgetsBindingObserver {
     _saveTasks();
     if (!_hasActiveDownloads()) _stopForegroundService();
   }
+}
+
+// ── Patch injection state (used by downloadPatch + SteamService) ──
+class _PatchInjection {
+  final DownloadTask task;
+  final String tempPath;
+  Process? extractProcess;
+  bool cancelled = false;
+  bool paused = false;
+
+  _PatchInjection({required this.task, required this.tempPath});
 }

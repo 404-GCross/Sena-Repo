@@ -16,6 +16,7 @@ EXPOSE 11451
 
 ENV SENA_GAMES_PATH=/games
 ENV SENA_DATA_PATH=/data
+ENV SENA_PATCH_DIR=/steam_patch
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:11451/api/health')" || exit 1

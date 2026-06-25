@@ -36,7 +36,7 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
         DLsiteScraper(proxy=config.proxy),
         SteamScraper(proxy=config.proxy),
-        YmgalScraper(proxy=config.proxy),
+        YmgalScraper(proxy=config.proxy, client_id=s.ymgal_client_id, client_secret=s.ymgal_client_secret),
     ]
     if s.igdb_client_id and s.igdb_client_secret:
         scrapers.append(IGDBScraper(

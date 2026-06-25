@@ -103,6 +103,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         actions: [
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
             onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              final isAdmin = prefs.getBool("is_admin") ?? false;
+              if (!isAdmin) {
+                if (mounted) _showDialog(context, "权限不足", "仅限管理员可操作");
+                return;
+              }
               final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => GameEditScreen(game: game)));
               if (changed == true) _load();
             }),
@@ -683,6 +689,7 @@ class _DownloadProgressDialog extends StatefulWidget {
 class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
   late DownloadTask _task;
   StreamSubscription<List<DownloadTask>>? _sub;
+  final _pwdCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -695,6 +702,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   @override
   void dispose() {
+    _pwdCtrl.dispose();
     _sub?.cancel();
     super.dispose();
   }
@@ -722,14 +730,45 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       )),
       actions: [
         if (_task.status == "failed")
-          Row(children: [
-            FilledButton(
-              onPressed: () => DownloadService().retryTask(_task),
-              child: const Text("重试"),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
-          ])
+          _task.needsPassword
+          ? Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [
+                Expanded(child: TextField(
+                  controller: _pwdCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    hintText: "请输入压缩包密码", isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                )),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () {
+                    final pwd = _pwdCtrl.text.trim();
+                    if (pwd.isNotEmpty) DownloadService().retryWithPassword(_task, pwd);
+                  },
+                  child: const Text("带密码重试"),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                FilledButton(
+                  onPressed: () => DownloadService().retryTask(_task),
+                  child: const Text("无密码重试"),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+              ]),
+            ])
+          : Row(children: [
+              FilledButton(
+                onPressed: () => DownloadService().retryTask(_task),
+                child: const Text("重试"),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+            ])
         else if (_task.status == "done" || _task.status == "cancelled")
           Row(children: [
             // PC-only: Steam + Shortcut buttons (Android has no Steam/desktop)
@@ -781,7 +820,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   Future<void> _addToSteamDownload(DownloadTask task) async {
     if (task.outputPath == null) return;
-    final exes = ShortcutService.findAllExecutables(task.outputPath!);
+    final exes = ShortcutService.findAllExecutables(task.outputPath!, gameName: task.gameName);
     if (exes.isEmpty) {
       _showDialog(context, "提示", "未找到可执行文件");
       return;
@@ -847,7 +886,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
 
   Future<void> _createShortcut(DownloadTask task) async {
     if (task.outputPath == null) return;
-    final exes = ShortcutService.findAllExecutables(task.outputPath!);
+    final exes = ShortcutService.findAllExecutables(task.outputPath!, gameName: task.gameName);
     if (exes.isEmpty) {
       _showDialog(context, "提示", "未找到可执行文件");
       return;

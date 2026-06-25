@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
+from config import load_config
 from models.user import User
 
 from database import get_session
@@ -34,9 +36,38 @@ class ScanSettingsOut(BaseModel):
     scan_structure: str
 
 
+def _scan_settings_path(config) -> Path:
+    return Path(config.data_path) / "scan_settings.json"
+
+
+def _load_scan_settings(config):
+    """Load persisted scan settings from JSON file."""
+    path = _scan_settings_path(config)
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            config._auto_scan = data.get("auto_scan", False)
+            config._scan_interval = data.get("scan_interval", 24)
+            config._scan_structure = data.get("scan_structure", "company_game")
+        except Exception:
+            pass
+
+
+def _save_scan_settings(config):
+    """Persist scan settings to JSON file."""
+    path = _scan_settings_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "auto_scan": getattr(config, "_auto_scan", False),
+        "scan_interval": getattr(config, "_scan_interval", 24),
+        "scan_structure": getattr(config, "_scan_structure", "company_game"),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 @router.get("/scan", response_model=ScanSettingsOut)
-async def get_scan_settings():
+async def get_scan_settings(user: User = Depends(get_current_user)):
     config = load_config()
+    _load_scan_settings(config)  # restore persisted settings into memory
     return ScanSettingsOut(
         auto_scan=getattr(config, "_auto_scan", False),
         scan_interval=getattr(config, "_scan_interval", 24),
@@ -45,11 +76,12 @@ async def get_scan_settings():
 
 
 @router.put("/scan")
-async def update_scan_settings(body: ScanSettings, user: User = Depends(get_current_user)):
+async def update_scan_settings(body: ScanSettings, user: User = Depends(require_admin)):
     config = load_config()
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
     config._scan_structure = body.scan_structure
+    _save_scan_settings(config)  # persist to disk
     return {"message": "保存成功"}
 
 
@@ -58,6 +90,8 @@ class ScraperConfigOut(BaseModel):
     vndb_token: str = ""
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
+    ymgal_client_id: str = ""
+    ymgal_client_secret: str = ""
     proxy: str = ""
 
 
@@ -66,6 +100,8 @@ class ScraperConfigUpdate(BaseModel):
     vndb_token: str | None = None
     igdb_client_id: str | None = None
     igdb_client_secret: str | None = None
+    ymgal_client_id: str | None = None
+    ymgal_client_secret: str | None = None
     proxy: str | None = None
 
 
@@ -86,7 +122,9 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         vndb_token=_mask(s.vndb_token),
         igdb_client_id=_mask(s.igdb_client_id),
         igdb_client_secret=_mask(s.igdb_client_secret),
-        proxy=config.proxy,
+        ymgal_client_id=_mask(s.ymgal_client_id),
+        ymgal_client_secret=_mask(s.ymgal_client_secret),
+        proxy=_mask(config.proxy),
     )
 
 
@@ -118,13 +156,14 @@ def _write_scraper_config(data: dict):
 
 
 @router.put("/scraper")
-async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(get_current_user)):
-    """Update scraper configuration, persisted to data directory."""
+async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(require_admin)):
+    """Update scraper configuration, persisted to data directory (admin only)."""
     from config import load_config
     config = load_config()
     data = _read_scraper_config()
 
-    for key in ("bangumi_token", "vndb_token", "igdb_client_id", "igdb_client_secret", "proxy"):
+    for key in ("bangumi_token", "vndb_token", "igdb_client_id", "igdb_client_secret",
+                 "ymgal_client_id", "ymgal_client_secret", "proxy"):
         val = getattr(body, key, None)
         if val is not None:
             setattr(config.scrapers, key, val) if key != "proxy" else setattr(config, "proxy", val)
@@ -147,8 +186,8 @@ async def test_proxy(user: User = Depends(get_current_user)):
         async with httpx.AsyncClient(**kwargs) as client:
             resp = await client.get("https://www.google.com")
             return {"ok": True, "status": resp.status_code, "proxy": config.proxy or "直连", "latency_ms": round(resp.elapsed.total_seconds() * 1000)}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "proxy": config.proxy or "直连"}
+    except Exception:
+        return {"ok": False, "error": "代理连接失败，请检查代理地址和网络状态", "proxy": config.proxy or "直连"}
 
 
 # --- Ignore List ---

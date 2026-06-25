@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import ipaddress
+from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime
 
@@ -18,7 +19,7 @@ from database import get_session
 from config import load_config
 from models.game import Game
 from models.user import User
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
@@ -33,6 +34,8 @@ router = APIRouter(prefix="/api", tags=["scraper"])
 
 def _validate_public_url(url: str) -> None:
     """Reject non-HTTP(S) and internal/private URLs (SSRF prevention)."""
+    import socket
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="仅支持 HTTP/HTTPS URL")
@@ -42,7 +45,23 @@ def _validate_public_url(url: str) -> None:
             if ip.is_loopback or ip.is_private or ip.is_link_local:
                 raise HTTPException(status_code=400, detail="不允许使用内网地址")
         except ValueError:
-            pass  # Hostname (not IP) is fine
+            # Hostname — resolve DNS with 3s per-host timeout
+            try:
+                future = ThreadPoolExecutor(max_workers=1).submit(
+                    socket.getaddrinfo, parsed.hostname, None
+                )
+                addrs = future.result(timeout=3)
+                for addr in addrs:
+                    ip_str = addr[4][0]
+                    ip = ipaddress.ip_address(ip_str)
+                    if ip.is_loopback or ip.is_private or ip.is_link_local:
+                        raise HTTPException(status_code=400, detail="不允许使用内网地址")
+            except FuturesTimeout:
+                pass  # DNS timeout — allow (fail-open)
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # DNS failure — allow (fail-open for availability)
 
 
 class BatchScrapeRequest(BaseModel):
@@ -91,8 +110,8 @@ async def search_candidates(
                 for r in results
             ],
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="搜索失败，请查看服务端日志")
     finally:
         await scraper.close()
 
@@ -109,7 +128,7 @@ async def scrape_apply(
     description: str = "",
     release_date: str = "",
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Apply a specific scraper result to a game."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -172,7 +191,7 @@ async def scrape_game_cover(
     game_id: int,
     sources: list[str] | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Manually scrape metadata for a single game.
 
@@ -268,7 +287,7 @@ async def scrape_game_cover(
 async def start_batch_scrape(
     body: BatchScrapeRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Start a batch scrape job for games without covers.
 
@@ -311,7 +330,7 @@ async def start_batch_scrape(
 
 
 @router.post("/scrape/jobs/{job_id}/cancel")
-async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(require_admin)):
     """Cancel a running scrape job."""
     result = await session.execute(select(ScrapeJob).where(ScrapeJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -376,7 +395,7 @@ async def update_game_cover(
     game_id: int,
     cover_url: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Update a game's cover via URL or mark it for manual update.
 
@@ -407,7 +426,8 @@ async def update_game_cover(
                 await session.commit()
                 return {"message": "Cover updated", "cover_path": game.cover_path}
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Failed to download cover: {type(e).__name__}: {e}")
+                logger.warning(f"Cover download failed: {e}")
+                raise HTTPException(status_code=400, detail="封面下载失败")
 
     return MessageResponse(message="No cover URL provided")
 
@@ -417,7 +437,7 @@ async def upload_game_cover(
     game_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Upload a cover image directly from a local file."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -435,10 +455,17 @@ async def upload_game_cover(
     covers_dir = config.covers_path
     covers_dir.mkdir(parents=True, exist_ok=True)
 
-    # Delete old cover if exists
-    if game.cover_path and os.path.isfile(game.cover_path):
-        try: os.remove(game.cover_path)
-        except Exception: pass
+    # Delete old cover if exists (validate path is within covers dir)
+    if game.cover_path:
+        cover_path_obj = Path(game.cover_path)
+        try:
+            cover_path_obj.resolve().relative_to(config.covers_path.resolve())
+        except ValueError:
+            pass  # path outside covers dir — skip deletion
+        else:
+            if cover_path_obj.is_file():
+                try: os.remove(str(cover_path_obj))
+                except Exception: pass
 
     cover_path = covers_dir / f"{game_id}_upload{ext}"
     cover_path.write_bytes(await file.read())
@@ -451,7 +478,7 @@ async def upload_game_cover(
 async def delete_game_cover(
     game_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Remove a game's cover image."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -461,8 +488,15 @@ async def delete_game_cover(
 
     if game.cover_path:
         import os
-        if os.path.isfile(game.cover_path):
-            os.remove(game.cover_path)
+        config = load_config()
+        cover_path = Path(game.cover_path)
+        try:
+            cover_path.resolve().relative_to(config.covers_path.resolve())
+        except ValueError:
+            pass  # path outside covers dir — skip deletion
+        else:
+            if cover_path.is_file():
+                os.remove(str(cover_path))
         game.cover_path = None
         await session.commit()
 
@@ -476,7 +510,7 @@ async def update_game_background(
     game_id: int,
     bg_url: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Set a custom background image for a game. Pass ?bg_url=<url> to download."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -504,7 +538,8 @@ async def update_game_background(
                 await session.commit()
                 return MessageResponse(message="Background updated from URL")
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Failed to download background: {e}")
+                logger.warning(f"Background download failed: {e}")
+                raise HTTPException(status_code=400, detail="背景下载失败")
 
     return MessageResponse(message="No background URL provided")
 
@@ -514,7 +549,7 @@ async def upload_game_background(
     game_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Upload a background/hero image directly from a local file."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -531,9 +566,17 @@ async def upload_game_background(
     bg_dir = config.backgrounds_path
     bg_dir.mkdir(parents=True, exist_ok=True)
 
-    if game.bg_path and os.path.isfile(game.bg_path):
-        try: os.remove(game.bg_path)
-        except Exception: pass
+    # Delete old background if exists (validate path is within backgrounds dir)
+    if game.bg_path:
+        bg_path_obj = Path(game.bg_path)
+        try:
+            bg_path_obj.resolve().relative_to(config.backgrounds_path.resolve())
+        except ValueError:
+            pass  # path outside backgrounds dir — skip deletion
+        else:
+            if bg_path_obj.is_file():
+                try: os.remove(str(bg_path_obj))
+                except Exception: pass
 
     bg_path = bg_dir / f"{game_id}_hero{ext}"
     bg_path.write_bytes(await file.read())
@@ -546,7 +589,7 @@ async def upload_game_background(
 async def delete_game_background(
     game_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Remove a game's custom background image."""
     result = await session.execute(select(Game).where(Game.id == game_id))
@@ -556,8 +599,15 @@ async def delete_game_background(
 
     if game.bg_path:
         import os
-        if os.path.isfile(game.bg_path):
-            os.remove(game.bg_path)
+        config = load_config()
+        bg_path = Path(game.bg_path)
+        try:
+            bg_path.resolve().relative_to(config.backgrounds_path.resolve())
+        except ValueError:
+            pass  # path outside backgrounds dir — skip deletion
+        else:
+            if bg_path.is_file():
+                os.remove(str(bg_path))
         game.bg_path = None
         await session.commit()
 
