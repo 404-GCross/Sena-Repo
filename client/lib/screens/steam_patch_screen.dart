@@ -169,6 +169,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       );
       if (!mounted) return;
       if (result["error"] != null) {
+        final err = result["error"] as String;
+        if (err == "已暂停") {
+          setState(() => _injectState[m.appId] = "paused");
+          return;
+        }
+        if (err == "已取消") {
+          setState(() => _injectState.remove(m.appId));
+          return;
+        }
         setState(() => _injectState[m.appId] = "error:${result["error"]}");
         _showMsg("注入失败\n${result["error"]}", error: true);
       } else {
@@ -178,6 +187,20 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     } catch (e) {
       if (mounted) setState(() => _injectState[m.appId] = "error:$e");
     }
+  }
+
+  void _cancelInjection(String appId) {
+    SteamService.cancelInjection(appId);
+    setState(() => _injectState.remove(appId));
+  }
+
+  void _pauseInjection(String appId) {
+    SteamService.pauseInjection(appId);
+    // State will update via onProgress callback → "paused" detected in _startInjection
+  }
+
+  void _resumeInjection(PatchMatch m) {
+    _startInjection(m);
   }
 
   // ── Build ──
@@ -341,8 +364,31 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             FilledButton.tonalIcon(onPressed: () => _startInjection(m), icon: const Icon(Icons.auto_fix_high, size: 16),
               label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
               style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), minimumSize: Size.zero))
-          else if (!state.startsWith("error") && state != "done")
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+          else if (state == "paused")
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Text("已暂停", style: AppText.bodySmall.copyWith(color: Colors.orange[300], fontWeight: FontWeight.w600)),
+              const SizedBox(width: 6),
+              IconButton(icon: const Icon(Icons.refresh, size: 18), tooltip: "恢复", color: Colors.green[300],
+                onPressed: () => _resumeInjection(m), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28)),
+              IconButton(icon: const Icon(Icons.close, size: 18), tooltip: "取消", color: Colors.red[300],
+                onPressed: () => _cancelInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28)),
+            ])
+          else if (!state.startsWith("error") && state != "done") ...[
+            Builder(builder: (_) {
+              final parts = state.split("|");
+              final stage = parts.length > 4 ? parts[4] : "";
+              final canPause = stage != "extracting";
+              return Row(mainAxisSize: MainAxisSize.min, children: [
+                if (canPause)
+                  IconButton(icon: const Icon(Icons.pause, size: 16), tooltip: "暂停", color: Colors.orange[300],
+                    onPressed: () => _pauseInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
+                IconButton(icon: const Icon(Icons.close, size: 16), tooltip: "取消", color: Colors.red[300],
+                  onPressed: () => _cancelInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
+                const SizedBox(width: 4),
+                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              ]);
+            }),
+          ]
           else if (state.startsWith("error"))
             Row(mainAxisSize: MainAxisSize.min, children: [
               Text(state.substring(6), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.bodySmall.copyWith(color: Colors.red[200])),

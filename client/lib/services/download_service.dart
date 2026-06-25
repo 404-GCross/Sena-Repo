@@ -187,6 +187,44 @@ class DownloadService with WidgetsBindingObserver {
   final List<DownloadTask> _tasks = [];
   final _controller = StreamController<List<DownloadTask>>.broadcast();
 
+  // ── patch injection tracking (static so SteamService cross-instance access works) ──
+  static final Map<String, _PatchInjection> _patchInjections = {};
+
+  void cancelPatchInjection(String appId) {
+    final inj = _patchInjections[appId];
+    if (inj == null) return;
+    inj.cancelled = true;
+    inj.paused = false;
+    inj.task._client?.close();
+    inj.task._client = null;
+    inj.extractProcess?.kill();
+    inj.extractProcess = null;
+    // Also kill via instance-level _extractionProcess in case _runTool is mid-flight
+    _killExtractor();
+    inj.task._cancelled = true;
+    inj.task.status = "cancelled";
+    inj.task.error = "已取消";
+    try { File(inj.tempPath).delete(); } catch (_) {}
+    _patchInjections.remove(appId);
+    _emit();
+  }
+
+  void pausePatchInjection(String appId) {
+    final inj = _patchInjections[appId];
+    if (inj == null) return;
+    inj.paused = true;
+    if (inj.task.status == "downloading" || inj.task.status == "retrying") {
+      inj.task._client?.close();
+      inj.task._client = null;
+    } else if (inj.task.status == "extracting") {
+      inj.extractProcess?.kill();
+      inj.extractProcess = null;
+      _killExtractor();
+    }
+    inj.task.status = "paused";
+    _emit();
+  }
+
   Stream<List<DownloadTask>> get tasks => _controller.stream;
   List<DownloadTask> get currentTasks => List.unmodifiable(_tasks);
 
@@ -231,6 +269,7 @@ class DownloadService with WidgetsBindingObserver {
 
   /// Download a patch file to temp, extract to installDir, return (error, outputDir) tuple.
   /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed, stage).
+  /// Patch injection can be cancelled/paused via [cancelPatchInjection]/[pausePatchInjection].
   Future<(String?, String?)> downloadPatch({
     required String appId,
     required String downloadUrl,
@@ -242,14 +281,18 @@ class DownloadService with WidgetsBindingObserver {
   }) async {
     final dir = await downloadDir;
     final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
-    final tmp = File("${dir}${Platform.pathSeparator}.patch_${appId}$ext");
+    final tmpPath = "${dir}${Platform.pathSeparator}.patch_${appId}$ext";
+    final tmp = File(tmpPath);
+    // Track injection state for cross-instance cancellation
+    final task = DownloadTask(
+      gameId: appId.hashCode, versionId: appId.hashCode,
+      fileName: patchFilename, downloadUrl: downloadUrl,
+      gameName: "Steam Patch", companyName: "Steam",
+    );
+    final inj = _PatchInjection(task: task, tempPath: tmpPath);
+    _patchInjections[appId] = inj;
     try {
       // Download via proven stream pipeline
-      final task = DownloadTask(
-        gameId: appId.hashCode, versionId: appId.hashCode,
-        fileName: patchFilename, downloadUrl: downloadUrl,
-        gameName: "Steam Patch", companyName: "Steam",
-      );
       StreamSubscription<List<DownloadTask>>? sub;
       if (onProgress != null) {
         sub = _controller.stream.listen((_) {
@@ -261,7 +304,11 @@ class DownloadService with WidgetsBindingObserver {
       } finally {
         await sub?.cancel();
       }
-      if (task.status == "failed" || task.status == "paused") return (task.error ?? "下载失败", null);
+      if (_stopped(task)) {
+        try { await tmp.delete(); } catch (_) {}
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
+      }
+      if (task.status == "failed") return (task.error ?? "下载失败", null);
 
       // Resolve target directory
       String destDir = installDir;
@@ -271,11 +318,13 @@ class DownloadService with WidgetsBindingObserver {
       await Directory(destDir).create(recursive: true);
 
       final exe = await _getSevenZipPath();
+      task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
       if ((patchDir == null || patchDir.isEmpty) && (targetDir == null || targetDir.isEmpty)) {
         LoggerService().info("patch extract: $exe x -y -o$destDir ${tmp.path}");
         await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800,
+            injectionAppId: appId,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
         LoggerService().info("patch extract done: $destDir");
       } else {
@@ -283,7 +332,13 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("patch extract: $exe x -y -o$tmpExtract ${tmp.path}");
         await Directory(tmpExtract).create(recursive: true);
         await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
+            injectionAppId: appId,
             onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        if (_stopped(task)) {
+          try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
+          try { await tmp.delete(); } catch (_) {}
+          return (task.status == "paused" ? "已暂停" : "已取消", null);
+        }
         LoggerService().info("patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir");
         String sourceDir = tmpExtract;
         if (patchDir != null && patchDir.isNotEmpty) {
@@ -292,6 +347,7 @@ class DownloadService with WidgetsBindingObserver {
           if (await Directory(pd).exists()) {
             sourceDir = pd;
           } else {
+            try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
             return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
           }
         } else {
@@ -303,11 +359,21 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("patch merge done");
         await Directory(tmpExtract).delete(recursive: true);
       }
+      if (_stopped(task)) {
+        try { await tmp.delete(); } catch (_) {}
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
+      }
       try { await tmp.delete(); } catch (_) {}
       return (null, destDir);
     } catch (e) {
+      if (_stopped(task)) {
+        try { await tmp.delete(); } catch (_) {}
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
+      }
       try { await tmp.delete(); } catch (_) {}
       return ("$e", null);
+    } finally {
+      _patchInjections.remove(appId);
     }
   }
 
@@ -973,7 +1039,7 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   Future<void> _runTool(String exe, List<String> args,
-      {void Function(double)? onProgress, int timeout = 1800}) async {
+      {void Function(double)? onProgress, int timeout = 1800, String? injectionAppId}) async {
     // Android: bypass noexec by using dynamic linker to load the ELF
     if (Platform.isAndroid) {
       args = [exe, ...args];
@@ -981,6 +1047,10 @@ class DownloadService with WidgetsBindingObserver {
     }
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
+    // Also track in patch injection state for cross-instance cancellation
+    if (injectionAppId != null) {
+      _patchInjections[injectionAppId]?.extractProcess = proc;
+    }
 
     // 7z outputs progress (e.g. " 45%") to stderr, not stdout.
     // Parse stderr for both progress and error messages.
@@ -1007,15 +1077,21 @@ class DownloadService with WidgetsBindingObserver {
       await stdoutSub.cancel();
       await stderrSub.cancel();
       _extractionProcess = null;
+      if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("超时（${timeout}s）");
     } catch (e) {
       proc.kill();
+      await stdoutSub.cancel();
+      await stderrSub.cancel();
+      _extractionProcess = null;
+      if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("$e");
     }
 
     await stdoutSub.cancel();
     await stderrSub.cancel();
     _extractionProcess = null;
+    if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
 
     if (exitCode != 0) {
       final err = String.fromCharCodes(stderrChunks).trim();
@@ -1055,4 +1131,16 @@ class DownloadService with WidgetsBindingObserver {
     _saveTasks();
     if (!_hasActiveDownloads()) _stopForegroundService();
   }
+}
+
+// ── Patch injection state (used by downloadPatch + SteamService) ──
+class _PatchInjection {
+  final DownloadTask task;
+  final String tempPath;
+  http.Client? client;
+  Process? extractProcess;
+  bool cancelled = false;
+  bool paused = false;
+
+  _PatchInjection({required this.task, required this.tempPath});
 }
