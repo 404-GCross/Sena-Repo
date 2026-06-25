@@ -176,6 +176,9 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
                 match.patch_dir = entry.get("patch_dir", "")
                 match.target_dir = entry.get("target_dir", "")
                 match.label = entry.get("label", "")
+                # Use game_name from patches.json if available (Chinese name from Steam)
+                if entry.get("game_name"):
+                    match.game_name = entry["game_name"]
                 # Type: keep existing if already set (non-misc), else keyword-guess
                 existing_type = entry.get("type", "misc")
                 if existing_type and existing_type != "misc":

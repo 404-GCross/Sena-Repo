@@ -64,24 +64,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     setState(() { _loading = true; _status = "正在扫描本地 Steam 库..."; _matches = []; });
     final games = SteamService.scanInstalledGames(_commonDir!);
     if (!mounted) return;
-    setState(() => _status = "扫描到 ${games.length} 个游戏，正在获取中文名...");
     try {
       final api = context.read<GameProvider>().api;
-      // Resolve Chinese names for Steam games
-      final appids = games.map((g) => g.appId).toList();
-      final cnNames = await SteamService.resolveGameNames(api, appids);
-      if (cnNames.isNotEmpty) {
-        for (final g in games) {
-          final cn = cnNames[g.appId];
-          if (cn != null && cn.isNotEmpty) {
-            g.name = cn; // mutable field update
-          }
-        }
-      }
-      if (!mounted) return;
-      setState(() => _status = "正在匹配补丁...");
+      setState(() => _status = "正在匹配补丁 (${games.length} 个游戏)...");
       final matches = await SteamService.checkPatches(api, games);
       if (!mounted) return;
+      // Server returns Chinese game_name from patches.json for patched games
       matches.sort((a, b) {
         if (a.patchAvailable != b.patchAvailable) return a.patchAvailable ? -1 : 1;
         return a.gameName.compareTo(b.gameName);
