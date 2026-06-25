@@ -379,12 +379,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               final stage = parts.length > 4 ? parts[4] : "";
               final canPause = stage != "extracting";
               return Row(mainAxisSize: MainAxisSize.min, children: [
-                if (canPause)
+                if (canPause) ...[
                   IconButton(icon: const Icon(Icons.pause, size: 16), tooltip: "暂停", color: Colors.orange[300],
                     onPressed: () => _pauseInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
+                  const SizedBox(width: 6),
+                ],
                 IconButton(icon: const Icon(Icons.close, size: 16), tooltip: "取消", color: Colors.red[300],
                   onPressed: () => _cancelInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
               ]);
             }),
