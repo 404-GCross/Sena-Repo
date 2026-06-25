@@ -213,7 +213,7 @@ class DownloadService with WidgetsBindingObserver {
     final inj = _patchInjections[appId];
     if (inj == null) return;
     inj.paused = true;
-    if (inj.task.status == "downloading" || inj.task.status == "retrying") {
+    if (inj.task.status == "downloading" || inj.task.status == "retrying" || inj.task.status == "pending") {
       inj.task._client?.close();
       inj.task._client = null;
     } else if (inj.task.status == "extracting") {
@@ -300,6 +300,7 @@ class DownloadService with WidgetsBindingObserver {
         });
       }
       try {
+        task.status = "downloading";
         await _download(task, tmp);
       } finally {
         await sub?.cancel();
