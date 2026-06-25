@@ -38,7 +38,8 @@ Sena Repo 是 C/S 架构的 Galgame 私有库管理器。服务端部署在 NAS 
 ```bash
 # 拉取最新版本
 docker pull ghcr.io/404-gcross/sena-repo:latest
-
+```
+```
 # 或拉取指定版本
 docker pull ghcr.io/404-gcross/sena-repo:v0.1.0
 ```
