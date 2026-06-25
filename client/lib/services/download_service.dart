@@ -503,7 +503,8 @@ class DownloadService with WidgetsBindingObserver {
 
   void cancelTask(DownloadTask task) {
     if (task.status == "downloading" || task.status == "pending" ||
-        task.status == "retrying" || task.status == "extracting") {
+        task.status == "retrying" || task.status == "extracting" ||
+        task.status == "paused") {
       task._client?.close();
       task._client = null;
       _killExtractor();
