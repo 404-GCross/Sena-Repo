@@ -367,11 +367,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           else if (state == "paused")
             Row(mainAxisSize: MainAxisSize.min, children: [
               Text("已暂停", style: AppText.bodySmall.copyWith(color: Colors.orange[300], fontWeight: FontWeight.w600)),
-              const SizedBox(width: 6),
-              IconButton(icon: const Icon(Icons.refresh, size: 18), tooltip: "恢复", color: Colors.green[300],
-                onPressed: () => _resumeInjection(m), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28)),
-              IconButton(icon: const Icon(Icons.close, size: 18), tooltip: "取消", color: Colors.red[300],
-                onPressed: () => _cancelInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28)),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => _resumeInjection(m),
+                child: const Text("继续", style: TextStyle(fontSize: 12)),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              ),
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () => _cancelInjection(m.appId),
+                child: Text("取消", style: AppText.label.copyWith(color: Colors.red)),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              ),
             ])
           else if (!state.startsWith("error") && state != "done") ...[
             Builder(builder: (_) {
@@ -379,15 +386,19 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               final stage = parts.length > 4 ? parts[4] : "";
               final canPause = stage != "extracting";
               return Row(mainAxisSize: MainAxisSize.min, children: [
-                if (canPause) ...[
-                  IconButton(icon: const Icon(Icons.pause, size: 16), tooltip: "暂停", color: Colors.orange[300],
-                    onPressed: () => _pauseInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
-                  const SizedBox(width: 6),
-                ],
-                IconButton(icon: const Icon(Icons.close, size: 16), tooltip: "取消", color: Colors.red[300],
-                  onPressed: () => _cancelInjection(m.appId), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
-                const SizedBox(width: 6),
-                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                if (canPause)
+                  TextButton(
+                    onPressed: () => _pauseInjection(m.appId),
+                    child: const Text("暂停", style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                  ),
+                TextButton(
+                  onPressed: () => _cancelInjection(m.appId),
+                  child: Text("取消", style: AppText.label.copyWith(color: Colors.red)),
+                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                ),
+                const SizedBox(width: 4),
+                SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
               ]);
             }),
           ]
