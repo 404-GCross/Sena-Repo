@@ -56,6 +56,12 @@ jobs:
           # Tell AGP where to find NDK so it skips auto-download
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
+      - name: Sync version from CI input
+        run: |
+          sed -i "s/versionName = \".*\"/versionName = \"${VERSION}\"/" android/app/build.gradle.kts
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
+
       - name: Copy 7z binary (Android ARM64)
         run: |
           mkdir -p assets/binaries
@@ -105,6 +111,12 @@ jobs:
         with:
           flutter-version: "3.29"
           channel: "stable"
+
+      - name: Sync version from CI input
+        shell: pwsh
+        run: |
+          (Get-Content lib/utils/version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$env:VERSION""" | Set-Content lib/utils/version.dart
+          (Get-Content pubspec.yaml) -replace '^version: .*', "version: $env:VERSION" | Set-Content pubspec.yaml
 
       - name: Copy 7z binary (Windows)
         shell: pwsh
@@ -224,6 +236,11 @@ jobs:
         with:
           flutter-version: "3.29"
           channel: "stable"
+
+      - name: Sync version from CI input
+        run: |
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
 
       - name: Install build deps
         run: |
