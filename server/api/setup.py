@@ -95,8 +95,21 @@ async def initialize_setup(
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f)
 
-    # Auto-scan patch directory after setup
+    # Auto-scan game directories
+    games_scanned = 0
+    games_scan_error = None
+    try:
+        from api.roots import _run_scan
+        stats = await _run_scan(load_config())
+        games_scanned = stats.get("total_games", 0) if stats else 0
+    except Exception as e:
+        import logging, traceback
+        logging.getLogger("sena-repo").error(f"Auto-scan during setup failed: {e}\n{traceback.format_exc()}")
+        games_scan_error = str(e)
+
+    # Same for patches — surface errors
     patches_scanned = 0
+    patches_scan_error = None
     if body.patch_dir:
         try:
             from scan_patches import scan_patches_dir, load_existing, merge
@@ -112,18 +125,10 @@ async def initialize_setup(
                 with open(json_path, "w", encoding="utf-8") as _f:
                     json.dump({"patches": merged_patches}, _f, ensure_ascii=False, indent=2)
                 patches_scanned = len(scanned)
-        except Exception:
-            pass
-
-    # Auto-scan game directories
-    games_scanned = 0
-    try:
-        from api.roots import _run_scan
-        stats = await _run_scan(load_config())
-        games_scanned = stats.get("total_games", 0) if stats else 0
-    except Exception as e:
-        import logging
-        logging.getLogger("sena-repo").error(f"Auto-scan during setup failed: {e}")
+        except Exception as e:
+            import logging, traceback
+            logging.getLogger("sena-repo").error(f"Patch scan during setup failed: {e}\n{traceback.format_exc()}")
+            patches_scan_error = str(e)
 
     return {
         "message": "Setup complete",
@@ -131,4 +136,6 @@ async def initialize_setup(
         "roots_added": roots_added,
         "patches_scanned": patches_scanned,
         "games_scanned": games_scanned,
+        "patches_scan_error": patches_scan_error,
+        "games_scan_error": games_scan_error,
     }
