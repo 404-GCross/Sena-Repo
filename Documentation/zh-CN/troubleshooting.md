@@ -155,11 +155,9 @@ sudo apt-get install -y libfuse2 libgtk-3-0 libayatana-appindicator3-1 libegl1 l
 apt-file search <文件名>      # 或: dnf provides <文件名> (Fedora)
 ```
 
-### 下载加密压缩包卡住
+### 保存扫描设置失败(500)
 
-7z 遇到有密码的压缩包且未提供密码时，旧版会等待终端输入直到超时（最长 30 分钟）。新版已默认携带 `-p-`，会立即报"需要密码"。如仍卡住，确保客户端和服务端都是最新版本。
 
-在下载弹窗或下载管理页面输入密码，点击"带密码重试"即可解压。
 
 ### Windows：7z 解压报 "Cannot open the file as archive"
 

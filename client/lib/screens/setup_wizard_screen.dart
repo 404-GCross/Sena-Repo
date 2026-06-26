@@ -122,8 +122,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       if (_localDirCtrl.text.trim().isNotEmpty) {
         await prefs.setString("local_download_dir", _localDirCtrl.text.trim());
       }
-      // Trigger scan
-      await http.post(Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"));
+      // Scan runs in background on server — no need to wait
       // Request Android notification permission
       if (Platform.isAndroid) {
         await NotificationService().init();
