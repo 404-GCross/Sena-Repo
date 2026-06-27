@@ -403,6 +403,151 @@ def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
     return None
 
 
+# ── Patch ID re-scrape ──
+
+class RescrapeResult(BaseModel):
+    lookup_key: str
+    file: str = ""
+    old_app_id: str = ""
+    new_app_id: str = ""
+    game_name: str = ""
+    status: str = ""  # "updated" / "skipped" / "not_found" / "error"
+
+
+@router.post("/patches/{lookup_key}/rescrape")
+async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
+    """Re-search Steam for a single patch's app_id and update patches.json."""
+    import asyncio as _asyncio
+    patches_dir = _get_patches_dir()
+    json_path = patches_dir / "patches.json"
+
+    if not json_path.is_file():
+        raise HTTPException(status_code=404, detail="patches.json 不存在")
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
+
+    patches = data.get("patches", [])
+    target = None
+    for p in patches:
+        if str(p.get("app_id", "")) == lookup_key:
+            target = p; break
+        if p.get("file", "") == lookup_key:
+            target = p; break
+
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
+
+    old_app_id = str(target.get("app_id", "") or "")
+    filename = target.get("file", "").split("/")[-1]
+    from scan_patches import _extract_game_name, _search_steam_app_id, _fetch_game_name
+    game_name_candidate = _extract_game_name(filename)
+
+    try:
+        new_id = await _asyncio.to_thread(_search_steam_app_id, game_name_candidate)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Steam API 查询失败: {e}")
+
+    result = RescrapeResult(
+        lookup_key=lookup_key,
+        file=filename,
+        old_app_id=old_app_id,
+        status="not_found",
+    )
+
+    if new_id:
+        target["app_id"] = new_id
+        result.new_app_id = str(new_id)
+        result.status = "updated"
+        # Also fetch game name
+        try:
+            name = await _asyncio.to_thread(_fetch_game_name, new_id)
+            if name:
+                target["game_name"] = name
+                result.game_name = name
+        except Exception:
+            pass
+    elif old_app_id:
+        result.status = "skipped"
+        result.new_app_id = old_app_id
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    return result
+
+
+@router.post("/patches/rescrape-all")
+async def rescrape_all_patches(user: User = Depends(require_admin)):
+    """Re-search Steam for all patches' app_ids (batch)."""
+    import asyncio as _asyncio
+    patches_dir = _get_patches_dir()
+    json_path = patches_dir / "patches.json"
+
+    if not json_path.is_file():
+        raise HTTPException(status_code=404, detail="patches.json 不存在")
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
+
+    patches = data.get("patches", [])
+    from scan_patches import _extract_game_name, _search_steam_app_id, _fetch_game_name
+
+    results: list[RescrapeResult] = []
+
+    async def rescrape_one(p: dict) -> RescrapeResult:
+        filename = p.get("file", "").split("/")[-1]
+        old_id = str(p.get("app_id", "") or "")
+        lookup = old_id or p.get("file", "")
+        game_name_candidate = _extract_game_name(filename)
+
+        r = RescrapeResult(lookup_key=lookup, file=filename, old_app_id=old_id)
+
+        if not game_name_candidate:
+            r.status = "skipped"
+            return r
+
+        try:
+            new_id = await _asyncio.to_thread(_search_steam_app_id, game_name_candidate)
+        except Exception:
+            r.status = "error"
+            return r
+
+        if new_id:
+            p["app_id"] = new_id
+            r.new_app_id = str(new_id)
+            r.status = "updated"
+            try:
+                name = await _asyncio.to_thread(_fetch_game_name, new_id)
+                if name:
+                    p["game_name"] = name
+                    r.game_name = name
+            except Exception:
+                pass
+        elif old_id:
+            r.new_app_id = old_id
+            r.status = "skipped"
+        else:
+            r.status = "not_found"
+
+        return r
+
+    tasks = [rescrape_one(p) for p in patches]
+    results = await _asyncio.gather(*tasks)
+    updated = sum(1 for r in results if r.status == "updated")
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    return {"message": f"批量刮削完成: {updated} 个更新", "updated": updated, "total": len(patches), "results": [r.model_dump() for r in results]}
+
+
 # ── Steam game name resolution ──
 
 class AppIdList(BaseModel):

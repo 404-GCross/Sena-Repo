@@ -32,6 +32,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   // Server tab
   List<Map<String, dynamic>> _serverPatches = [];
   bool _serverLoading = false;
+  bool _rescraping = false;
   String? _serverStatus;
 
   @override
@@ -126,6 +127,43 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       if (!mounted) return;
       setState(() { _serverLoading = false; _serverStatus = "扫描失败: $e"; });
     }
+  }
+
+  Future<void> _rescrapeOne(String lookupKey) async {
+    final api = context.read<GameProvider>().api;
+    setState(() => _serverStatus = "正在刮削 $lookupKey ...");
+    try {
+      final result = await SteamService.rescrapePatch(api, lookupKey);
+      if (!mounted) return;
+      final status = result["status"] ?? "";
+      if (status == "updated") {
+        _showMsg("刮削成功\n新 AppID: ${result["new_app_id"]}${result["game_name"] != null && result["game_name"] != "" ? "\n游戏名: ${result["game_name"]}" : ""}");
+        _loadServerPatches();
+      } else if (status == "skipped") {
+        _showMsg("已有 AppID，跳过刮削");
+      } else {
+        _showMsg("刮削失败: 未找到匹配的 Steam 游戏");
+      }
+    } catch (e) {
+      if (mounted) _showMsg("刮削失败: $e", error: true);
+    }
+    if (mounted) setState(() => _serverStatus = null);
+  }
+
+  Future<void> _rescrapeAll() async {
+    final api = context.read<GameProvider>().api;
+    setState(() { _rescraping = true; _serverStatus = "正在批量刮削 AppID ..."; });
+    try {
+      final result = await SteamService.rescrapeAllPatches(api);
+      if (!mounted) return;
+      final updated = result["updated"] ?? 0;
+      final total = result["total"] ?? 0;
+      _showMsg("批量刮削完成: $updated / $total 个更新");
+      _loadServerPatches();
+    } catch (e) {
+      if (mounted) _showMsg("批量刮削失败: $e", error: true);
+    }
+    if (mounted) setState(() { _rescraping = false; _serverStatus = null; });
   }
 
   void _showMsg(String msg, {bool error = false}) {
@@ -443,6 +481,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           _miniBtn(Icons.refresh, "加载", _serverLoading ? null : _loadServerPatches),
           const SizedBox(width: 8),
           _miniBtn(Icons.folder, "扫描补丁", _serverLoading ? null : _scanServerPatches),
+          const SizedBox(width: 8),
+          _miniBtn(Icons.search, "批量刮削ID", _serverLoading || _rescraping ? null : _rescrapeAll),
         ])),
       if (_serverStatus != null) Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 0), child: _buildServerStatusBar()),
       const SizedBox(height: 8),
@@ -501,7 +541,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 Expanded(child: Text("$patchDir → /$targetDir", style: AppText.caption.copyWith(color: hintColor(context)))),
               ])),
           ])),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
+          IconButton(icon: const Icon(Icons.manage_search, size: 16), tooltip: "重新刮削 AppID", visualDensity: VisualDensity.compact, padding: const EdgeInsets.all(6), constraints: const BoxConstraints(),
+            onPressed: () => _rescrapeOne(hasAppId ? appId : file)),
           IconButton(icon: const Icon(Icons.edit, size: 16), tooltip: "编辑", visualDensity: VisualDensity.compact, padding: const EdgeInsets.all(6), constraints: const BoxConstraints(),
             onPressed: () => _showEditDialog(PatchMatch(appId: appId, gameName: label.isNotEmpty ? label : file.split("/").last, installDir: "", patchAvailable: true, patchFilename: file, patchDir: patchDir, targetDir: targetDir, label: label, type: ptype))),
         ])),

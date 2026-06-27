@@ -171,6 +171,26 @@ class SteamService {
     throw HttpException("Failed to scan patches: ${resp.statusCode}");
   }
 
+  /// Re-scrape a single patch's app_id from Steam search.
+  static Future<Map<String, dynamic>> rescrapePatch(ApiClient api, String lookupKey) async {
+    final resp = await http.post(
+      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/rescrape"),
+      headers: api.headers,
+    );
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to rescrape patch: ${resp.statusCode}");
+  }
+
+  /// Batch re-scrape all patches' app_ids from Steam search.
+  static Future<Map<String, dynamic>> rescrapeAllPatches(ApiClient api) async {
+    final resp = await http.post(
+      Uri.parse("${api.baseUrl}/api/steam/patches/rescrape-all"),
+      headers: api.headers,
+    );
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to rescrape all patches: ${resp.statusCode}");
+  }
+
   /// List all indexed patches from server.
   static Future<Map<String, dynamic>> listPatches(ApiClient api) async {
     final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patches"), headers: api.headers);
