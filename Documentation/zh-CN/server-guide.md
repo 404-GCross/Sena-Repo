@@ -166,7 +166,11 @@ pkill -f "python main.py" && python main.py ...
 
 ### 文件结构
 
-服务端按三级目录扫描，每一级都有特定含义：
+> **⚠️ 注意：**
+> - 当前 Sena-Repo 仅测试通过会社/游戏的文件结构，其他文件结构仍未测试，未确保可用
+> - Sena-Repo 严格按照该文件目录模式来扫描，建议先整理好服务端内的资源文件再进行部署扫描
+
+会社/游戏模式里，服务端按三级目录扫描，每一级都有特定含义：
 
 ```
 根目录/                         ← --games-path
@@ -200,7 +204,7 @@ pkill -f "python main.py" && python main.py ...
 
 | 刮削源 | 说明 |
 |--------|------|
-| VNDB Kana v2 | 免认证，含游戏时长 |
+| VNDB Kana v2 | 免认证，含游戏时长数据 |
 | Bangumi | 免认证 |
 | Steam | 免认证 |
 | DLsite | 免认证 |
@@ -229,8 +233,8 @@ scan_patches.py ──→ patches.json
 steam_patches/
 ├── patches.json               ← 自动生成
 ├── patch_type_keywords.json   ← 类型识别关键词
-├── 想要传达给你的爱恋_Steam_extra_Patch.7z
-└── LOST：SMILE_Steam_Chinese_Patch.rar
+├── 游戏1_Steam_extra_Patch.7z
+└── 游戏2_Steam_Chinese_Patch.rar
 ```
 
 直接把补丁压缩包放在补丁目录下即可，`scan_patches.py` 会递归扫描所有子目录。
