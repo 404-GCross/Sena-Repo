@@ -28,6 +28,11 @@ jobs:
           V="${{ inputs.version }}"
           if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
+      - name: Sync version into code
+        run: |
+          sed -i "s/versionName = \".*\"/versionName = \"${VERSION}\"/" android/app/build.gradle.kts
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
       - uses: actions/setup-java@v4
         with:
           distribution: "temurin"
@@ -97,7 +102,7 @@ jobs:
         run: |
           $ver = $env:VERSION
           (Get-Content pubspec.yaml) -replace '^version: .+', "version: $ver" | Set-Content pubspec.yaml
-          (Get-Content lib\utils\version.dart) -replace '0\.\d+\.\d+', $ver | Set-Content lib\utils\version.dart
+          (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$ver""" | Set-Content lib\utils\version.dart
           Write-Host "Version set to $ver"
       - name: Enable Windows
         run: |
@@ -197,6 +202,10 @@ jobs:
           V="${{ inputs.version }}"
           if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
+      - name: Sync version into code
+        run: |
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.29"

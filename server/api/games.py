@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -359,6 +359,21 @@ async def move_version(
         raise HTTPException(status_code=404, detail="目标游戏未找到")
 
     version.game_id = to_game_id
+    await session.flush()
+
+    # Clean up source game if it has no versions left
+    from_game = await session.execute(select(Game).where(Game.id == game_id))
+    from_g = from_game.scalar_one_or_none()
+    if from_g:
+        remaining = await session.execute(
+            select(func.count(GameVersion.id)).where(GameVersion.game_id == game_id)
+        )
+        if remaining.scalar() == 0:
+            from_g.is_deleted = True
+            from_g.updated_at = datetime.utcnow()
+            session.add(IgnoreList(path=from_g.folder_path))
+
+    await cleanup_empty_companies(session)
     await session.commit()
     return {"message": "版本已移动"}
 

@@ -81,7 +81,12 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
     config._scan_structure = body.scan_structure
-    _save_scan_settings(config)  # persist to disk
+    try:
+        _save_scan_settings(config)  # persist to disk
+    except Exception as e:
+        import logging, traceback
+        logging.getLogger("sena-repo").error(f"Failed to save scan settings: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"保存失败: {e}")
     return {"message": "保存成功"}
 
 

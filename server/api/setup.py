@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import asyncio, json, logging, traceback
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -95,13 +95,35 @@ async def initialize_setup(
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f)
 
-    # Auto-scan patch directory after setup
-    patches_scanned = 0
-    if body.patch_dir:
+    # Fire background scans (don't block response — user enters main page immediately)
+    asyncio.create_task(_background_scan(load_config(), body.patch_dir))
+
+    # Also trigger scrape on new games after scan completes
+    # (handled inside _background_scan via _run_scan)
+
+    return {
+        "message": "Setup complete",
+        "admin_created": True,
+        "roots_added": roots_added,
+    }
+
+
+async def _background_scan(config, patch_dir: str):
+    """Run game + patch scan in background without blocking setup response."""
+    logger = logging.getLogger("sena-repo")
+    try:
+        from api.roots import _run_scan
+        stats = await _run_scan(config)
+        games = stats.get("total_games", 0) if stats else 0
+        logger.info(f"Background scan complete: {games} games")
+    except Exception as e:
+        logger.error(f"Background game scan failed: {e}\n{traceback.format_exc()}")
+
+    if patch_dir:
         try:
             from scan_patches import scan_patches_dir, load_existing, merge
             from pathlib import Path as _Path
-            patches_dir = _Path(body.patch_dir)
+            patches_dir = _Path(patch_dir)
             patches_dir.mkdir(parents=True, exist_ok=True)
             scanned = scan_patches_dir(patches_dir)
             if scanned:
@@ -111,24 +133,6 @@ async def initialize_setup(
                 merged_patches = merge(existing_list, scanned)
                 with open(json_path, "w", encoding="utf-8") as _f:
                     json.dump({"patches": merged_patches}, _f, ensure_ascii=False, indent=2)
-                patches_scanned = len(scanned)
-        except Exception:
-            pass
-
-    # Auto-scan game directories
-    games_scanned = 0
-    try:
-        from api.roots import _run_scan
-        stats = await _run_scan(load_config())
-        games_scanned = stats.get("total_games", 0) if stats else 0
-    except Exception as e:
-        import logging
-        logging.getLogger("sena-repo").error(f"Auto-scan during setup failed: {e}")
-
-    return {
-        "message": "Setup complete",
-        "admin_created": True,
-        "roots_added": roots_added,
-        "patches_scanned": patches_scanned,
-        "games_scanned": games_scanned,
-    }
+                logger.info(f"Background patch scan complete: {len(scanned)} files")
+        except Exception as e:
+            logger.error(f"Background patch scan failed: {e}\n{traceback.format_exc()}")
