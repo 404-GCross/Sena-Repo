@@ -386,9 +386,9 @@ async def merge_games(
     session: AsyncSession = Depends(get_session),
 ):
     """Merge game A into game B: move all versions and delete game A (admin only)."""
-    from_game = await session.execute(select(Game).where(Game.id == from_id))
-    to_game = await session.execute(select(Game).where(Game.id == to_id))
-    if from_game.scalar_one_or_none() is None or to_game.scalar_one_or_none() is None:
+    from_g = (await session.execute(select(Game).where(Game.id == from_id))).scalar_one_or_none()
+    to_g = (await session.execute(select(Game).where(Game.id == to_id))).scalar_one_or_none()
+    if from_g is None or to_g is None:
         raise HTTPException(status_code=404, detail="游戏未找到")
 
     # Move all versions
@@ -399,7 +399,6 @@ async def merge_games(
         v.game_id = to_id
 
     # Soft delete source game
-    from_g = from_game.scalar_one()
     from_g.is_deleted = True
     from_g.updated_at = datetime.utcnow()
     session.add(IgnoreList(path=from_g.folder_path))
