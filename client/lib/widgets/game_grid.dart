@@ -15,6 +15,7 @@ class GameGrid extends StatefulWidget {
   final Set<int> selectedIds;
   final void Function(int id)? onSelect;
   final bool multiSelect;
+  final ScrollController? controller;
 
   const GameGrid({
     super.key,
@@ -24,6 +25,7 @@ class GameGrid extends StatefulWidget {
     this.selectedIds = const {},
     this.onSelect,
     this.multiSelect = false,
+    this.controller,
   });
 
   @override
@@ -48,6 +50,7 @@ class _GameGridState extends State<GameGrid> {
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
+      controller: widget.controller,
       padding: const EdgeInsets.all(AppGap.sm),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: _coverSize,

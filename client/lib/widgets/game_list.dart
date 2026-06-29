@@ -12,6 +12,7 @@ class GameList extends StatelessWidget {
   final Set<int> selectedIds;
   final void Function(int id)? onSelect;
   final bool multiSelect;
+  final ScrollController? controller;
 
   const GameList({
     super.key,
@@ -21,6 +22,7 @@ class GameList extends StatelessWidget {
     this.selectedIds = const {},
     this.onSelect,
     this.multiSelect = false,
+    this.controller,
   });
 
   @override
@@ -32,6 +34,7 @@ class GameList extends StatelessWidget {
         final colWidth = (w - AppGap.lg) / columns;
 
         return SingleChildScrollView(
+          controller: widget.controller,
           padding: const EdgeInsets.symmetric(horizontal: AppGap.sm),
           child: Wrap(
             spacing: AppGap.sm,

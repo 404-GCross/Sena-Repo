@@ -41,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _multiSelect = false;
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   int _downloadCount = 0;
   StreamSubscription? _downloadSub;
 
@@ -280,6 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               selectedIds: _selectedIds,
                               onSelect: (id) => _toggleSelect(id),
                               multiSelect: _multiSelect,
+                              controller: _scrollController,
                             )
                           : GameList(
                               games: gameProvider.games,
@@ -288,6 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               selectedIds: _selectedIds,
                               onSelect: (id) => _toggleSelect(id),
                               multiSelect: _multiSelect,
+                              controller: _scrollController,
                             ),
                     ),
         ),
@@ -488,6 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _downloadSub?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
