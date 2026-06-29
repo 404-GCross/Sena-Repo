@@ -34,7 +34,7 @@ class GameList extends StatelessWidget {
         final colWidth = (w - AppGap.lg) / columns;
 
         return SingleChildScrollView(
-          controller: widget.controller,
+          controller: controller,
           padding: const EdgeInsets.symmetric(horizontal: AppGap.sm),
           child: Wrap(
             spacing: AppGap.sm,
