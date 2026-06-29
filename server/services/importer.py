@@ -115,7 +115,6 @@ async def import_from_root(
             if not p.is_dir():
                 game.is_deleted = True
                 game.updated_at = datetime.utcnow()
-                session.add(IgnoreList(path=game.folder_path))
                 orphans += 1
     if orphans:
         await session.flush()
