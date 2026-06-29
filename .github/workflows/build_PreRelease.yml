@@ -298,12 +298,12 @@ jobs:
 
       - name: Build and export AMD64 tarball
         run: |
-          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --load
+          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --build-arg SENA_VERSION=${VERSION} --load
           docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
 
       - name: Build and export ARM64 tarball
         run: |
-          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --load
+          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --load
           docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
 
       - name: Login to GHCR
@@ -318,7 +318,7 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/404-gcross/sena-repo:pre-release \
             -t ghcr.io/404-gcross/sena-repo:v${VERSION} \
-            server/ --push
+            server/ --build-arg SENA_VERSION=${VERSION} --push
 
       - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4

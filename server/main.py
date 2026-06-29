@@ -84,10 +84,12 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Sena Repo server...")
 
 
+import os as _os
+
 app = FastAPI(
     title="Sena Repo",
     description="GalGame Private Library Manager API",
-    version="0.1.0",
+    version=_os.environ.get("SENA_VERSION", "0.1.0"),
     lifespan=lifespan,
 )
 
@@ -127,7 +129,7 @@ app.include_router(auth_router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": _os.environ.get("SENA_VERSION", "0.1.0")}
 
 
 if __name__ == "__main__":
