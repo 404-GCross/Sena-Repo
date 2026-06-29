@@ -50,10 +50,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useSteam = true;
   bool _useDlsite = true;
   bool _useYmgal = true;
-  bool _useIGDB = false;
   final _vndbCtrl = TextEditingController();
-  final _igdbIdCtrl = TextEditingController();
-  final _igdbSecretCtrl = TextEditingController();
 
   Future<void> _requestNotification() async {
     final granted = await NotificationService().requestPermission();
@@ -108,7 +105,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       await prefs.setBool("scrape_src_steam", _useSteam);
       await prefs.setBool("scrape_src_dlsite", _useDlsite);
       await prefs.setBool("scrape_src_ymgal", _useYmgal);
-      await prefs.setBool("scrape_src_igdb", _useIGDB);
       await prefs.setString("scan_structure", _structure);
       await prefs.setBool("auto_scan", _autoScan);
       if (_autoScan) await prefs.setInt("scan_interval", _scanInterval);
@@ -140,8 +136,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Future<void> _saveScraperKeys() async {
     final body = <String, String>{};
     if (_vndbCtrl.text.isNotEmpty) body["vndb_token"] = _vndbCtrl.text;
-    if (_igdbIdCtrl.text.isNotEmpty) body["igdb_client_id"] = _igdbIdCtrl.text;
-    if (_igdbSecretCtrl.text.isNotEmpty) body["igdb_client_secret"] = _igdbSecretCtrl.text;
     if (body.isNotEmpty) {
       await http.put(
         Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
@@ -462,18 +456,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         () => setState(() => _useDlsite = !_useDlsite)),
     _buildScraperRow("月幕GalGame（免认证）", _useYmgal, false,
         () => setState(() => _useYmgal = !_useYmgal)),
-    _buildScraperRow("IGDB（需要 Client ID/Secret）", _useIGDB, true,
-        () => setState(() => _useIGDB = !_useIGDB),
-        apiFields: Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 8),
-          child: Column(children: [
-            TextField(controller: _igdbIdCtrl,
-              decoration: const InputDecoration(labelText: "Client ID", isDense: true)),
-            const SizedBox(height: 8),
-            TextField(controller: _igdbSecretCtrl,
-              decoration: const InputDecoration(labelText: "Client Secret", isDense: true)),
-          ]),
-        )),
     const SizedBox(height: 16),
     const Text("代理服务器", style: TextStyle(fontWeight: FontWeight.bold)),
     const SizedBox(height: 4),

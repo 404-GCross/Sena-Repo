@@ -24,9 +24,6 @@ custom_regex:
 # Scraper API keys (optional, fill in to enable)
 # Bangumi Token: https://bgm.tv/dev/app
 # VNDB Token: https://vndb.org/u/tokens
-# IGDB: https://dev.twitch.tv/console/apps
 scrapers:
   bangumi_token: ""
   vndb_token: ""
-  igdb_client_id: ""
-  igdb_client_secret: ""

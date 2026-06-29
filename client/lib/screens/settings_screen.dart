@@ -268,8 +268,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   // Scraper sources
-  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "ymgal": true, "igdb": false};
-  final _keys = {"vndb_token": TextEditingController(), "igdb_client_id": TextEditingController(), "igdb_client_secret": TextEditingController(), "proxy": TextEditingController()};
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "ymgal": true};
+  final _keys = {"vndb_token": TextEditingController(), "proxy": TextEditingController()};
 
   @override
   void initState() { super.initState(); _loadRoots(); _loadScanSettings(); _loadScraperSettings(); _checkActiveJob(); }
@@ -629,7 +629,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _srcCard("Steam", "steam", "免认证"),
         _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
         _srcCard("DLsite", "dlsite", "免认证，建议配日本代理"),
-        _srcCard("IGDB", "igdb", "需要 Client ID / Secret", needsApi: true, key1: "igdb_client_id", key2: "igdb_client_secret"),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(14),
@@ -775,7 +774,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } catch (e) { if (mounted) _toast(context, "$e"); }
   }
 
-  Widget _srcCard(String label, String src, String hint, {bool needsApi = false, String? key1, String? key2}) {
+  Widget _srcCard(String label, String src, String hint) {
     final enabled = _sources[src] ?? false;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -784,35 +783,16 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: enabled ? Colors.green.withValues(alpha: 0.15) : cardBorder(context)),
       ),
-      child: Column(children: [
-        SwitchListTile(
-          title: Text(label, style: const TextStyle(fontSize: 14)),
-          subtitle: Text(hint, style: AppText.label.copyWith( color: hintColor(context))),
-          value: enabled,
-          onChanged: (v) => setState(() => _sources[src] = v),
-          dense: true,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        if (enabled && needsApi) ...[
-          Divider(height: 1, indent: 56, color: cardBorder(context)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(56, 8, 16, 12),
-            child: Column(children: [
-              if (key1 != null)
-                Padding(padding: const EdgeInsets.only(bottom: 8),
-                  child: TextField(controller: _keys[key1], decoration: InputDecoration(labelText: _kl(key1), isDense: true)),
-                ),
-              if (key2 != null)
-                TextField(controller: _keys[key2], decoration: InputDecoration(labelText: _kl(key2), isDense: true)),
-            ]),
-          ),
-        ],
-      ]),
+      child: SwitchListTile(
+        title: Text(label, style: const TextStyle(fontSize: 14)),
+        subtitle: Text(hint, style: AppText.label.copyWith( color: hintColor(context))),
+        value: enabled,
+        onChanged: (v) => setState(() => _sources[src] = v),
+        dense: true,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
-
-  static const _keyLabels = {"igdb_client_id": "IGDB Client ID", "igdb_client_secret": "IGDB Client Secret"};
-  String _kl(String k) => _keyLabels[k] ?? k;
 
   @override
   void dispose() {

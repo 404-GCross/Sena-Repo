@@ -43,9 +43,9 @@ class GameProvider extends ChangeNotifier {
     } else if (_sortBy == "name_desc") {
       list.sort((a, b) => b.name.compareTo(a.name));
     } else if (_sortBy == "company") {
-      list.sort((a, b) => (a.companyName ?? "").compareTo(b.companyName ?? ""));
+      list.sort((a, b) => (a.companyName ?? "").toLowerCase().compareTo((b.companyName ?? "").toLowerCase()));
     } else if (_sortBy == "developer") {
-      list.sort((a, b) => (a.developer ?? "").compareTo(b.developer ?? ""));
+      list.sort((a, b) => (a.developer ?? "").toLowerCase().compareTo((b.developer ?? "").toLowerCase()));
     }
     return list;
   }

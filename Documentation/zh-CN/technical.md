@@ -97,8 +97,7 @@ User ──→ Notification          Game ──→ GameVersion
     ├── bangumi.py    → api.bgm.tv
     ├── steam.py      → Steam 商店搜索
     ├── dlsite.py     → dlsite.com
-    ├── ymgal.py      → ymgal.games
-    └── igdb.py       → IGDB API
+    └── ymgal.py      → ymgal.games
             ↓
     ScraperResult (统一数据结构)
             ↓

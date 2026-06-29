@@ -1,6 +1,7 @@
 /// List view for game library — compact row design with poster thumbnail.
 
 import "package:flutter/material.dart";
+import "package:cached_network_image/cached_network_image.dart";
 
 import "../models/game.dart";
 import "../utils/theme_utils.dart";
@@ -12,6 +13,7 @@ class GameList extends StatelessWidget {
   final Set<int> selectedIds;
   final void Function(int id)? onSelect;
   final bool multiSelect;
+  final ScrollController? controller;
 
   const GameList({
     super.key,
@@ -21,6 +23,7 @@ class GameList extends StatelessWidget {
     this.selectedIds = const {},
     this.onSelect,
     this.multiSelect = false,
+    this.controller,
   });
 
   @override
@@ -32,6 +35,7 @@ class GameList extends StatelessWidget {
         final colWidth = (w - AppGap.lg) / columns;
 
         return SingleChildScrollView(
+          controller: controller,
           padding: const EdgeInsets.symmetric(horizontal: AppGap.sm),
           child: Wrap(
             spacing: AppGap.sm,
@@ -113,10 +117,11 @@ class _GameListTileState extends State<_GameListTile> {
               child: SizedBox(
                 width: 64, height: 90,
                 child: hasCover
-                    ? Image.network(
-                        "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
+                    ? CachedNetworkImage(
+                        imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _placeholder(cs),
+                        errorWidget: (_, __, ___) => _placeholder(cs),
+                        placeholder: (_, __) => _placeholder(cs),
                       )
                     : _placeholder(cs),
               ),

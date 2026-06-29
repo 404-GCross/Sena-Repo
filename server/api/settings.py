@@ -93,8 +93,6 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
 class ScraperConfigOut(BaseModel):
     bangumi_token: str = ""
     vndb_token: str = ""
-    igdb_client_id: str = ""
-    igdb_client_secret: str = ""
     ymgal_client_id: str = ""
     ymgal_client_secret: str = ""
     proxy: str = ""
@@ -103,8 +101,6 @@ class ScraperConfigOut(BaseModel):
 class ScraperConfigUpdate(BaseModel):
     bangumi_token: str | None = None
     vndb_token: str | None = None
-    igdb_client_id: str | None = None
-    igdb_client_secret: str | None = None
     ymgal_client_id: str | None = None
     ymgal_client_secret: str | None = None
     proxy: str | None = None
@@ -125,8 +121,6 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
     return ScraperConfigOut(
         bangumi_token=_mask(s.bangumi_token),
         vndb_token=_mask(s.vndb_token),
-        igdb_client_id=_mask(s.igdb_client_id),
-        igdb_client_secret=_mask(s.igdb_client_secret),
         ymgal_client_id=_mask(s.ymgal_client_id),
         ymgal_client_secret=_mask(s.ymgal_client_secret),
         proxy=_mask(config.proxy),
@@ -167,7 +161,7 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     config = load_config()
     data = _read_scraper_config()
 
-    for key in ("bangumi_token", "vndb_token", "igdb_client_id", "igdb_client_secret",
+    for key in ("bangumi_token", "vndb_token",
                  "ymgal_client_id", "ymgal_client_secret", "proxy"):
         val = getattr(body, key, None)
         if val is not None:

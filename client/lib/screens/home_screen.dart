@@ -41,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _multiSelect = false;
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   int _downloadCount = 0;
   StreamSubscription? _downloadSub;
 
@@ -223,8 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _sortItem(null, "导入时间 ↓", Icons.schedule, gameProvider.sortBy == null),
                     _sortItem("name", "名称 A → Z", Icons.sort_by_alpha, gameProvider.sortBy == "name"),
                     _sortItem("name_desc", "名称 Z → A", Icons.text_rotation_none, gameProvider.sortBy == "name_desc"),
-                    _sortItem("company", "会社 A → Z", Icons.business, gameProvider.sortBy == "company"),
-                    _sortItem("developer", "开发商 A → Z", Icons.code, gameProvider.sortBy == "developer"),
+                    _sortItem("developer", "会社 A → Z", Icons.business, gameProvider.sortBy == "developer"),
                   ],
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
@@ -280,6 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               selectedIds: _selectedIds,
                               onSelect: (id) => _toggleSelect(id),
                               multiSelect: _multiSelect,
+                              controller: _scrollController,
                             )
                           : GameList(
                               games: gameProvider.games,
@@ -288,6 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               selectedIds: _selectedIds,
                               onSelect: (id) => _toggleSelect(id),
                               multiSelect: _multiSelect,
+                              controller: _scrollController,
                             ),
                     ),
         ),
@@ -366,11 +368,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
     );
-    if (mounted) {
-      context.read<GameProvider>().loadGames();
-    }
-    // If loadGames was NOT called, check the navigation flow
-    debugPrint("[SenaRepo] _openDetail: returned from detail screen, calling loadGames");
+    // Don't reload here — preserves scroll position. Pull-to-refresh still works.
   }
 
   void _toggleSelect(int id) {
@@ -488,6 +486,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _downloadSub?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -499,8 +498,7 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (sortBy) {
       case "name": return "名称 A-Z";
       case "name_desc": return "名称 Z-A";
-      case "company": return "会社 A-Z";
-      case "developer": return "开发商 A-Z";
+      case "developer": return "会社 A-Z";
       default: return "排序";
     }
   }
