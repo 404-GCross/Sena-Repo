@@ -368,11 +368,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => GameDetailScreen(gameId: game.id)),
     );
-    if (mounted) {
-      context.read<GameProvider>().loadGames();
-    }
-    // If loadGames was NOT called, check the navigation flow
-    debugPrint("[SenaRepo] _openDetail: returned from detail screen, calling loadGames");
+    // Don't reload here — preserves scroll position. Pull-to-refresh still works.
   }
 
   void _toggleSelect(int id) {
