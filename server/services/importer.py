@@ -112,7 +112,7 @@ async def import_from_root(
     for game in all_games.scalars().all():
         if game.folder_path and game.folder_path not in scanned_paths:
             p = Path(game.folder_path)
-            if not p.is_dir():
+            if not p.exists():
                 game.is_deleted = True
                 game.updated_at = datetime.utcnow()
                 orphans += 1
