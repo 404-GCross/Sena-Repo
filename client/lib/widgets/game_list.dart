@@ -1,6 +1,7 @@
 /// List view for game library — compact row design with poster thumbnail.
 
 import "package:flutter/material.dart";
+import "package:cached_network_image/cached_network_image.dart";
 
 import "../models/game.dart";
 import "../utils/theme_utils.dart";
@@ -116,10 +117,11 @@ class _GameListTileState extends State<_GameListTile> {
               child: SizedBox(
                 width: 64, height: 90,
                 child: hasCover
-                    ? Image.network(
-                        "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
+                    ? CachedNetworkImage(
+                        imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _placeholder(cs),
+                        errorWidget: (_, __, ___) => _placeholder(cs),
+                        placeholder: (_, __) => _placeholder(cs),
                       )
                     : _placeholder(cs),
               ),

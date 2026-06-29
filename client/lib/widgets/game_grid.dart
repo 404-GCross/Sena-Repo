@@ -3,6 +3,7 @@
 import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
+import "package:cached_network_image/cached_network_image.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
@@ -154,12 +155,11 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                 children: [
                   // Cover image
                   if (hasCover)
-                    Image.network(
-                      "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
+                    CachedNetworkImage(
+                      imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _placeholder(),
-                      loadingBuilder: (_, child, progress) =>
-                          progress == null ? child : _placeholder(),
+                      errorWidget: (_, __, ___) => _placeholder(),
+                      placeholder: (_, __) => _placeholder(),
                     )
                   else
                     _placeholder(),
