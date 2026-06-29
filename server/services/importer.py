@@ -101,6 +101,25 @@ async def import_from_root(
             stats["new_versions"] += version_count
             stats["total"] += 1
 
+    # Detect orphaned games (exist in DB but folder no longer on disk)
+    scanned_paths = {
+        g.path for c in scan_result.companies for g in c.games
+    }
+    all_games = await session.execute(
+        select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
+    )
+    orphans = 0
+    for game in all_games.scalars().all():
+        if game.folder_path and game.folder_path not in scanned_paths:
+            p = Path(game.folder_path)
+            if not p.is_dir():
+                game.is_deleted = True
+                game.updated_at = datetime.utcnow()
+                session.add(IgnoreList(path=game.folder_path))
+                orphans += 1
+    if orphans:
+        await session.flush()
+
     await session.commit()
 
     # Count total games from this root
@@ -108,6 +127,7 @@ async def import_from_root(
         select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
     )
     stats["total_games"] = len(count_result.scalars().all())
+    stats["orphaned"] = orphans
 
     # Clean up companies that no longer have any games
     await cleanup_empty_companies(session)
