@@ -80,8 +80,9 @@ class ApiClient {
     final resp = await _client.get(uri, headers: headers);
     if (resp.statusCode != 200) throw HttpException("Failed to load games");
 
-    final List<dynamic> data = jsonDecode(resp.body);
-    return data.map((j) => GameSummary.fromJson(j as Map<String, dynamic>)).toList();
+    final decoded = jsonDecode(resp.body);
+    if (decoded is! List) return [];
+    return (decoded as List).map((j) => GameSummary.fromJson(j as Map<String, dynamic>)).toList();
   }
 
 
