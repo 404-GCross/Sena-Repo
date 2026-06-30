@@ -55,7 +55,6 @@ docker run -d \
   -v /path/to/data:/data \
   -v /path/to/steam_patches:/steam_patch \
   -e SENA_BANGUMI_TOKEN="your_token" \
-  -e SENA_VNDB_TOKEN="your_token" \
   -e SENA_PROXY="http://127.0.0.1:7890" \
   ghcr.io/404-gcross/sena-repo:latest
 ```
@@ -75,7 +74,6 @@ services:
       - /path/to/steam_patches:/steam_patch
     environment:
       - SENA_BANGUMI_TOKEN=your_token      # 可选
-      - SENA_VNDB_TOKEN=your_token         # 可选
       - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
     restart: unless-stopped
 ```
@@ -143,7 +141,6 @@ pkill -f "python main.py" && python main.py ...
 | `/data` | 数据库、封面、背景、配置 | 是 |
 | `/steam_patch` | Steam 补丁压缩包目录 | Steam 补丁功能需要 |
 | `SENA_BANGUMI_TOKEN` | Bangumi API Token | 可选 |
-| `SENA_VNDB_TOKEN` | VNDB API Token | 可选 |
 | `SENA_PROXY` | 刮削 HTTP 代理 | 可选 |
 
 ### 刮削 API Key 获取地址
