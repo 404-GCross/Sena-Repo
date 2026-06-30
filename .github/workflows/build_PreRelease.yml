@@ -269,13 +269,13 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_AppImage_v${VERSION}-x86_64.AppImage"
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_v${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Linux
-          path: client/dist/Sena-Repo_AppImage_*
+          path: client/dist/Sena-Repo_Linux_*
 
   # ── Docker Server ────────────────────────────────
   build-server:

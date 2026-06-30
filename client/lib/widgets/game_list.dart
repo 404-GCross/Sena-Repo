@@ -118,6 +118,7 @@ class _GameListTileState extends State<_GameListTile> {
                 width: 64, height: 90,
                 child: hasCover
                     ? CachedNetworkImage(
+                        key: ValueKey(game.coverPath),
                         imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => _placeholder(cs),

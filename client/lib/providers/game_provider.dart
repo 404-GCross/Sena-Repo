@@ -66,7 +66,16 @@ class GameProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _games = await _api.getGames();
+      // Fetch all games across pages (server limits page_size to 200)
+      final all = <GameSummary>[];
+      int page = 1;
+      while (true) {
+        final batch = await _api.getGames(page: page, pageSize: 200);
+        if (batch.isEmpty) break;
+        all.addAll(batch);
+        page++;
+      }
+      _games = all;
       _tags = await _api.getTags();
       _error = null;
       LoggerService().info("加载游戏库完成: ${_games.length} 款游戏");
@@ -81,7 +90,15 @@ class GameProvider extends ChangeNotifier {
   /// Refresh game list silently (no loading indicator).
   Future<void> refreshGames() async {
     try {
-      _games = await _api.getGames();
+      final all = <GameSummary>[];
+      int page = 1;
+      while (true) {
+        final batch = await _api.getGames(page: page, pageSize: 200);
+        if (batch.isEmpty) break;
+        all.addAll(batch);
+        page++;
+      }
+      _games = all;
       _tags = await _api.getTags();
       _error = null;
     } catch (_) {
