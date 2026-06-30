@@ -62,7 +62,7 @@ class _GameGridState extends State<GameGrid> {
       itemCount: widget.games.length,
       itemBuilder: (context, index) {
         final game = widget.games[index];
-        return Stack(children: [
+        return Stack(key: ValueKey(game.id), children: [
           _PosterCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl),
           if (widget.multiSelect)
             Positioned(
@@ -156,6 +156,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                   // Cover image
                   if (hasCover)
                     CachedNetworkImage(
+                      key: ValueKey(game.coverPath),
                       imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => _placeholder(),
