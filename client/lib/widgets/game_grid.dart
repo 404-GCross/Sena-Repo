@@ -157,7 +157,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                   if (hasCover)
                     CachedNetworkImage(
                       key: ValueKey(game.coverPath),
-                      imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}",
+                      imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => _placeholder(),
                       placeholder: (_, __) => _placeholder(),
