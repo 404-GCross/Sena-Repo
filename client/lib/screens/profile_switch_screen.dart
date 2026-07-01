@@ -182,7 +182,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
     );
   }
 
-  Future<void> _switchTo(UserProfile profile) async {
+  Future<void> _switchTo(UserProfile profile, int index) async {
     // Validate token before switching — deleted users won't pass
     try {
       final uri = Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me");
@@ -198,6 +198,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
     }
 
     await ProfileService().applyProfile(profile);
+    await ProfileService().setActiveIndex(index);
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const ConnectScreen()),
@@ -273,7 +274,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                             style: AppText.bodySmall.copyWith( color: hintColor(context))),
                         trailing: PopupMenuButton<String>(
                           onSelected: (action) {
-                            if (action == "switch") _switchTo(p);
+                            if (action == "switch") _switchTo(p, i);
                             if (action == "edit") _editProfile(p);
                             if (action == "delete") _deleteProfile(i);
                           },
@@ -284,7 +285,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                                 child: Text("删除", style: TextStyle(color: Colors.red))),
                           ],
                         ),
-                        onTap: () => _switchTo(p),
+                        onTap: () => _switchTo(p, i),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                     );
