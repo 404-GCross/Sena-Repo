@@ -124,6 +124,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 leading: (r["cover_url"] ?? "").toString().isNotEmpty
                     ? ClipRRect(borderRadius: BorderRadius.circular(4),
                         child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
+                            key: ValueKey(r["cover_url"]),
                             fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
                     : _noCover(),
                 title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
@@ -934,6 +935,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(screenshots[i],
+                    key: ValueKey(screenshots[i]),
                     fit: BoxFit.cover,
                     loadingBuilder: (_, child, progress) {
                       if (progress == null) return child;
