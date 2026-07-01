@@ -11,17 +11,40 @@
 
 ---
 
-## 概述
-
-Sena Repo 是 C/S 架构的 Galgame 私有库管理器。**服务端**部署在 NAS 或服务器上，负责扫描游戏文件、刮削元数据、提供下载 API；客户端通过 HTTP/HTTPS 连接服务端。
 
 > **⚠️ 安全警告：** Sena-Repo 为社区开发，安全性无法切实保证。**强烈建议仅在 VPN 或家庭内网环境中使用，不要直接暴露到公网。**
 
 ---
 
-## 服务端部署
 
-### 方式一：GHCR 拉取（推荐）
+
+
+### 部署前准备
+
+Sena-Repo 按固定目录结构扫描游戏，**部署前请先整理好文件**：
+
+```
+游戏目录/
+  ├── 会社A/
+  │   ├── 游戏1/
+  │   │   ├── [PC]游戏1.rar       ← 带平台标记的压缩包
+  │   │   └── [KRKR]游戏1_v2.zip
+  │   └── 游戏2/
+  │       └── [Ty]游戏2.7z
+  └── 会社B/
+      └── 游戏3/
+          └── 直装_游戏3.apk
+```
+
+- **第一级** → 会社（文件夹名即会社名）
+- **第二级** → 游戏（文件夹名即游戏名）
+- **第三级** → 压缩包（`.rar` `.zip` `.7z` `.tar` `.gz` `.xz` `.apk`）
+- 平台标记：`[PC]` `[KRKR]` `[Ty]` `[ONS]` `直装_`，无标记默认 PC
+- 压缩包直接放在会社目录下也可以（自动视为独立游戏）
+
+> **文件不按规则整理 → 扫不出来。** 安排好了再启动容器扫描。
+
+## 方式一：GHCR 拉取（推荐）
 
 每次 Release 发布时，Docker 镜像会自动推送到 GitHub Container Registry。本仓库公开，镜像可直接拉取，无需登录。
 
@@ -78,7 +101,7 @@ services:
     restart: unless-stopped
 ```
 
-### 方式二：Tarball 加载
+## 方式二：Tarball 加载
 
 从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz` 后手动加载。
 
@@ -94,7 +117,7 @@ docker run -d \
   sena-repo:latest
 ```
 
-### 方式三：直接部署
+## 方式三：直接部署
 
 > ⚠️ 此方式未经过充分测试，不推荐。建议优先使用 Docker。
 
@@ -107,13 +130,13 @@ python main.py --host 0.0.0.0 --port 11451 \
   --data-path /path/to/data
 ```
 
-### 服务端更新
+## 服务端更新
 
 ```bash
 # ── GHCR ──
 docker pull ghcr.io/404-gcross/sena-repo:latest
 docker stop sena-repo && docker rm sena-repo
-# 重新 docker run（挂载目录不变，数据不丢失）
+# 执行完以上命令后，重新执行服务端部署（挂载目录不变，数据不丢失）
 
 # ── docker-compose ──
 docker pull ghcr.io/404-gcross/sena-repo:latest
@@ -122,7 +145,7 @@ docker-compose down && docker-compose up -d
 # ── Tarball ──
 docker load < Sena-Repo_Server_v新版本.tar.gz
 docker stop sena-repo && docker rm sena-repo
-# 重新 docker run
+# 执行完以上命令后，重新执行服务端部署（挂载目录不变，数据不丢失）
 
 # ── 直接部署 ──
 cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
