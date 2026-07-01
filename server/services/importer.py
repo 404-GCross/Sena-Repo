@@ -203,9 +203,10 @@ async def _upsert_game(
         session.add(game)
         await session.flush()
     else:
-        # Update fields if changed
+        # Update fields if changed, restore if previously deleted
         game.name = clean_name
         game.company_id = company_id
+        game.is_deleted = False
         if game.developer is None and developer:
             game.developer = developer
         game.updated_at = datetime.utcnow()
