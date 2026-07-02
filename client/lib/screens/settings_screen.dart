@@ -26,12 +26,24 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late ApiClient _api;
   bool _isAdmin = false;
+  String _serverVersion = "";
 
   @override
   void initState() {
     super.initState();
     _api = context.read<GameProvider>().api;
     _loadIsAdmin();
+    _loadServerVersion();
+  }
+
+  Future<void> _loadServerVersion() async {
+    try {
+      final resp = await http.get(Uri.parse("${_api.baseUrl}/api/health"));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        if (mounted) setState(() => _serverVersion = data["version"] ?? "");
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadIsAdmin() async {
@@ -88,7 +100,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 6),
-                Text("Sena Repo v$appVersion", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                Text("客户端 v$appVersion  ·  服务端 ${_serverVersion.isNotEmpty ? "v$_serverVersion" : "未知"}",
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13)),
               ]),
             ),
           ),
