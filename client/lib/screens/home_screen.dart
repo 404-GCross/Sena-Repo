@@ -413,11 +413,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
+    final sources = await showDialog<List<String>>(context: context, builder: (ctx) {
+      final sel = <String>{"vndb_kana", "bangumi", "steam", "dlsite", "ymgal"};
+      return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+        title: const Text("选择刮削源"),
+        content: SizedBox(width: 300, child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final s in sel)
+              CheckboxListTile(title: Text(_srcLabel(s)), value: sel.contains(s), onChanged: (v) { setD(() => v == true ? sel.add(s) : sel.remove(s)); }, dense: true),
+          ]),
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, sel.toList()), child: const Text("开始刮削")),
+        ],
+      ));
+    });
+    if (sources == null || sources.isEmpty) return;
+
     try {
       final api = context.read<GameProvider>().api;
       final resp = await http.post(Uri.parse("${api.baseUrl}/api/scrape/batch"),
           headers: {"Content-Type": "application/json", ...api.headers},
-          body: jsonEncode({"game_ids": _selectedIds.toList()}));
+          body: jsonEncode({"game_ids": _selectedIds.toList(), "sources": sources}));
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       }
@@ -433,6 +451,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("刮削失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
     }
   }
+
+  String _srcLabel(String s) => switch (s) {
+    "vndb_kana" => "VNDB Kana v2", "bangumi" => "Bangumi", "steam" => "Steam",
+    "dlsite" => "DLsite", "ymgal" => "月幕 GalGame", _ => s,
+  };
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {
     if (_multiSelect && _selectedIds.isNotEmpty) {
