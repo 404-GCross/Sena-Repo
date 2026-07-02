@@ -413,29 +413,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
-    final sources = await showDialog<List<String>>(context: context, builder: (ctx) {
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (ctx) {
       final sel = <String>{"vndb_kana", "bangumi", "steam", "dlsite", "ymgal"};
+      String mode = "missing";
       return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
-        title: const Text("选择刮削源"),
-        content: SizedBox(width: 300, child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        title: const Text("批量刮削"),
+        content: SizedBox(width: 320, child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("刮削源", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700])),
+            const SizedBox(height: 4),
             for (final s in sel)
               CheckboxListTile(title: Text(_srcLabel(s)), value: sel.contains(s), onChanged: (v) { setD(() => v == true ? sel.add(s) : sel.remove(s)); }, dense: true),
+            const SizedBox(height: 12),
+            Text("刮削模式", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700])),
+            RadioListTile<String>(title: const Text("填充缺失数据"), subtitle: const Text("仅刮削封面/元数据为空的游戏", style: TextStyle(fontSize: 12)), value: "missing", groupValue: mode, onChanged: (v) => setD(() => mode = v!), dense: true),
+            RadioListTile<String>(title: const Text("覆盖已有数据"), subtitle: const Text("重新刮削所有字段，覆盖已有值", style: TextStyle(fontSize: 12)), value: "overwrite", groupValue: mode, onChanged: (v) => setD(() => mode = v!), dense: true),
           ]),
         )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(ctx, sel.toList()), child: const Text("开始刮削")),
+          FilledButton(onPressed: () => Navigator.pop(ctx, {"sources": sel.toList(), "mode": mode}), child: const Text("开始刮削")),
         ],
       ));
     });
-    if (sources == null || sources.isEmpty) return;
+    if (result == null) return;
+    final sources = (result["sources"] as List?)?.cast<String>() ?? [];
+    if (sources.isEmpty) return;
+    final mode = (result["mode"] as String?) ?? "missing";
 
     try {
       final api = context.read<GameProvider>().api;
       final resp = await http.post(Uri.parse("${api.baseUrl}/api/scrape/batch"),
           headers: {"Content-Type": "application/json", ...api.headers},
-          body: jsonEncode({"game_ids": _selectedIds.toList(), "sources": sources}));
+          body: jsonEncode({"game_ids": _selectedIds.toList(), "sources": sources, "mode": mode}));
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       }
