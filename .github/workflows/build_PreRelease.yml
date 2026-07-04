@@ -351,6 +351,8 @@ jobs:
           name: v${{ inputs.version }}
           prerelease: true
           generate_release_notes: true
+          body: |
+            > ⚠️ **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用，请勿用于生产环境。**
           files: dist/**/*
           make_latest: false
         env:
