@@ -125,7 +125,7 @@ async def _background_scan(config, patch_dir: str):
             from pathlib import Path as _Path
             patches_dir = _Path(patch_dir)
             patches_dir.mkdir(parents=True, exist_ok=True)
-            scanned = scan_patches_dir(patches_dir)
+            scanned = await asyncio.to_thread(scan_patches_dir, patches_dir)
             if scanned:
                 json_path = patches_dir / "patches.json"
                 existing = load_existing(json_path)

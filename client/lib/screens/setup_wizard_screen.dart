@@ -108,6 +108,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       await prefs.setString("scan_structure", _structure);
       await prefs.setBool("auto_scan", _autoScan);
       if (_autoScan) await prefs.setInt("scan_interval", _scanInterval);
+      // Save auto-scan settings to server (SharedPreferences is client-only, server reads scan_settings.json)
+      try {
+        await http.put(
+          Uri.parse("${widget.api.baseUrl}/api/settings/scan"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"auto_scan": _autoScan, "scan_interval": _scanInterval, "scan_structure": _structure}),
+        );
+      } catch (_) {}
       // Persist Steam common dir and local download dir
       if (_steamCommonCtrl.text.trim().isNotEmpty) {
         await prefs.setString("steamapps_dir", _steamCommonCtrl.text.trim());

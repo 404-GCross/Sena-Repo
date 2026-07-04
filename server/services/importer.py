@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import logging
+import asyncio, logging
 from datetime import datetime
 from pathlib import Path
 
@@ -40,8 +40,8 @@ async def import_from_root(
 
     ignore_paths = await get_ignore_paths(session)
 
-    # Scan the filesystem
-    scan_result = scan_root(root.path, ignore_paths)
+    # Scan the filesystem in a thread pool so slow/remote storage doesn't block the event loop
+    scan_result = await asyncio.to_thread(scan_root, root.path, ignore_paths)
 
     stats = {"new_games": 0, "updated_games": 0, "new_versions": 0, "total": 0}
 
@@ -203,9 +203,10 @@ async def _upsert_game(
         session.add(game)
         await session.flush()
     else:
-        # Update fields if changed
+        # Update fields if changed, restore if previously deleted
         game.name = clean_name
         game.company_id = company_id
+        game.is_deleted = False
         if game.developer is None and developer:
             game.developer = developer
         game.updated_at = datetime.utcnow()

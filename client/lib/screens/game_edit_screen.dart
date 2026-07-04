@@ -51,6 +51,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Future<void> _save({bool popOnSave = true}) async {
     setState(() => _saving = true);
+    _showLoadingDialog();
     try {
       final g = widget.game;
       final body = {"name": _name.text.trim(), "developer": _dev.text.trim(),
@@ -66,9 +67,22 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (_bgUrl.text.trim().isNotEmpty && _bgUrl.text.trim().startsWith("http")) {
         await http.post(Uri.parse("$_baseUrl/api/games/${g.id}/background?bg_url=${Uri.encodeComponent(_bgUrl.text.trim())}"), headers: _authHeaders);
       }
+      if (mounted) Navigator.pop(context); // close loading dialog
       if (popOnSave && mounted) Navigator.pop(context, true);
     } catch (e) { _showError("$e"); }
+    if (mounted) Navigator.pop(context); // close loading dialog on error too
     setState(() { _saving = false; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+  }
+
+  void _showLoadingDialog() {
+    showDialog(context: context, barrierDismissible: false,
+      builder: (_) => const PopScope(canPop: false,
+        child: Center(child: Card(child: Padding(padding: EdgeInsets.all(24),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            CircularProgressIndicator(strokeWidth: 3),
+            SizedBox(width: 16),
+            Text("保存中...", style: TextStyle(fontSize: 15)),
+          ]))))));
   }
 
   Future<void> _downloadFromSource(String source, String label) async {
@@ -110,6 +124,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 leading: (r["cover_url"] ?? "").toString().isNotEmpty
                     ? ClipRRect(borderRadius: BorderRadius.circular(4),
                         child: Image.network(r["cover_url"].toString(), width: 50, height: 70,
+                            key: ValueKey(r["cover_url"]),
                             fit: BoxFit.cover, errorBuilder: (_, __, ___) => _noCover()))
                     : _noCover(),
                 title: Text(r["title"] ?? "", style: const TextStyle(fontSize: 13)),
@@ -920,6 +935,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(screenshots[i],
+                    key: ValueKey(screenshots[i]),
                     fit: BoxFit.cover,
                     loadingBuilder: (_, child, progress) {
                       if (progress == null) return child;

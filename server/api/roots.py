@@ -83,31 +83,36 @@ async def delete_root(
     return MessageResponse(message="Root directory removed")
 
 
-@router.post("/refresh-all", response_model=dict)
+def _bg_scan(config, root_ids: list[int]):
+    """Background scan: runs in its own async task with independent session."""
+    async def _run():
+        import database
+        async with database._session_factory() as session:
+            for rid in root_ids:
+                try:
+                    await import_from_root(rid, config, session)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("sena-repo").error(f"Background scan root {rid} failed: {e}")
+            asyncio.create_task(_auto_scrape(config, "metadata"))
+            asyncio.create_task(_auto_scrape(config, "missing"))
+    asyncio.create_task(_run())
+
+
+@router.post("/refresh-all")
 async def refresh_all_roots(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Re-scan ALL root directories and import/update games, then auto-scrape new games."""
+    """Trigger re-scan of ALL root directories in background. Returns immediately."""
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
-
     config = load_config()
-    all_stats = {"roots_scanned": len(roots), "total_games": 0}
-
-    for root in roots:
-        stats = await import_from_root(root.id, config, session)
-        all_stats["total_games"] += stats.get("total_games", 0)
-
-    # Auto-trigger batch scrape for new games without covers
-    # Use asyncio.create_task to preserve async context for SQLAlchemy's greenlet proxy
-    asyncio.create_task(_auto_scrape(config, "metadata"))
-    asyncio.create_task(_auto_scrape(config, "missing"))
-
-    return all_stats
+    _bg_scan(config, [r.id for r in roots])
+    return {"message": "扫描已在后台启动", "roots": len(roots)}
 
 
-@router.post("/{root_id}/refresh", response_model=dict)
+@router.post("/{root_id}/refresh")
 async def refresh_root(
     root_id: int,
     user: User = Depends(require_admin),
@@ -122,14 +127,8 @@ async def refresh_root(
         raise HTTPException(status_code=404, detail="Root directory not found")
 
     config = load_config()
-    stats = await import_from_root(root_id, config, session)
-
-    # Auto-trigger batch scrape for new games without covers
-    # Use asyncio.create_task to preserve async context for SQLAlchemy's greenlet proxy
-    asyncio.create_task(_auto_scrape(config, "metadata"))
-    asyncio.create_task(_auto_scrape(config, "missing"))
-
-    return stats
+    _bg_scan(config, [root_id])
+    return {"message": "扫描已在后台启动", "root_id": root_id}
 
 
 async def _run_scan(config):
