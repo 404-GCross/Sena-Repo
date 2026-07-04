@@ -352,7 +352,7 @@ jobs:
           prerelease: true
           generate_release_notes: true
           body: |
-            > ⚠️ **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用，请勿用于生产环境。**
+            > ⚠️ **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用。**
           files: dist/**/*
           make_latest: false
         env:

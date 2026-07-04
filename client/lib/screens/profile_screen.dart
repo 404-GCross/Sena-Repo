@@ -28,6 +28,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   String _username = "";
   String _serverInfo = "";
+  String _serverVersion = "";
   String? _avatarPath;
   int _userId = 0;
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
@@ -43,6 +44,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadUserInfo();
+    _loadServerVersion();
   }
 
   Future<void> refresh() async => _loadUserInfo();
@@ -58,6 +60,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _switchProfile() {
     Navigator.push(context,
         MaterialPageRoute(builder: (_) => const ProfileSwitchScreen()));
+  }
+
+  Future<void> _loadServerVersion() async {
+    try {
+      final api = context.read<GameProvider>().api;
+      final resp = await http.get(Uri.parse("${api.baseUrl}/api/health"));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        if (mounted) setState(() => _serverVersion = data["version"] ?? "");
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadUserInfo() async {
@@ -160,7 +173,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _menuItem(
             icon: Icons.info_outline,
             title: "关于",
-            trailing: "Sena Repo v$appVersion",
+            trailing: "客户端 v$appVersion  ·  服务端 ${_serverVersion.isNotEmpty ? "v$_serverVersion" : "..."}",
             onTap: () => _showAbout(context),
           ),
         ]),
@@ -259,7 +272,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 12),
           const Text("Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 2),
-          Text("v$appVersion", style: TextStyle(fontSize: 13, color: cs.primary)),
+          Text("客户端 v$appVersion  ·  服务端 ${_serverVersion.isNotEmpty ? "v$_serverVersion" : "未知"}",
+              style: TextStyle(fontSize: 13, color: cs.primary)),
         ]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
