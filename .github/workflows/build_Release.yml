@@ -235,6 +235,11 @@ jobs:
         run: dart run flutter_launcher_icons
       - name: Build Linux
         run: flutter build linux --release
+      - name: Bundle add_steam_game.py + vdf
+        run: |
+          BUNDLE=build/linux/x64/release/bundle
+          cp ../server/add_steam_game.py "$BUNDLE/add_steam_game.py"
+          cp -r ../server/vdf "$BUNDLE/vdf"
       - name: Package Linux
         run: |
           BUNDLE=build/linux/x64/release/bundle
