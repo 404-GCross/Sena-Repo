@@ -7,6 +7,7 @@ import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Proc
 import "services/api_client.dart" show trustedServerHost;
 
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "package:window_manager/window_manager.dart";
@@ -77,6 +78,16 @@ class _AllowAllCertificates extends HttpOverrides {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = _AllowAllCertificates();
+  // Prevent Android edge-to-edge overlap with system bars
+  if (Platform.isAndroid) {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ));
+  }
   NotificationService().init();
   DownloadService().initLifecycle();
   LoggerService().cleanOldLogs();
