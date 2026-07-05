@@ -102,10 +102,11 @@ class ProfileService {
         authToken: token, username: username, isAdmin: isAdmin, useHttps: useHttps);
     if (existing >= 0) {
       profiles[existing] = profile;
+      await setActiveIndex(existing);
     } else {
       profiles.add(profile);
+      await setActiveIndex(profiles.length - 1);
     }
     await saveProfiles(profiles);
-    await setActiveIndex(profiles.length - 1);
   }
 }
