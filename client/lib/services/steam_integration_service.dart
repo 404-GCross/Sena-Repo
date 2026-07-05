@@ -152,16 +152,18 @@ class SteamIntegrationService {
   // ── Script resolution ──
 
   /// Resolve path to add_steam_game.py.
-  /// Release: bundled alongside exe.
+  /// Release: bundled alongside exe (Windows only).
   /// Debug (flutter run): CWD is client/, script is at ../server/.
-  String _resolveScriptPath() {
+  String? _resolveScriptPath() {
     if (Platform.isWindows) {
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       final bundled = "$exeDir${Platform.pathSeparator}add_steam_game.py";
       if (File(bundled).existsSync()) return bundled;
     }
     // Fallback for flutter run (CWD = client/)
-    return "../server/add_steam_game.py";
+    final fallback = "../server/add_steam_game.py";
+    if (File(fallback).existsSync()) return fallback;
+    return null;
   }
 
   // ── Main API ──
@@ -200,6 +202,10 @@ class SteamIntegrationService {
 
     try {
       final scriptPath = _resolveScriptPath();
+      if (scriptPath == null) {
+        return SteamIntegrationResult(false,
+            "此功能需要 add_steam_game.py（仅 Windows 发布版内置）。");
+      }
       final result = await Process.run(py, [
         scriptPath,
         "--steamroot", steam.root,
