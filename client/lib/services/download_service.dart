@@ -516,10 +516,12 @@ class DownloadService with WidgetsBindingObserver {
       task._cancelled = true;
       task.status = "cancelled";
       task.error = "已取消";
+      NotificationService().cancel(task.gameId);
       _emit();
       _cleanupTemp(task);
     } else if (task.status == "failed") {
       task.status = "cancelled";
+      NotificationService().cancel(task.gameId);
       _emit();
       _cleanupTemp(task);
     }
