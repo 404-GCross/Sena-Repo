@@ -155,11 +155,9 @@ class SteamIntegrationService {
   /// Release: bundled alongside exe.
   /// Debug (flutter run): CWD is client/, script is at ../server/.
   String _resolveScriptPath() {
-    if (Platform.isWindows) {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      final bundled = "$exeDir${Platform.pathSeparator}add_steam_game.py";
-      if (File(bundled).existsSync()) return bundled;
-    }
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final bundled = "$exeDir${Platform.pathSeparator}add_steam_game.py";
+    if (File(bundled).existsSync()) return bundled;
     // Fallback for flutter run (CWD = client/)
     return "../server/add_steam_game.py";
   }

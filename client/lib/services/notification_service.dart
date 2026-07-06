@@ -48,7 +48,7 @@ class NotificationService {
 
     final indeterminate = totalBytes <= 0;
     final maxProgress = totalBytes > 0 ? totalBytes : 100;
-    final currentProgress = totalBytes > 0 ? receivedBytes : (progress * 100).round();
+    final currentProgress = totalBytes > 0 ? receivedBytes : 0;
 
     await _plugin.show(
       id,
@@ -65,6 +65,7 @@ class NotificationService {
           priority: Priority.low,
           onlyAlertOnce: true,
           showProgress: true,
+          indeterminate: indeterminate,
           maxProgress: maxProgress,
           progress: currentProgress,
           ongoing: true,
