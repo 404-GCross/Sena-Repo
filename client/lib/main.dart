@@ -96,7 +96,7 @@ void main() async {
       exit(0);
     }
     await windowManager.ensureInitialized();
-    windowManager.setTitle("Sena Repo");
+    windowManager.setTitle("Sena-Repo,bye~bye~");
     _startInstanceListener();
   }
 
