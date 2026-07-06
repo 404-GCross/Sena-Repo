@@ -48,6 +48,7 @@ class DownloadTask {
   String? bgUrl;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
+  DateTime _lastNotifyTime = DateTime.now();
 
   DownloadTask({
     required this.gameId,
@@ -887,9 +888,12 @@ class DownloadService with WidgetsBindingObserver {
           t._lastBytes = received;
           t._lastSpeedTime = now;
         }
-        if (t.totalBytes > 0) {
-          t.progress = received / t.totalBytes;
-          _emit();
+        t.progress = t.totalBytes > 0 ? received / t.totalBytes : 0.0;
+        _emit();
+        // Throttle notification updates to ~1 per second
+        final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
+        if (notifyElapsed >= 1000) {
+          t._lastNotifyTime = now;
           NotificationService().showDownloadProgress(
             id: t.gameId, gameName: t.gameName,
             progress: t.progress, receivedBytes: received,
