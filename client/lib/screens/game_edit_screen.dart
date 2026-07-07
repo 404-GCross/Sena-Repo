@@ -26,6 +26,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb, _steam, _bgm, _notes, _bgUrl;
   bool _saving = false;
   String? _coverPath;
+  String? _pendingCoverUrl; // deferred cover download until save
   int _coverVersion = 0;
   int _bgVersion = 0;
 
@@ -54,6 +55,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _showLoadingDialog();
     try {
       final g = widget.game;
+      // Upload pending cover from scrape before saving
+      if (_pendingCoverUrl != null && _pendingCoverUrl!.isNotEmpty) {
+        try {
+          final resp = await http.post(
+            Uri.parse("$_baseUrl/api/games/${g.id}/cover?cover_url=${Uri.encodeComponent(_pendingCoverUrl!)}"),
+            headers: _authHeaders);
+          if (resp.statusCode == 200) {
+            final data = jsonDecode(resp.body) as Map<String, dynamic>;
+            final newPath = data["cover_path"];
+            if (newPath != null) _coverPath = newPath.toString();
+          }
+        } catch (_) {}
+        _pendingCoverUrl = null;
+      }
       final body = {"name": _name.text.trim(), "developer": _dev.text.trim(),
         "description": _desc.text.trim(), "release_date": _date.text.trim(),
         "bg_path": _bgUrl.text.trim(),
@@ -1312,27 +1327,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sf[src]!.text = r["source_id"].toString();
       }
     });
-    // Download cover then auto-save
-    bool coverChanged = false;
+    // Defer cover download to save — only upload when user commits
     if (apply["封面"] == true && coverUrl.isNotEmpty) {
-      try {
-        final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"), headers: _authHeaders);
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          final newPath = data["cover_path"];
-          if (newPath != null) {
-            _coverPath = newPath.toString();
-            coverChanged = true;
-          }
-        }
-      } catch (_) {}
-      await _reloadGame();
-      if (!coverChanged) coverChanged = true; // server may have updated path
+      _pendingCoverUrl = coverUrl;
     }
-    if (coverChanged) {
-      _coverVersion = DateTime.now().millisecondsSinceEpoch;
-      if (mounted) setState(() {});
-    }
+    if (mounted) setState(() {});
     // Don't auto-save — user may want to edit further before committing
   }
 
