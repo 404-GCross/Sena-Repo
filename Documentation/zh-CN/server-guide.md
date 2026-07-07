@@ -117,7 +117,7 @@ docker run -d \
   sena-repo:latest
 ```
 
-### ARM 设备部署（树莓派 / NAS 等）
+### ARM 设备服务端部署
 
 **方式 A：GHCR 多架构镜像（推荐）**
 
