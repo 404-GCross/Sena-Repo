@@ -12,6 +12,7 @@ import "package:http/http.dart" as http;
 import "../models/game.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
+import "../services/scrape_service.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -878,9 +879,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 onSubmitted: (v) async {
                   setD(() { searching = true; results = []; error = ""; });
                   try {
-                    final r = await http.get(Uri.parse(
-                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"), headers: await _authHeaders);
-                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                    results = await ScrapeService.search(src, v);
                   } catch (e) { error = "$e"; }
                   setD(() => searching = false);
                 })),
@@ -889,9 +888,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 onPressed: () async {
                   setD(() { searching = true; results = []; error = ""; });
                   try {
-                    final r = await http.get(Uri.parse(
-                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"), headers: await _authHeaders);
-                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                    results = await ScrapeService.search(src, ctrl.text);
                   } catch (e) { error = "$e"; }
                   setD(() => searching = false);
                 }),
