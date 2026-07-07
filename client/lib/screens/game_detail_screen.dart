@@ -80,6 +80,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   }
 
   Future<void> _load() async {
+    setState(() => _isLoading = true);
     try {
       final game = await _api.getGame(widget.gameId);
       if (mounted) setState(() { _game = game; _isLoading = false; _refreshKey++; });

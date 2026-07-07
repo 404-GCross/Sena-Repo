@@ -84,9 +84,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
       if (mounted) Navigator.pop(context); // close loading dialog
       if (popOnSave && mounted) Navigator.pop(context, true);
-    } catch (e) { _showError("$e"); }
-    if (mounted) Navigator.pop(context); // close loading dialog on error too
-    setState(() { _saving = false; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+    } catch (e) {
+      _showError("$e");
+      if (mounted) Navigator.pop(context); // close loading dialog
+    }
+    if (mounted) setState(() { _saving = false; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
   }
 
   void _showLoadingDialog() {
