@@ -345,12 +345,12 @@ async def get_my_profile(
 async def get_profile(user_id: int, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     """Get user profile info (authenticated users only)."""
     result = await session.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
+    profile_user = result.scalar_one_or_none()
+    if profile_user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return {
-        "id": user.id, "username": user.username,
-        "is_admin": user.is_admin, "avatar_path": user.avatar_path,
+        "id": profile_user.id, "username": profile_user.username,
+        "is_admin": profile_user.is_admin, "avatar_path": profile_user.avatar_path,
     }
 
 
@@ -411,7 +411,7 @@ async def upload_avatar(
 
     ext = Path(file.filename or "avatar.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
-        raise HTTPException(status_code=403, detail="File type not allowed")
+        raise HTTPException(status_code=400, detail="File type not allowed")
 
     config = load_config()
     avatars_dir = Path(config.data_path) / "avatars"

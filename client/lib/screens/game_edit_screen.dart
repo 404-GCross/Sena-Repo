@@ -1333,7 +1333,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _coverVersion = DateTime.now().millisecondsSinceEpoch;
       if (mounted) setState(() {});
     }
-    await _save(popOnSave: false);
+    // Don't auto-save — user may want to edit further before committing
   }
 
   @override

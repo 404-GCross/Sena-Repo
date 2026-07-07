@@ -101,8 +101,8 @@ class GameProvider extends ChangeNotifier {
       _games = all;
       _tags = await _api.getTags();
       _error = null;
-    } catch (_) {
-      // silent
+    } catch (e) {
+      LoggerService().error("后台刷新游戏库失败", e);
     }
     notifyListeners();
   }
