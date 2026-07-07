@@ -117,6 +117,40 @@ docker run -d \
   sena-repo:latest
 ```
 
+### ARM 设备部署（树莓派 / NAS 等）
+
+**方式 A：GHCR 多架构镜像（推荐）**
+
+GHCR 镜像同时包含 amd64 和 arm64 架构，Docker 会自动拉取匹配的版本。命令和 x86 完全一样：
+
+```bash
+docker pull ghcr.io/404-gcross/sena-repo:latest
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  ghcr.io/404-gcross/sena-repo:latest
+```
+
+**方式 B：ARM64 Tarball**
+
+从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载带 `arm64` 标识的包：
+
+```bash
+docker load < Sena-Repo_Server_arm64_v0.1.0.tar.gz
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  sena-repo:latest
+```
+
+> ⚠️ ARM 设备（特别是低性能型号 + 网络存储）上文件扫描较慢，首次扫描可能需要数分钟。已通过后台异步扫描 + 线程池优化避免阻塞，但扫描本身耗时不变。
+
 ## 方式三：直接部署
 
 > ⚠️ 此方式未经过充分测试，不推荐。建议优先使用 Docker。
