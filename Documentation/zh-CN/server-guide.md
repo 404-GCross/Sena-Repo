@@ -139,7 +139,7 @@ docker run -d \
 从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载带 `arm64` 标识的包：
 
 ```bash
-docker load < Sena-Repo_Server_arm64_v0.1.0.tar.gz
+docker load < Sena-Repo_Server_arm64_v0.1.0.tar.gz #记得修改成对应的文件名
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
