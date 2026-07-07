@@ -414,7 +414,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _batchScrape() async {
     final result = await showDialog<Map<String, dynamic>>(context: context, builder: (ctx) {
-      final sel = <String>{"vndb_kana", "bangumi", "steam", "dlsite", "ymgal"};
+      const allSrc = ["vndb_kana", "bangumi", "steam", "dlsite", "ymgal"];
+      final sel = Set<String>.from(allSrc);
       String mode = "missing";
       return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
         title: const Text("批量刮削"),
@@ -422,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text("刮削源", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700])),
             const SizedBox(height: 4),
-            for (final s in sel)
+            for (final s in allSrc)
               CheckboxListTile(title: Text(_srcLabel(s)), value: sel.contains(s), onChanged: (v) { setD(() => v == true ? sel.add(s) : sel.remove(s)); }, dense: true),
             const SizedBox(height: 12),
             Text("刮削模式", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700])),

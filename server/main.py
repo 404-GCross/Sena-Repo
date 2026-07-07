@@ -70,6 +70,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Initial auto-scan failed: {e}", exc_info=True)
 
+    # Restore persisted auto-scan settings before starting background task
+    from api.settings import _load_scan_settings
+    _load_scan_settings(config)
+
     # Start auto-scan background task
     task = asyncio.create_task(_auto_scan_task(config, logger))
 
