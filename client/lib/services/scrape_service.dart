@@ -118,6 +118,11 @@ class ScrapeService {
         final id = item["id"];
         // Get details for Chinese name
         String name = item["name"] ?? "";
+        String desc = "";
+        String release = "";
+        String cover = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$id/header.jpg";
+        String dev = "";
+        List<String> shots = [];
         try {
           final d = Uri.parse(
               "https://store.steampowered.com/api/appdetails?appids=$id&l=schinese");
@@ -127,15 +132,23 @@ class ScrapeService {
             final detail = (dd[id.toString()] ?? {})["data"] ?? {};
             final cn = detail["name"] ?? "";
             if (cn.isNotEmpty) name = cn;
+            desc = detail["short_description"] ?? "";
+            release = (detail["release_date"] ?? {})["date"] ?? "";
+            final devs = detail["developers"] as List? ?? [];
+            if (devs.isNotEmpty) dev = devs.first ?? "";
+            final bg = detail["background_raw"] ?? detail["background"] ?? "";
+            if (bg.isNotEmpty) cover = bg;
+            final screenshots = detail["screenshots"] as List? ?? [];
+            shots = screenshots.map<dynamic>((s) => s["path_full"] ?? "").where((u) => u is String && u.isNotEmpty).cast<String>().toList();
           }
         } catch (_) {}
         results.add({
           "title": name,
-          "developer": "",
-          "release_date": "",
-          "description": "",
-          "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$id/header.jpg",
-          "screenshots": <String>[],
+          "developer": dev,
+          "release_date": release,
+          "description": desc,
+          "cover_url": cover,
+          "screenshots": shots,
           "source_id": id.toString(),
         });
       }
