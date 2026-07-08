@@ -1,4 +1,4 @@
-/// Login screen with registration option.
+﻿/// Login screen with registration option.
 
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
@@ -29,19 +29,14 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      final resp = await http.post(
-        Uri.parse("${widget.api.baseUrl}/api/auth/login"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "username": _userCtrl.text.trim(),
-          "password": _passCtrl.text,
-        }),
+      final data = await widget.api.login(
+        _userCtrl.text.trim(),
+        _passCtrl.text,
       );
-      if (resp.statusCode == 200) {
-        if (mounted) Navigator.pop(context, jsonDecode(resp.body));
+      if (data != null) {
+        if (mounted) Navigator.pop(context, data);
       } else {
-        final body = jsonDecode(resp.body);
-        setState(() => _error = body["detail"] ?? "登录失败");
+        setState(() => _error = "登录失败，请检查用户名和密码");
       }
     } catch (e) {
       setState(() => _error = "连接失败: $e");

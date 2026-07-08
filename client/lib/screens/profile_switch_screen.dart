@@ -1,4 +1,4 @@
-/// Profile switch / management screen.
+﻿/// Profile switch / management screen.
 
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
@@ -6,7 +6,6 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/profile_service.dart";
 import "connect_screen.dart";
-import "login_screen.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "package:provider/provider.dart";
@@ -61,19 +60,19 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(isEdit ? "编辑配置" : "新增配置"),
+        title: Text(isEdit ? "缂栬緫閰嶇疆" : "鏂板閰嶇疆"),
         content: SingleChildScrollView(
           child: SizedBox(width: 300, child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(controller: nameCtrl, autofocus: !isEdit,
-                decoration: const InputDecoration(labelText: "配置名称", hintText: "如: 家里NAS")),
+                decoration: const InputDecoration(labelText: "閰嶇疆鍚嶇О", hintText: "濡? 瀹堕噷NAS")),
               const SizedBox(height: 8),
               TextField(controller: hostCtrl,
-                decoration: const InputDecoration(labelText: "服务器 IP")),
+                decoration: const InputDecoration(labelText: "鏈嶅姟鍣?IP")),
               const SizedBox(height: 8),
               TextField(controller: portCtrl,
-                decoration: const InputDecoration(labelText: "端口"), keyboardType: TextInputType.number),
+                decoration: const InputDecoration(labelText: "绔彛"), keyboardType: TextInputType.number),
               const SizedBox(height: 8),
               SwitchListTile(
                 title: const Text("HTTPS", style: TextStyle(fontSize: 14)),
@@ -83,15 +82,15 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               ),
               const SizedBox(height: 8),
               TextField(controller: userCtrl,
-                decoration: InputDecoration(labelText: isEdit ? "用户名（留空不修改）" : "用户名")),
+                decoration: InputDecoration(labelText: isEdit ? "鐢ㄦ埛鍚嶏紙鐣欑┖涓嶄慨鏀癸級" : "鐢ㄦ埛鍚?)),
               const SizedBox(height: 8),
               TextField(controller: passCtrl,
-                decoration: InputDecoration(labelText: isEdit ? "密码（留空不修改）" : "密码"), obscureText: true),
+                decoration: InputDecoration(labelText: isEdit ? "瀵嗙爜锛堢暀绌轰笉淇敼锛? : "瀵嗙爜"), obscureText: true),
             ],
           )),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("鍙栨秷")),
           FilledButton(onPressed: () async {
             if (nameCtrl.text.trim().isEmpty || hostCtrl.text.trim().isEmpty) return;
             final port = int.tryParse(portCtrl.text.trim()) ?? 11451;
@@ -125,7 +124,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               if (resp.statusCode != 200) {
                 final err = jsonDecode(resp.body);
                 if (ctx.mounted) Navigator.pop(ctx);
-                _toast("登录失败: ${err["detail"]}", title: "错误");
+                _toast("鐧诲綍澶辫触: ${err["detail"]}", title: "閿欒");
                 return;
               }
               final data = jsonDecode(resp.body);
@@ -149,9 +148,9 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               Navigator.pop(ctx, true);
             } catch (e) {
               if (ctx.mounted) Navigator.pop(ctx);
-              _toast("连接失败: $e", title: "错误");
+              _toast("杩炴帴澶辫触: $e", title: "閿欒");
             }
-          }, child: const Text("保存")),
+          }, child: const Text("淇濆瓨")),
         ],
       )),
     );
@@ -170,30 +169,30 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
     await ps.saveProfiles(profiles);
   }
 
-  void _toast(String msg, {String title = "提示"}) {
+  void _toast(String msg, {String title = "鎻愮ず"}) {
     if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: Text(msg),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("纭畾"))],
       ),
     );
   }
 
   Future<void> _switchTo(UserProfile profile, int index) async {
-    // Validate token before switching — deleted users won't pass
+    // Validate token before switching 鈥?deleted users won't pass
     try {
       final uri = Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me");
       final resp = await http.get(uri,
         headers: {"Authorization": "Bearer ${profile.authToken}"});
       if (resp.statusCode != 200) {
-        _toast("此配置已失效，请重新登录", title: "错误");
+        _toast("姝ら厤缃凡澶辨晥锛岃閲嶆柊鐧诲綍", title: "閿欒");
         return;
       }
     } catch (_) {
-      _toast("无法连接服务器，请检查网络", title: "错误");
+      _toast("鏃犳硶杩炴帴鏈嶅姟鍣紝璇锋鏌ョ綉缁?, title: "閿欒");
       return;
     }
 
@@ -216,11 +215,11 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("切换用户")),
+      appBar: AppBar(title: const Text("鍒囨崲鐢ㄦ埛")),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addProfile,
         icon: const Icon(Icons.add),
-        label: const Text("新增配置"),
+        label: const Text("鏂板閰嶇疆"),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -228,9 +227,9 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
               ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
                   const SizedBox(height: 12),
-                  Text("暂无保存的配置", style: TextStyle(fontSize: 16, color: hintColor(context))),
+                  Text("鏆傛棤淇濆瓨鐨勯厤缃?, style: TextStyle(fontSize: 16, color: hintColor(context))),
                   const SizedBox(height: 4),
-                  Text("点击右下角按钮新增", style: AppText.bodySmall.copyWith( color: Colors.grey[600])),
+                  Text("鐐瑰嚮鍙充笅瑙掓寜閽柊澧?, style: AppText.bodySmall.copyWith( color: Colors.grey[600])),
                 ]))
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
@@ -266,7 +265,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                                 color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: Text("当前", style: AppText.badge.copyWith( color: Theme.of(context).colorScheme.primary)),
+                              child: Text("褰撳墠", style: AppText.badge.copyWith( color: Theme.of(context).colorScheme.primary)),
                             ),
                           ],
                         ]),
@@ -279,10 +278,10 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                             if (action == "delete") _deleteProfile(i);
                           },
                           itemBuilder: (_) => const [
-                            PopupMenuItem(value: "switch", child: Text("切换到此")),
-                            PopupMenuItem(value: "edit", child: Text("编辑")),
+                            PopupMenuItem(value: "switch", child: Text("鍒囨崲鍒版")),
+                            PopupMenuItem(value: "edit", child: Text("缂栬緫")),
                             PopupMenuItem(value: "delete",
-                                child: Text("删除", style: TextStyle(color: Colors.red))),
+                                child: Text("鍒犻櫎", style: TextStyle(color: Colors.red))),
                           ],
                         ),
                         onTap: () => _switchTo(p, i),

@@ -1,4 +1,4 @@
-/// HTTP client for communicating with the Sena Repo server.
+﻿/// HTTP client for communicating with the Sena Repo server.
 
 import "dart:convert";
 import "dart:io";
@@ -8,56 +8,151 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 
-/// Global token store — always accessible, survives Provider rebuilds.
-String? globalToken;
+/// Global access token — always accessible, survives Provider rebuilds.
+String? _accessToken;
+
+/// Global refresh token.
+String? _refreshToken;
+
+/// Cached user info from the last login.
+String? _cachedUsername;
+bool? _cachedIsAdmin;
+/// Legacy accessor — maintained for backward compatibility with download_service.
+String? get globalToken => _accessToken;
 
 /// Hostname of the configured server — only bypasses TLS for this host.
 String? trustedServerHost;
 
+class AuthException implements Exception {
+  final String message;
+  AuthException(this.message);
+  @override
+  String toString() => "AuthException: $message";
+}
+
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
+  bool _refreshing = false;
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
 
+  String? get accessToken => _accessToken;
+  String? get refreshToken => _refreshToken;
+  String? get cachedUsername => _cachedUsername;
+  bool? get cachedIsAdmin => _cachedIsAdmin;
+
   Map<String, String> get headers {
-    final t = globalToken;
-    if (t != null && t.isNotEmpty) {
-      return {"Authorization": "Bearer $t"};
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      return {"Authorization": "Bearer $_accessToken"};
     }
     print("[ApiClient] WARN: headers called with no token set!");
     return {};
   }
 
-  /// Called at app start to restore token from disk.
   static Future<void> restoreToken() async {
-    if (globalToken != null && globalToken!.isNotEmpty) return;
+    if (_accessToken != null && _accessToken!.isNotEmpty) return;
     final prefs = await SharedPreferences.getInstance();
-    globalToken = prefs.getString("auth_token");
-    if (globalToken != null) {
-      print("[ApiClient] Token restored from disk: ${globalToken!.substring(0, 8)}...");
+    _accessToken = prefs.getString("auth_token");
+    _refreshToken = prefs.getString("refresh_token");
+    _cachedUsername = prefs.getString("username");
+    _cachedIsAdmin = prefs.getBool("is_admin");
+    if (_accessToken != null) {
+      print("[ApiClient] Token restored from disk: ${_accessToken!.substring(0, 8)}...");
     } else {
       print("[ApiClient] No token found on disk");
     }
   }
 
-  static Future<void> setGlobalToken(String? token) async {
-    globalToken = token;
-    if (token != null && token.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("auth_token", token);
+  static Future<void> _persistTokens({
+    String? accessToken,
+    String? refreshToken,
+    String? username,
+    bool? isAdmin,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (accessToken != null && accessToken.isNotEmpty) {
+      await prefs.setString("auth_token", accessToken);
+    }
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      await prefs.setString("refresh_token", refreshToken);
+    }
+    if (username != null) {
+      await prefs.setString("username", username);
+      _cachedUsername = username;
+    }
+    if (isAdmin != null) {
+      await prefs.setBool("is_admin", isAdmin);
+      _cachedIsAdmin = isAdmin;
     }
   }
 
-  Future<void> setToken(String? token) => setGlobalToken(token);
+  static Future<void> clearTokens() async {
+    _accessToken = null;
+    _refreshToken = null;
+    _cachedUsername = null;
+    _cachedIsAdmin = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove("auth_token");
+    await prefs.remove("refresh_token");
+    await prefs.remove("username");
+    await prefs.remove("is_admin");
+  }
 
-  void connect(String host, {int port = 11451, bool useHttps = false}) {
+  Future<void> connect(String host, {int port = 11451, bool useHttps = false}) async {
     final scheme = useHttps ? "https" : "http";
     _baseUrl = "$scheme://$host:$port";
     trustedServerHost = host;
   }
 
+  Future<bool> _tryRefresh() async {
+    if (_refreshing) return false;
+    if (_refreshToken == null || _refreshToken!.isEmpty) return false;
+
+    _refreshing = true;
+    try {
+      final resp = await _client.post(
+        Uri.parse("$baseUrl/api/auth/refresh"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"refresh_token": _refreshToken}),
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        _accessToken = data["access_token"]?.toString();
+        _refreshToken = data["refresh_token"]?.toString();
+        if (_accessToken != null && _accessToken!.isNotEmpty) {
+          await _persistTokens(
+            accessToken: _accessToken,
+            refreshToken: _refreshToken,
+          );
+          return true;
+        }
+      }
+      await clearTokens();
+      return false;
+    } catch (_) {
+      await clearTokens();
+      return false;
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<http.Response> _execute(Future<http.Response> Function() request, {bool allowRetry = true}) async {
+    var response = await request();
+    if (response.statusCode == 401 && allowRetry && _refreshToken != null) {
+      final refreshed = await _tryRefresh();
+      if (refreshed) {
+        response = await request();
+      }
+      if (response.statusCode == 401) {
+        await clearTokens();
+        throw AuthException("会话已过期，请重新登录");
+      }
+    }
+    return response;
+  }
 
   // --- Games ---
 
@@ -77,49 +172,43 @@ class ApiClient {
     if (rootId != null) params["root_id"] = rootId.toString();
 
     final uri = Uri.parse("$baseUrl/api/games").replace(queryParameters: params);
-    final resp = await _client.get(uri, headers: headers);
+    final resp = await _execute(() => _client.get(uri, headers: headers));
     if (resp.statusCode != 200) throw HttpException("Failed to load games");
 
     final List<dynamic> data = jsonDecode(resp.body);
     return data.map((j) => GameSummary.fromJson(j as Map<String, dynamic>)).toList();
   }
 
-
   Future<GameDetail> getGame(int id) async {
-    final resp = await _client.get(Uri.parse("$baseUrl/api/games/$id"), headers: headers);
-    if (resp.statusCode != 200) throw HttpException("Game not found");
+    final resp = await _execute(() => _client.get(Uri.parse("$baseUrl/api/games/$id"), headers: headers));
+    if (resp.statusCode != 200 && resp.statusCode != 401) throw HttpException("Game not found");
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   Future<void> deleteGame(int id) async {
-    final resp = await _client.delete(Uri.parse("$baseUrl/api/games/$id"), headers: headers);
+    final resp = await _execute(() => _client.delete(Uri.parse("$baseUrl/api/games/$id"), headers: headers));
     if (resp.statusCode != 200) throw HttpException("Failed to delete game");
   }
 
   // --- Tags ---
 
   Future<List<Tag>> getTags() async {
-    final resp = await _client.get(Uri.parse("$baseUrl/api/tags"), headers: headers);
+    final resp = await _execute(() => _client.get(Uri.parse("$baseUrl/api/tags"), headers: headers));
     if (resp.statusCode != 200) throw HttpException("Failed to load tags");
     final List<dynamic> data = jsonDecode(resp.body);
     return data.map((j) => Tag.fromJson(j as Map<String, dynamic>)).toList();
   }
 
-
-
-
-
   // --- Roots ---
 
-
   Future<Map<String, dynamic>> refreshRoot(int id) async {
-    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/$id/refresh"), headers: headers);
+    final resp = await _execute(() => _client.post(Uri.parse("$baseUrl/api/roots/$id/refresh"), headers: headers));
     if (resp.statusCode != 200) throw HttpException("Refresh failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> refreshAllRoots() async {
-    final resp = await _client.post(Uri.parse("$baseUrl/api/roots/refresh-all"), headers: headers);
+    final resp = await _execute(() => _client.post(Uri.parse("$baseUrl/api/roots/refresh-all"), headers: headers));
     if (resp.statusCode != 200) throw HttpException("Refresh all failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
@@ -128,9 +217,12 @@ class ApiClient {
 
   Future<bool> checkSetupNeeded() async {
     try {
-      final resp = await _client
-          .get(Uri.parse("$baseUrl/api/setup/status"), headers: headers)
-          .timeout(const Duration(seconds: 5));
+      final resp = await _execute(
+        () => _client
+            .get(Uri.parse("$baseUrl/api/setup/status"), headers: headers)
+            .timeout(const Duration(seconds: 5)),
+        allowRetry: false,
+      );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         return data["needs_setup"] == true;
@@ -150,24 +242,58 @@ class ApiClient {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        setGlobalToken(data["token"]?.toString());
+        _accessToken = data["access_token"]?.toString();
+        _refreshToken = data["refresh_token"]?.toString();
+        if (_accessToken != null && _accessToken!.isNotEmpty) {
+          await _persistTokens(
+            accessToken: _accessToken,
+            refreshToken: _refreshToken,
+            username: data["username"]?.toString(),
+            isAdmin: data["is_admin"] == true,
+          );
+        }
         return data;
       }
     } catch (_) {}
     return null;
   }
 
+  Future<bool> logout() async {
+    try {
+      final resp = await _execute(
+        () => _client.post(Uri.parse("$baseUrl/api/auth/logout"), headers: headers),
+        allowRetry: false,
+      );
+      await clearTokens();
+      return resp.statusCode == 200;
+    } catch (_) {
+      await clearTokens();
+      return false;
+    }
+  }
+
+  Future<bool> logoutAll() async {
+    try {
+      final resp = await _execute(
+        () => _client.post(Uri.parse("$baseUrl/api/auth/logout-all"), headers: headers),
+        allowRetry: false,
+      );
+      await clearTokens();
+      return resp.statusCode == 200;
+    } catch (_) {
+      await clearTokens();
+      return false;
+    }
+  }
+
   // --- Scraper ---
 
   Future<Map<String, dynamic>> scrapeGame(int gameId) async {
-    final resp = await _client.post(
+    final resp = await _execute(() => _client.post(
       Uri.parse("$baseUrl/api/games/$gameId/scrape"),
       headers: headers,
-    );
+    ));
     if (resp.statusCode != 200) throw HttpException("Scrape failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
-
-  // --- Download URL ---
-
 }

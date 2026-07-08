@@ -1,4 +1,4 @@
-"""Auth API — login, register, admin approval, notifications."""
+﻿"""Auth API 鈥?login, register, admin approval, notifications."""
 
 from __future__ import annotations
 
@@ -8,36 +8,63 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Request
+from datetime import datetime, timedelta
 
 from database import get_session
 from models.user import User, Notification, hash_password, verify_password
+from models.user import Session as DbSession
+
+
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+
+def _create_tokens() -> tuple[str, str, datetime, datetime]:
+    """Generate a new access/refresh token pair with expiry timestamps."""
+    access_token = secrets.token_urlsafe(32)
+    refresh_token = secrets.token_urlsafe(32)
+    access_exp = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_exp = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    return access_token, refresh_token, access_exp, refresh_exp
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-# ── Auth dependencies ──
+# 鈹€鈹€ Auth dependencies 鈹€鈹€
 
 async def get_current_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    """Validate Bearer token and return current user.
-
-    Supports both legacy tokens (plain user ID) and new random tokens.
-    """
+    """Validate Bearer access token and return current user."""
     if not authorization:
-        raise HTTPException(status_code=401, detail="未登录")
+        raise HTTPException(status_code=401, detail="鏈櫥褰?)
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="无效的认证格式")
+        raise HTTPException(status_code=401, detail="鏃犳晥鐨勮璇佹牸寮?)
     token = authorization.removeprefix("Bearer ")
 
-    # Look up user by random token
+    now = datetime.utcnow()
     result = await session.execute(
-        select(User).where(User.token == token, User.status == "active"))
-    user = result.scalar_one_or_none()
+        select(DbSession).where(
+            DbSession.access_token == token,
+            DbSession.access_token_expires_at > now,
+        )
+    )
+    db_session = result.scalar_one_or_none()
+    if db_session is None:
+        raise HTTPException(status_code=401, detail="浠ょ墝鏃犳晥鎴栧凡杩囨湡")
+
+    db_session.last_used_at = now
+    await session.commit()
+
+    user_result = await session.execute(
+        select(User).where(User.id == db_session.user_id, User.status == "active")
+    )
+    user = user_result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=401, detail="无效的令牌")
+        raise HTTPException(status_code=401, detail="鐢ㄦ埛宸茶绂佺敤")
     return user
 
 
@@ -46,7 +73,7 @@ async def require_admin(
 ) -> User:
     """Require admin privileges."""
     if not user.is_admin:
-        raise HTTPException(status_code=403, detail="需要管理员权限")
+        raise HTTPException(status_code=403, detail="闇€瑕佺鐞嗗憳鏉冮檺")
     return user
 
 
@@ -54,8 +81,16 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 class LoginResponse(BaseModel):
-    token: str  # user id as simple token for now
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    token_type: str = "Bearer"
     is_admin: bool
     username: str
 
@@ -70,29 +105,106 @@ class ApproveRequest(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
+async def login(
+    body: LoginRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(
         select(User).where(User.username == body.username)
     )
     user = result.scalar_one_or_none()
 
     if user is None or not verify_password(body.password, user.salt, user.password_hash):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+        raise HTTPException(status_code=401, detail="鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒")
 
     if user.status == "pending":
-        raise HTTPException(status_code=403, detail="账户等待管理员审批中")
+        raise HTTPException(status_code=403, detail="璐︽埛绛夊緟绠＄悊鍛樺鎵逛腑")
     if user.status == "rejected":
-        raise HTTPException(status_code=403, detail="账户已被拒绝")
+        raise HTTPException(status_code=403, detail="璐︽埛宸茶鎷掔粷")
 
-    # Generate random token if not set (migration)
-    if user.token is None:
-        user.token = secrets.token_hex(32)
-        await session.commit()
+    access_token, refresh_token, access_exp, refresh_exp = _create_tokens()
+
+    db_session = DbSession(
+        user_id=user.id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        access_token_expires_at=access_exp,
+        refresh_token_expires_at=refresh_exp,
+        ip_address=request.client.host if request.client else None,
+    )
+    session.add(db_session)
+    await session.commit()
+
     return LoginResponse(
-        token=user.token,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         is_admin=user.is_admin,
         username=user.username,
     )
+
+
+@router.post("/refresh")
+async def refresh(body: RefreshRequest, session: AsyncSession = Depends(get_session)):
+    """Exchange a valid refresh token for a new access/refresh token pair."""
+    now = datetime.utcnow()
+    result = await session.execute(
+        select(DbSession).where(
+            DbSession.refresh_token == body.refresh_token,
+            DbSession.refresh_token_expires_at > now,
+        )
+    )
+    db_session = result.scalar_one_or_none()
+    if db_session is None:
+        raise HTTPException(status_code=401, detail="鍒锋柊浠ょ墝鏃犳晥鎴栧凡杩囨湡")
+
+    access_token, refresh_token, access_exp, refresh_exp = _create_tokens()
+    db_session.access_token = access_token
+    db_session.refresh_token = refresh_token
+    db_session.access_token_expires_at = access_exp
+    db_session.refresh_token_expires_at = refresh_exp
+    await session.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "token_type": "Bearer",
+    }
+
+
+@router.post("/logout")
+async def logout(
+    user: User = Depends(get_current_user),
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Invalidate current access token (logout this device)."""
+    token = authorization.removeprefix("Bearer ") if authorization else ""
+    result = await session.execute(
+        select(DbSession).where(DbSession.access_token == token)
+    )
+    db_session = result.scalar_one_or_none()
+    if db_session:
+        await session.delete(db_session)
+        await session.commit()
+    return {"message": "宸茬櫥鍑?}
+
+
+@router.post("/logout-all")
+async def logout_all(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Invalidate all sessions for the current user."""
+    result = await session.execute(
+        select(DbSession).where(DbSession.user_id == user.id)
+    )
+    for s in result.scalars().all():
+        await session.delete(s)
+    await session.commit()
+    return {"message": "宸茬櫥鍑烘墍鏈夎澶?}
 
 
 @router.post("/register")
@@ -102,7 +214,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         select(User).where(User.username == body.username)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="用户名已存在")
+        raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
 
     # Count existing users. If 0, first user is auto-admin and auto-approved
     count = await session.execute(select(func.count()).select_from(User))
@@ -115,7 +227,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         salt=salt,
         is_admin=is_first or body.is_admin,
         status="active" if is_first else "pending",
-        token=secrets.token_hex(32),
+        # token removed (now in sessions table)
     )
     session.add(user)
 
@@ -127,16 +239,16 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         for admin in admins.scalars():
             session.add(Notification(
                 type="approval_request",
-                title=f"新用户注册: {body.username}",
-                body=f"用户 {body.username} 申请{'管理员' if body.is_admin else '普通用户'}账户，等待审批",
+                title=f"鏂扮敤鎴锋敞鍐? {body.username}",
+                body=f"鐢ㄦ埛 {body.username} 鐢宠{'绠＄悊鍛? if body.is_admin else '鏅€氱敤鎴?}璐︽埛锛岀瓑寰呭鎵?,
                 target_user_id=user.id,
             ))
 
     await session.commit()
 
     if is_first:
-        return {"message": "注册成功，首个用户已自动激活", "user_id": user.id, "auto_approved": True}
-    return {"message": "注册成功，等待管理员审批", "user_id": user.id, "pending": True}
+        return {"message": "娉ㄥ唽鎴愬姛锛岄涓敤鎴峰凡鑷姩婵€娲?, "user_id": user.id, "auto_approved": True}
+    return {"message": "娉ㄥ唽鎴愬姛锛岀瓑寰呯鐞嗗憳瀹℃壒", "user_id": user.id, "pending": True}
 
 
 @router.get("/users")
@@ -162,7 +274,7 @@ async def create_user(body: CreateUserRequest, _admin: User = Depends(require_ad
         select(User).where(User.username == body.username)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="用户名已存在")
+        raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
 
     pw_hash, salt = hash_password(body.password)
     user = User(
@@ -171,12 +283,12 @@ async def create_user(body: CreateUserRequest, _admin: User = Depends(require_ad
         salt=salt,
         is_admin=body.is_admin,
         status="active",
-        token=secrets.token_hex(32),
+        # token removed (now in sessions table)
     )
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    return {"id": user.id, "username": user.username, "message": "用户创建成功"}
+    return {"id": user.id, "username": user.username, "message": "鐢ㄦ埛鍒涘缓鎴愬姛"}
 
 
 @router.get("/pending")
@@ -195,12 +307,12 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
     result = await session.execute(select(User).where(User.id == body.user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise HTTPException(status_code=404, detail="鐢ㄦ埛涓嶅瓨鍦?)
     if user.status != "pending":
-        raise HTTPException(status_code=400, detail="该用户不在待审批状态")
+        raise HTTPException(status_code=400, detail="璇ョ敤鎴蜂笉鍦ㄥ緟瀹℃壒鐘舵€?)
 
     user.status = "active" if body.approve else "rejected"
-    # Prevent self-service admin escalation — approval always resets to regular user
+    # Prevent self-service admin escalation 鈥?approval always resets to regular user
     if body.approve:
         user.is_admin = False
 
@@ -217,13 +329,13 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
     # Notification for the applicant
     session.add(Notification(
         type="approved" if body.approve else "rejected",
-        title="账户已通过审批" if body.approve else "账户已被拒绝",
-        body=f"你的账户申请{'已通过' if body.approve else '已被拒绝'}",
+        title="璐︽埛宸查€氳繃瀹℃壒" if body.approve else "璐︽埛宸茶鎷掔粷",
+        body=f"浣犵殑璐︽埛鐢宠{'宸查€氳繃' if body.approve else '宸茶鎷掔粷'}",
         target_user_id=user.id,
     ))
 
     await session.commit()
-    return {"message": "操作成功"}
+    return {"message": "鎿嶄綔鎴愬姛"}
 
 
 @router.get("/notifications")
@@ -273,7 +385,7 @@ async def mark_all_read(user: User = Depends(get_current_user), session: AsyncSe
     return {"ok": True}
 
 
-# ── Admin user management ──
+# 鈹€鈹€ Admin user management 鈹€鈹€
 
 class AdminUserUpdate(BaseModel):
     username: str | None = None
@@ -289,22 +401,28 @@ async def admin_update_user(
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise HTTPException(status_code=404, detail="鐢ㄦ埛涓嶅瓨鍦?)
     if body.username and body.username != user.username:
         existing = await session.execute(
             select(User).where(User.username == body.username)
         )
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="用户名已存在")
+            raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
         user.username = body.username
     if body.password:
         pw_hash, salt = hash_password(body.password)
         user.password_hash = pw_hash
         user.salt = salt
+        # Invalidate all existing sessions for this user
+        sess_result = await session.execute(
+            select(DbSession).where(DbSession.user_id == user.id)
+        )
+        for s in sess_result.scalars().all():
+            await session.delete(s)
     if body.is_admin is not None:
         user.is_admin = body.is_admin
     await session.commit()
-    return {"message": "更新成功"}
+    return {"message": "鏇存柊鎴愬姛"}
 
 
 @router.delete("/users/{user_id}")
@@ -315,13 +433,19 @@ async def admin_delete_user(
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise HTTPException(status_code=404, detail="鐢ㄦ埛涓嶅瓨鍦?)
+    # Also delete all sessions for this user
+    sess_result = await session.execute(
+        select(DbSession).where(DbSession.user_id == user_id)
+    )
+    for s in sess_result.scalars().all():
+        await session.delete(s)
     await session.delete(user)
     await session.commit()
-    return {"message": "用户已删除"}
+    return {"message": "鐢ㄦ埛宸插垹闄?}
 
 
-# ── Profile management ──
+# 鈹€鈹€ Profile management 鈹€鈹€
 
 class ProfileUpdate(BaseModel):
     username: str | None = None
@@ -364,27 +488,33 @@ async def update_profile(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     if current.id != user.id and not current.is_admin:
-        raise HTTPException(status_code=403, detail="只能修改自己的资料")
+        raise HTTPException(status_code=403, detail="鍙兘淇敼鑷繁鐨勮祫鏂?)
 
     if body.new_password:
         if not body.current_password:
-            raise HTTPException(status_code=400, detail="需要当前密码")
+            raise HTTPException(status_code=400, detail="闇€瑕佸綋鍓嶅瘑鐮?)
         if not verify_password(body.current_password, user.salt, user.password_hash):
-            raise HTTPException(status_code=403, detail="当前密码错误")
+            raise HTTPException(status_code=403, detail="褰撳墠瀵嗙爜閿欒")
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
+        # Invalidate all existing sessions for this user (force re-login)
+        sess_result = await session.execute(
+            select(DbSession).where(DbSession.user_id == user.id)
+        )
+        for s in sess_result.scalars().all():
+            await session.delete(s)
 
     if body.username and body.username != user.username:
         existing = await session.execute(
             select(User).where(User.username == body.username)
         )
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="用户名已存在")
+            raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
         user.username = body.username
 
     await session.commit()
-    return {"message": "更新成功", "username": user.username}
+    return {"message": "鏇存柊鎴愬姛", "username": user.username}
 
 
 @router.post("/profile/{user_id}/avatar")
@@ -403,11 +533,11 @@ async def upload_avatar(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     if current.id != user.id and not current.is_admin:
-        raise HTTPException(status_code=403, detail="只能修改自己的头像")
+        raise HTTPException(status_code=403, detail="鍙兘淇敼鑷繁鐨勫ご鍍?)
 
     contents = await file.read()
     if len(contents) > 5 * 1024 * 1024:  # 5 MB limit
-        raise HTTPException(status_code=400, detail="文件过大，最大 5MB")
+        raise HTTPException(status_code=400, detail="鏂囦欢杩囧ぇ锛屾渶澶?5MB")
 
     ext = Path(file.filename or "avatar.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
