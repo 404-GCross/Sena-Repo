@@ -236,7 +236,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     if (success && mounted) {
       final api = ApiClient();
-      api.connect(host, port, useHttps: _useHttps);
+      api.connect(host, port: port, useHttps: _useHttps);
 
       final needsSetup = await api.checkSetupNeeded();
       if (needsSetup && mounted) {
