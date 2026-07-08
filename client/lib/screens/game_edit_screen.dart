@@ -545,11 +545,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                              key: ValueKey("cover_$_coverVersion"),
+                      child: _pendingCoverUrl != null && _pendingCoverUrl!.isNotEmpty
+                          ? Image.network(_pendingCoverUrl!,
+                              key: ValueKey("pending_${_pendingCoverUrl!.hashCode}"),
                               fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                          : _coverPlaceholder()),
+                          : hasCover
+                              ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
+                                  key: ValueKey("cover_$_coverVersion"),
+                                  fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
+                              : _coverPlaceholder()),
                   ),
                   const SizedBox(height: 8),
                   TextButton.icon(
