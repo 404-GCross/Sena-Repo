@@ -11,8 +11,9 @@
 
 ---
 
-
-> **⚠️ 安全警告：** Sena-Repo 为社区开发，安全性无法切实保证。**强烈建议仅在 VPN 或家庭内网环境中使用，不要直接暴露到公网。**
+> [!CAUTION]
+>
+> Sena-Repo 为社区开发，安全性无法切实保证。**强烈建议仅在 VPN 或家庭内网环境中使用，不要直接暴露到公网。**
 
 ---
 
@@ -124,11 +125,12 @@ docker run -d \
 | x86_64 / amd64 | `Sena-Repo_Server_amd64_v*.tar.gz` |
 | ARM64（树莓派 / NAS） | `Sena-Repo_Server_arm64_v*.tar.gz` |
 
-> ⚠️ ARM 设备 + 网络存储上文件扫描较慢，首次扫描可能需要数分钟。
 
 ## 方式三：直接部署
 
-> ⚠️ 此方式未经过充分测试，不推荐。建议优先使用 Docker。
+>[!CAUTION]
+>
+> 此方式未经过充分测试，不推荐。建议优先使用 Docker。
 
 ```bash
 git clone https://github.com/404-GCross/Sena-Repo.git
