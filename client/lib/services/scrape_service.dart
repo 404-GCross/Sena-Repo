@@ -104,58 +104,137 @@ class ScrapeService {
 
   // ── Steam ──
 
+  /// Multi-store search: Chinese store + English store + Community fallback.
   static Future<List<Map<String, dynamic>>> _searchSteam(
       String query, String? proxy) async {
-    final uri = Uri.parse(
-        "https://store.steampowered.com/api/storesearch/"
-        "?term=${Uri.encodeComponent(query)}&l=schinese&cc=CN");
-    try {
-      final resp = await http.get(uri);
-      if (resp.statusCode != 200) return [];
-      final items = jsonDecode(resp.body)["items"] as List? ?? [];
-      final results = <Map<String, dynamic>>[];
-      for (final item in items.take(5)) {
-        final id = item["id"];
-        // Get details for Chinese name
-        String name = item["name"] ?? "";
-        String desc = "";
-        String release = "";
-        String cover = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$id/header.jpg";
-        String dev = "";
-        List<String> shots = [];
-        try {
-          final d = Uri.parse(
-              "https://store.steampowered.com/api/appdetails?appids=$id&l=schinese");
-          final dr = await http.get(d);
-          if (dr.statusCode == 200) {
-            final dd = jsonDecode(dr.body);
-            final detail = (dd[id.toString()] ?? {})["data"] ?? {};
-            final cn = detail["name"] ?? "";
-            if (cn.isNotEmpty) name = cn;
-            desc = detail["short_description"] ?? "";
-            release = (detail["release_date"] ?? {})["date"] ?? "";
-            final devs = detail["developers"] as List? ?? [];
-            if (devs.isNotEmpty) dev = devs.first ?? "";
-            final bg = detail["background_raw"] ?? detail["background"] ?? "";
-            if (bg.isNotEmpty) cover = bg;
-            final screenshots = detail["screenshots"] as List? ?? [];
-            shots = screenshots.map<dynamic>((s) => s["path_full"] ?? "").where((u) => u is String && u.isNotEmpty).cast<String>().toList();
-          }
-        } catch (_) {}
-        results.add({
-          "title": name,
-          "developer": dev,
-          "release_date": release,
-          "description": desc,
-          "cover_url": cover,
-          "screenshots": shots,
-          "source_id": id.toString(),
-        });
-      }
-      return results;
-    } catch (_) {
-      return [];
+    // Numeric → direct App ID lookup
+    if (RegExp(r'^\d+$').hasMatch(query.trim())) {
+      return _steamDetails(query.trim(), query.trim());
     }
+    // Collect candidates from all stores
+    final allItems = <Map<String, dynamic>>[];
+    for (final (lang, cc) in [("schinese", "CN"), ("english", "US")]) {
+      try {
+        final uri = Uri.parse(
+            "https://store.steampowered.com/api/storesearch/"
+            "?term=${Uri.encodeComponent(query)}&l=$lang&cc=$cc&category1=998");
+        final resp = await http.get(uri);
+        if (resp.statusCode == 200) {
+          final items = (jsonDecode(resp.body)["items"] as List?)?.cast<Map<String, dynamic>>();
+          if (items != null) allItems.addAll(items);
+        }
+      } catch (_) {}
+    }
+    // Community search as fallback
+    if (allItems.isEmpty) {
+      try {
+        final resp = await http.get(Uri.parse(
+            "https://steamcommunity.com/actions/SearchApps/?term=${Uri.encodeComponent(query)}"));
+        if (resp.statusCode == 200) {
+          final apps = jsonDecode(resp.body);
+          if (apps is List) {
+            for (final a in apps) {
+              if (a is Map) allItems.add({"id": a["appid"], "name": a["name"]});
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (allItems.isEmpty) return [];
+
+    // Pick best match by name similarity
+    final best = _pickBestSteam(allItems, query);
+    if (best == null) return [];
+
+    final appid = (best["appid"] ?? best["id"])?.toString();
+    if (appid == null || appid.isEmpty) return [];
+
+    return _steamDetails(appid, query);
+  }
+
+  /// Name similarity matching — exact > contains > prefix > reverse contains.
+  static Map<String, dynamic>? _pickBestSteam(
+      List<Map<String, dynamic>> items, String title) {
+    final norm = title.toLowerCase();
+    // Exact match
+    for (final a in items) {
+      if ((a["name"] ?? "").toString().toLowerCase() == norm) return a;
+    }
+    // Contains match
+    for (final a in items) {
+      if ((a["name"] ?? "").toString().toLowerCase().contains(norm)) return a;
+    }
+    // Prefix match
+    for (final a in items) {
+      if ((a["name"] ?? "").toString().toLowerCase().startsWith(norm)) return a;
+    }
+    // Reverse contains
+    for (final a in items) {
+      final n = (a["name"] ?? "").toString().toLowerCase();
+      if (n.isNotEmpty && norm.contains(n)) return a;
+    }
+    return null;
+  }
+
+  /// Fetch full details for an App ID, with Chinese-first cover and hero banner.
+  static Future<List<Map<String, dynamic>>> _steamDetails(
+      String appid, String searchTitle) async {
+    Map<String, dynamic> details = {};
+    for (final lang in ["schinese", "english"]) {
+      try {
+        final resp = await http.get(Uri.parse(
+            "https://store.steampowered.com/api/appdetails?appids=$appid&l=$lang"));
+        if (resp.statusCode == 200) {
+          final d = (jsonDecode(resp.body)[appid] ?? {})["data"];
+          if (d is Map && (d["name"] ?? "").toString().isNotEmpty) {
+            details = d.cast<String, dynamic>(); break;
+          }
+        }
+      } catch (_) {}
+    }
+    if (details.isEmpty) return [];
+
+    final title = details["name"]?.toString() ?? searchTitle;
+    final devs = (details["developers"] as List?)?.cast<String>() ?? [];
+    final developer = devs.isNotEmpty ? devs.first : "";
+    final desc = (details["short_description"]?.toString() ?? "").length > 500
+        ? details["short_description"].toString().substring(0, 500)
+        : (details["short_description"]?.toString() ?? "");
+    final release = ((details["release_date"] ?? {})["date"] ?? "").toString();
+    final screenshots = ((details["screenshots"] as List?) ?? [])
+        .map<dynamic>((s) => s["path_full"] ?? "").where((u) => u is String && u.isNotEmpty).cast<String>().toList();
+
+    // Cover URL: Chinese → English → default
+    String cover = "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900.jpg";
+    for (final suffix in ["_schinese", "_english", ""]) {
+      try {
+        final url = "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900$suffix.jpg";
+        final r = await http.head(Uri.parse(url));
+        if (r.statusCode == 200) { cover = url; break; }
+      } catch (_) {}
+    }
+
+    // Hero banner: library_hero → header
+    String hero = "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_hero.jpg";
+    try {
+      final r = await http.head(Uri.parse(hero));
+      if (r.statusCode != 200) {
+        hero = "https://cdn.akamai.steamstatic.com/steam/apps/$appid/header.jpg";
+      }
+    } catch (_) {
+      hero = "https://cdn.akamai.steamstatic.com/steam/apps/$appid/header.jpg";
+    }
+
+    return [{
+      "title": title,
+      "developer": developer,
+      "release_date": release,
+      "description": desc,
+      "cover_url": cover,
+      "hero_url": hero,
+      "screenshots": screenshots,
+      "source_id": appid,
+    }];
   }
 
   // ── DLsite ──
