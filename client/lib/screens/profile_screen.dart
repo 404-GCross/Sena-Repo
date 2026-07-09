@@ -34,6 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _userId = 0;
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
   int _lastLoadTime = 0;
+  int _lastVersionLoadTime = 0;
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
@@ -51,10 +52,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> refresh() async => _loadUserInfo();
 
   void _maybeRefresh() {
-    // Reload if >10s since last load and user ID is known
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastLoadTime > 10000 && _userId > 0) {
       _loadUserInfo();
+    }
+    if (now - _lastVersionLoadTime > 30000) {
+      _loadServerVersion();
     }
   }
 
@@ -66,6 +69,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         if (mounted) setState(() => _serverVersion = data["version"] ?? "");
+        _lastVersionLoadTime = DateTime.now().millisecondsSinceEpoch;
       }
     } catch (_) {}
   }
