@@ -252,9 +252,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _menuDivider() => Divider(height: 1, indent: 68, color: cardBorder(context));
 
-  Future<void> _showAbout(BuildContext context) async {
-    // Always fetch the latest server version before showing the dialog
-    await _loadServerVersion();
+  void _showAbout(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     showDialog(
       context: context,
