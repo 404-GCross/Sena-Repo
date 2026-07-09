@@ -68,10 +68,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (profile.authToken.isNotEmpty) {
         await ps.applyProfile(profile);
         await ApiClient.restoreToken();
+
+        // Proactively refresh token before verifying
+        final checkApi = ApiClient();
+        checkApi.connect(profile.host, port: profile.port, useHttps: profile.useHttps);
+        await checkApi.tryRefresh();
+
         try {
+          final effectiveToken = checkApi.accessToken ?? profile.authToken;
           final resp = await http.get(
             Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me"),
-            headers: {"Authorization": "Bearer ${profile.authToken}"},
+            headers: {"Authorization": "Bearer $effectiveToken"},
           ).timeout(const Duration(seconds: 5));
           if (resp.statusCode == 200) {
             final settings = context.read<SettingsProvider>();
