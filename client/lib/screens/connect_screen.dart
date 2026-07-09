@@ -183,10 +183,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   void _showToast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg, maxLines: 3, overflow: TextOverflow.ellipsis),
-      duration: const Duration(seconds: 4),
-    ));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Text(msg, maxLines: 3, overflow: TextOverflow.ellipsis),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+      ),
+    );
   }
 
   Future<void> _showReAuthDialog(UserProfile profile, int index, GameProvider games) async {
@@ -349,7 +352,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 3)));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Text(msg),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+      ),
+    );
   }
   // Helpers
 
@@ -879,42 +888,39 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         fontWeight: FontWeight.w500)),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showProfileManager() {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("管理配置", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            ...List.generate(_profiles.length, (i) {
+      builder: (ctx) => AlertDialog(
+        title: const Text("管理配置"),
+        content: SizedBox(
+          width: 320,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min,
+                children: List.generate(_profiles.length, (i) {
               final p = _profiles[i];
-              final isActive = i == _activeIndex;
               return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isActive
-                      ? Theme.of(context).colorScheme.primaryContainer
-                      : Theme.of(context).colorScheme.surfaceContainerHighest,
-                  child: Text(p.name[0].toUpperCase(), style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey,
-                  )),
-                ),
                 title: Text(p.name),
                 subtitle: Text("${p.username}@${p.host}:${p.port}",
                     style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   IconButton(icon: const Icon(Icons.edit, size: 20), tooltip: "编辑", onPressed: () {
+                    Navigator.pop(ctx);
+                    _editProfile(p);
+                  }),
+                  IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), tooltip: "删除", onPressed: () {
+                    Navigator.pop(ctx);
+                    _deleteProfile(i);
+                  }),
+                ]),
+              );
+            })),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭"))],
+      ),
+    );
+  }
                     Navigator.pop(ctx);
                     _editProfile(p);
                   }),
