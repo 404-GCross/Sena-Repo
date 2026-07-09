@@ -132,8 +132,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
       try {
         await games.loadGames();
         if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-      } catch (_) {
+      } catch (e) {
         if (mounted) {
+          // Network/server error, not auth — show feedback
+          if (e is! AuthException) {
+            _showToast("连接服务器失败: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}");
+            return;
+          }
           // First check if the server was rebuilt and needs setup
           final checkApi = ApiClient();
           checkApi.connect(profile.host, port: profile.port, useHttps: profile.useHttps);
@@ -171,7 +176,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
           }
         }
       }
+    } else if (mounted) {
+      _showToast(settings.errorMessage ?? "连接服务器失败");
     }
+  }
+
+  void _showToast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, maxLines: 3, overflow: TextOverflow.ellipsis),
+      duration: const Duration(seconds: 4),
+    ));
   }
 
   Future<void> _showReAuthDialog(UserProfile profile, int index, GameProvider games) async {
