@@ -1,4 +1,4 @@
-﻿/// Combined connection / login / profile switch screen.
+/// Combined connection / login / profile switch screen.
 
 import "dart:convert";
 import "dart:io" show Platform;
@@ -896,36 +896,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
         content: SizedBox(
           width: 320,
           child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(_profiles.length, (i) {
-                final p = _profiles[i];
-                return ListTile(
-                  title: Text(p.name),
-                  subtitle: Text("${p.username}@${p.host}:${p.port}",
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(icon: const Icon(Icons.edit, size: 20), tooltip: "编辑", onPressed: () {
-                        Navigator.pop(ctx);
-                        _editProfile(p);
-                      }),
-                      IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), tooltip: "删除", onPressed: () {
-                        Navigator.pop(ctx);
-                        _deleteProfile(i);
-                      }),
-                    ],
-                  ),
-                );
-              }),
-            ),
-          ),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭"))],
-      ),
-    );
-  }
+            child: Column(mainAxisSize: MainAxisSize.min,
+                children: List.generate(_profiles.length, (i) {
+              final p = _profiles[i];
+              return ListTile(
+                title: Text(p.name),
+                subtitle: Text("${p.username}@${p.host}:${p.port}",
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(icon: const Icon(Icons.edit, size: 20), tooltip: "编辑", onPressed: () {
                     Navigator.pop(ctx);
                     _editProfile(p);
                   }),
@@ -935,11 +914,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   }),
                 ]),
               );
-            }),
-          ]),
+            })),
+          ),
         ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("关闭"))],
       ),
     );
+  }
   }
 }
 
