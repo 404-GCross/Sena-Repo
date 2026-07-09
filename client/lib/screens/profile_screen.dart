@@ -96,6 +96,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         if (mounted) setState(() {
+          _userId = data["id"] ?? 0;
           _avatarPath = data["avatar_path"];
           _avatarVersion = DateTime.now().millisecondsSinceEpoch;
           _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
