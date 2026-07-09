@@ -528,9 +528,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
             color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: isActive
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                  : Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
+                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
             ),
           ),
           child: ListTile(
