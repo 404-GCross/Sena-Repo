@@ -467,7 +467,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.dns, size: 56, color: Theme.of(context).colorScheme.primary),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.asset("assets/icon.png", width: 64, height: 64, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(Icons.dns, size: 56,
+                        color: Theme.of(context).colorScheme.primary),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Text("Sena Repo",
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
