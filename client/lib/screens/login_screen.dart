@@ -101,8 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.lock, size: 48,
-                      color: Theme.of(context).colorScheme.primary),
+                  Image.asset('assets/icon.png', width: 48, height: 48),
                   const SizedBox(height: 16),
                   Text(
                     _showRegister ? "注册账户" : "登录",
