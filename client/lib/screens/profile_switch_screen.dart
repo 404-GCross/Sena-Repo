@@ -132,7 +132,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                 name: nameCtrl.text.trim(),
                 host: hostCtrl.text.trim(),
                 port: port,
-                authToken: data["token"]?.toString() ?? "",
+                authToken: data["access_token"]?.toString() ?? "",
                 username: userCtrl.text.trim(),
                 isAdmin: data["is_admin"] == true,
                 useHttps: _useHttps,
@@ -182,20 +182,8 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
   }
 
   Future<void> _switchTo(UserProfile profile, int index) async {
-    // Validate token before switching — deleted users won't pass
-    try {
-      final uri = Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me");
-      final resp = await http.get(uri,
-        headers: {"Authorization": "Bearer ${profile.authToken}"});
-      if (resp.statusCode != 200) {
-        _toast("此配置已失效，请重新登录", title: "错误");
-        return;
-      }
-    } catch (_) {
-      _toast("无法连接服务器，请检查网络", title: "错误");
-      return;
-    }
-
+    // Token validation is deferred to ConnectScreen._connectToProfile
+    // which handles refresh-token rotation and re-auth dialog automatically.
     await ProfileService().applyProfile(profile);
     await ProfileService().setActiveIndex(index);
     if (mounted) {
