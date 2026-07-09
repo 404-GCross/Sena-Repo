@@ -769,7 +769,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   api = ApiClient();
                   api!.connect(host, port: port, useHttps: useHttps);
 
-                  final needsSetup = await api.checkSetupNeeded();
+                  final needsSetup = await api!.checkSetupNeeded();
                   if (needsSetup) {
                     Navigator.pop(ctx);
                     final setupResult = await Navigator.push(
