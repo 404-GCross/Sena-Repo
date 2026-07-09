@@ -1,4 +1,4 @@
-﻿/// Combined connection / login / profile switch screen.
+/// Combined connection / login / profile switch screen.
 
 import "dart:convert";
 import "dart:io" show Platform;
@@ -558,18 +558,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       color: Theme.of(context).colorScheme.tertiary, fontWeight: FontWeight.w600)),
                 ),
               ],
-              if (isActive) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text("当前", style: TextStyle(fontSize: 10,
-                      color: Theme.of(context).colorScheme.primary)),
-                ),
-              ],
             ]),
             subtitle: Text("${p.username}@${p.host}:${p.port}",
                 style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -1043,4 +1031,3 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     );
   }
 }
-
