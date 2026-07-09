@@ -51,7 +51,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     access_token = Column(String(64), nullable=False, unique=True, index=True)
     refresh_token = Column(String(64), nullable=False, unique=True, index=True)
     access_token_expires_at = Column(DateTime, nullable=False)
