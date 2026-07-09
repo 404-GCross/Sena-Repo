@@ -222,12 +222,12 @@ jobs:
           flutter config --enable-linux-desktop
           flutter create . --project-name sena_repo --org senarepo
           rm -rf android/app/src/main/kotlin/senarepo
-          for f in linux/runner/my_application.cc linux/my_application.cc; do
-            if [ -f "$f" ]; then
-              sed -i '/gtk_init/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$f" || true
-              sed -i '/gtk_init/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$f" || true
-            fi
-          done
+          MAIN_CC=linux/runner/my_application.cc
+          if [ -f "$MAIN_CC" ]; then
+            sed -i '/g_application_run/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$MAIN_CC"
+            sed -i '/g_application_run/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$MAIN_CC"
+            sed -i '/fl_view_new/a\  gtk_widget_add_events(GTK_WIDGET(view), GDK_TOUCH_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
+          fi
       - name: Install dependencies
         run: flutter pub get
       - name: Generate app icons
