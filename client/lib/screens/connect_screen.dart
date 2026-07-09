@@ -118,6 +118,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
       games.connect(profile.host, profile.port, useHttps: profile.useHttps);
       await ProfileService().setActiveIndex(index);
 
+      // Proactively refresh token now so the user doesn't hit a stale 401
+      // while editing metadata 15+ minutes later.
+      await games.api.tryRefresh();
+
       try {
         await games.loadGames();
         if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));

@@ -106,6 +106,12 @@ class ApiClient {
     trustedServerHost = host;
   }
 
+  /// Proactively refresh access token. Call after restoring tokens
+  /// to avoid hitting stale 401 during real API calls.
+  Future<bool> tryRefresh() async {
+    return await _tryRefresh();
+  }
+
   Future<bool> _tryRefresh() async {
     if (_refreshing) return false;
     if (_refreshToken == null || _refreshToken!.isEmpty) return false;
