@@ -37,7 +37,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   final _passCtrl = TextEditingController();
   final _passConfirmCtrl = TextEditingController();
 
-  bool _showConnectionForm = false;
+  bool _showAddServer = false;  // user tapped "add server" button
   bool _connecting = false;
   bool _isLoggingIn = false;
   bool _showRegister = false;
@@ -89,7 +89,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     if (mounted) setState(() {
       _profiles = profiles; _activeIndex = idx; _loading = false;
-      _showConnectionForm = profiles.isEmpty;
+      _showAddServer = profiles.isEmpty;
     });
   }
 
@@ -265,7 +265,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         await prefs.setBool("client_setup_done", true);
       }
 
-      if (mounted) setState(() { _connecting = false; _showConnectionForm = true; });
+      if (mounted) setState(() { _connecting = false; _showAddServer = true; });
     } else {
       if (mounted) setState(() { _connecting = false; if (settings.errorMessage != null) _error = settings.errorMessage; });
     }
@@ -426,7 +426,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final ps = ProfileService();
     _profiles.removeAt(index);
     await ps.saveProfiles(_profiles);
-    if (_profiles.isEmpty) setState(() => _showConnectionForm = true);
+    if (_profiles.isEmpty) setState(() => _showAddServer = true);
     _reloadProfiles();
   }
 
@@ -477,17 +477,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 const SizedBox(height: 8),
                 Text("Sena Repo",
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text("GalGame Private Library Manager",
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
                 const SizedBox(height: 24),
 
                 if (_profiles.isNotEmpty) ...[
                   _buildProfilesSection(),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                 ],
 
-                _buildConnectionSection(),
+                if (_showAddServer)
+                  _buildConnectionSection()
+                else
+                  _buildAddServerButton(),
               ],
             ),
           ),
@@ -579,6 +579,18 @@ class _ConnectScreenState extends State<ConnectScreen> {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const SizedBox.shrink(),
+            Text("添加服务器", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface)),
+            IconButton(
+              icon: const Icon(Icons.close, size: 20),
+              tooltip: "收起",
+              onPressed: () => setState(() => _showAddServer = false),
+              visualDensity: VisualDensity.compact,
+            ),
+          ]),
+          const SizedBox(height: 16),
           TextField(
             controller: _hostCtrl,
             decoration: const InputDecoration(labelText: "服务器地址", prefixIcon: Icon(Icons.computer)),
@@ -666,6 +678,33 @@ class _ConnectScreenState extends State<ConnectScreen> {
             ),
           ],
         ]),
+      ),
+    );
+  }
+
+  Widget _buildAddServerButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: Card(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _showAddServer = true),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.add_circle_outline, size: 22,
+                    color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 10),
+                Text("添加服务器",
+                    style: TextStyle(fontSize: 15,
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -829,3 +868,4 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     );
   }
 }
+
