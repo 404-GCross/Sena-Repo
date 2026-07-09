@@ -1,4 +1,4 @@
-/// Profile / my page.
+﻿/// Profile / my page.
 
 import "dart:convert";
 
@@ -11,6 +11,7 @@ import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/profile_service.dart";
+import "../services/api_client.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
@@ -57,10 +58,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _switchProfile() {
-    Navigator.push(context,
-        MaterialPageRoute(builder: (_) => const ProfileSwitchScreen()));
-  }
 
   Future<void> _loadServerVersion() async {
     try {
@@ -81,7 +78,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (mounted) {
       setState(() {
         _username = prefs.getString("username") ?? "Sena Repo";
-        _serverInfo = "服务器: ${settings.serverHost}:${settings.serverPort}";
+        _serverInfo = "鏈嶅姟鍣? ${settings.serverHost}:${settings.serverPort}";
       });
     }
     // Try loading avatar from server
@@ -109,7 +106,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       children: [
-        // ── Avatar & Name ──
+        // 鈹€鈹€ Avatar & Name 鈹€鈹€
         const SizedBox(height: 16),
         Center(
           child: Container(
@@ -152,18 +149,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 6),
         Center(
           child: Text(
-            "服务器: ${settings.serverHost}:${settings.serverPort}",
+            "鏈嶅姟鍣? ${settings.serverHost}:${settings.serverPort}",
             style: AppText.bodyMedium.copyWith( color: hintColor(context)),
           ),
         ),
         const SizedBox(height: 32),
 
-        // ── Menu Items ──
+        // 鈹€鈹€ Menu Items 鈹€鈹€
         _menuCard([
           _menuItem(
             icon: Icons.settings,
-            title: "设置",
-            trailing: "服务器、刮削源、显示",
+            title: "璁剧疆",
+            trailing: "鏈嶅姟鍣ㄣ€佸埉鍓婃簮銆佹樉绀?,
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const SettingsScreen())),
           ),
@@ -172,38 +169,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _menuCard([
           _menuItem(
             icon: Icons.info_outline,
-            title: "关于",
-            trailing: "客户端 v$appVersion  ·  服务端 ${_serverVersion.isNotEmpty ? "v$_serverVersion" : "..."}",
+            title: "鍏充簬",
+            trailing: "瀹㈡埛绔?v$appVersion  路  鏈嶅姟绔?${_serverVersion.isNotEmpty ? "v$_serverVersion" : "..."}",
             onTap: () => _showAbout(context),
           ),
         ]),
         const SizedBox(height: 32),
-
-        // ── Switch user + Logout ──
+        // Logout
         Center(
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              icon: const Icon(Icons.swap_horiz, size: 18),
-              label: const Text("切换用户"),
-              onPressed: _switchProfile,
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red,
-                side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text("退出登录"),
-              onPressed: _logout,
-            ),
-          ]),
+            icon: const Icon(Icons.logout, size: 18),
+            label: const Text("退出登录"),
+            onPressed: _logout,
+          ),
         ),
         const SizedBox(height: 32),
       ],
@@ -272,7 +256,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 12),
           const Text("Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 2),
-          Text("客户端 v$appVersion  ·  服务端 ${_serverVersion.isNotEmpty ? "v$_serverVersion" : "未知"}",
+          Text("瀹㈡埛绔?v$appVersion  路  鏈嶅姟绔?${_serverVersion.isNotEmpty ? "v$_serverVersion" : "鏈煡"}",
               style: TextStyle(fontSize: 13, color: cs.primary)),
         ]),
         content: Column(
@@ -280,7 +264,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Divider(),
             const SizedBox(height: 8),
-            Text("GalGame 私有库管理器", style: AppText.bodyMedium.copyWith(color: subTextColor(context))),
+            Text("GalGame 绉佹湁搴撶鐞嗗櫒", style: AppText.bodyMedium.copyWith(color: subTextColor(context))),
             const SizedBox(height: 12),
             InkWell(
               onTap: () {},
@@ -290,7 +274,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
         actions: [
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定")),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("纭畾")),
         ],
       ),
     );
@@ -300,19 +284,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("退出登录"),
-        content: const Text("确定退出登录吗？"),
+        title: const Text("閫€鍑虹櫥褰?),
+        content: const Text("纭畾閫€鍑虹櫥褰曞悧锛?),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确定")),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("鍙栨秷")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("纭畾")),
         ],
       ),
     );
     if (confirmed == true && context.mounted) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove("auth_token");
-      await prefs.remove("username");
-      await prefs.remove("is_admin");
+      await ApiClient.clearTokens();
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),
