@@ -682,13 +682,173 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
+  Future<void> _showAddServerDialog() async {
+    final hostCtrl = TextEditingController(text: "192.168.1.100");
+    final portCtrl = TextEditingController(text: "11451");
+    final userCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final passConfirmCtrl = TextEditingController();
+    var useHttps = false;
+    var step = 0;  // 0 = connect, 1 = login
+    var showRegister = false;
+    var loading = false;
+    var error = "";
+    var loginError = "";
+    ApiClient? api;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: !loading,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(step == 0 ? "添加服务器" : (showRegister ? "注册账户" : "登录到服务器"),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                if (step == 0) ...[
+                  TextField(controller: hostCtrl, autofocus: true,
+                      decoration: const InputDecoration(labelText: "服务器地址", prefixIcon: Icon(Icons.computer))),
+                  const SizedBox(height: 8),
+                  TextField(controller: portCtrl,
+                      decoration: const InputDecoration(labelText: "端口"), keyboardType: TextInputType.number),
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    SizedBox(height: 32, child: Switch(value: useHttps, onChanged: (v) => setD(() => useHttps = v))),
+                    Text("HTTPS", style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                  ]),
+                ],
+                if (step == 1) ...[
+                  TextField(controller: userCtrl, autofocus: true,
+                      decoration: const InputDecoration(labelText: "用户名", prefixIcon: Icon(Icons.person))),
+                  const SizedBox(height: 8),
+                  TextField(controller: passCtrl,
+                      decoration: const InputDecoration(labelText: "密码"), obscureText: true),
+                  if (showRegister) ...[
+                    const SizedBox(height: 8),
+                    TextField(controller: passConfirmCtrl,
+                        decoration: const InputDecoration(labelText: "确认密码"), obscureText: true),
+                  ],
+                ],
+                if (error.isNotEmpty)
+                  Padding(padding: const EdgeInsets.only(top: 8),
+                      child: Text(error, style: const TextStyle(color: Colors.red, fontSize: 13))),
+                if (loginError.isNotEmpty)
+                  Padding(padding: const EdgeInsets.only(top: 8),
+                      child: Text(loginError,
+                          style: TextStyle(color: loginError.contains("成功") ? Colors.green : Colors.red, fontSize: 13))),
+                if (step == 1)
+                  Padding(padding: const EdgeInsets.only(top: 4),
+                      child: TextButton(
+                        onPressed: () => setD(() { showRegister = !showRegister; loginError = ""; }),
+                        child: Text(showRegister ? "已有账户？登录" : "没有账户？注册", style: const TextStyle(fontSize: 13)),
+                      )),
+              ]),
+            ),
+          ),
+          actions: [
+            if (!loading) TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("取消"),
+            ),
+            FilledButton(
+              onPressed: loading ? null : () async {
+                if (step == 0) {
+                  // Connect to server
+                  final host = hostCtrl.text.trim();
+                  final port = int.tryParse(portCtrl.text.trim()) ?? 11451;
+                  if (host.isEmpty) { setD(() => error = "请输入服务器地址"); return; }
+                  setD(() { loading = true; error = ""; });
+
+                  final settings = context.read<SettingsProvider>();
+                  final ok = await settings.connect(host, port, useHttps: useHttps);
+                  if (!ok) { setD(() { loading = false; error = settings.errorMessage ?? "连接失败"; }); return; }
+
+                  api = ApiClient();
+                  api!.connect(host, port: port, useHttps: useHttps);
+
+                  final needsSetup = await api.checkSetupNeeded();
+                  if (needsSetup) {
+                    Navigator.pop(ctx);
+                    final setupResult = await Navigator.push(
+                      context, MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api!)),
+                    );
+                    if (setupResult != null && mounted) {
+                      final creds = setupResult as Map;
+                      final loginResult = await api!.login(
+                          creds["username"]?.toString() ?? "", creds["password"]?.toString() ?? "");
+                      if (loginResult != null) {
+                        final uname = loginResult["username"]?.toString() ?? "";
+                        await ProfileService().saveCurrentAsProfile(uname);
+                        await _goHome(games: context.read<GameProvider>());
+                      }
+                    }
+                    return;
+                  }
+
+                  setD(() { step = 1; loading = false; error = ""; });
+                } else if (showRegister) {
+                  // Register
+                  if (userCtrl.text.trim().isEmpty) { setD(() => loginError = "请输入用户名"); return; }
+                  if (passCtrl.text.length < 4) { setD(() => loginError = "密码至少4位"); return; }
+                  if (passCtrl.text != passConfirmCtrl.text) { setD(() => loginError = "两次密码不一致"); return; }
+                  setD(() { loading = true; loginError = ""; });
+                  try {
+                    final resp = await http.post(
+                      Uri.parse("${api!.baseUrl}/api/auth/register"),
+                      headers: {"Content-Type": "application/json"},
+                      body: jsonEncode({"username": userCtrl.text.trim(), "password": passCtrl.text, "is_admin": false}),
+                    );
+                    final body = jsonDecode(resp.body);
+                    if (resp.statusCode == 200) {
+                      if (body["auto_approved"] == true) {
+                        final data = await api!.login(userCtrl.text.trim(), passCtrl.text);
+                        if (data != null) {
+                          Navigator.pop(ctx);
+                          await ProfileService().saveCurrentAsProfile(userCtrl.text.trim());
+                          await _goHome(games: context.read<GameProvider>());
+                          return;
+                        }
+                      }
+                      setD(() { showRegister = false; loading = false; loginError = "注册成功！${body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录"}"; });
+                    } else {
+                      setD(() { loading = false; loginError = body["detail"] ?? "注册失败"; });
+                    }
+                  } catch (e) { setD(() { loading = false; loginError = "连接失败: $e"; }); }
+                } else {
+                  // Login
+                  if (userCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) { setD(() => loginError = "请输入用户名和密码"); return; }
+                  setD(() { loading = true; loginError = ""; });
+                  final data = await api!.login(userCtrl.text.trim(), passCtrl.text);
+                  if (data != null) {
+                    Navigator.pop(ctx);
+                    final uname = data["username"]?.toString() ?? userCtrl.text.trim();
+                    await ProfileService().saveCurrentAsProfile(uname);
+                    await _goHome(games: context.read<GameProvider>());
+                  } else {
+                    setD(() { loginError = "登录失败"; loading = false; });
+                  }
+                }
+              },
+              child: loading
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text(step == 0 ? "连接" : (showRegister ? "注册" : "登录")),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAddServerButton() {
     return SizedBox(
       width: double.infinity,
       child: Card(
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => setState(() => _showAddServer = true),
+          onTap: _showAddServerDialog,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
             child: Row(
