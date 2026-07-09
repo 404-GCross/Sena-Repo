@@ -17,6 +17,7 @@ import "../services/profile_service.dart";
 import "../services/notification_service.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
+import "add_server_screen.dart";
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
 
@@ -89,8 +90,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     if (mounted) setState(() {
       _profiles = profiles; _activeIndex = idx; _loading = false;
-      _showAddServer = profiles.isEmpty;
     });
+    if (profiles.isEmpty && mounted) {
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddServerScreen()));
+      if (mounted) setState(() { _profiles = profiles; _loading = false; });
+    }
   }
 
   Future<void> _connectToProfile(UserProfile profile, int index) async {
@@ -100,7 +104,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("auth_token", profile.authToken);
-    await prefs.setString("refresh_token", "");
+    final rt = profile.refreshToken;
+    if (rt.isNotEmpty) await prefs.setString("refresh_token", rt);
     await prefs.setString("username", profile.username);
     await prefs.setBool("is_admin", profile.isAdmin);
     await ApiClient.restoreToken();
@@ -202,6 +207,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       profile.authToken = result["access_token"]?.toString() ?? "";
       profile.username = result["username"]?.toString() ?? profile.username;
       profile.isAdmin = result["is_admin"] == true;
+      profile.refreshToken = result["refresh_token"]?.toString() ?? "";
 
       final ps = ProfileService();
       final profiles = await ps.loadProfiles();
@@ -407,6 +413,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   newProfile.authToken = data["access_token"]?.toString() ?? "";
                   newProfile.username = data["username"]?.toString() ?? userCtrl.text.trim();
                   newProfile.isAdmin = data["is_admin"] == true;
+                  newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
                   profiles[idx] = newProfile;
                   await ps.saveProfiles(profiles);
                   await ps.applyProfile(newProfile);
@@ -484,10 +491,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                if (_showAddServer)
-                  _buildConnectionSection()
-                else
-                  _buildAddServerButton(),
+                _buildAddServerButton(),
               ],
             ),
           ),
@@ -848,7 +852,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       child: Card(
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: _showAddServerDialog,
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddServerScreen())),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
             child: Row(

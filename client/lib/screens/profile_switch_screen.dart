@@ -133,6 +133,7 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                 host: hostCtrl.text.trim(),
                 port: port,
                 authToken: data["access_token"]?.toString() ?? "",
+                refreshToken: data["refresh_token"]?.toString() ?? "",
                 username: userCtrl.text.trim(),
                 isAdmin: data["is_admin"] == true,
                 useHttps: _useHttps,
