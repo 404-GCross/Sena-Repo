@@ -888,6 +888,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         fontWeight: FontWeight.w500)),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
   void _showProfileManager() {
     showDialog(
       context: context,
