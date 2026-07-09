@@ -1,4 +1,4 @@
-﻿/// HTTP client for communicating with the Sena Repo server.
+/// HTTP client for communicating with the Sena Repo server.
 
 import "dart:convert";
 import "dart:io";
@@ -11,24 +11,12 @@ import "../models/game.dart";
 /// Global access token — always accessible, survives Provider rebuilds.
 String? _accessToken;
 
-/// Global refresh token.
-String? _refreshToken;
-
 /// Cached user info from the last login.
 String? _cachedUsername;
 bool? _cachedIsAdmin;
+
 /// Legacy accessor — maintained for backward compatibility with download_service.
 String? get globalToken => _accessToken;
-
-/// Public accessor for refresh token — used by download_service.
-String? get globalRefreshToken => _refreshToken;
-
-/// Update global access/refresh tokens in memory and persist to prefs.
-Future<void> setGlobalTokens({required String accessToken, required String refreshToken}) async {
-  _accessToken = accessToken;
-  _refreshToken = refreshToken;
-  await ApiClient._persistTokens(accessToken: accessToken, refreshToken: refreshToken);
-}
 
 /// Hostname of the configured server — only bypasses TLS for this host.
 String? trustedServerHost;
@@ -43,13 +31,11 @@ class AuthException implements Exception {
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
-  bool _refreshing = false;
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
 
   String? get accessToken => _accessToken;
-  String? get refreshToken => _refreshToken;
   String? get cachedUsername => _cachedUsername;
   bool? get cachedIsAdmin => _cachedIsAdmin;
 
@@ -65,7 +51,6 @@ class ApiClient {
     if (_accessToken != null && _accessToken!.isNotEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     _accessToken = prefs.getString("auth_token");
-    _refreshToken = prefs.getString("refresh_token");
     _cachedUsername = prefs.getString("username");
     _cachedIsAdmin = prefs.getBool("is_admin");
     if (_accessToken != null) {
@@ -77,16 +62,12 @@ class ApiClient {
 
   static Future<void> _persistTokens({
     String? accessToken,
-    String? refreshToken,
     String? username,
     bool? isAdmin,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     if (accessToken != null && accessToken.isNotEmpty) {
       await prefs.setString("auth_token", accessToken);
-    }
-    if (refreshToken != null && refreshToken.isNotEmpty) {
-      await prefs.setString("refresh_token", refreshToken);
     }
     if (username != null) {
       await prefs.setString("username", username);
@@ -100,12 +81,10 @@ class ApiClient {
 
   static Future<void> clearTokens() async {
     _accessToken = null;
-    _refreshToken = null;
     _cachedUsername = null;
     _cachedIsAdmin = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove("auth_token");
-    await prefs.remove("refresh_token");
     await prefs.remove("username");
     await prefs.remove("is_admin");
   }
@@ -116,58 +95,9 @@ class ApiClient {
     trustedServerHost = host;
   }
 
-  /// Proactively refresh access token. Call after restoring tokens
-  /// to avoid hitting stale 401 during real API calls.
-  Future<bool> tryRefresh() async {
-    return await _tryRefresh();
-  }
-
-  Future<bool> _tryRefresh() async {
-    if (_refreshing) return false;
-    if (_refreshToken == null || _refreshToken!.isEmpty) return false;
-
-    _refreshing = true;
-    try {
-      final resp = await _client.post(
-        Uri.parse("$baseUrl/api/auth/refresh"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"refresh_token": _refreshToken}),
-      );
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _accessToken = data["access_token"]?.toString();
-        _refreshToken = data["refresh_token"]?.toString();
-        if (_accessToken != null && _accessToken!.isNotEmpty) {
-          await _persistTokens(
-            accessToken: _accessToken,
-            refreshToken: _refreshToken,
-          );
-          return true;
-        }
-      }
-      await clearTokens();
-      return false;
-    } catch (_) {
-      await clearTokens();
-      return false;
-    } finally {
-      _refreshing = false;
-    }
-  }
-
+  /// Execute an HTTP request.
   Future<http.Response> _execute(Future<http.Response> Function() request, {bool allowRetry = true}) async {
-    var response = await request();
-    if (response.statusCode == 401 && allowRetry && _refreshToken != null) {
-      final refreshed = await _tryRefresh();
-      if (refreshed) {
-        response = await request();
-      }
-      if (response.statusCode == 401) {
-        await clearTokens();
-        throw AuthException("会话已过期，请重新登录");
-      }
-    }
-    return response;
+    return await request();
   }
 
   // --- Games ---
@@ -258,12 +188,10 @@ class ApiClient {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _accessToken = data["access_token"]?.toString();
-        _refreshToken = data["refresh_token"]?.toString();
+        _accessToken = data["token"]?.toString();
         if (_accessToken != null && _accessToken!.isNotEmpty) {
           await _persistTokens(
             accessToken: _accessToken,
-            refreshToken: _refreshToken,
             username: data["username"]?.toString(),
             isAdmin: data["is_admin"] == true,
           );
@@ -276,26 +204,8 @@ class ApiClient {
 
   Future<bool> logout() async {
     try {
-      final resp = await _execute(
-        () => _client.post(Uri.parse("$baseUrl/api/auth/logout"), headers: headers),
-        allowRetry: false,
-      );
       await clearTokens();
-      return resp.statusCode == 200;
-    } catch (_) {
-      await clearTokens();
-      return false;
-    }
-  }
-
-  Future<bool> logoutAll() async {
-    try {
-      final resp = await _execute(
-        () => _client.post(Uri.parse("$baseUrl/api/auth/logout-all"), headers: headers),
-        allowRetry: false,
-      );
-      await clearTokens();
-      return resp.statusCode == 200;
+      return true;
     } catch (_) {
       await clearTokens();
       return false;

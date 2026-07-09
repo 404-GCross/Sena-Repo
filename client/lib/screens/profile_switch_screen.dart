@@ -1,4 +1,4 @@
-﻿/// Profile switch / management screen.
+/// Profile switch / management screen.
 
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
@@ -132,8 +132,8 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                 name: nameCtrl.text.trim(),
                 host: hostCtrl.text.trim(),
                 port: port,
-                authToken: data["access_token"]?.toString() ?? "",
-                refreshToken: data["refresh_token"]?.toString() ?? "",
+                authToken: data["token"]?.toString() ?? "",
+                // refreshToken: data["refresh_token"]?.toString() ?? "",
                 username: userCtrl.text.trim(),
                 isAdmin: data["is_admin"] == true,
                 useHttps: _useHttps,

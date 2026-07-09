@@ -72,7 +72,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         // Proactively refresh token before verifying
         final checkApi = ApiClient();
         checkApi.connect(profile.host, port: profile.port, useHttps: profile.useHttps);
-        await checkApi.tryRefresh();
+      // await checkApi.tryRefresh(); — removed
 
         try {
           final effectiveToken = checkApi.accessToken ?? profile.authToken;
@@ -111,8 +111,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("auth_token", profile.authToken);
-    final rt = profile.refreshToken;
-    if (rt.isNotEmpty) await prefs.setString("refresh_token", rt);
+    // final rt = profile.refreshToken; — removed
+      // await prefs.setString("refresh_token", result["refresh_token"]?.toString() ?? "");
     await prefs.setString("username", profile.username);
     await prefs.setBool("is_admin", profile.isAdmin);
     await ApiClient.restoreToken();
@@ -127,7 +127,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       // Proactively refresh token now so the user doesn't hit a stale 401
       // while editing metadata 15+ minutes later.
-      await games.api.tryRefresh();
+      // await games.api.tryRefresh(); — removed
 
       try {
         await games.loadGames();
@@ -233,10 +233,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
 
     if (result != null && mounted) {
-      profile.authToken = result["access_token"]?.toString() ?? "";
+      profile.authToken = result["token"]?.toString() ?? "";
       profile.username = result["username"]?.toString() ?? profile.username;
       profile.isAdmin = result["is_admin"] == true;
-      profile.refreshToken = result["refresh_token"]?.toString() ?? "";
+      // profile.refreshToken = result["refresh_token"]?.toString() ?? "";
 
       final ps = ProfileService();
       final profiles = await ps.loadProfiles();
@@ -248,7 +248,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("auth_token", profile.authToken);
-      await prefs.setString("refresh_token", result["refresh_token"]?.toString() ?? "");
       await ApiClient.restoreToken();
 
       try {
@@ -445,10 +444,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 );
                 if (resp.statusCode == 200) {
                   final data = jsonDecode(resp.body);
-                  newProfile.authToken = data["access_token"]?.toString() ?? "";
+                  newProfile.authToken = data["token"]?.toString() ?? "";
                   newProfile.username = data["username"]?.toString() ?? userCtrl.text.trim();
                   newProfile.isAdmin = data["is_admin"] == true;
-                  newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
+      // newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
                   profiles[idx] = newProfile;
                   await ps.saveProfiles(profiles);
                   await ps.applyProfile(newProfile);

@@ -10,7 +10,6 @@ import bcrypt
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 
 from database import Base
-from sqlalchemy import ForeignKey
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
@@ -45,21 +44,6 @@ class User(Base):
     token = Column(String(64), nullable=True, unique=True)  # random auth token
     avatar_path = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class Session(Base):
-    __tablename__ = "sessions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    access_token = Column(String(64), nullable=False, unique=True, index=True)
-    refresh_token = Column(String(64), nullable=False, unique=True, index=True)
-    access_token_expires_at = Column(DateTime, nullable=False)
-    refresh_token_expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_used_at = Column(DateTime, nullable=True)
-    ip_address = Column(String(64), nullable=True)
-    user_agent = Column(String(256), nullable=True)
 
 
 class Notification(Base):
