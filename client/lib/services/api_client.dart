@@ -27,7 +27,7 @@ String? get globalRefreshToken => _refreshToken;
 Future<void> setGlobalTokens({required String accessToken, required String refreshToken}) async {
   _accessToken = accessToken;
   _refreshToken = refreshToken;
-  await _persistTokens(accessToken: accessToken, refreshToken: refreshToken);
+  await ApiClient._persistTokens(accessToken: accessToken, refreshToken: refreshToken);
 }
 
 /// Hostname of the configured server — only bypasses TLS for this host.
