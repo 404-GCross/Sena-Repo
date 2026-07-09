@@ -1,4 +1,4 @@
-﻿"""Auth API 鈥?login, register, admin approval, notifications."""
+"""Auth API — login, register, admin approval, notifications."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _create_tokens() -> tuple[str, str, datetime, datetime]:
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-# 鈹€鈹€ Auth dependencies 鈹€鈹€
+# ── Auth dependencies ──
 
 async def get_current_user(
     authorization: str | None = Header(default=None),
@@ -40,9 +40,9 @@ async def get_current_user(
 ) -> User:
     """Validate Bearer access token and return current user."""
     if not authorization:
-        raise HTTPException(status_code=401, detail="鏈櫥褰?)
+        raise HTTPException(status_code=401, detail="Not logged in")
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="鏃犳晥鐨勮璇佹牸寮?)
+        raise HTTPException(status_code=401, detail="Invalid authentication format")
     token = authorization.removeprefix("Bearer ")
 
     now = datetime.utcnow()
@@ -54,7 +54,7 @@ async def get_current_user(
     )
     db_session = result.scalar_one_or_none()
     if db_session is None:
-        raise HTTPException(status_code=401, detail="浠ょ墝鏃犳晥鎴栧凡杩囨湡")
+        raise HTTPException(status_code=401, detail="Token invalid or expired")
 
     db_session.last_used_at = now
     await session.commit()
@@ -64,7 +64,7 @@ async def get_current_user(
     )
     user = user_result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=401, detail="鐢ㄦ埛宸茶绂佺敤")
+        raise HTTPException(status_code=401, detail="User has been disabled")
     return user
 
 
@@ -73,7 +73,7 @@ async def require_admin(
 ) -> User:
     """Require admin privileges."""
     if not user.is_admin:
-        raise HTTPException(status_code=403, detail="闇€瑕佺鐞嗗憳鏉冮檺")
+        raise HTTPException(status_code=403, detail="Admin privileges required")
     return user
 
 
@@ -116,12 +116,12 @@ async def login(
     user = result.scalar_one_or_none()
 
     if user is None or not verify_password(body.password, user.salt, user.password_hash):
-        raise HTTPException(status_code=401, detail="鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒")
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
 
     if user.status == "pending":
-        raise HTTPException(status_code=403, detail="璐︽埛绛夊緟绠＄悊鍛樺鎵逛腑")
+        raise HTTPException(status_code=403, detail="Account pending approval")
     if user.status == "rejected":
-        raise HTTPException(status_code=403, detail="璐︽埛宸茶鎷掔粷")
+        raise HTTPException(status_code=403, detail="Account rejected")
 
     access_token, refresh_token, access_exp, refresh_exp = _create_tokens()
 
@@ -157,7 +157,7 @@ async def refresh(body: RefreshRequest, session: AsyncSession = Depends(get_sess
     )
     db_session = result.scalar_one_or_none()
     if db_session is None:
-        raise HTTPException(status_code=401, detail="鍒锋柊浠ょ墝鏃犳晥鎴栧凡杩囨湡")
+        raise HTTPException(status_code=401, detail="Refresh token invalid or expired")
 
     access_token, refresh_token, access_exp, refresh_exp = _create_tokens()
     db_session.access_token = access_token
@@ -189,7 +189,7 @@ async def logout(
     if db_session:
         await session.delete(db_session)
         await session.commit()
-    return {"message": "宸茬櫥鍑?}
+    return {"message": "Logged out"}
 
 
 @router.post("/logout-all")
@@ -204,7 +204,7 @@ async def logout_all(
     for s in result.scalars().all():
         await session.delete(s)
     await session.commit()
-    return {"message": "宸茬櫥鍑烘墍鏈夎澶?}
+    return {"message": "Logged out all devices"}
 
 
 @router.post("/register")
@@ -214,7 +214,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         select(User).where(User.username == body.username)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
+        raise HTTPException(status_code=409, detail="Username already exists")
 
     # Count existing users. If 0, first user is auto-admin and auto-approved
     count = await session.execute(select(func.count()).select_from(User))
@@ -239,16 +239,16 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         for admin in admins.scalars():
             session.add(Notification(
                 type="approval_request",
-                title=f"鏂扮敤鎴锋敞鍐? {body.username}",
-                body=f"鐢ㄦ埛 {body.username} 鐢宠{'绠＄悊鍛? if body.is_admin else '鏅€氱敤鎴?}璐︽埛锛岀瓑寰呭鎵?,
+                title=f"New user registration: {body.username}",
+                body=f"User {body.username} registered as {'admin' if body.is_admin else 'user'}, awaiting approval",
                 target_user_id=user.id,
             ))
 
     await session.commit()
 
     if is_first:
-        return {"message": "娉ㄥ唽鎴愬姛锛岄涓敤鎴峰凡鑷姩婵€娲?, "user_id": user.id, "auto_approved": True}
-    return {"message": "娉ㄥ唽鎴愬姛锛岀瓑寰呯鐞嗗憳瀹℃壒", "user_id": user.id, "pending": True}
+        return {"message": "Registration successful, first user auto-activated", "user_id": user.id, "auto_approved": True}
+    return {"message": "Registration successful, pending approval", "user_id": user.id, "pending": True}
 
 
 @router.get("/users")
@@ -274,7 +274,7 @@ async def create_user(body: CreateUserRequest, _admin: User = Depends(require_ad
         select(User).where(User.username == body.username)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
+        raise HTTPException(status_code=409, detail="Username already exists")
 
     pw_hash, salt = hash_password(body.password)
     user = User(
@@ -288,7 +288,7 @@ async def create_user(body: CreateUserRequest, _admin: User = Depends(require_ad
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    return {"id": user.id, "username": user.username, "message": "鐢ㄦ埛鍒涘缓鎴愬姛"}
+    return {"id": user.id, "username": user.username, "message": "User created successfully"}
 
 
 @router.get("/pending")
@@ -307,12 +307,12 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
     result = await session.execute(select(User).where(User.id == body.user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="鐢ㄦ埛涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="User not found")
     if user.status != "pending":
-        raise HTTPException(status_code=400, detail="璇ョ敤鎴蜂笉鍦ㄥ緟瀹℃壒鐘舵€?)
+        raise HTTPException(status_code=400, detail="User is not in pending status")
 
     user.status = "active" if body.approve else "rejected"
-    # Prevent self-service admin escalation 鈥?approval always resets to regular user
+    # Prevent self-service admin escalation — approval always resets to regular user
     if body.approve:
         user.is_admin = False
 
@@ -329,13 +329,13 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
     # Notification for the applicant
     session.add(Notification(
         type="approved" if body.approve else "rejected",
-        title="璐︽埛宸查€氳繃瀹℃壒" if body.approve else "璐︽埛宸茶鎷掔粷",
-        body=f"浣犵殑璐︽埛鐢宠{'宸查€氳繃' if body.approve else '宸茶鎷掔粷'}",
+        title="Account approved" if body.approve else "Account rejected",
+        body=f"Your registration has been {'approved' if body.approve else 'rejected'}",
         target_user_id=user.id,
     ))
 
     await session.commit()
-    return {"message": "鎿嶄綔鎴愬姛"}
+    return {"message": "Operation successful"}
 
 
 @router.get("/notifications")
@@ -385,7 +385,7 @@ async def mark_all_read(user: User = Depends(get_current_user), session: AsyncSe
     return {"ok": True}
 
 
-# 鈹€鈹€ Admin user management 鈹€鈹€
+# ── Admin user management ──
 
 class AdminUserUpdate(BaseModel):
     username: str | None = None
@@ -401,13 +401,13 @@ async def admin_update_user(
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="鐢ㄦ埛涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="User not found")
     if body.username and body.username != user.username:
         existing = await session.execute(
             select(User).where(User.username == body.username)
         )
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
+            raise HTTPException(status_code=409, detail="Username already exists")
         user.username = body.username
     if body.password:
         pw_hash, salt = hash_password(body.password)
@@ -422,7 +422,7 @@ async def admin_update_user(
     if body.is_admin is not None:
         user.is_admin = body.is_admin
     await session.commit()
-    return {"message": "鏇存柊鎴愬姛"}
+    return {"message": "Updated successfully"}
 
 
 @router.delete("/users/{user_id}")
@@ -433,7 +433,7 @@ async def admin_delete_user(
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="鐢ㄦ埛涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="User not found")
     # Also delete all sessions for this user
     sess_result = await session.execute(
         select(DbSession).where(DbSession.user_id == user_id)
@@ -442,10 +442,10 @@ async def admin_delete_user(
         await session.delete(s)
     await session.delete(user)
     await session.commit()
-    return {"message": "鐢ㄦ埛宸插垹闄?}
+    return {"message": "User deleted"}
 
 
-# 鈹€鈹€ Profile management 鈹€鈹€
+# ── Profile management ──
 
 class ProfileUpdate(BaseModel):
     username: str | None = None
@@ -488,13 +488,13 @@ async def update_profile(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     if current.id != user.id and not current.is_admin:
-        raise HTTPException(status_code=403, detail="鍙兘淇敼鑷繁鐨勮祫鏂?)
+        raise HTTPException(status_code=403, detail="Can only edit your own profile")
 
     if body.new_password:
         if not body.current_password:
-            raise HTTPException(status_code=400, detail="闇€瑕佸綋鍓嶅瘑鐮?)
+            raise HTTPException(status_code=400, detail="Current password required")
         if not verify_password(body.current_password, user.salt, user.password_hash):
-            raise HTTPException(status_code=403, detail="褰撳墠瀵嗙爜閿欒")
+            raise HTTPException(status_code=403, detail="Current password is incorrect")
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
@@ -510,11 +510,11 @@ async def update_profile(
             select(User).where(User.username == body.username)
         )
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
+            raise HTTPException(status_code=409, detail="Username already exists")
         user.username = body.username
 
     await session.commit()
-    return {"message": "鏇存柊鎴愬姛", "username": user.username}
+    return {"message": "Updated successfully", "username": user.username}
 
 
 @router.post("/profile/{user_id}/avatar")
@@ -533,11 +533,11 @@ async def upload_avatar(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     if current.id != user.id and not current.is_admin:
-        raise HTTPException(status_code=403, detail="鍙兘淇敼鑷繁鐨勫ご鍍?)
+        raise HTTPException(status_code=403, detail="Can only edit your own avatar")
 
     contents = await file.read()
     if len(contents) > 5 * 1024 * 1024:  # 5 MB limit
-        raise HTTPException(status_code=400, detail="鏂囦欢杩囧ぇ锛屾渶澶?5MB")
+        raise HTTPException(status_code=400, detail="File too large, max 5MB")
 
     ext = Path(file.filename or "avatar.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
