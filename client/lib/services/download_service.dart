@@ -17,7 +17,7 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "package:permission_handler/permission_handler.dart";
-import "api_client.dart" show globalToken;
+import "api_client.dart" show globalToken, globalRefreshToken, setGlobalTokens;
 import "notification_service.dart";
 
 // ────────────────────────────────────────────────────
@@ -835,6 +835,7 @@ class DownloadService with WidgetsBindingObserver {
     t._client = client;
     IOSink? sink;
     try {
+      await _refreshTokenBeforeDownload(t.downloadUrl);
       final req = http.Request("GET", Uri.parse(t.downloadUrl));
       // Add auth header for server authentication
       if (globalToken != null && globalToken!.isNotEmpty) {
@@ -1140,6 +1141,31 @@ class DownloadService with WidgetsBindingObserver {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
       await File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}").delete();
+    } catch (_) {}
+  }
+
+  /// Try to refresh the access token before starting a download,
+  /// using the refresh_token from ApiClient and extracting the server
+  /// base URL from the download URL itself.
+  Future<void> _refreshTokenBeforeDownload(String downloadUrl) async {
+    final rf = globalRefreshToken;
+    if (rf == null || rf.isEmpty) return;
+    final gt = globalToken;
+    if (gt == null || gt.isEmpty) return;
+    try {
+      final uri = Uri.parse(downloadUrl);
+      final baseUrl = "${uri.scheme}://${uri.host}:${uri.port}";
+      final resp = await http.post(
+        Uri.parse("$baseUrl/api/auth/refresh"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"refresh_token": rf}),
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final na = data["access_token"]?.toString() ?? "";
+        final nr = data["refresh_token"]?.toString() ?? "";
+        if (na.isNotEmpty) await setGlobalTokens(accessToken: na, refreshToken: nr);
+      }
     } catch (_) {}
   }
 

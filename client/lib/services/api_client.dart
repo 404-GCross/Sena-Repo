@@ -20,6 +20,16 @@ bool? _cachedIsAdmin;
 /// Legacy accessor — maintained for backward compatibility with download_service.
 String? get globalToken => _accessToken;
 
+/// Public accessor for refresh token — used by download_service.
+String? get globalRefreshToken => _refreshToken;
+
+/// Update global access/refresh tokens in memory and persist to prefs.
+Future<void> setGlobalTokens({required String accessToken, required String refreshToken}) async {
+  _accessToken = accessToken;
+  _refreshToken = refreshToken;
+  await _persistTokens(accessToken: accessToken, refreshToken: refreshToken);
+}
+
 /// Hostname of the configured server — only bypasses TLS for this host.
 String? trustedServerHost;
 
