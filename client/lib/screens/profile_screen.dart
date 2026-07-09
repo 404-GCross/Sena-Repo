@@ -305,7 +305,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmed == true && context.mounted) {
             await ApiClient.clearTokens();
       if (context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),
           (_) => false,
         );
