@@ -1,4 +1,4 @@
-﻿/// Profile / my page.
+/// Profile / my page.
 
 import "dart:convert";
 
@@ -11,6 +11,7 @@ import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/profile_service.dart";
+import "../services/api_client.dart";
 import "../services/api_client.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
