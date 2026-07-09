@@ -28,7 +28,6 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   String _username = "";
-  String _serverInfo = "";
   String _serverVersion = "";
   String? _avatarPath;
   int _userId = 0;
@@ -78,7 +77,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (mounted) {
       setState(() {
         _username = prefs.getString("username") ?? "Sena Repo";
-        _serverInfo = "服务器: ${settings.serverHost}:${settings.serverPort}";
       });
     }
     // Try loading avatar from server
@@ -144,13 +142,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Text(
             _username,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Center(
-          child: Text(
-            "服务器: ${settings.serverHost}:${settings.serverPort}",
-            style: AppText.bodyMedium.copyWith( color: hintColor(context)),
           ),
         ),
         const SizedBox(height: 32),
