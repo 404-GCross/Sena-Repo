@@ -49,7 +49,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadServerVersion();
   }
 
-  Future<void> refresh() async => _loadUserInfo();
+  Future<void> refresh() async {
+    await _loadUserInfo();
+    _loadServerVersion();
+  }
 
   void _maybeRefresh() {
     final now = DateTime.now().millisecondsSinceEpoch;
