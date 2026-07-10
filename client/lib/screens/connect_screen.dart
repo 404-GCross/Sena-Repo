@@ -62,6 +62,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final profiles = await ps.loadProfiles();
     final idx = await ps.getActiveIndex();
     if (!mounted) return;
+    String? autoLoginError;
 
     if (profiles.isNotEmpty && idx >= 0 && idx < profiles.length) {
       final profile = profiles[idx];
@@ -83,20 +84,30 @@ class _ConnectScreenState extends State<ConnectScreen> {
           if (resp.statusCode == 200) {
             final settings = context.read<SettingsProvider>();
             final games = context.read<GameProvider>();
-            await settings.connect(profile.host, profile.port, useHttps: profile.useHttps);
-            games.connect(profile.host, profile.port, useHttps: profile.useHttps);
-            await games.loadGames();
-            if (mounted) {
-              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+            final connected = await settings.connect(profile.host, profile.port, useHttps: profile.useHttps);
+            if (!connected) {
+              autoLoginError = settings.errorMessage ?? "自动登录失败：无法连接服务器";
+            } else {
+              games.connect(profile.host, profile.port, useHttps: profile.useHttps);
+              await games.loadGames();
+              if (mounted) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+              }
+              return;
             }
-            return;
+          } else {
+            autoLoginError = resp.statusCode == 401
+                ? "自动登录失败：登录已失效，请重新登录"
+                : "自动登录失败：服务器返回 ${resp.statusCode}";
           }
-        } catch (_) {}
+        } catch (e) {
+          autoLoginError = "自动登录失败: $e";
+        }
       }
     }
 
     if (mounted) setState(() {
-      _profiles = profiles; _activeIndex = idx; _loading = false;
+      _profiles = profiles; _activeIndex = idx; _loading = false; _error = autoLoginError;
     });
     if (profiles.isEmpty && mounted) {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddServerScreen()));
@@ -107,23 +118,26 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Future<void> _connectToProfile(UserProfile profile, int index) async {
     setState(() => _error = null);
     try {
-    await ProfileService().applyProfile(profile);
-    await ApiClient.clearTokens();
+      final settings = context.read<SettingsProvider>();
+      final games = context.read<GameProvider>();
+      final success = await settings.connect(profile.host, profile.port, useHttps: profile.useHttps);
+      if (!success) {
+        if (mounted) {
+          _showToast(settings.errorMessage ?? "连接服务器失败");
+          setState(() => _error = settings.errorMessage ?? "连接服务器失败");
+        }
+        return;
+      }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("auth_token", profile.authToken);
-    // final rt = profile.refreshToken; — removed
-      // await prefs.setString("refresh_token", result["refresh_token"]?.toString() ?? "");
-    await prefs.setString("username", profile.username);
-    await prefs.setBool("is_admin", profile.isAdmin);
-    await ApiClient.restoreToken();
-
-    final settings = context.read<SettingsProvider>();
-    final games = context.read<GameProvider>();
-    final success = await settings.connect(profile.host, profile.port, useHttps: profile.useHttps);
-
-    if (success && mounted) {
       games.connect(profile.host, profile.port, useHttps: profile.useHttps);
+      if (profile.authToken.isEmpty) {
+        await _showReAuthDialog(profile, index, games);
+        return;
+      }
+
+      await ApiClient.clearTokens();
+      await ProfileService().applyProfile(profile);
+      await ApiClient.restoreToken();
       await ProfileService().setActiveIndex(index);
 
       // Proactively refresh token now so the user doesn't hit a stale 401
@@ -138,12 +152,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
           setState(() { final msg = e.toString(); _error = "连接失败: ${msg.length > 80 ? msg.substring(0, 80) : msg}"; });
         }
       }
-    } else if (mounted) {
-      if (mounted) {
-        _showToast(settings.errorMessage ?? "连接服务器失败");
-        setState(() => _error = settings.errorMessage ?? "连接服务器失败");
-      }
-    }
     } catch (e) {
       if (mounted) _showToast("连接失败: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}");
     }
@@ -207,14 +215,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       final ps = ProfileService();
       final profiles = await ps.loadProfiles();
+      await ApiClient.clearTokens();
       if (index < profiles.length) {
         profiles[index] = profile;
+        await ps.setActiveIndex(index);
         await ps.saveProfiles(profiles);
-        await ps.applyProfile(profile);
       }
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("auth_token", profile.authToken);
+      await ps.applyProfile(profile);
       await ApiClient.restoreToken();
 
       try {

@@ -165,7 +165,14 @@ class _AddServerScreenState extends State<AddServerScreen> {
     final games = context.read<GameProvider>();
     final settings = context.read<SettingsProvider>();
     games.connect(settings.serverHost, settings.serverPort, useHttps: settings.useHttps);
-    try { await games.loadGames(); } catch (_) {}
+    try {
+      await games.loadGames();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loginError = "加载游戏库失败: $e");
+      }
+      return;
+    }
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const HomeScreen()),

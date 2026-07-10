@@ -127,7 +127,8 @@ class ApiClient {
 
   Future<GameDetail> getGame(int id) async {
     final resp = await _execute(() => _client.get(Uri.parse("$baseUrl/api/games/$id"), headers: headers));
-    if (resp.statusCode != 200 && resp.statusCode != 401) throw HttpException("Game not found");
+    if (resp.statusCode == 401) throw AuthException("登录已失效，请重新登录");
+    if (resp.statusCode != 200) throw HttpException("Game not found");
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 

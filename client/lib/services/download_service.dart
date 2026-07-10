@@ -17,7 +17,7 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "package:permission_handler/permission_handler.dart";
-import "api_client.dart" show globalToken;
+import "api_client.dart" show ApiClient, globalToken;
 import "notification_service.dart";
 
 // ────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<void> _restoreTasks() async {
     try {
+      await ApiClient.restoreToken();
       final prefs = await SharedPreferences.getInstance();
       final data = prefs.getStringList("saved_tasks") ?? [];
       for (final json in data) {
