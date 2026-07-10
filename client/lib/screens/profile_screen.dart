@@ -305,6 +305,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (confirmed == true && context.mounted) {
             await ApiClient.clearTokens();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove("active_profile_index");
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),
