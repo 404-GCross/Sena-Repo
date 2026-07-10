@@ -134,53 +134,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
       } catch (e) {
         if (mounted) {
-          // Network/server error, not auth — show feedback
-          if (e is! AuthException) {
-            _showToast("连接服务器失败: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}");
-            return;
-          }
-          // First check if the server was rebuilt and needs setup
-          final checkApi = ApiClient();
-          checkApi.connect(profile.host, port: profile.port, useHttps: profile.useHttps);
-          final needsSetup = await checkApi.checkSetupNeeded();
-          if (needsSetup) {
-            // Server rebuilt and uninitialized — redirect to setup wizard
-            final setupResult = await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => SetupWizardScreen(api: checkApi)),
-            );
-            if (setupResult != null && mounted) {
-              final creds = setupResult as Map;
-              final loginResult = await checkApi.login(
-                creds["username"]?.toString() ?? "",
-                creds["password"]?.toString() ?? "",
-              );
-              if (loginResult != null && mounted) {
-                profile.authToken = loginResult["access_token"]?.toString() ?? "";
-                profile.username = loginResult["username"]?.toString() ?? profile.username;
-                profile.isAdmin = loginResult["is_admin"] == true;
-                final ps = ProfileService();
-                final profiles = await ps.loadProfiles();
-                if (index < profiles.length) {
-                  profiles[index] = profile;
-                  await ps.saveProfiles(profiles);
-                  await ps.applyProfile(profile);
-                }
-                await games.loadGames();
-                if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-              }
-            }
-          } else {
-            // Server is up but old token is invalid — offer re-login
-            _showReAuthDialog(profile, index, games);
-          }
+          setState(() => _error = "连接失败: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}");
         }
       }
     } else if (mounted) {
-      _showToast(settings.errorMessage ?? "连接服务器失败");
-    }
-  }
-
+      if (mounted) {
+        _showToast(settings.errorMessage ?? "连接服务器失败");
+        setState(() => _error = settings.errorMessage ?? "连接服务器失败");
+      }
   void _showToast(String msg) {
     if (!mounted) return;
     showDialog(
@@ -526,6 +487,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 ],
 
                 _buildAddServerButton(),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  ),
               ],
             ),
           ),
