@@ -27,11 +27,11 @@ async def _auto_scan_task(config, logger):
             interval_seconds = getattr(config, "_scan_interval", 24) * 3600
             if now - last < interval_seconds:
                 continue
-            config._last_auto_scan = now
             logger.info("Auto-scan triggered")
             # Run scan via the internal function
             from api.roots import _run_scan
             await _run_scan(config)
+            config._last_auto_scan = now
         except Exception as e:
             logger.error(f"Auto-scan error: {e}")
 
