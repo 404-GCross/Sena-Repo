@@ -135,7 +135,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
       } catch (e) {
         if (mounted) {
-          setState(() => _error = "连接失败: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}");
+          setState(() { final msg = e.toString(); _error = "连接失败: ${msg.length > 80 ? msg.substring(0, 80) : msg}"; });
         }
       }
     } else if (mounted) {
@@ -145,7 +145,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       }
     }
     } catch (e) {
-      if (mounted) _showToast("连接失败: $e");
+      if (mounted) _showToast("连接失败: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}");
     }
   }
   void _showToast(String msg) {
