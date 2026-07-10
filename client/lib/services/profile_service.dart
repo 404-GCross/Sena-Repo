@@ -29,6 +29,7 @@ class UserProfile {
 
   Map<String, dynamic> toJson() => {
     "name": name, "host": host, "port": port,
+    "authToken": authToken,
     // "refreshToken": refreshToken,
     "username": username, "isAdmin": isAdmin,
     "useHttps": useHttps,

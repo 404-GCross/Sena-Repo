@@ -53,8 +53,8 @@ class ApiClient {
     _accessToken = prefs.getString("auth_token");
     _cachedUsername = prefs.getString("username");
     _cachedIsAdmin = prefs.getBool("is_admin");
-    if (_accessToken != null) {
-      print("[ApiClient] Token restored from disk: ${_accessToken!.substring(0, 8)}...");
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      print("[ApiClient] Token restored from disk: ${_accessToken!.length >= 8 ? _accessToken!.substring(0, 8) : _accessToken}...");
     } else {
       print("[ApiClient] No token found on disk");
     }
