@@ -106,6 +106,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _connectToProfile(UserProfile profile, int index) async {
     setState(() => _error = null);
+    try {
     await ProfileService().applyProfile(profile);
     await ApiClient.clearTokens();
 
@@ -142,6 +143,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
         _showToast(settings.errorMessage ?? "连接服务器失败");
         setState(() => _error = settings.errorMessage ?? "连接服务器失败");
       }
+    }
+    } catch (e) {
+      if (mounted) _showToast("连接失败: $e");
     }
   }
   void _showToast(String msg) {
