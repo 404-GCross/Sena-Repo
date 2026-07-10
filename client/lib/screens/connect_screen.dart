@@ -853,7 +853,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
       ),
     );
   }
-    }
 }
 
 // First-run client setup dialog
