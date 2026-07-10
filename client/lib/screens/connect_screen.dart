@@ -48,7 +48,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
   ApiClient? _newApi;
 
   @override
-  void initState() { super.initState(); _loadAndAutoConnect(); }
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadAndAutoConnect();
+    });
+  }
 
   @override
   void dispose() {
@@ -58,6 +63,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   Future<void> _loadAndAutoConnect() async {
+    await _ensureClientSetup();
+    if (!mounted) return;
+
     final ps = ProfileService();
     final profiles = await ps.loadProfiles();
     final idx = await ps.getActiveIndex();
@@ -113,6 +121,20 @@ class _ConnectScreenState extends State<ConnectScreen> {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddServerScreen()));
       if (mounted) setState(() { _profiles = profiles; _loading = false; });
     }
+  }
+
+  Future<void> _ensureClientSetup({bool force = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
+    if (!force && clientSetupDone) return;
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: force,
+      builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
+    );
+    await prefs.setBool("client_setup_done", true);
   }
 
   Future<void> _connectToProfile(UserProfile profile, int index) async {
@@ -264,14 +286,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
       }
 
       _newApi = api;
-
-      final prefs = await SharedPreferences.getInstance();
-      final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
-      if (!clientSetupDone && mounted) {
-        await showDialog(context: context, barrierDismissible: false,
-          builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)));
-        await prefs.setBool("client_setup_done", true);
-      }
 
       if (mounted) setState(() { _connecting = false; _showAddServer = true; });
     } else {
@@ -465,7 +479,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
       appBar: AppBar(
         title: const Text("Sena Repo"),
         centerTitle: true,
-        actions: [],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: "本地设置",
+            onPressed: () => _ensureClientSetup(force: true),
+          ),
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(

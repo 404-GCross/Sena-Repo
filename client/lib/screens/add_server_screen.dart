@@ -1,13 +1,9 @@
 ﻿/// Full-screen flow for adding a new server and logging in.
 
 import "dart:convert";
-import "dart:io" show Platform;
-
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
-import "package:shared_preferences/shared_preferences.dart";
-import "package:file_picker/file_picker.dart";
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
@@ -88,17 +84,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
         }
       }
       if (!mounted) return;
-    }
-
-    // First-run client setup dialog
-    final prefs = await SharedPreferences.getInstance();
-    final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
-    if (!clientSetupDone && mounted) {
-      await showDialog(
-        context: context, barrierDismissible: false,
-        builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
-      );
-      await prefs.setBool("client_setup_done", true);
     }
 
     if (mounted) setState(() { _connecting = false; _step = 1; });
@@ -278,119 +263,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-// First-run client setup dialog
-
-class _ClientSetupDialog extends StatefulWidget {
-  final VoidCallback onDone;
-  const _ClientSetupDialog({required this.onDone});
-
-  @override
-  State<_ClientSetupDialog> createState() => _ClientSetupDialogState();
-}
-
-class _ClientSetupDialogState extends State<_ClientSetupDialog> {
-  String _downloadDir = "";
-  String _steamDir = "";
-  String _steamUserId = "";
-  final _steamIdCtrl = TextEditingController();
-
-  @override
-  void initState() { super.initState(); _load(); }
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final dd = prefs.getString("local_download_dir") ?? "";
-    final sd = prefs.getString("steamapps_dir") ?? prefs.getString("steam_common_dir") ?? "";
-    final uid = prefs.getString("steam_user_id") ?? "";
-    _steamIdCtrl.text = uid;
-    setState(() { _downloadDir = dd; _steamDir = sd; _steamUserId = uid; });
-  }
-
-  Future<void> _pickDownloadDir() async {
-    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择游戏下载目录");
-    if (result != null) {
-      setState(() => _downloadDir = result);
-      (await SharedPreferences.getInstance()).setString("local_download_dir", result);
-    }
-  }
-
-  Future<void> _pickSteamDir() async {
-    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择 Steam steamapps 目录");
-    if (result != null) {
-      setState(() => _steamDir = result);
-      (await SharedPreferences.getInstance()).setString("steamapps_dir", result);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Text("初始设置", textAlign: TextAlign.center),
-      content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text("首次使用需要设置以下目录，稍后可在设置中修改",
-            style: AppText.bodySmall.copyWith(color: Colors.grey)),
-        const SizedBox(height: 20),
-        _dirCard(Icons.download, "游戏下载目录", _downloadDir, _pickDownloadDir),
-        if (!Platform.isAndroid) ...[
-          const SizedBox(height: 12),
-          _dirCard(Icons.gamepad, "Steam 库目录 (steamapps)", _steamDir, _pickSteamDir),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: cardBg(context), borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Row(children: [
-              Icon(Icons.person, size: 20, color: sectionIconColor(context)),
-              const SizedBox(width: 8),
-              Expanded(child: TextField(
-                controller: _steamIdCtrl,
-                decoration: const InputDecoration(
-                  hintText: "Steam 用户 ID — 就是Steam好友代码，一串纯数字",
-                  isDense: true, border: InputBorder.none,
-                ),
-                keyboardType: TextInputType.number,
-                onChanged: (v) async {
-                  _steamUserId = v.trim();
-                  final prefs = await SharedPreferences.getInstance();
-                  if (v.trim().isNotEmpty) await prefs.setString("steam_user_id", v.trim());
-                  else await prefs.remove("steam_user_id");
-                },
-                style: const TextStyle(fontSize: 13),
-              )),
-            ]),
-          ),
-        ],
-      ])),
-      actions: [FilledButton(onPressed: widget.onDone, child: const Text("完成"))],
-    );
-  }
-
-  Widget _dirCard(IconData icon, String label, String path, VoidCallback onPick) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
-      ),
-      child: Row(children: [
-        Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
-          Text(path.isEmpty ? "未设置" : path,
-              style: AppText.label.copyWith(color: path.isEmpty ? Colors.red[300] : Colors.grey[600])),
-        ])),
-        TextButton(onPressed: onPick, child: Text(path.isEmpty ? "选择" : "更换", style: const TextStyle(fontSize: 12))),
-      ]),
     );
   }
 }
