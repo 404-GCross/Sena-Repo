@@ -304,9 +304,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (confirmed == true && context.mounted) {
-            await ApiClient.clearTokens();
+      await ApiClient.clearTokens();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
+      await prefs.remove("auth_token");
+      // Clear token in saved profiles so auto-login won't re-trigger
+      final ps = ProfileService();
+      final profiles = await ps.loadProfiles();
+      for (final p in profiles) { p.authToken = ""; }
+      await ps.saveProfiles(profiles);
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),
@@ -314,5 +320,3 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     }
-  }
-}
