@@ -27,7 +27,7 @@ class ConnectScreen extends StatefulWidget {
 
 class _ConnectScreenState extends State<ConnectScreen> {
   List<UserProfile> _profiles = [];
-  int _activeIndex = 0;
+  int _activeIndex = -1;
   bool _loading = true;
 
   final _hostCtrl = TextEditingController(text: "192.168.1.100");
@@ -63,7 +63,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final idx = await ps.getActiveIndex();
     if (!mounted) return;
 
-    if (profiles.isNotEmpty && idx < profiles.length) {
+    if (profiles.isNotEmpty && idx >= 0 && idx < profiles.length) {
       final profile = profiles[idx];
       if (profile.authToken.isNotEmpty) {
         await ps.applyProfile(profile);

@@ -163,6 +163,8 @@ class _AddServerScreenState extends State<AddServerScreen> {
   Future<void> _goHome() async {
     if (!mounted) return;
     final games = context.read<GameProvider>();
+    final settings = context.read<SettingsProvider>();
+    games.connect(settings.serverHost, settings.serverPort, useHttps: settings.useHttps);
     try { await games.loadGames(); } catch (_) {}
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(

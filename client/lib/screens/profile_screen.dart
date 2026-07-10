@@ -10,7 +10,6 @@ import "package:shared_preferences/shared_preferences.dart";
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
-import "../services/profile_service.dart";
 import "../services/api_client.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
@@ -308,11 +307,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
       await prefs.remove("auth_token");
-      // Clear token in saved profiles so auto-login won't re-trigger
-      final ps = ProfileService();
-      final profiles = await ps.loadProfiles();
-      for (final p in profiles) { p.authToken = ""; }
-      await ps.saveProfiles(profiles);
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),

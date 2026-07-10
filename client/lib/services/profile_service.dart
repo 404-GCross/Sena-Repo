@@ -70,7 +70,7 @@ class ProfileService {
 
   Future<int> getActiveIndex() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyActiveIndex) ?? 0;
+    return prefs.getInt(_keyActiveIndex) ?? -1;
   }
 
   Future<void> setActiveIndex(int index) async {
@@ -104,8 +104,13 @@ class ProfileService {
     final useHttps = prefs.getBool("use_https") ?? false;
 
     final profiles = await loadProfiles();
-    // Update existing or add new
-    final existing = profiles.indexWhere((p) => p.name == name);
+    // Update existing or add new. Keep different servers separate even when
+    // they use the same profile name or username.
+    final existing = profiles.indexWhere((p) =>
+        p.host == host &&
+        p.port == port &&
+        p.useHttps == useHttps &&
+        p.username == username);
     final profile = UserProfile(name: name, host: host, port: port,
         authToken: token, /* refreshToken: refreshToken, */
         username: username, isAdmin: isAdmin, useHttps: useHttps);
