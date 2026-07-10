@@ -142,6 +142,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
         _showToast(settings.errorMessage ?? "连接服务器失败");
         setState(() => _error = settings.errorMessage ?? "连接服务器失败");
       }
+    }
+  }
   void _showToast(String msg) {
     if (!mounted) return;
     showDialog(
