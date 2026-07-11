@@ -245,21 +245,7 @@ jobs:
           flutter create . --project-name sena_repo --org senarepo
           # Remove template Android files that conflict with custom ones under com/github/senarepo
           rm -rf android/app/src/main/kotlin/senarepo
-          # Enable touch events for Flutter Linux on Wayland/Gamescope
-          MAIN_CC=linux/runner/my_application.cc
-          RUNNER_MAIN_CC=linux/runner/main.cc
-          if [ -f "$RUNNER_MAIN_CC" ]; then
-            # Set GDK touch env vars before GTK application initialization.
-            sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GDK_BACKEND", "x11,wayland", FALSE);' "$RUNNER_MAIN_CC"
-            sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$RUNNER_MAIN_CC"
-            sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$RUNNER_MAIN_CC"
-          fi
-          if [ -f "$MAIN_CC" ]; then
-            # Help GTK expose touch/pointer events consistently under Wayland/Gamescope.
-            sed -i '/fl_view_new/a\  gtk_widget_set_can_focus(GTK_WIDGET(view), TRUE);' "$MAIN_CC"
-            sed -i '/fl_view_new/a\  gtk_widget_add_events(GTK_WIDGET(view), GDK_TOUCH_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
-            sed -i '/gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));/a\  gtk_widget_add_events(GTK_WIDGET(window), GDK_TOUCH_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
-          fi
+          python3 ../.github/scripts/patch_linux_runner_touch.py
 
       - name: Install dependencies
         run: flutter pub get
