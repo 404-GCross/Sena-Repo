@@ -226,11 +226,14 @@ jobs:
           MAIN_CC=linux/runner/my_application.cc
           RUNNER_MAIN_CC=linux/runner/main.cc
           if [ -f "$RUNNER_MAIN_CC" ]; then
+            sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GDK_BACKEND", "x11,wayland", FALSE);' "$RUNNER_MAIN_CC"
             sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$RUNNER_MAIN_CC"
             sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$RUNNER_MAIN_CC"
           fi
           if [ -f "$MAIN_CC" ]; then
-            sed -i '/fl_view_new/a\  gtk_widget_add_events(GTK_WIDGET(view), GDK_TOUCH_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
+            sed -i '/fl_view_new/a\  gtk_widget_set_can_focus(GTK_WIDGET(view), TRUE);' "$MAIN_CC"
+            sed -i '/fl_view_new/a\  gtk_widget_add_events(GTK_WIDGET(view), GDK_TOUCH_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
+            sed -i '/gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));/a\  gtk_widget_add_events(GTK_WIDGET(window), GDK_TOUCH_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
           fi
       - name: Install dependencies
         run: flutter pub get
