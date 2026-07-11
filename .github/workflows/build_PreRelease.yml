@@ -223,9 +223,12 @@ jobs:
           flutter create . --project-name sena_repo --org senarepo
           rm -rf android/app/src/main/kotlin/senarepo
           MAIN_CC=linux/runner/my_application.cc
+          RUNNER_MAIN_CC=linux/runner/main.cc
+          if [ -f "$RUNNER_MAIN_CC" ]; then
+            sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$RUNNER_MAIN_CC"
+            sed -i '/g_autoptr(MyApplication) app/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$RUNNER_MAIN_CC"
+          fi
           if [ -f "$MAIN_CC" ]; then
-            sed -i '/g_application_run/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$MAIN_CC"
-            sed -i '/g_application_run/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$MAIN_CC"
             sed -i '/fl_view_new/a\  gtk_widget_add_events(GTK_WIDGET(view), GDK_TOUCH_MASK | GDK_SMOOTH_SCROLL_MASK);' "$MAIN_CC"
           fi
       - name: Install dependencies
