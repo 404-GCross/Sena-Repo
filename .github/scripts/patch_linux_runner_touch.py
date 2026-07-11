@@ -21,9 +21,10 @@ main_text = runner_main.read_text(encoding="utf-8")
 main_marker = "Sena Repo Linux input compatibility"
 main_insert = """  // Sena Repo Linux input compatibility.
   // Prefer native Wayland on Bazzite/Gamescope, with X11 as fallback.
-  g_setenv("GDK_BACKEND", "wayland,x11", FALSE);
+  g_setenv("GDK_BACKEND", "wayland,x11", TRUE);
   g_setenv("GDK_TOUCH", "1", TRUE);
   g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);
+  g_printerr("Sena Linux input backend preference: %s\\n", g_getenv("GDK_BACKEND"));
 """
 main_text = patch_once(
     main_text,
@@ -66,13 +67,13 @@ static gboolean sena_touch_event_probe(GtkWidget* widget,
     GdkEventTouch* touch = reinterpret_cast<GdkEventTouch*>(event);
     const gchar* widget_name = gtk_widget_get_name(widget);
     GdkDisplay* display = gdk_display_get_default();
-    g_message("Sena Linux touch event: %s x=%.1f y=%.1f widget=%s backend=%s",
-              sena_touch_event_name(type), touch->x, touch->y,
-              widget_name != nullptr ? widget_name : "unknown",
-              display != nullptr ? gdk_display_get_name(display) : "unknown");
+    g_printerr("Sena Linux touch event: %s x=%.1f y=%.1f widget=%s backend=%s\n",
+               sena_touch_event_name(type), touch->x, touch->y,
+               widget_name != nullptr ? widget_name : "unknown",
+               display != nullptr ? gdk_display_get_name(display) : "unknown");
     logged_events++;
     if (logged_events == 32) {
-      g_message("Sena Linux touch event logging suppressed after 32 events");
+      g_printerr("Sena Linux touch event logging suppressed after 32 events\n");
     }
   }
   return FALSE;
@@ -116,7 +117,11 @@ if call_marker not in app_text:
         raise RuntimeError(f"Anchor not found: {anchor.strip()}")
     app_text = app_text.replace(
         anchor,
-        anchor + "  sena_enable_touch_events(GTK_WIDGET(window));\n",
+        anchor
+        + "  sena_enable_touch_events(GTK_WIDGET(window));\n"
+        + "  GdkDisplay* sena_display = gdk_display_get_default();\n"
+        + "  g_printerr(\"Sena Linux GTK display: %s\\n\",\n"
+        + "             sena_display != nullptr ? gdk_display_get_name(sena_display) : \"unknown\");\n",
         1,
     )
 
