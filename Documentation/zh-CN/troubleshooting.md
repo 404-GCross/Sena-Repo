@@ -155,6 +155,28 @@ sudo apt-get install -y libfuse2 libgtk-3-0 libayatana-appindicator3-1 libegl1 l
 apt-file search <文件名>      # 或: dnf provides <文件名> (Fedora)
 ```
 
+### Linux 触摸屏无响应
+
+Linux AppImage 会在 runner 层启用触控兼容，并优先使用 `GDK_BACKEND=wayland,x11`。如果触摸无响应，先从终端启动应用收集日志：
+
+```bash
+./Sena-Repo_Linux_v0.1.4-x86_64.AppImage 2>&1 | tee sena-touch.log
+```
+
+重点查看以下日志：
+
+```text
+Sena Linux input backend preference: wayland,x11
+Sena Linux GTK display: wayland-0
+Sena Linux touch event: begin ...
+```
+
+判断方法：
+
+- 有 `Sena Linux touch event`：系统和 GTK 已收到触摸，应用会把单指触摸桥接为鼠标左键点击/拖动
+- 没有 `Sena Linux touch event`：桌面环境、Gamescope 或启动方式可能没有把触摸事件送进 GTK
+- 看不到任何 `Sena Linux ...` 日志：确认是否从终端启动了新版 AppImage，Steam/游戏模式可能会吞掉 stderr
+
 ### 保存扫描设置失败(500)
 
 

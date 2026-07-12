@@ -58,7 +58,23 @@ flutter run
 
 > 使用前需在 Fork 仓库的 Settings → Actions → General → Workflow permissions 中勾选 "Read and write permissions"，否则 Release 创建会失败。
 
+### Linux runner 生成补丁
 
+`client/linux` 不提交到仓库，Linux 平台文件由 CI 中的 `flutter create .` 生成。生成后会执行：
+
+```bash
+python3 ../.github/scripts/patch_linux_runner_touch.py
+```
+
+该脚本负责 Wayland/Gamescope/Bazzite 触控兼容和诊断日志。修改 Linux 触控行为时，请改这个脚本并确认三个 workflow 都仍然调用它。
+
+触控问题排查时可从终端启动 AppImage：
+
+```bash
+./Sena-Repo_Linux_v0.1.4-x86_64.AppImage 2>&1 | tee sena-touch.log
+```
+
+日志中出现 `Sena Linux touch event` 表示 GTK 已收到触摸事件。
 
 ## 代码风格
 

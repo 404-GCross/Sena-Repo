@@ -215,6 +215,23 @@ Steam 补丁 (SteamPatchScreen)
 | Android | 存储权限（MANAGE_EXTERNAL_STORAGE）；7z ELF 通过 linker64 执行；通知权限；APK 直装 |
 | Linux | AppImage 打包；7zz 独立二进制；触摸屏环境变量 |
 
+### Linux runner 触控补丁
+
+仓库不提交 `client/linux` 目录。GitHub Actions 在 Linux 构建阶段执行 `flutter create .` 生成 runner，然后调用：
+
+```bash
+python3 ../.github/scripts/patch_linux_runner_touch.py
+```
+
+该脚本会修改生成后的 `linux/runner/main.cc` 和 `linux/runner/my_application.cc`：
+
+- 强制优先 `GDK_BACKEND=wayland,x11`
+- 输出 Linux 输入诊断日志到 stderr
+- 递归启用 GTK touch/button/motion 事件
+- 将单指 touch begin/update/end 桥接为鼠标左键 press/motion/release
+
+如果需要调整 Linux 触控兼容逻辑，应优先修改 `.github/scripts/patch_linux_runner_touch.py`，不要手动维护生成目录。
+
 ## CI/CD
 
 三个 GitHub Actions 工作流（`.github/workflows/`）：
