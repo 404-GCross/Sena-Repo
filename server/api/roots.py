@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -21,6 +22,7 @@ from services.importer import import_from_root
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/roots", tags=["roots"])
+_scan_lock = asyncio.Lock()
 
 
 class RootCreate(BaseModel):
@@ -61,6 +63,14 @@ async def add_root(
     session.add(root)
     await session.commit()
     await session.refresh(root)
+    config = load_config()
+    try:
+        from api.settings import _load_scan_settings
+        _load_scan_settings(config)
+        if getattr(config, "_auto_scan", False):
+            _bg_scan(config, [root.id], update_last=True)
+    except Exception:
+        logger.exception("Failed to start auto-scan for new root")
     return root
 
 
@@ -83,19 +93,15 @@ async def delete_root(
     return MessageResponse(message="Root directory removed")
 
 
-def _bg_scan(config, root_ids: list[int]):
+def _bg_scan(config, root_ids: list[int], update_last: bool = False):
     """Background scan: runs in its own async task with independent session."""
     async def _run():
-        import database
-        async with database._session_factory() as session:
-            for rid in root_ids:
-                try:
-                    await import_from_root(rid, config, session)
-                except Exception as e:
-                    import logging
-                    logging.getLogger("sena-repo").error(f"Background scan root {rid} failed: {e}")
-            asyncio.create_task(_auto_scrape(config, "metadata"))
-            asyncio.create_task(_auto_scrape(config, "missing"))
+        try:
+            result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
+            if result.get("skipped"):
+                logger.info("Background scan skipped: scan already running")
+        except Exception:
+            logger.exception("Background scan failed")
     asyncio.create_task(_run())
 
 
@@ -108,7 +114,7 @@ async def refresh_all_roots(
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
     config = load_config()
-    _bg_scan(config, [r.id for r in roots])
+    _bg_scan(config, [r.id for r in roots], update_last=True)
     return {"message": "扫描已在后台启动", "roots": len(roots)}
 
 
@@ -127,25 +133,40 @@ async def refresh_root(
         raise HTTPException(status_code=404, detail="Root directory not found")
 
     config = load_config()
-    _bg_scan(config, [root_id])
+    _bg_scan(config, [root_id], update_last=True)
     return {"message": "扫描已在后台启动", "root_id": root_id}
 
 
-async def _run_scan(config):
+async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool = False):
     """Internal helper for auto-scan. Runs refresh-all without HTTP."""
+    if _scan_lock.locked():
+        return {"skipped": True, "reason": "scan already running"}
     import database
     from sqlalchemy import select
+    from api.settings import _mark_auto_scan
     total_games = 0
-    async with database._session_factory() as session:
-        result = await session.execute(select(RootDirectory))
-        roots = result.scalars().all()
-        for root in roots:
-            stats = await import_from_root(root.id, config, session)
-            total_games += stats.get("total_games", 0)
-    # Auto-scrape games without metadata after scan
-    asyncio.create_task(_auto_scrape(config, "metadata"))
-    asyncio.create_task(_auto_scrape(config, "missing"))
-    return {"total_games": total_games, "roots_scanned": len(roots)}
+    async with _scan_lock:
+        async with database._session_factory() as session:
+            query = select(RootDirectory)
+            if root_ids is not None:
+                query = query.where(RootDirectory.id.in_(root_ids))
+            result = await session.execute(query)
+            roots = result.scalars().all()
+            for root in roots:
+                try:
+                    stats = await import_from_root(root.id, config, session)
+                    total_games += stats.get("total_games", 0)
+                except Exception:
+                    logger.exception("Scan root %s failed", root.id)
+        if update_last:
+            try:
+                _mark_auto_scan(config, time.time())
+            except Exception:
+                logger.exception("Failed to persist last auto-scan time")
+        # Auto-scrape games without metadata after scan
+        asyncio.create_task(_auto_scrape(config, "metadata"))
+        asyncio.create_task(_auto_scrape(config, "missing"))
+        return {"total_games": total_games, "roots_scanned": len(roots)}
 
 
 async def _auto_scrape(config, mode: str = "missing"):

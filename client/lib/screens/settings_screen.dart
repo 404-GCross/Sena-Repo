@@ -201,7 +201,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
 
   static const _sourceLabels = {
     "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
-    "steam": "Steam", "dlsite": "DLsite", "ymgal": "月幕GalGame",
+    "steam": "Steam", "ymgal": "月幕GalGame",
   };
   static const _modeLabels = {
     "missing": "仅填充缺失", "overwrite": "全部覆盖",
@@ -304,7 +304,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   // Scraper sources
-  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "ymgal": true};
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "ymgal": true};
   final _keys = {"vndb_token": TextEditingController(), "proxy": TextEditingController()};
 
   @override
@@ -670,7 +670,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
         _srcCard("Steam", "steam", "免认证"),
         _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
-        _srcCard("DLsite", "dlsite", "免认证，建议配日本代理"),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(14),
