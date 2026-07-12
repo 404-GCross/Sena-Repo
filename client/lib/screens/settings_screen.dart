@@ -13,6 +13,7 @@ import "../providers/theme_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
+import "../services/profile_service.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
 import "profile_edit_screen.dart";
@@ -49,7 +50,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadIsAdmin() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() => _isAdmin = prefs.getBool("is_admin") ?? false);
+    var isAdmin = prefs.getBool("is_admin") ?? false;
+    try {
+      final resp = await http.get(
+        Uri.parse("${_api.baseUrl}/api/auth/profile/me"),
+        headers: _api.headers,
+      ).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final username = data["username"]?.toString();
+        isAdmin = data["is_admin"] == true;
+        await ApiClient.persistSessionInfo(username: username, isAdmin: isAdmin);
+        final ps = ProfileService();
+        final profiles = await ps.loadProfiles();
+        final index = await ps.getActiveIndex();
+        if (index >= 0 && index < profiles.length) {
+          profiles[index].username = username ?? profiles[index].username;
+          profiles[index].isAdmin = isAdmin;
+          await ps.saveProfiles(profiles);
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isAdmin = isAdmin);
   }
 
   @override

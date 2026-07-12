@@ -79,6 +79,17 @@ class ApiClient {
     }
   }
 
+  static Future<void> persistSessionInfo({
+    String? accessToken,
+    String? username,
+    bool? isAdmin,
+  }) async {
+    if (accessToken != null && accessToken.isNotEmpty) {
+      _accessToken = accessToken;
+    }
+    await _persistTokens(accessToken: accessToken, username: username, isAdmin: isAdmin);
+  }
+
   static Future<void> clearTokens() async {
     _accessToken = null;
     _cachedUsername = null;
@@ -191,10 +202,25 @@ class ApiClient {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         _accessToken = data["token"]?.toString();
         if (_accessToken != null && _accessToken!.isNotEmpty) {
+          var username = data["username"]?.toString();
+          var isAdmin = data["is_admin"] == true;
+          try {
+            final meResp = await _client.get(
+              Uri.parse("$baseUrl/api/auth/profile/me"),
+              headers: {"Authorization": "Bearer $_accessToken"},
+            ).timeout(const Duration(seconds: 5));
+            if (meResp.statusCode == 200) {
+              final me = jsonDecode(meResp.body) as Map<String, dynamic>;
+              username = me["username"]?.toString() ?? username;
+              isAdmin = me["is_admin"] == true;
+              data["username"] = username;
+              data["is_admin"] = isAdmin;
+            }
+          } catch (_) {}
           await _persistTokens(
             accessToken: _accessToken,
-            username: data["username"]?.toString(),
-            isAdmin: data["is_admin"] == true,
+            username: username,
+            isAdmin: isAdmin,
           );
         }
         return data;

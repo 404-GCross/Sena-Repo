@@ -45,6 +45,26 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   ApiClient get _api => context.read<GameProvider>().api;
   String get _baseUrl => _api.baseUrl;
 
+  Future<bool> _refreshIsAdmin() async {
+    final prefs = await SharedPreferences.getInstance();
+    var isAdmin = prefs.getBool("is_admin") ?? false;
+    try {
+      final resp = await http.get(
+        Uri.parse("$_baseUrl/api/auth/profile/me"),
+        headers: _api.headers,
+      ).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        isAdmin = data["is_admin"] == true;
+        await ApiClient.persistSessionInfo(
+          username: data["username"]?.toString(),
+          isAdmin: isAdmin,
+        );
+      }
+    } catch (_) {}
+    return isAdmin;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -104,8 +124,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         actions: [
           IconButton(icon: const Icon(Icons.edit), tooltip: "编辑",
             onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              final isAdmin = prefs.getBool("is_admin") ?? false;
+              final isAdmin = await _refreshIsAdmin();
               if (!isAdmin) {
                 if (mounted) _showDialog(context, "权限不足", "仅限管理员可操作");
                 return;

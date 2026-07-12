@@ -91,6 +91,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
             headers: {"Authorization": "Bearer $effectiveToken"},
           ).timeout(const Duration(seconds: 5));
           if (resp.statusCode == 200) {
+            await _syncProfileFromMeResponse(profile, idx, resp.body);
             final settings = context.read<SettingsProvider>();
             final games = context.read<GameProvider>();
             final connected = await settings.connect(profile.host, profile.port, useHttps: profile.useHttps);
@@ -162,6 +163,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
       await ProfileService().applyProfile(profile);
       await ApiClient.restoreToken();
       await ProfileService().setActiveIndex(index);
+      final meResp = await http.get(
+        Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me"),
+        headers: {"Authorization": "Bearer ${profile.authToken}"},
+      ).timeout(const Duration(seconds: 5));
+      if (meResp.statusCode == 401) {
+        await _showReAuthDialog(profile, index, games);
+        return;
+      }
+      if (meResp.statusCode != 200) {
+        if (mounted) setState(() => _error = "连接失败: 服务器返回 ${meResp.statusCode}");
+        return;
+      }
+      await _syncProfileFromMeResponse(profile, index, meResp.body);
 
       // Proactively refresh token now so the user doesn't hit a stale 401
       // while editing metadata 15+ minutes later.
@@ -187,6 +201,34 @@ class _ConnectScreenState extends State<ConnectScreen> {
         content: Text(msg, maxLines: 3, overflow: TextOverflow.ellipsis),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
       ),
+    );
+  }
+
+  Future<void> _syncProfileFromMeResponse(UserProfile profile, int index, String body) async {
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    profile.username = data["username"]?.toString() ?? profile.username;
+    profile.isAdmin = data["is_admin"] == true;
+
+    final ps = ProfileService();
+    final profiles = await ps.loadProfiles();
+    var saveIndex = index;
+    if (saveIndex < 0 || saveIndex >= profiles.length) {
+      saveIndex = profiles.indexWhere((p) =>
+          p.host == profile.host &&
+          p.port == profile.port &&
+          p.useHttps == profile.useHttps &&
+          p.authToken == profile.authToken);
+    }
+    if (saveIndex >= 0 && saveIndex < profiles.length) {
+      profiles[saveIndex] = profile;
+      await ps.saveProfiles(profiles);
+      await ps.setActiveIndex(saveIndex);
+    }
+    await ps.applyProfile(profile);
+    await ApiClient.persistSessionInfo(
+      accessToken: profile.authToken,
+      username: profile.username,
+      isAdmin: profile.isAdmin,
     );
   }
 
