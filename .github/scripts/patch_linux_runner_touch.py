@@ -53,6 +53,83 @@ static const char* sena_touch_event_name(GdkEventType type) {
   }
 }
 
+static void sena_dispatch_touch_as_mouse(GtkWidget* widget, GdkEvent* event) {
+  if (!GTK_IS_EVENT_BOX(widget)) {
+    return;
+  }
+
+  static GdkEventSequence* active_sequence = nullptr;
+  GdkEventType type = gdk_event_get_event_type(event);
+  GdkEventTouch* touch = reinterpret_cast<GdkEventTouch*>(event);
+  GdkEventSequence* sequence = gdk_event_get_event_sequence(event);
+
+  if (type == GDK_TOUCH_BEGIN) {
+    if (active_sequence != nullptr) {
+      return;
+    }
+    active_sequence = sequence;
+  } else if (sequence != active_sequence) {
+    return;
+  }
+
+  GdkEventType mouse_type = GDK_NOTHING;
+  if (type == GDK_TOUCH_BEGIN) {
+    mouse_type = GDK_BUTTON_PRESS;
+  } else if (type == GDK_TOUCH_UPDATE) {
+    mouse_type = GDK_MOTION_NOTIFY;
+  } else if (type == GDK_TOUCH_END || type == GDK_TOUCH_CANCEL) {
+    mouse_type = GDK_BUTTON_RELEASE;
+  } else {
+    return;
+  }
+
+  GdkEvent* mouse_event = gdk_event_new(mouse_type);
+  GdkDevice* pointer = nullptr;
+  GdkDisplay* display = gdk_display_get_default();
+  if (display != nullptr) {
+    GdkSeat* seat = gdk_display_get_default_seat(display);
+    if (seat != nullptr) {
+      pointer = gdk_seat_get_pointer(seat);
+    }
+  }
+  if (pointer != nullptr) {
+    gdk_event_set_device(mouse_event, pointer);
+    gdk_event_set_source_device(mouse_event, pointer);
+  }
+
+  if (mouse_type == GDK_MOTION_NOTIFY) {
+    mouse_event->motion.window =
+        touch->window != nullptr ? GDK_WINDOW(g_object_ref(touch->window)) : nullptr;
+    mouse_event->motion.send_event = TRUE;
+    mouse_event->motion.time = touch->time;
+    mouse_event->motion.x = touch->x;
+    mouse_event->motion.y = touch->y;
+    mouse_event->motion.x_root = touch->x_root;
+    mouse_event->motion.y_root = touch->y_root;
+    mouse_event->motion.state =
+        static_cast<GdkModifierType>(touch->state | GDK_BUTTON1_MASK);
+    mouse_event->motion.is_hint = FALSE;
+  } else {
+    mouse_event->button.window =
+        touch->window != nullptr ? GDK_WINDOW(g_object_ref(touch->window)) : nullptr;
+    mouse_event->button.send_event = TRUE;
+    mouse_event->button.time = touch->time;
+    mouse_event->button.x = touch->x;
+    mouse_event->button.y = touch->y;
+    mouse_event->button.x_root = touch->x_root;
+    mouse_event->button.y_root = touch->y_root;
+    mouse_event->button.state = touch->state;
+    mouse_event->button.button = 1;
+  }
+
+  gtk_widget_event(widget, mouse_event);
+  gdk_event_free(mouse_event);
+
+  if (type == GDK_TOUCH_END || type == GDK_TOUCH_CANCEL) {
+    active_sequence = nullptr;
+  }
+}
+
 static gboolean sena_touch_event_probe(GtkWidget* widget,
                                        GdkEvent* event,
                                        gpointer user_data) {
@@ -76,6 +153,8 @@ static gboolean sena_touch_event_probe(GtkWidget* widget,
       g_printerr("Sena Linux touch event logging suppressed after 32 events\n");
     }
   }
+
+  sena_dispatch_touch_as_mouse(widget, event);
   return FALSE;
 }
 
