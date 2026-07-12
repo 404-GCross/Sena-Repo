@@ -1,5 +1,7 @@
 /// Manages client settings: server connection, preferences.
 
+import "dart:io" show Platform;
+
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -12,19 +14,31 @@ class SettingsProvider extends ChangeNotifier {
   bool _useHttps = false;
   bool _isLoading = false;
   String? _errorMessage;
+  double _coverSize = Platform.isAndroid ? 160.0 : 200.0;
 
   String get serverHost => _serverHost;
   int get serverPort => _serverPort;
   bool get useHttps => _useHttps;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  double get coverSize => _coverSize;
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _serverHost = prefs.getString("server_host") ?? "";
     _serverPort = prefs.getInt("server_port") ?? 11451;
     _useHttps = prefs.getBool("use_https") ?? false;
+    _coverSize = (prefs.getDouble("cover_size") ?? _coverSize).clamp(100.0, 300.0).toDouble();
     notifyListeners();
+  }
+
+  Future<void> setCoverSize(double value) async {
+    final next = value.clamp(100.0, 300.0).toDouble();
+    if (_coverSize == next) return;
+    _coverSize = next;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble("cover_size", next);
   }
 
   Future<bool> connect(String host, int port, {bool useHttps = false}) async {
