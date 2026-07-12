@@ -9,6 +9,7 @@ import "dart:io" show Platform;
 
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
+import "../services/download_service.dart";
 import "../services/notification_service.dart";
 
 class SetupWizardScreen extends StatefulWidget {
@@ -124,7 +125,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         await prefs.setString("steam_user_id", _steamIdCtrl.text.trim());
       }
       if (_localDirCtrl.text.trim().isNotEmpty) {
-        await prefs.setString("local_download_dir", _localDirCtrl.text.trim());
+        await DownloadService().setDownloadDir(_localDirCtrl.text.trim());
       }
       // Scan runs in background on server — no need to wait
       // Request Android notification permission

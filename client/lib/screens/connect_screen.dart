@@ -13,6 +13,7 @@ import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
+import "../services/download_service.dart";
 import "../services/profile_service.dart";
 import "../services/notification_service.dart";
 import "home_screen.dart";
@@ -920,7 +921,7 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择游戏下载目录");
     if (result != null) {
       setState(() => _downloadDir = result);
-      (await SharedPreferences.getInstance()).setString("local_download_dir", result);
+      await DownloadService().setDownloadDir(result);
     }
   }
 

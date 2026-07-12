@@ -594,7 +594,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择游戏下载目录");
         if (result == null || !mounted) return;
         dlDir = result;
-        await prefs.setString("local_download_dir", result);
+        await DownloadService().setDownloadDir(result);
       }
     }
 
