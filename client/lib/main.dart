@@ -4,6 +4,7 @@
 
 import "dart:async";
 import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Process, SecurityContext, ServerSocket, Socket, X509Certificate, exit;
+import "dart:ui" show PointerDeviceKind;
 import "services/api_client.dart" show trustedServerHost;
 
 import "package:flutter/material.dart";
@@ -212,6 +213,19 @@ class SenaRepoApp extends StatefulWidget {
   State<SenaRepoApp> createState() => _SenaRepoAppState();
 }
 
+class _DesktopTouchScrollBehavior extends MaterialScrollBehavior {
+  const _DesktopTouchScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.stylus,
+        PointerDeviceKind.invertedStylus,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.mouse,
+      };
+}
+
 class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
   @override
   void initState() {
@@ -259,6 +273,7 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
         builder: (context, theme, _) => MaterialApp(
           title: "Sena Repo",
           debugShowCheckedModeBanner: false,
+          scrollBehavior: const _DesktopTouchScrollBehavior(),
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: theme.accentColor,

@@ -91,20 +91,29 @@ User ──→ Notification          Game ──→ GameVersion
 
 ### 刮削架构
 
+**单游戏刮削（编辑页）— 客户端直连：**
+
 ```
-客户端请求刮削 → orchestrator.py 分发
-    ├── vndb_kana.py  → api.vndb.org/kana/vn
-    ├── bangumi.py    → api.bgm.tv
-    ├── steam.py      → Steam 商店搜索
-    ├── dlsite.py     → dlsite.com
-    └── ymgal.py      → ymgal.games
-            ↓
-    ScraperResult (统一数据结构)
-            ↓
-    写入 Game 模型字段
+客户端 scrape_service.dart → 直连外部 API
+    ├── VNDB   → api.vndb.org/kana/vn
+    ├── Bangumi → api.bgm.tv
+    ├── Steam  → store.steampowered.com
+    ├── DLsite → dlsite.com
+    └── 月幕   → api.ymgal.games
 ```
 
-所有刮削器继承 `BaseScraper`，共享重试/限速/代理逻辑。刮削结果统一为 `ScraperResult` dataclass。
+**批量刮削（游戏库多选）— 服务端处理：**
+
+```
+客户端 POST /api/scrape/batch → orchestrator.py 分发
+    ├── vndb_kana.py → api.vndb.org/kana/vn
+    ├── bangumi.py   → api.bgm.tv
+    ├── steam.py     → Steam 商店搜索
+    ├── dlsite.py    → dlsite.com
+    └── ymgal.py     → ymgal.games
+```
+
+单游戏刮削走客户端直连减少一次 HTTP 往返，元数据填充到编辑表单后由用户手动保存。批量刮削走服务端后台任务，支持全量 / 缺失填充 / 覆盖模式。
 
 ### Steam 补丁
 

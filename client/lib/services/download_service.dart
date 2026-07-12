@@ -17,7 +17,7 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "package:permission_handler/permission_handler.dart";
-import "api_client.dart" show globalToken;
+import "api_client.dart" show ApiClient, globalToken;
 import "notification_service.dart";
 
 // ────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<void> _restoreTasks() async {
     try {
+      await ApiClient.restoreToken();
       final prefs = await SharedPreferences.getInstance();
       final data = prefs.getStringList("saved_tasks") ?? [];
       for (final json in data) {
@@ -835,6 +836,7 @@ class DownloadService with WidgetsBindingObserver {
     t._client = client;
     IOSink? sink;
     try {
+      // Token refresh removed — using simple static token
       final req = http.Request("GET", Uri.parse(t.downloadUrl));
       // Add auth header for server authentication
       if (globalToken != null && globalToken!.isNotEmpty) {
@@ -1142,6 +1144,10 @@ class DownloadService with WidgetsBindingObserver {
       await File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}").delete();
     } catch (_) {}
   }
+
+  /// Try to refresh the access token before starting a download,
+  /// using the refresh_token from ApiClient and extracting the server
+  /// base URL from the download URL itself.
 
   void _emit() {
     _controller.add(List.unmodifiable(_tasks));

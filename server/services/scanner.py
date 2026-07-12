@@ -46,7 +46,11 @@ async def get_ignore_paths(session: AsyncSession) -> set[str]:
     return {row[0] for row in result.fetchall()}
 
 
-def scan_root(root_path: str, ignore_paths: set[str] | None = None) -> ScanResult:
+def scan_root(
+    root_path: str,
+    ignore_paths: set[str] | None = None,
+    structure: str = "company_game",
+) -> ScanResult:
     """Walk a root directory and discover the 3-level structure.
 
     Level 1 → Company folders
@@ -56,6 +60,7 @@ def scan_root(root_path: str, ignore_paths: set[str] | None = None) -> ScanResul
     Args:
         root_path: Absolute path to the root directory.
         ignore_paths: Set of paths to skip (from ignore list).
+        structure: Directory layout. One of company_game, game_only, flat.
 
     Returns:
         ScanResult with the discovered structure.
@@ -67,6 +72,69 @@ def scan_root(root_path: str, ignore_paths: set[str] | None = None) -> ScanResul
     root = Path(root_path)
 
     if not root.is_dir():
+        return result
+
+    if structure == "game_only":
+        company = CompanyFolder(name=root.name, path=str(root))
+
+        for entry in sorted(root.iterdir()):
+            entry_path = str(entry)
+            if entry_path in ignore_paths:
+                continue
+
+            if entry.is_file() and is_archive(entry.name):
+                game = GameFolder(name=entry.stem, path=entry_path)
+                game.archives.append(
+                    ArchiveFile(
+                        filename=entry.name,
+                        filepath=entry_path,
+                        file_size=entry.stat().st_size,
+                    )
+                )
+                company.games.append(game)
+                continue
+
+            if not entry.is_dir():
+                continue
+
+            game = GameFolder(name=entry.name, path=entry_path)
+            for file_entry in sorted(entry.rglob("*")):
+                file_path = str(file_entry)
+                if file_path in ignore_paths:
+                    continue
+                if file_entry.is_file() and is_archive(file_entry.name):
+                    game.archives.append(
+                        ArchiveFile(
+                            filename=file_entry.name,
+                            filepath=file_path,
+                            file_size=file_entry.stat().st_size,
+                        )
+                    )
+            if game.archives:
+                company.games.append(game)
+
+        if company.games:
+            result.companies.append(company)
+        return result
+
+    if structure == "flat":
+        company = CompanyFolder(name=root.name, path=str(root))
+        for file_entry in sorted(root.rglob("*")):
+            file_path = str(file_entry)
+            if file_path in ignore_paths:
+                continue
+            if file_entry.is_file() and is_archive(file_entry.name):
+                game = GameFolder(name=file_entry.stem, path=file_path)
+                game.archives.append(
+                    ArchiveFile(
+                        filename=file_entry.name,
+                        filepath=file_path,
+                        file_size=file_entry.stat().st_size,
+                    )
+                )
+                company.games.append(game)
+        if company.games:
+            result.companies.append(company)
         return result
 
     # Level 1: Company folders

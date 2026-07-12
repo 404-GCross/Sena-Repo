@@ -23,7 +23,7 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(get_cur
     """Upload an image file. Returns the filename for use in cover/bg URLs."""
     ext = Path(file.filename or "image.jpg").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=403, detail="File type not allowed")
+        raise HTTPException(status_code=400, detail="File type not allowed")
 
     config = load_config()
     name = f"{uuid.uuid4().hex}{ext}"
@@ -45,7 +45,7 @@ async def serve_cover(filename: str):
     name = Path(filename).name
     ext = Path(name).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=403, detail="File type not allowed")
+        raise HTTPException(status_code=400, detail="File type not allowed")
 
     config = load_config()
     file_path = config.covers_path / name
@@ -66,7 +66,7 @@ async def serve_background(filename: str):
     name = Path(filename).name
     ext = Path(name).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=403, detail="File type not allowed")
+        raise HTTPException(status_code=400, detail="File type not allowed")
 
     config = load_config()
     file_path = config.backgrounds_path / name
@@ -87,7 +87,7 @@ async def serve_avatar(filename: str):
     name = Path(filename).name
     ext = Path(name).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=403, detail="File type not allowed")
+        raise HTTPException(status_code=400, detail="File type not allowed")
 
     config = load_config()
     avatars_dir = Path(config.data_path) / "avatars"

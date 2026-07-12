@@ -12,6 +12,7 @@ import "package:http/http.dart" as http;
 import "../models/game.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
+import "../services/scrape_service.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -26,6 +27,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb, _steam, _bgm, _notes, _bgUrl;
   bool _saving = false;
   String? _coverPath;
+  String? _pendingCoverUrl; // deferred cover download until save
   int _coverVersion = 0;
   int _bgVersion = 0;
 
@@ -54,6 +56,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _showLoadingDialog();
     try {
       final g = widget.game;
+      // Upload pending cover from scrape before saving
+      if (_pendingCoverUrl != null && _pendingCoverUrl!.isNotEmpty) {
+        try {
+          final resp = await http.post(
+            Uri.parse("$_baseUrl/api/games/${g.id}/cover?cover_url=${Uri.encodeComponent(_pendingCoverUrl!)}"),
+            headers: _authHeaders);
+          if (resp.statusCode == 200) {
+            final data = jsonDecode(resp.body) as Map<String, dynamic>;
+            final newPath = data["cover_path"];
+            if (newPath != null) _coverPath = newPath.toString();
+          }
+        } catch (_) {}
+        _pendingCoverUrl = null;
+      }
       final body = {"name": _name.text.trim(), "developer": _dev.text.trim(),
         "description": _desc.text.trim(), "release_date": _date.text.trim(),
         "bg_path": _bgUrl.text.trim(),
@@ -69,9 +85,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
       if (mounted) Navigator.pop(context); // close loading dialog
       if (popOnSave && mounted) Navigator.pop(context, true);
-    } catch (e) { _showError("$e"); }
-    if (mounted) Navigator.pop(context); // close loading dialog on error too
-    setState(() { _saving = false; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
+    } catch (e) {
+      _showError("$e");
+      if (mounted) Navigator.pop(context); // close loading dialog
+    }
+    if (mounted) setState(() { _saving = false; _coverVersion = DateTime.now().millisecondsSinceEpoch; });
   }
 
   void _showLoadingDialog() {
@@ -527,11 +545,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: hasCover
-                          ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                              key: ValueKey("cover_$_coverVersion"),
+                      child: _pendingCoverUrl != null && _pendingCoverUrl!.isNotEmpty
+                          ? Image.network(_pendingCoverUrl!,
+                              key: ValueKey("pending_${_pendingCoverUrl!.hashCode}"),
                               fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
-                          : _coverPlaceholder()),
+                          : hasCover
+                              ? Image.network("$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
+                                  key: ValueKey("cover_$_coverVersion"),
+                                  fit: BoxFit.cover, errorBuilder: (_, __, ___) => _coverPlaceholder())
+                              : _coverPlaceholder()),
                   ),
                   const SizedBox(height: 8),
                   TextButton.icon(
@@ -861,9 +883,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 onSubmitted: (v) async {
                   setD(() { searching = true; results = []; error = ""; });
                   try {
-                    final r = await http.get(Uri.parse(
-                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(v)}&source=$src"), headers: await _authHeaders);
-                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                    results = await ScrapeService.search(src, v);
                   } catch (e) { error = "$e"; }
                   setD(() => searching = false);
                 })),
@@ -872,9 +892,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 onPressed: () async {
                   setD(() { searching = true; results = []; error = ""; });
                   try {
-                    final r = await http.get(Uri.parse(
-                        "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(ctrl.text)}&source=$src"), headers: await _authHeaders);
-                    results = ((jsonDecode(r.body) as Map)["results"] as List).cast<Map<String, dynamic>>();
+                    results = await ScrapeService.search(src, ctrl.text);
                   } catch (e) { error = "$e"; }
                   setD(() => searching = false);
                 }),
@@ -1312,28 +1330,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sf[src]!.text = r["source_id"].toString();
       }
     });
-    // Download cover then auto-save
-    bool coverChanged = false;
+    // Defer cover download to save — only upload when user commits
     if (apply["封面"] == true && coverUrl.isNotEmpty) {
-      try {
-        final resp = await http.post(Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover?cover_url=${Uri.encodeComponent(coverUrl)}"), headers: _authHeaders);
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          final newPath = data["cover_path"];
-          if (newPath != null) {
-            _coverPath = newPath.toString();
-            coverChanged = true;
-          }
-        }
-      } catch (_) {}
-      await _reloadGame();
-      if (!coverChanged) coverChanged = true; // server may have updated path
+      _pendingCoverUrl = coverUrl;
     }
-    if (coverChanged) {
-      _coverVersion = DateTime.now().millisecondsSinceEpoch;
-      if (mounted) setState(() {});
-    }
-    await _save(popOnSave: false);
+    if (mounted) setState(() {});
+    // Don't auto-save — user may want to edit further before committing
   }
 
   @override

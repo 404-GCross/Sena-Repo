@@ -41,7 +41,8 @@ async def import_from_root(
     ignore_paths = await get_ignore_paths(session)
 
     # Scan the filesystem in a thread pool so slow/remote storage doesn't block the event loop
-    scan_result = await asyncio.to_thread(scan_root, root.path, ignore_paths)
+    scan_structure = getattr(config, "_scan_structure", "company_game")
+    scan_result = await asyncio.to_thread(scan_root, root.path, ignore_paths, scan_structure)
 
     stats = {"new_games": 0, "updated_games": 0, "new_versions": 0, "total": 0}
 

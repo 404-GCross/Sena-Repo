@@ -10,7 +10,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
-import "../services/profile_service.dart";
+import "../services/api_client.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
@@ -33,6 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _userId = 0;
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
   int _lastLoadTime = 0;
+  int _lastVersionLoadTime = 0;
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
@@ -47,20 +48,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadServerVersion();
   }
 
-  Future<void> refresh() async => _loadUserInfo();
+  Future<void> refresh() async {
+    await _loadUserInfo();
+    _loadServerVersion();
+  }
 
   void _maybeRefresh() {
-    // Reload if >10s since last load and user ID is known
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastLoadTime > 10000 && _userId > 0) {
       _loadUserInfo();
     }
+    if (now - _lastVersionLoadTime > 30000) {
+      _loadServerVersion();
+    }
   }
 
-  void _switchProfile() {
-    Navigator.push(context,
-        MaterialPageRoute(builder: (_) => const ProfileSwitchScreen()));
-  }
 
   Future<void> _loadServerVersion() async {
     try {
@@ -69,6 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         if (mounted) setState(() => _serverVersion = data["version"] ?? "");
+        _lastVersionLoadTime = DateTime.now().millisecondsSinceEpoch;
       }
     } catch (_) {}
   }
@@ -92,6 +95,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         if (mounted) setState(() {
+          _userId = data["id"] ?? 0;
           _avatarPath = data["avatar_path"];
           _avatarVersion = DateTime.now().millisecondsSinceEpoch;
           _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
@@ -179,31 +183,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ]),
         const SizedBox(height: 32),
 
-        // ── Switch user + Logout ──
+        const SizedBox(height: 32),
+
+        // Logout
         Center(
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              icon: const Icon(Icons.swap_horiz, size: 18),
-              label: const Text("切换用户"),
-              onPressed: _switchProfile,
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red,
-                side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text("退出登录"),
-              onPressed: _logout,
-            ),
-          ]),
+            icon: const Icon(Icons.logout, size: 18),
+            label: const Text("退出登录"),
+            onPressed: _logout,
+          ),
         ),
         const SizedBox(height: 32),
       ],
@@ -309,12 +303,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (confirmed == true && context.mounted) {
+      await ApiClient.clearTokens();
       final prefs = await SharedPreferences.getInstance();
+      await prefs.remove("active_profile_index");
       await prefs.remove("auth_token");
-      await prefs.remove("username");
-      await prefs.remove("is_admin");
       if (context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),
           (_) => false,
         );

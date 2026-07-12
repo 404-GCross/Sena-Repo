@@ -596,7 +596,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
                   DropdownMenuItem(value: "flat", child: Text("扁平")),
                 ],
-                onChanged: (v) => setState(() => _structure = v!),
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() => _structure = v);
+                  _saveScanSettings();
+                },
               ),
             ),
             _divider(),
@@ -624,8 +628,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     ),
                     onChanged: (v) {
                       final n = int.tryParse(v);
-                      if (n != null && n > 0) { setState(() => _interval = n); _saveScanSettings(); }
+                      if (n != null && n > 0) setState(() => _interval = n);
                     },
+                    onSubmitted: (_) => _saveScanSettings(),
+                    onEditingComplete: _saveScanSettings,
                   ),
                 ),
               ),

@@ -245,13 +245,7 @@ jobs:
           flutter create . --project-name sena_repo --org senarepo
           # Remove template Android files that conflict with custom ones under com/github/senarepo
           rm -rf android/app/src/main/kotlin/senarepo
-          # Enable touch events for Flutter Linux
-          for f in linux/runner/my_application.cc linux/my_application.cc; do
-            if [ -f "$f" ]; then
-              sed -i '/gtk_init/i\  g_setenv("GTK_TEST_TOUCHSCREEN", "1", TRUE);' "$f" || true
-              sed -i '/gtk_init/i\  g_setenv("GDK_TOUCH", "1", TRUE);' "$f" || true
-            fi
-          done
+          python3 ../.github/scripts/patch_linux_runner_touch.py
 
       - name: Install dependencies
         run: flutter pub get

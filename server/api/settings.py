@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,8 +27,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class ScanSettings(BaseModel):
     auto_scan: bool = False
-    scan_interval: int = 24  # hours
-    scan_structure: str = "company_game"
+    scan_interval: int = Field(default=24, ge=1)  # hours
+    scan_structure: Literal["company_game", "game_only", "flat"] = "company_game"
 
 
 class ScanSettingsOut(BaseModel):
@@ -47,8 +48,9 @@ def _load_scan_settings(config):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             config._auto_scan = data.get("auto_scan", False)
-            config._scan_interval = data.get("scan_interval", 24)
-            config._scan_structure = data.get("scan_structure", "company_game")
+            config._scan_interval = max(1, int(data.get("scan_interval", 24)))
+            structure = data.get("scan_structure", "company_game")
+            config._scan_structure = structure if structure in {"company_game", "game_only", "flat"} else "company_game"
         except Exception:
             pass
 
