@@ -406,7 +406,7 @@ jobs:
           fi
           printf '\n## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' >> release_notes_auto.md
 
-          printf '%s\n\n' '> [!CAUTION]' '>**Pre-Release test build. It may contain serious bugs and is intended for testers only.**' > release_notes.md
+          printf '%s\n\n' '> [!CAUTION]' '>**Pre-Release 测试版本，可能存在未知bug，仅限测试人员使用**' > release_notes.md
           case "$MODE" in
             custom)
               if [ ! -s custom_notes.md ]; then
