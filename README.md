@@ -9,15 +9,17 @@
 ![License](https://img.shields.io/github/license/404-GCross/Sena-Repo)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20Linux-blue)
 
+
+
+</div>
+
+---
+## 简介
 **Sena Repo** 是一款面向多平台的视觉小说私有库管理器，适合管理部署在远程服务器（如 NAS）上的游戏，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
 
 服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据<br>客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
 
 Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的站点
-
-</div>
-
----
 
 ## 主要功能
 

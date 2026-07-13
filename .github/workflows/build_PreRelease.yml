@@ -414,7 +414,7 @@ jobs:
 ' >> release_notes_auto.md
           printf '%s
 
-          printf '%s\n\n' '> ⚠️ **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用。**' > release_notes.md
+          printf '%s\n\n' '> [!CAUTION] \n **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用。**' > release_notes.md
           case "$MODE" in
             custom)
               if [ -z "$CUSTOM_NOTES" ]; then
