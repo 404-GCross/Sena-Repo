@@ -350,6 +350,7 @@ jobs:
 
   # Publish Release
   publish:
+    if: github.event_name == 'workflow_dispatch'
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
     permissions:
