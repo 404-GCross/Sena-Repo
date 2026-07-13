@@ -393,7 +393,7 @@ jobs:
           PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..HEAD"
-            printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
+            printf '##Ch anges (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
           else
             RANGE="HEAD"
             printf '## Changes (%s)\n\n' "$TAG" > release_notes_auto.md
@@ -406,7 +406,7 @@ jobs:
           fi
           printf '\n## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' >> release_notes_auto.md
 
-          printf '%s\n\n' '> [!CAUTION]' '>' '>**Pre-Release 测试版本，可能存在未知bug，仅限测试人员使用**' > release_notes.md
+          printf '%s\n\n' '> [!CAUTION]\n>\n>**Pre-Release 测试版本，可能存在未知bug，仅限测试人员使用**' > release_notes.md
           case "$MODE" in
             custom)
               if [ ! -s custom_notes.md ]; then
