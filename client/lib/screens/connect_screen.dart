@@ -154,6 +154,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
       }
 
       games.connect(profile.host, profile.port, useHttps: profile.useHttps);
+      final setupApi = ApiClient();
+      await setupApi.connect(profile.host, port: profile.port, useHttps: profile.useHttps);
+      if (await setupApi.checkSetupNeeded()) {
+        await _handleResetServerSetup(profile, index, games, setupApi);
+        return;
+      }
+
       if (profile.authToken.isEmpty) {
         await _showReAuthDialog(profile, index, games);
         return;
@@ -168,6 +175,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
         headers: {"Authorization": "Bearer ${profile.authToken}"},
       ).timeout(const Duration(seconds: 5));
       if (meResp.statusCode == 401) {
+        if (await setupApi.checkSetupNeeded()) {
+          await _handleResetServerSetup(profile, index, games, setupApi);
+          return;
+        }
         await _showReAuthDialog(profile, index, games);
         return;
       }
@@ -193,6 +204,99 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (mounted) _showToast("连接失败: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}");
     }
   }
+
+  Future<void> _handleResetServerSetup(
+    UserProfile profile,
+    int index,
+    GameProvider games,
+    ApiClient api,
+  ) async {
+    if (!mounted) return;
+    final creds = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
+    );
+    if (!mounted) return;
+    if (creds == null) {
+      const msg = "服务器需要初始化，请完成初始设置";
+      _showToast(msg);
+      setState(() => _error = msg);
+      return;
+    }
+
+    try {
+      final username = creds["username"]?.toString() ?? "";
+      final password = creds["password"]?.toString() ?? "";
+      final loginResult = await api.login(username, password);
+      final token = api.accessToken ?? "";
+      if (token.isEmpty) {
+        const msg = "初始化完成，但自动登录失败，请重新选择配置登录";
+        _showToast(msg);
+        setState(() => _error = msg);
+        return;
+      }
+
+      final profiles = await ProfileService().loadProfiles();
+      var targetIndex = index >= 0 && index < profiles.length ? index : -1;
+      if (targetIndex < 0) {
+        targetIndex = profiles.indexWhere((p) =>
+            p.host == profile.host &&
+            p.port == profile.port &&
+            p.useHttps == profile.useHttps);
+      }
+
+      final loggedInUsername = loginResult == null
+          ? username
+          : loginResult["username"]?.toString() ?? username;
+      final loggedInIsAdmin =
+          loginResult != null && loginResult["is_admin"] == true;
+      final updated = UserProfile(
+        name: profile.name.isNotEmpty ? profile.name : username,
+        host: profile.host,
+        port: profile.port,
+        authToken: token,
+        username: loggedInUsername,
+        isAdmin: loggedInIsAdmin,
+        useHttps: profile.useHttps,
+      );
+
+      if (targetIndex >= 0) {
+        profiles[targetIndex] = updated;
+      } else {
+        profiles.add(updated);
+        targetIndex = profiles.length - 1;
+      }
+
+      await ProfileService().saveProfiles(profiles);
+      await ProfileService().setActiveIndex(targetIndex);
+      await ProfileService().applyProfile(updated);
+      await ApiClient.restoreToken();
+      games.connect(updated.host, updated.port, useHttps: updated.useHttps);
+      setState(() {
+        _profiles = profiles;
+        _activeIndex = targetIndex;
+        _error = null;
+      });
+
+      try {
+        await games.loadGames();
+        if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      } catch (e) {
+        if (!mounted) return;
+        final text = e.toString();
+        final msg = "初始化成功，但加载游戏库失败: ${text.length > 80 ? text.substring(0, 80) : text}";
+        _showToast(msg);
+        setState(() => _error = msg);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final text = e.toString();
+      final msg = "初始化后登录失败: ${text.length > 80 ? text.substring(0, 80) : text}";
+      _showToast(msg);
+      setState(() => _error = msg);
+    }
+  }
+
   void _showToast(String msg) {
     if (!mounted) return;
     showDialog(
