@@ -333,7 +333,7 @@ jobs:
           name: Sena-Repo_Server_arm64
           path: Sena-Repo_Server_arm64_*.tar.gz
 
-  # ── Publish Release ──────────────────────────────
+  # Publish Release
   publish:
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
@@ -341,17 +341,56 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve version
+        id: version
+        working-directory: .
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        working-directory: .
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-list -n 1 "$TAG")
+            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $TAG already exists at $TAG_SHA, but this run is $GITHUB_SHA. Use a new version or move/delete the old tag."
+              exit 1
+            fi
+          fi
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Generate release notes
+        working-directory: .
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="$PREV_TAG..HEAD"
+            printf '## 更新内容（%s → %s）\n\n' "$PREV_TAG" "$TAG" > release_notes.md
+          else
+            RANGE="HEAD"
+            printf '## 更新内容（%s）\n\n' "$TAG" > release_notes.md
+          fi
+          NOTES=$(git log --no-merges --format='- %s (%h)' $RANGE)
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" >> release_notes.md
+          else
+            printf '%s\n' '- 本次发布主要更新构建产物。' >> release_notes.md
+          fi
+          printf '\n## 构建产物\n- Android APK\n- Windows 安装包与便携版\n- Linux AppImage\n- Server Docker 镜像与离线镜像包\n' >> release_notes.md
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}
-          name: v${{ inputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           prerelease: false
-          generate_release_notes: true
+          body_path: release_notes.md
           files: dist/**/*
           make_latest: true
         env:
