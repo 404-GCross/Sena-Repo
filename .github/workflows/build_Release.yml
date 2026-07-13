@@ -350,6 +350,7 @@ jobs:
 
   # Publish Release
   publish:
+    if: github.event_name == 'workflow_dispatch'
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
     permissions:
@@ -372,7 +373,7 @@ jobs:
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             TAG_SHA=$(git rev-list -n 1 "$TAG")
             if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
-                echo "::error::请先填写自定义发布说明，或将模式改为拼接/自动生成。"
+              echo "::error::Tag $TAG already exists at $TAG_SHA, but this run is $GITHUB_SHA. Use a new version or move/delete the old tag."
               exit 1
             fi
           fi
@@ -384,55 +385,46 @@ jobs:
         working-directory: .
         run: |
           MODE="${{ inputs.notes_mode }}"
-          CUSTOM_NOTES="${{ inputs.custom_notes }}"
           TAG="v${{ steps.version.outputs.version }}"
+          cat > custom_notes.md <<'CUSTOM_NOTES_EOF'
+          ${{ inputs.custom_notes }}
+          CUSTOM_NOTES_EOF
+          sed -i 's/^          //' custom_notes.md
+
           PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..HEAD"
-            printf '## 更新内容（%s → %s）
-
-' "$PREV_TAG" "$TAG"
+            printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
           else
             RANGE="HEAD"
-            printf '## 更新内容（%s）
-
-' "$TAG"
-          fi > release_notes_auto.md
+            printf '## Changes (%s)\n\n' "$TAG" > release_notes_auto.md
+          fi
           NOTES=$(git log --no-merges --format='- %s (%h)' $RANGE)
           if [ -n "$NOTES" ]; then
-            printf '%s
-' "$NOTES" >> release_notes_auto.md
+            printf '%s\n' "$NOTES" >> release_notes_auto.md
           else
-            printf '%s
-' '- 本次发布主要更新构建产物。' >> release_notes_auto.md
+            printf '%s\n' '- Build artifacts updated.' >> release_notes_auto.md
           fi
-          printf '
-## 构建产物
-- Android APK
-- Windows 安装包与便携版
-- Linux AppImage
-- Server Docker 镜像与离线镜像包
-' >> release_notes_auto.md
+          printf '\n## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' >> release_notes_auto.md
+
           case "$MODE" in
             custom)
-              if [ -z "$CUSTOM_NOTES" ]; then
-                echo "::error::请先填写自定义发布说明，或将模式改为拼接/自动生成。"
+              if [ ! -s custom_notes.md ]; then
+                echo "::error::custom_notes is required when notes_mode is custom."
                 exit 1
               fi
-              printf '%s
-' "$CUSTOM_NOTES" > release_notes.md
+              cp custom_notes.md release_notes.md
               ;;
             auto)
-              cat release_notes_auto.md > release_notes.md
+              cp release_notes_auto.md release_notes.md
               ;;
             both|*)
-              if [ -n "$CUSTOM_NOTES" ]; then
-                printf '%s
-
-' "$CUSTOM_NOTES" > release_notes.md
+              if [ -s custom_notes.md ]; then
+                cat custom_notes.md > release_notes.md
+                printf '\n' >> release_notes.md
                 cat release_notes_auto.md >> release_notes.md
               else
-                cat release_notes_auto.md > release_notes.md
+                cp release_notes_auto.md release_notes.md
               fi
               ;;
           esac
