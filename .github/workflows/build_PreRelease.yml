@@ -4,10 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (留空则从 pubspec.yaml 读取)'
+        description: '版本号（留空则从 pubspec.yaml 读取）'
         required: false
         default: ''
         type: string
+      notes_mode:
+        description: '发布说明模式'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - custom
+          - auto
+      custom_notes:
+        description: '自定义发布说明（可选）'
+        required: false
+        default: ''
+        type: string
+
 
 permissions:
   contents: write
@@ -356,7 +371,7 @@ jobs:
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             TAG_SHA=$(git rev-list -n 1 "$TAG")
             if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
-              echo "::error::Tag $TAG already exists at $TAG_SHA, but this run is $GITHUB_SHA. Use a new version or move/delete the old tag."
+                echo "::error::请先填写自定义发布说明，或将模式改为拼接/自动生成。"
               exit 1
             fi
           fi
@@ -367,23 +382,60 @@ jobs:
       - name: Generate pre-release notes
         working-directory: .
         run: |
+          MODE="${{ inputs.notes_mode }}"
+          CUSTOM_NOTES="${{ inputs.custom_notes }}"
           TAG="v${{ steps.version.outputs.version }}"
           PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
-          printf '%s\n\n' '> ⚠️ **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用。**' > release_notes.md
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..HEAD"
-            printf '## 更新内容（%s → %s）\n\n' "$PREV_TAG" "$TAG" >> release_notes.md
+            printf '## 更新内容（%s → %s）
+
+' "$PREV_TAG" "$TAG"
           else
             RANGE="HEAD"
-            printf '## 更新内容（%s）\n\n' "$TAG" >> release_notes.md
-          fi
+            printf '## 更新内容（%s）
+
+' "$TAG"
+          fi > release_notes_auto.md
           NOTES=$(git log --no-merges --format='- %s (%h)' $RANGE)
           if [ -n "$NOTES" ]; then
-            printf '%s\n' "$NOTES" >> release_notes.md
+            printf '%s
+' "$NOTES" >> release_notes_auto.md
           else
-            printf '%s\n' '- 本次发布主要更新构建产物。' >> release_notes.md
+            printf '%s
+' '- 本次发布主要更新构建产物。' >> release_notes_auto.md
           fi
-          printf '\n## 构建产物\n- Android APK\n- Windows 安装包与便携版\n- Linux AppImage\n- Server Docker 镜像与离线镜像包\n' >> release_notes.md
+          printf '
+## 构建产物
+- Android APK
+- Windows 安装包与便携版
+- Linux AppImage
+- Server Docker 镜像与离线镜像包
+' >> release_notes_auto.md
+          printf '%s
+
+          printf '%s\n\n' '> ⚠️ **Pre-Release 测试版本，可能含有大量 Bug，仅供测试人员使用。**' > release_notes.md
+          case "$MODE" in
+            custom)
+              if [ -z "$CUSTOM_NOTES" ]; then
+                echo "::error::请先填写自定义发布说明，或将模式改为拼接/自动生成。"
+                exit 1
+              fi
+              printf '%s
+' "$CUSTOM_NOTES" >> release_notes.md
+              ;;
+            auto)
+              cat release_notes_auto.md >> release_notes.md
+              ;;
+            both|*)
+              if [ -n "$CUSTOM_NOTES" ]; then
+                printf '%s
+
+' "$CUSTOM_NOTES" >> release_notes.md
+              fi
+              cat release_notes_auto.md >> release_notes.md
+              ;;
+          esac
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v2
         with:
