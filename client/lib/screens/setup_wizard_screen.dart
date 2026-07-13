@@ -2,15 +2,11 @@
 
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
-import "package:file_picker/file_picker.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
-import "dart:io" show Platform;
 
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
-import "../services/download_service.dart";
-import "../services/notification_service.dart";
 
 class SetupWizardScreen extends StatefulWidget {
   final ApiClient api;
@@ -32,17 +28,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   // Step 2: Game dirs
   final _dirCtrls = <TextEditingController>[TextEditingController(text: "/games")];
-  final _localDirCtrl = TextEditingController();
   String _structure = "company_game";
   bool _autoScan = false;
   int _scanInterval = 24;
-  bool _notifGranted = false;
-  bool _notifAsked = false;
 
-  // Step 3: Steam
+  // Step 3: Server-side Steam / patch paths
   final _patchDirCtrl = TextEditingController(text: "/steam_patch");
-  final _steamCommonCtrl = TextEditingController();
-  final _steamIdCtrl = TextEditingController();
+  final _serverSteamDirCtrl = TextEditingController();
 
   // Step 4: Scrapers
   final _proxyCtrl = TextEditingController();
@@ -51,15 +43,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useSteam = true;
   bool _useYmgal = true;
   final _vndbCtrl = TextEditingController();
-
-  Future<void> _requestNotification() async {
-    final granted = await NotificationService().requestPermission();
-    if (!mounted) return;
-    setState(() {
-      _notifAsked = true;
-      _notifGranted = granted;
-    });
-  }
 
   void _next() {
     // Validate password match on step 0
@@ -87,7 +70,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "admin_username": _userCtrl.text.trim(),
           "admin_password": _passCtrl.text,
           "game_dirs": dirs,
-          "steam_dir": _steamCommonCtrl.text.trim(),
+          "steam_dir": _serverSteamDirCtrl.text.trim(),
           "patch_dir": _patchDirCtrl.text.trim(),
         }),
       );
@@ -115,22 +98,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           body: jsonEncode({"auto_scan": _autoScan, "scan_interval": _scanInterval, "scan_structure": _structure}),
         );
       } catch (_) {}
-      // Persist Steam common dir and local download dir
-      if (_steamCommonCtrl.text.trim().isNotEmpty) {
-        await prefs.setString("steamapps_dir", _steamCommonCtrl.text.trim());
-      }
-      if (_steamIdCtrl.text.trim().isNotEmpty) {
-        await prefs.setString("steam_user_id", _steamIdCtrl.text.trim());
-      }
-      if (_localDirCtrl.text.trim().isNotEmpty) {
-        await DownloadService().setDownloadDir(_localDirCtrl.text.trim());
-      }
       // Scan runs in background on server — no need to wait
-      // Request Android notification permission
-      if (Platform.isAndroid) {
-        await NotificationService().init();
-        await NotificationService().requestPermission();
-      }
       if (mounted) Navigator.pop(context, {
         "username": _userCtrl.text.trim(),
         "password": _passCtrl.text,
@@ -152,7 +120,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     }
   }
 
-  static const _titles = ["创建管理员", "添加游戏库", "Steam 补丁", "刮削源"];
+  static const _titles = ["创建管理员", "服务端游戏库", "服务端补丁", "刮削源"];
 
   @override
   Widget build(BuildContext context) {
@@ -248,14 +216,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     ),
   ];
 
-  Future<void> _pickLocalDir() async {
-    final dir = await FilePicker.platform.getDirectoryPath();
-    if (dir != null) _localDirCtrl.text = dir;
-  }
-
   List<Widget> _buildStep2() => [
     const Text("服务端扫描目录", style: TextStyle(fontWeight: FontWeight.bold)),
-    Text("每行一个路径，服务端将扫描这些目录下的游戏",
+    Text("每行一个服务端路径，服务端将扫描这些目录下的游戏",
       style: AppText.label.copyWith( color: hintColor(context))),
     const SizedBox(height: 8),
     ..._dirCtrls.asMap().entries.map((e) => Padding(
@@ -275,74 +238,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         IconButton.filled(icon: const Icon(Icons.add, size: 20), onPressed: _addDir),
       ]),
     )),
-    const SizedBox(height: 16),
-    const Text("本机下载目录", style: TextStyle(fontWeight: FontWeight.bold)),
-    Text("客户端下载游戏保存的位置", style: AppText.label.copyWith( color: hintColor(context))),
-    const SizedBox(height: 8),
-    Row(children: [
-      Expanded(child: TextField(controller: _localDirCtrl, decoration: const InputDecoration(hintText: "选择本机目录...", isDense: true))),
-      const SizedBox(width: 4),
-      IconButton.filled(icon: const Icon(Icons.folder_open, size: 20), onPressed: _pickLocalDir),
-    ]),
-    const SizedBox(height: 20),
-    // ── Notification permission (Android only) ──
-    if (Platform.isAndroid)
-    Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cardBg(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cardBorder(context)),
-      ),
-      child: Row(children: [
-        Container(
-          width: 40, height: 40,
-          decoration: BoxDecoration(
-            color: _notifGranted
-                ? Colors.green.withValues(alpha: 0.12)
-                : Colors.orange.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(
-            _notifGranted ? Icons.notifications_active : Icons.notifications_off,
-            size: 20,
-            color: _notifGranted ? Colors.green[300] : Colors.orange[300],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("通知权限", style: AppText.body.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text(
-              _notifGranted
-                  ? "已授权 — 后台下载通知正常"
-                  : "用于显示下载进度和完成提醒",
-              style: AppText.bodySmall.copyWith(color: hintColor(context)),
-            ),
-          ]),
-        ),
-        const SizedBox(width: 8),
-        _notifGranted
-            ? Icon(Icons.check_circle, size: 20, color: Colors.green[300])
-            : Material(
-                color: Theme.of(context).colorScheme.primary,
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: _notifAsked ? null : _requestNotification,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    child: Text(
-                      _notifAsked ? "已拒绝" : "开启",
-                      style: AppText.bodySmall.copyWith(
-                        color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-              ),
-      ]),
-    ),
     const SizedBox(height: 16),
     const Text("目录结构", style: TextStyle(fontWeight: FontWeight.bold)),
     Text("游戏文件的组织方式", style: AppText.label.copyWith( color: hintColor(context))),
@@ -392,46 +287,23 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     ],
   ];
 
-  Future<void> _pickSteamDir() async {
-    final result = await FilePicker.platform.getDirectoryPath();
-    if (result != null) {
-      _steamCommonCtrl.text = result;
-    }
-  }
-
   List<Widget> _buildStep3() => [
     TextField(
       controller: _patchDirCtrl,
       decoration: const InputDecoration(labelText: "服务端补丁存放目录", hintText: "/data/steam_patches", prefixIcon: Icon(Icons.dns)),
     ),
-    if (!Platform.isAndroid) ...[
-      const SizedBox(height: 12),
-      TextField(
-        controller: _steamCommonCtrl,
-        decoration: InputDecoration(
-          labelText: "本机 Steam 库目录",
-          hintText: "C:/Steam/steamapps",
-          prefixIcon: const Icon(Icons.computer),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.folder_open),
-            onPressed: _pickSteamDir,
-            tooltip: "选择文件夹",
-          ),
-        ),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _serverSteamDirCtrl,
+      decoration: const InputDecoration(
+        labelText: "服务端 Steam 库目录（可选）",
+        hintText: "/data/Steam/steamapps",
+        prefixIcon: Icon(Icons.storage),
       ),
-      const SizedBox(height: 8),
-      Text("PC 端专属，可稍后在设置中配置", style: AppText.label.copyWith( color: hintColor(context))),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _steamIdCtrl,
-        decoration: const InputDecoration(
-          labelText: "Steam 用户 ID（可选）",
-          hintText: "Steam好友代码，一串纯数字",
-          prefixIcon: Icon(Icons.person),
-        ),
-        keyboardType: TextInputType.number,
-      ),
-    ],
+    ),
+    const SizedBox(height: 8),
+    Text("这里填写的是服务端机器上的路径，不是当前客户端本机路径",
+        style: AppText.label.copyWith( color: hintColor(context))),
   ];
 
   Widget _buildScraperRow(String label, bool enabled, bool needsApi, VoidCallback onToggle, {Widget? apiFields}) {
