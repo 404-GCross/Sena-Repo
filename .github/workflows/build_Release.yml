@@ -1,4 +1,4 @@
-name: 编译并发布 Release
+name: Release Publisher
 
 on:
   workflow_dispatch:
