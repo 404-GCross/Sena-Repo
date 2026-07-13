@@ -282,8 +282,9 @@ class DownloadService with WidgetsBindingObserver {
     void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
     final dir = await downloadDir;
+    final safeAppId = appId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), "_");
     final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
-    final tmpPath = "${dir}${Platform.pathSeparator}.patch_${appId}$ext";
+    final tmpPath = "${dir}${Platform.pathSeparator}.patch_$safeAppId$ext";
     final tmp = File(tmpPath);
     // Track injection state for cross-instance cancellation
     final task = DownloadTask(
@@ -321,7 +322,11 @@ class DownloadService with WidgetsBindingObserver {
       // Resolve target directory
       String destDir = installDir;
       if (targetDir != null && targetDir.isNotEmpty) {
-        destDir = "$installDir${Platform.pathSeparator}$targetDir";
+        try {
+          destDir = _resolveSafeRelativePath(installDir, targetDir);
+        } catch (e) {
+          return ("补丁目标目录非法: $targetDir", null);
+        }
       }
       await Directory(destDir).create(recursive: true);
 
@@ -340,7 +345,7 @@ class DownloadService with WidgetsBindingObserver {
         }
         LoggerService().info("patch extract done: $destDir");
       } else {
-        final tmpExtract = "${dir}${Platform.pathSeparator}.patch_ext_${appId}_${DateTime.now().millisecondsSinceEpoch}";
+        final tmpExtract = "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
         LoggerService().info("patch extract: $exe x -y -o$tmpExtract ${tmp.path}");
         await Directory(tmpExtract).create(recursive: true);
         await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
@@ -354,7 +359,13 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir");
         String sourceDir = tmpExtract;
         if (patchDir != null && patchDir.isNotEmpty) {
-          final pd = "$tmpExtract${Platform.pathSeparator}$patchDir";
+          String pd;
+          try {
+            pd = _resolveSafeRelativePath(tmpExtract, patchDir);
+          } catch (e) {
+            try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
+            return ("补丁源目录非法: $patchDir", null);
+          }
           LoggerService().info("patch resolve: looking for $pd");
           if (await Directory(pd).exists()) {
             sourceDir = pd;
@@ -1047,6 +1058,7 @@ class DownloadService with WidgetsBindingObserver {
         await Directory(dest).create(recursive: true);
       } else if (child is File) {
         try {
+          await Directory(File(dest).parent.path).create(recursive: true);
           await child.copy(dest);
           LoggerService().info("patch copy: $rel -> $dest");
         } catch (e) {
@@ -1055,6 +1067,38 @@ class DownloadService with WidgetsBindingObserver {
         }
       }
     }
+  }
+
+  String _resolveSafeRelativePath(String base, String relative) {
+    final normalizedRelative = relative.replaceAll("\\", "/").trim();
+    if (normalizedRelative.isEmpty) return Directory(base).absolute.path;
+    if (normalizedRelative.contains("\u0000")) throw ArgumentError("NUL byte");
+    if (RegExp(r'^[A-Za-z]:').hasMatch(normalizedRelative) ||
+        normalizedRelative.startsWith("/") ||
+        normalizedRelative.startsWith("//")) {
+      throw ArgumentError("absolute path");
+    }
+
+    final parts = normalizedRelative
+        .split("/")
+        .where((p) => p.isNotEmpty && p != ".")
+        .toList();
+    if (parts.any((p) => p == "..")) throw ArgumentError("parent path");
+
+    var current = Directory(base).absolute.path;
+    for (final part in parts) {
+      current = "$current${Platform.pathSeparator}$part";
+    }
+
+    final baseResolved = Directory(base).absolute.uri.normalizePath().toFilePath();
+    final targetResolved = Directory(current).absolute.uri.normalizePath().toFilePath();
+    final baseWithSep = baseResolved.endsWith(Platform.pathSeparator)
+        ? baseResolved
+        : "$baseResolved${Platform.pathSeparator}";
+    if (targetResolved != baseResolved && !targetResolved.startsWith(baseWithSep)) {
+      throw ArgumentError("path escapes base");
+    }
+    return targetResolved;
   }
 
   Future<void> _runTool(String exe, List<String> args,

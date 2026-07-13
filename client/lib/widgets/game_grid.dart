@@ -1,12 +1,11 @@
 /// Grid view for game library — poster-style cards with hover effects.
 
-import "dart:io" show Platform;
-
 import "package:flutter/material.dart";
 import "package:cached_network_image/cached_network_image.dart";
-import "package:shared_preferences/shared_preferences.dart";
+import "package:provider/provider.dart";
 
 import "../models/game.dart";
+import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 
 class GameGrid extends StatefulWidget {
@@ -34,27 +33,14 @@ class GameGrid extends StatefulWidget {
 }
 
 class _GameGridState extends State<GameGrid> {
-  double _coverSize = 200;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCoverSize();
-  }
-
-  Future<void> _loadCoverSize() async {
-    final prefs = await SharedPreferences.getInstance();
-    final v = prefs.getDouble("cover_size") ?? (Platform.isAndroid ? 160.0 : 200.0);
-    if (mounted) setState(() => _coverSize = v);
-  }
-
   @override
   Widget build(BuildContext context) {
+    final coverSize = context.watch<SettingsProvider>().coverSize;
     return GridView.builder(
       controller: widget.controller,
       padding: const EdgeInsets.all(AppGap.sm),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: _coverSize,
+        maxCrossAxisExtent: coverSize,
         childAspectRatio: 0.7,
         crossAxisSpacing: AppGap.md,
         mainAxisSpacing: AppGap.md,

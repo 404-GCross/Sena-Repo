@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,15 +24,16 @@ async def _auto_scan_task(config, logger):
                 continue
             # Check if enough time has passed since last scan
             last = getattr(config, "_last_auto_scan", 0)
-            now = asyncio.get_event_loop().time()
+            now = time.time()
             interval_seconds = getattr(config, "_scan_interval", 24) * 3600
             if now - last < interval_seconds:
                 continue
             logger.info("Auto-scan triggered")
             # Run scan via the internal function
             from api.roots import _run_scan
-            await _run_scan(config)
-            config._last_auto_scan = now
+            result = await _run_scan(config, update_last=True)
+            if result.get("skipped"):
+                logger.info("Auto-scan skipped: scan already running")
         except Exception as e:
             logger.error(f"Auto-scan error: {e}")
 

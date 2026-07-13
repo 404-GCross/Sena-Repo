@@ -9,13 +9,6 @@ on:
   pull_request:
     branches: [main, master, dev]
   workflow_dispatch:
-    inputs:
-      version:
-        description: '版本号 (留空则从 pubspec.yaml 读取)'
-        required: false
-        default: ''
-        type: string
-
 defaults:
   run:
     working-directory: client
@@ -30,8 +23,7 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
@@ -97,8 +89,7 @@ jobs:
       - name: Resolve version
         shell: pwsh
         run: |
-          $V = "${{ inputs.version }}"
-          if (-not $V) { $V = ((Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace 'version: *','').Trim() }
+          $V = "test"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: subosito/flutter-action@v2
@@ -216,8 +207,7 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - uses: subosito/flutter-action@v2
@@ -332,8 +322,7 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - name: Set up QEMU

@@ -9,6 +9,7 @@ import "dart:io" show Platform;
 
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
+import "../services/download_service.dart";
 import "../services/notification_service.dart";
 
 class SetupWizardScreen extends StatefulWidget {
@@ -48,7 +49,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useBangumi = true;
   bool _useVndbKana = true;
   bool _useSteam = true;
-  bool _useDlsite = true;
   bool _useYmgal = true;
   final _vndbCtrl = TextEditingController();
 
@@ -103,7 +103,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       await prefs.setBool("scrape_src_vndb_kana", _useVndbKana);
       await prefs.setBool("scrape_src_bangumi", _useBangumi);
       await prefs.setBool("scrape_src_steam", _useSteam);
-      await prefs.setBool("scrape_src_dlsite", _useDlsite);
       await prefs.setBool("scrape_src_ymgal", _useYmgal);
       await prefs.setString("scan_structure", _structure);
       await prefs.setBool("auto_scan", _autoScan);
@@ -124,7 +123,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         await prefs.setString("steam_user_id", _steamIdCtrl.text.trim());
       }
       if (_localDirCtrl.text.trim().isNotEmpty) {
-        await prefs.setString("local_download_dir", _localDirCtrl.text.trim());
+        await DownloadService().setDownloadDir(_localDirCtrl.text.trim());
       }
       // Scan runs in background on server — no need to wait
       // Request Android notification permission
@@ -460,8 +459,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         () => setState(() => _useBangumi = !_useBangumi)),
     _buildScraperRow("Steam（免认证）", _useSteam, false,
         () => setState(() => _useSteam = !_useSteam)),
-    _buildScraperRow("DLsite（免认证）", _useDlsite, false,
-        () => setState(() => _useDlsite = !_useDlsite)),
     _buildScraperRow("月幕GalGame（免认证）", _useYmgal, false,
         () => setState(() => _useYmgal = !_useYmgal)),
     const SizedBox(height: 16),

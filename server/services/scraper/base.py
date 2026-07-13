@@ -156,9 +156,3 @@ def clean_title(title: str) -> str:
     t = re.sub(r"[-_ ]?(汉化|中文|官方中文|完全版|DL版|体験版|体験版Ver[\d.]+).*$", "", t)
     t = re.sub(r"[-_ ]?[（(][^)）]*[)）]$", "", t)
     return t.strip()
-
-
-def extract_dlsite_workno(name: str) -> str | None:
-    """Extract DLsite work number (RJ/VJ/BJ/RE + 6-8 digits)."""
-    m = re.search(r"((?:RJ|VJ|BJ|RE)\d{6,8})", name, re.IGNORECASE)
-    return m.group(1) if m else None

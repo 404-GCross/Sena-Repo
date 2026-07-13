@@ -21,8 +21,6 @@ class ScrapeService {
         return _searchBangumi(query, proxy);
       case "steam":
         return _searchSteam(query, proxy);
-      case "dlsite":
-        return _searchDlsite(query, proxy);
       case "ymgal":
         return _searchYmgal(query, proxy);
       default:
@@ -236,43 +234,6 @@ class ScrapeService {
       "source_id": appid,
     }];
   }
-
-  // ── DLsite ──
-
-  static Future<List<Map<String, dynamic>>> _searchDlsite(
-      String query, String? proxy) async {
-    final uri = Uri.parse(
-        "https://www.dlsite.com/maniax/fsr/=/keyword/${Uri.encodeComponent(query)}"
-        "/order/release_d/from/fs.header/options/AND/");
-    try {
-      final resp = await http.get(uri,
-          headers: {"User-Agent": "Sena-Repo/1.0", "Accept": "text/html"});
-      if (resp.statusCode != 200) return [];
-      final html = resp.body;
-      // Extract work data from embedded JSON
-      final re = RegExp(r'data-per-page="1" data-work="(\{[^}]+\})');
-      final matches = re.allMatches(html);
-      final results = <Map<String, dynamic>>[];
-      for (final m in matches.take(5)) {
-        try {
-          final j = jsonDecode(m.group(1)!);
-          results.add({
-            "title": j["work_name"] ?? "",
-            "developer": j["maker_name"] ?? "",
-            "release_date": "",
-            "description": "",
-            "cover_url": "https:${j["image"] ?? ""}",
-            "screenshots": <String>[],
-            "source_id": j["id"] ?? "",
-          });
-        } catch (_) {}
-      }
-      return results;
-    } catch (_) {
-      return [];
-    }
-  }
-
   // ── Ymgal (月幕) ──
 
   static Future<List<Map<String, dynamic>>> _searchYmgal(

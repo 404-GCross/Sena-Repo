@@ -414,7 +414,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _batchScrape() async {
     final result = await showDialog<Map<String, dynamic>>(context: context, builder: (ctx) {
-      const allSrc = ["vndb_kana", "bangumi", "steam", "dlsite", "ymgal"];
+      const allSrc = ["vndb_kana", "bangumi", "steam", "ymgal"];
       final sel = Set<String>.from(allSrc);
       String mode = "missing";
       return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
@@ -465,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _srcLabel(String s) => switch (s) {
     "vndb_kana" => "VNDB Kana v2", "bangumi" => "Bangumi", "steam" => "Steam",
-    "dlsite" => "DLsite", "ymgal" => "月幕 GalGame", _ => s,
+    "ymgal" => "月幕 GalGame", _ => s,
   };
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {

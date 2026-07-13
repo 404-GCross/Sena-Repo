@@ -35,6 +35,7 @@ class ScanSettingsOut(BaseModel):
     auto_scan: bool
     scan_interval: int
     scan_structure: str
+    last_auto_scan: float = 0
 
 
 def _scan_settings_path(config) -> Path:
@@ -51,6 +52,7 @@ def _load_scan_settings(config):
             config._scan_interval = max(1, int(data.get("scan_interval", 24)))
             structure = data.get("scan_structure", "company_game")
             config._scan_structure = structure if structure in {"company_game", "game_only", "flat"} else "company_game"
+            config._last_auto_scan = float(data.get("last_auto_scan", 0) or 0)
         except Exception:
             pass
 
@@ -63,7 +65,13 @@ def _save_scan_settings(config):
         "auto_scan": getattr(config, "_auto_scan", False),
         "scan_interval": getattr(config, "_scan_interval", 24),
         "scan_structure": getattr(config, "_scan_structure", "company_game"),
+        "last_auto_scan": getattr(config, "_last_auto_scan", 0),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _mark_auto_scan(config, timestamp: float):
+    config._last_auto_scan = timestamp
+    _save_scan_settings(config)
 
 
 @router.get("/scan", response_model=ScanSettingsOut)
@@ -74,6 +82,7 @@ async def get_scan_settings(user: User = Depends(get_current_user)):
         auto_scan=getattr(config, "_auto_scan", False),
         scan_interval=getattr(config, "_scan_interval", 24),
         scan_structure=getattr(config, "_scan_structure", "company_game"),
+        last_auto_scan=getattr(config, "_last_auto_scan", 0),
     )
 
 

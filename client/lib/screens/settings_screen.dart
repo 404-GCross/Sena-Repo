@@ -8,10 +8,12 @@ import "dart:convert";
 import "dart:io" show Platform;
 
 import "../providers/game_provider.dart";
+import "../providers/settings_provider.dart";
 import "../providers/theme_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
+import "../services/profile_service.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
 import "profile_edit_screen.dart";
@@ -48,7 +50,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadIsAdmin() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() => _isAdmin = prefs.getBool("is_admin") ?? false);
+    var isAdmin = prefs.getBool("is_admin") ?? false;
+    try {
+      final resp = await http.get(
+        Uri.parse("${_api.baseUrl}/api/auth/profile/me"),
+        headers: _api.headers,
+      ).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final username = data["username"]?.toString();
+        isAdmin = data["is_admin"] == true;
+        await ApiClient.persistSessionInfo(username: username, isAdmin: isAdmin);
+        final ps = ProfileService();
+        final profiles = await ps.loadProfiles();
+        final index = await ps.getActiveIndex();
+        if (index >= 0 && index < profiles.length) {
+          profiles[index].username = username ?? profiles[index].username;
+          profiles[index].isAdmin = isAdmin;
+          await ps.saveProfiles(profiles);
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isAdmin = isAdmin);
   }
 
   @override
@@ -178,7 +201,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
 
   static const _sourceLabels = {
     "vndb_kana": "VNDB Kana v2", "bangumi": "Bangumi",
-    "steam": "Steam", "dlsite": "DLsite", "ymgal": "月幕GalGame",
+    "steam": "Steam", "ymgal": "月幕GalGame",
   };
   static const _modeLabels = {
     "missing": "仅填充缺失", "overwrite": "全部覆盖",
@@ -281,7 +304,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   // Scraper sources
-  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "dlsite": true, "ymgal": true};
+  final _sources = {"vndb_kana": true, "bangumi": true, "steam": true, "ymgal": true};
   final _keys = {"vndb_token": TextEditingController(), "proxy": TextEditingController()};
 
   @override
@@ -647,7 +670,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
         _srcCard("Steam", "steam", "免认证"),
         _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
-        _srcCard("DLsite", "dlsite", "免认证，建议配日本代理"),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(14),
@@ -827,7 +849,6 @@ class _DisplayPage extends StatefulWidget {
 }
 
 class _DisplayPageState extends State<_DisplayPage> {
-  double _coverSize = 200;
   bool _trayEnabled = false;
 
   @override
@@ -836,13 +857,14 @@ class _DisplayPageState extends State<_DisplayPage> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) setState(() {
-      _coverSize = prefs.getDouble("cover_size") ?? 200;
       _trayEnabled = prefs.getBool("minimize_to_tray") ?? false;
     });
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final coverSize = context.watch<SettingsProvider>().coverSize;
+    return Scaffold(
     appBar: AppBar(title: const Text("显示")),
     body: ListView(padding: const EdgeInsets.all(16), children: [
       _sectionTitle("封面大小"),
@@ -866,7 +888,7 @@ class _DisplayPageState extends State<_DisplayPage> {
             ),
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text("${_coverSize.round()} px", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+              Text("${coverSize.round()} px", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
               Text("网格封面尺寸", style: AppText.label.copyWith( color: hintColor(context))),
             ])),
             Container(
@@ -879,11 +901,10 @@ class _DisplayPageState extends State<_DisplayPage> {
           ]),
           const SizedBox(height: 14),
           Slider(
-            value: _coverSize, min: 100, max: 300, divisions: 20,
+            value: coverSize, min: 100, max: 300, divisions: 20,
             activeColor: Theme.of(context).colorScheme.primary,
             onChanged: (v) async {
-              setState(() => _coverSize = v);
-              await SharedPreferences.getInstance().then((p) => p.setDouble("cover_size", v));
+              await context.read<SettingsProvider>().setCoverSize(v);
             },
           ),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -916,7 +937,8 @@ class _DisplayPageState extends State<_DisplayPage> {
       ],
       const SizedBox(height: 24),
     ]),
-  );
+    );
+  }
 
   Widget _sectionTitle(String t) => Padding(
     padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),

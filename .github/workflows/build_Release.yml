@@ -4,10 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (留空则从 pubspec.yaml 读取)'
+        description: '版本号（留空则从 pubspec.yaml 读取）'
         required: false
         default: ''
         type: string
+      notes_mode:
+        description: '发布说明模式'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - custom
+          - auto
+      custom_notes:
+        description: '自定义发布说明（可选）'
+        required: false
+        default: ''
+        type: string
+
 
 permissions:
   contents: write
@@ -333,7 +348,7 @@ jobs:
           name: Sena-Repo_Server_arm64
           path: Sena-Repo_Server_arm64_*.tar.gz
 
-  # ── Publish Release ──────────────────────────────
+  # Publish Release
   publish:
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
@@ -341,17 +356,93 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve version
+        id: version
+        working-directory: .
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        working-directory: .
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-list -n 1 "$TAG")
+            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+                echo "::error::请先填写自定义发布说明，或将模式改为拼接/自动生成。"
+              exit 1
+            fi
+          fi
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Generate release notes
+        working-directory: .
+        run: |
+          MODE="${{ inputs.notes_mode }}"
+          CUSTOM_NOTES="${{ inputs.custom_notes }}"
+          TAG="v${{ steps.version.outputs.version }}"
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="$PREV_TAG..HEAD"
+            printf '## 更新内容（%s → %s）
+
+' "$PREV_TAG" "$TAG"
+          else
+            RANGE="HEAD"
+            printf '## 更新内容（%s）
+
+' "$TAG"
+          fi > release_notes_auto.md
+          NOTES=$(git log --no-merges --format='- %s (%h)' $RANGE)
+          if [ -n "$NOTES" ]; then
+            printf '%s
+' "$NOTES" >> release_notes_auto.md
+          else
+            printf '%s
+' '- 本次发布主要更新构建产物。' >> release_notes_auto.md
+          fi
+          printf '
+## 构建产物
+- Android APK
+- Windows 安装包与便携版
+- Linux AppImage
+- Server Docker 镜像与离线镜像包
+' >> release_notes_auto.md
+          case "$MODE" in
+            custom)
+              if [ -z "$CUSTOM_NOTES" ]; then
+                echo "::error::请先填写自定义发布说明，或将模式改为拼接/自动生成。"
+                exit 1
+              fi
+              printf '%s
+' "$CUSTOM_NOTES" > release_notes.md
+              ;;
+            auto)
+              cat release_notes_auto.md > release_notes.md
+              ;;
+            both|*)
+              if [ -n "$CUSTOM_NOTES" ]; then
+                printf '%s
+
+' "$CUSTOM_NOTES" > release_notes.md
+                cat release_notes_auto.md >> release_notes.md
+              else
+                cat release_notes_auto.md > release_notes.md
+              fi
+              ;;
+          esac
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}
-          name: v${{ inputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           prerelease: false
-          generate_release_notes: true
+          body_path: release_notes.md
           files: dist/**/*
           make_latest: true
         env:

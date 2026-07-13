@@ -15,11 +15,10 @@ from config import Config
 from models.game import Game
 from models.scrape_job import JobStatus, ScrapeJob
 
-from .base import BaseScraper, ScraperResult, clean_title, extract_dlsite_workno
+from .base import BaseScraper, ScraperResult, clean_title
 from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
-from .dlsite import DLsiteScraper
 from .ymgal import YmgalScraper
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,6 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         VndbKanaScraper(proxy=config.proxy),
         VndbTitlesScraper(proxy=config.proxy),
         BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
-        DLsiteScraper(proxy=config.proxy),
         SteamScraper(proxy=config.proxy),
         YmgalScraper(proxy=config.proxy, client_id=s.ymgal_client_id, client_secret=s.ymgal_client_secret),
     ]
@@ -94,26 +92,9 @@ async def scrape_single_game(
         if c and c != raw_name and raw_name not in candidates:
             candidates.append(raw_name)
     candidates = [c for c in candidates if c]
-
-    # ── DLsite: auto-detect work number → prioritize DLsite ──
-    dlsite_workno = extract_dlsite_workno(raw_name) or extract_dlsite_workno(folder_name)
-    if dlsite_workno:
-        dlsite_scraper = next((s for s in scrapers if s.source_name == "dlsite"), None)
-        if dlsite_scraper:
-            for query in [dlsite_workno] + candidates:
-                try:
-                    result = await dlsite_scraper.search_best(query, company_hint)
-                    if result:
-                        results[dlsite_scraper.source_name] = result
-                        await _apply_result(result, dlsite_scraper.source_name, game, client, covers_dir, session, config, mode)
-                        break
-                except Exception:
-                    continue
-
     # ── Standard search: try candidates × scrapers ──
-    non_dlsite = [s for s in scrapers if s.source_name != "dlsite"]
     for query in candidates:
-        for scraper in non_dlsite:
+        for scraper in scrapers:
             if scraper.source_name in results:
                 continue
             try:
