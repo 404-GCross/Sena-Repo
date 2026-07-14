@@ -25,11 +25,13 @@ jobs:
         run: |
           V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
       - name: Sync test version into source
         run: |
-          sed -i "s/versionName = \".*\"/versionName = \"${VERSION}\"/" android/app/build.gradle.kts
+          sed -i "s/versionName = \".*\"/versionName = \"${PACKAGE_VERSION}\"/" android/app/build.gradle.kts
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: actions/setup-java@v4
         with:
@@ -96,11 +98,14 @@ jobs:
         run: |
           $V = "test"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "PACKAGE_VERSION=0.0.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Sync test version into source
         shell: pwsh
         run: |
           $ver = $env:VERSION
+          $pkgVer = $env:PACKAGE_VERSION
+          (Get-Content pubspec.yaml) -replace '^version: .+', "version: $pkgVer" | Set-Content pubspec.yaml
           (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$ver""" | Set-Content lib\utils\version.dart
 
       - uses: subosito/flutter-action@v2
@@ -153,11 +158,12 @@ jobs:
         shell: pwsh
         run: |
           $ver = $env:VERSION
+          $pkgVer = $env:PACKAGE_VERSION
           $releaseDir = (Resolve-Path "build/windows/x64/runner/Release").Path
           $template = Get-Content "windows_assets/packaging/exe/inno_setup.iss" -Raw
           $iss = $template `
             -replace '\{\{APP_ID\}\}', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' `
-            -replace '\{\{APP_VERSION\}\}', $ver `
+            -replace '\{\{APP_VERSION\}\}', $pkgVer `
             -replace '\{\{DISPLAY_NAME\}\}', 'Sena Repo' `
             -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
             -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
@@ -220,10 +226,12 @@ jobs:
         run: |
           V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
       - name: Sync test version into source
         run: |
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
         with:
