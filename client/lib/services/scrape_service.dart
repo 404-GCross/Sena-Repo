@@ -30,17 +30,28 @@ class ScrapeService {
 
   // ── VNDB Kana ──
 
+  static String? _normalizeVndbId(String query) {
+    final q = query.trim().toLowerCase();
+    if (RegExp(r'^v?\d+$').hasMatch(q)) {
+      return q.startsWith("v") ? q : "v$q";
+    }
+    return null;
+  }
+
   static Future<List<Map<String, dynamic>>> _searchVndb(
       String query, String? proxy) async {
     final uri = Uri.parse("https://api.vndb.org/kana/vn");
+    final vndbId = _normalizeVndbId(query);
     try {
       final resp = await http.post(uri,
           headers: {"Content-Type": "application/json"},
           body: jsonEncode({
-            "filters": ["search", "=", query],
+            "filters": vndbId != null
+                ? ["id", "=", vndbId]
+                : ["search", "=", query],
             "fields": _vndbFields,
-            "sort": "searchrank",
-            "results": 5,
+            if (vndbId == null) "sort": "searchrank",
+            "results": vndbId != null ? 1 : 5,
           }));
       if (resp.statusCode != 200) return [];
       final items = jsonDecode(resp.body)["results"] as List? ?? [];
