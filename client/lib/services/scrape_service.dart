@@ -87,6 +87,11 @@ class ScrapeService {
 
   static Future<List<Map<String, dynamic>>> _searchBangumi(
       String query, String? proxy) async {
+    final id = query.trim();
+    if (RegExp(r'^\d+$').hasMatch(id)) {
+      return _bangumiSubject(id);
+    }
+
     final uri = Uri.parse(
         "https://api.bgm.tv/v0/search/subjects/${Uri.encodeComponent(query)}"
         "?type=1&limit=5");
@@ -96,16 +101,36 @@ class ScrapeService {
       final data = jsonDecode(resp.body);
       final list = data["list"] as List? ?? [];
       return list.map<Map<String, dynamic>>((item) {
-        return {
-          "title": item["name_cn"] ?? item["name"] ?? "",
-          "developer": "",
-          "release_date": item["date"] ?? "",
-          "description": item["summary"] ?? "",
-          "cover_url": (item["images"] ?? {})["large"] ?? "",
-          "screenshots": <String>[],
-          "source_id": item["id"]?.toString() ?? "",
-        };
+        return _parseBangumiSubject(item as Map<String, dynamic>);
       }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Map<String, dynamic> _parseBangumiSubject(Map<String, dynamic> item) {
+    final cover = (item["images"] ?? {})["large"] ??
+        (item["images"] ?? {})["common"] ??
+        "";
+    return {
+      "title": item["name_cn"] ?? item["name"] ?? "",
+      "developer": "",
+      "release_date": item["date"] ?? "",
+      "description": item["summary"] ?? "",
+      "cover_url": cover,
+      "screenshots": <String>[],
+      "source_id": item["id"]?.toString() ?? "",
+    };
+  }
+
+  static Future<List<Map<String, dynamic>>> _bangumiSubject(String id) async {
+    final uri = Uri.parse("https://api.bgm.tv/v0/subjects/$id");
+    try {
+      final resp = await http.get(uri);
+      if (resp.statusCode != 200) return [];
+      final data = jsonDecode(resp.body);
+      if (data is! Map<String, dynamic>) return [];
+      return [_parseBangumiSubject(data)];
     } catch (_) {
       return [];
     }

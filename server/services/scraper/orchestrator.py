@@ -106,6 +106,19 @@ async def scrape_single_game(
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} error for VNDB ID '{game.vndb_id}': {e}")
 
+    # Prefer an explicitly saved Bangumi ID for the Bangumi scraper only.
+    if game.bangumi_id:
+        for scraper in scrapers:
+            if scraper.source_name != "bangumi":
+                continue
+            try:
+                result = await scraper.search_best(game.bangumi_id, company_hint)
+                if result:
+                    results[scraper.source_name] = result
+                    await _apply_result(result, scraper.source_name, game, client, covers_dir, session, config, mode)
+            except Exception as e:
+                logger.error(f"Scraper {scraper.source_name} error for Bangumi ID '{game.bangumi_id}': {e}")
+
     # ── Standard search: try candidates × scrapers ──
     for query in candidates:
         for scraper in scrapers:

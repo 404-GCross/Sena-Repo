@@ -40,7 +40,10 @@ class BangumiScraper(BaseScraper):
         # Try main endpoint first, then mirror (shorter timeout in CN)
         for endpoint, timeout in [(BGM_MAIN, 8.0), (BGM_MIRROR, 12.0)]:
             try:
-                results = await self._do_search(endpoint, keyword, timeout)
+                if keyword.isdigit():
+                    results = await self._get_subject(endpoint, keyword, timeout)
+                else:
+                    results = await self._do_search(endpoint, keyword, timeout)
                 if results:
                     return results
             except Exception as e:
@@ -65,18 +68,24 @@ class BangumiScraper(BaseScraper):
             data = resp.json()
             results = []
             for item in data.get("list", []):
-                cover = (item.get("images") or {}).get("large", "")
-                if cover.startswith("//"):
-                    cover = "https:" + cover
-                results.append(ScraperResult(
-                    title=item.get("name_cn", "") or item.get("name", ""),
-                    description=item.get("summary", ""),
-                    release_date=item.get("air_date", ""),
-                    cover_url=cover,
-                    source_id=str(item.get("id", "")),
-                    source_name=self.source_name,
-                ))
+                results.append(self._parse(item))
             return results
+
+    async def _get_subject(
+        self, endpoint: str, subject_id: str, timeout: float
+    ) -> list[ScraperResult]:
+        kwargs = {"timeout": httpx.Timeout(timeout)}
+        if self.proxy:
+            kwargs["proxy"] = self.proxy
+        async with httpx.AsyncClient(**kwargs) as client:
+            headers = {
+                "Accept": "application/json",
+                "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
+            }
+            resp = await self._request_with_retry(
+                client, "GET", f"{endpoint}/v0/subjects/{subject_id}", headers=headers
+            )
+            return [self._parse(resp.json())]
 
     def _parse(self, item: dict) -> ScraperResult:
         images = item.get("images", {})
@@ -90,7 +99,7 @@ class BangumiScraper(BaseScraper):
         return ScraperResult(
             title=item.get("name_cn", "") or item.get("name", ""),
             description=item.get("summary", ""),
-            release_date=item.get("date", ""),
+            release_date=item.get("date", "") or item.get("air_date", ""),
             cover_url=cover,
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
