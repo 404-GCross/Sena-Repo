@@ -120,12 +120,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     }
   }
 
-  static const _titles = ["创建管理员", "服务端游戏库", "服务端补丁", "刮削源"];
+  static const _titles = ["创建管理员", "服务端目录", "刮削源"];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("初次设置 (${_step + 1}/4)")),
+      appBar: AppBar(title: Text("初次设置 (${_step + 1}/3)")),
       body: Center(
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -141,7 +141,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   children: [
                     // Step indicator
                     Row(
-                      children: List.generate(4, (i) => Expanded(child: Container(
+                      children: List.generate(3, (i) => Expanded(child: Container(
                         height: 4,
                         margin: const EdgeInsets.symmetric(horizontal: 2),
                         decoration: BoxDecoration(
@@ -159,8 +159,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     // ── Step content ──
                     if (_step == 0) ..._buildStep1(),
                     if (_step == 1) ..._buildStep2(),
-                    if (_step == 2) ..._buildStep3(),
-                    if (_step == 3) ..._buildStep4(),
+                    if (_step == 2) ..._buildStep4(),
 
                     // ── Error ──
                     if (_error != null)
@@ -176,9 +175,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         if (_step > 0)
                           OutlinedButton(onPressed: _prev, child: const Text("上一步")),
                         const Spacer(),
-                        if (_step < 3)
+                        if (_step < 2)
                           FilledButton(onPressed: _next, child: const Text("下一步")),
-                        if (_step == 3)
+                        if (_step == 2)
                           FilledButton(
                             onPressed: _loading ? null : _submit,
                             child: _loading
@@ -285,9 +284,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         },
       ),
     ],
-  ];
-
-  List<Widget> _buildStep3() => [
+    const SizedBox(height: 16),
+    const Text("服务端补丁目录", style: TextStyle(fontWeight: FontWeight.bold)),
+    const SizedBox(height: 8),
     TextField(
       controller: _patchDirCtrl,
       decoration: const InputDecoration(labelText: "服务端补丁存放目录", hintText: "/data/steam_patches", prefixIcon: Icon(Icons.dns)),
