@@ -141,11 +141,27 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _connectToProfile(UserProfile profile, int index) async {
     setState(() => _error = null);
+    var loadingShown = false;
+    var cancelled = false;
+    void hideLoading() {
+      if (!loadingShown || !mounted) return;
+      loadingShown = false;
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    _showConnectingDialog(profile, () {
+      cancelled = true;
+      hideLoading();
+    });
+    loadingShown = true;
+    await Future<void>.delayed(Duration.zero);
     try {
       final settings = context.read<SettingsProvider>();
       final games = context.read<GameProvider>();
       final success = await settings.connect(profile.host, profile.port, useHttps: profile.useHttps);
+      if (cancelled) return;
       if (!success) {
+        hideLoading();
         if (mounted) {
           _showToast(settings.errorMessage ?? "连接服务器失败");
           setState(() => _error = settings.errorMessage ?? "连接服务器失败");
@@ -157,11 +173,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final setupApi = ApiClient();
       await setupApi.connect(profile.host, port: profile.port, useHttps: profile.useHttps);
       if (await setupApi.checkSetupNeeded()) {
+        if (cancelled) return;
+        hideLoading();
         await _handleResetServerSetup(profile, index, games, setupApi);
         return;
       }
+      if (cancelled) return;
 
       if (profile.authToken.isEmpty) {
+        hideLoading();
         await _showReAuthDialog(profile, index, games);
         return;
       }
@@ -174,15 +194,21 @@ class _ConnectScreenState extends State<ConnectScreen> {
         Uri.parse("${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me"),
         headers: {"Authorization": "Bearer ${profile.authToken}"},
       ).timeout(const Duration(seconds: 5));
+      if (cancelled) return;
       if (meResp.statusCode == 401) {
         if (await setupApi.checkSetupNeeded()) {
+          if (cancelled) return;
+          hideLoading();
           await _handleResetServerSetup(profile, index, games, setupApi);
           return;
         }
+        if (cancelled) return;
+        hideLoading();
         await _showReAuthDialog(profile, index, games);
         return;
       }
       if (meResp.statusCode != 200) {
+        hideLoading();
         if (mounted) setState(() => _error = "连接失败: 服务器返回 ${meResp.statusCode}");
         return;
       }
@@ -194,13 +220,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       try {
         await games.loadGames();
+        if (cancelled) return;
+        hideLoading();
         if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
       } catch (e) {
+        if (cancelled) return;
+        hideLoading();
         if (mounted) {
           setState(() { final msg = e.toString(); _error = "连接失败: ${msg.length > 80 ? msg.substring(0, 80) : msg}"; });
         }
       }
     } catch (e) {
+      if (cancelled) return;
+      hideLoading();
       if (mounted) _showToast("连接失败: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}");
     }
   }
@@ -304,6 +336,25 @@ class _ConnectScreenState extends State<ConnectScreen> {
       builder: (ctx) => AlertDialog(
         content: Text(msg, maxLines: 3, overflow: TextOverflow.ellipsis),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定"))],
+      ),
+    );
+  }
+
+  void _showConnectingDialog(UserProfile profile, VoidCallback onCancel) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("正在连接服务器"),
+        content: Row(children: [
+          const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 16),
+          Expanded(child: Text("${profile.host}:${profile.port}")),
+        ]),
+        actions: [
+          TextButton(onPressed: onCancel, child: const Text("取消")),
+        ],
       ),
     );
   }
