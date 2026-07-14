@@ -72,6 +72,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "game_dirs": dirs,
           "steam_dir": _serverSteamDirCtrl.text.trim(),
           "patch_dir": _patchDirCtrl.text.trim(),
+          "auto_scan": _autoScan,
+          "scan_interval": _scanInterval,
+          "scan_structure": _structure,
         }),
       );
       if (resp.statusCode != 200) {
@@ -90,14 +93,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       await prefs.setString("scan_structure", _structure);
       await prefs.setBool("auto_scan", _autoScan);
       if (_autoScan) await prefs.setInt("scan_interval", _scanInterval);
-      // Save auto-scan settings to server (SharedPreferences is client-only, server reads scan_settings.json)
-      try {
-        await http.put(
-          Uri.parse("${widget.api.baseUrl}/api/settings/scan"),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode({"auto_scan": _autoScan, "scan_interval": _scanInterval, "scan_structure": _structure}),
-        );
-      } catch (_) {}
       // Scan runs in background on server — no need to wait
       if (mounted) Navigator.pop(context, {
         "username": _userCtrl.text.trim(),

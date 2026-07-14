@@ -30,6 +30,9 @@ class InitRequest(BaseModel):
     game_dirs: list[str] = Field(default_factory=list)  # paths to scan
     steam_dir: str = ""
     patch_dir: str = ""
+    auto_scan: bool = False
+    scan_interval: int = Field(default=24, ge=1)
+    scan_structure: str = "company_game"
 
 
 @router.get("/status", response_model=SetupStatus)
@@ -95,8 +98,25 @@ async def initialize_setup(
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f)
 
+    # Persist scan settings during initial setup. The normal settings endpoint
+    # requires an authenticated admin, but setup runs before the first login.
+    config = load_config()
+    config._auto_scan = body.auto_scan
+    config._scan_interval = body.scan_interval
+    config._scan_structure = (
+        body.scan_structure
+        if body.scan_structure in {"company_game", "game_only", "flat"}
+        else "company_game"
+    )
+    try:
+        from api.settings import _save_scan_settings
+        _save_scan_settings(config)
+    except Exception as e:
+        logger = logging.getLogger("sena-repo")
+        logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
+
     # Fire background scans (don't block response — user enters main page immediately)
-    asyncio.create_task(_background_scan(load_config(), body.patch_dir))
+    asyncio.create_task(_background_scan(config, body.patch_dir))
 
     # Also trigger scrape on new games after scan completes
     # (handled inside _background_scan via _run_scan)
