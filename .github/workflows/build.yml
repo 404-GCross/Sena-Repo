@@ -26,6 +26,12 @@ jobs:
           V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
+      - name: Sync test version into source
+        run: |
+          sed -i "s/versionName = \".*\"/versionName = \"${VERSION}\"/" android/app/build.gradle.kts
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
+
       - uses: actions/setup-java@v4
         with:
           distribution: "temurin"
@@ -72,7 +78,7 @@ jobs:
         run: |
           mkdir -p dist
           mv build/app/outputs/flutter-apk/app-release.apk \
-             "dist/Sena-Repo_Android_v${VERSION}.apk"
+             "dist/Sena-Repo_Android_${VERSION}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -91,6 +97,13 @@ jobs:
         run: |
           $V = "test"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Sync test version into source
+        shell: pwsh
+        run: |
+          $ver = $env:VERSION
+          (Get-Content pubspec.yaml) -replace '^version: .+', "version: $ver" | Set-Content pubspec.yaml
+          (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$ver""" | Set-Content lib\utils\version.dart
 
       - uses: subosito/flutter-action@v2
         with:
@@ -166,7 +179,7 @@ jobs:
         run: |
           $setupExe = Get-ChildItem -Recurse dist -Filter "*.exe" | Where-Object { $_.Name -like "*setup*" -or $_.Name -like "*Setup*" } | Select-Object -First 1
           if ($setupExe) {
-            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
+            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_${env:VERSION}_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
 
@@ -174,7 +187,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $pkg="Sena-Repo_Windows_v${env:VERSION}"
+          $pkg="Sena-Repo_Windows_${env:VERSION}"
           $releaseDir = "build/windows/x64/runner/Release"
           robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
@@ -209,6 +222,11 @@ jobs:
         run: |
           V="test"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Sync test version into source
+        run: |
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
         with:
@@ -302,7 +320,7 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_v${VERSION}-x86_64.AppImage"
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
 
       - name: Upload AppImage
@@ -334,12 +352,12 @@ jobs:
       - name: Build and export AMD64 tarball
         run: |
           docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --build-arg SENA_VERSION=${VERSION} --load
-          docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
+          docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
 
       - name: Build and export ARM64 tarball
         run: |
           docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --load
-          docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
+          docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
 
       - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4
