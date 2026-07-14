@@ -123,7 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 6),
-                Text("客户端 v$appVersion  ·  服务端 ${_serverVersion.isNotEmpty ? "v$_serverVersion" : "未知"}",
+                Text("客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
                     style: TextStyle(color: Colors.grey[600], fontSize: 13)),
               ]),
             ),

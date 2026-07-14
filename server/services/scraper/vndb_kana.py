@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
@@ -16,6 +17,29 @@ VNDB_FIELDS = (
     "length,length_minutes,"
     "developers.name,tags.name,tags.rating,tags.spoiler"
 )
+
+
+def _normalize_vndb_id(value: str) -> str | None:
+    query = value.strip().lower()
+    if re.fullmatch(r"v?\d+", query):
+        return query if query.startswith("v") else f"v{query}"
+    return None
+
+
+def _build_vndb_body(query: str, *, fields: str, results: int = 5) -> dict:
+    vndb_id = _normalize_vndb_id(query)
+    if vndb_id:
+        return {
+            "filters": ["id", "=", vndb_id],
+            "fields": fields,
+            "results": 1,
+        }
+    return {
+        "filters": ["search", "=", query],
+        "fields": fields,
+        "sort": "searchrank",
+        "results": results,
+    }
 
 
 class VndbKanaScraper(BaseScraper):
@@ -32,12 +56,7 @@ class VndbKanaScraper(BaseScraper):
         client = await self._get_client()
         results = []
         try:
-            body = {
-                "filters": ["search", "=", name],
-                "fields": VNDB_FIELDS,
-                "sort": "searchrank",
-                "results": 5,
-            }
+            body = _build_vndb_body(name, fields=VNDB_FIELDS)
             resp = await self._request_with_retry(
                 client, "POST", self.base_url,
                 json=body,
@@ -125,12 +144,8 @@ class VndbTitlesScraper(BaseScraper):
         client = await self._get_client()
         results = []
         try:
-            body = {
-                "filters": ["search", "=", name],
-                "fields": "id,title,image.url,screenshots.url,description,rating,released,developers.name",
-                "sort": "searchrank",
-                "results": 5,
-            }
+            fields = "id,title,image.url,screenshots.url,description,rating,released,developers.name"
+            body = _build_vndb_body(name, fields=fields)
             resp = await self._request_with_retry(
                 client, "POST", self.base_url,
                 json=body,
