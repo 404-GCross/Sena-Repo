@@ -382,6 +382,8 @@ jobs:
           path: dist
       - name: Generate pre-release notes
         working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MODE="${{ inputs.notes_mode }}"
           TAG="v${{ steps.version.outputs.version }}"
@@ -392,7 +394,14 @@ jobs:
 
           git fetch --tags --force --prune
 
-          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_SHA}^" 2>/dev/null || true)
+          PREV_TAG=""
+          while IFS= read -r candidate; do
+            if git rev-parse "$candidate^{commit}" >/dev/null 2>&1 && git merge-base --is-ancestor "$candidate" "$GITHUB_SHA"; then
+              PREV_TAG="$candidate"
+              break
+            fi
+          done < <(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq ".[] | select(.prerelease == true and .tag_name != \"${TAG}\") | .tag_name")
+
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..$GITHUB_SHA"
             printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
