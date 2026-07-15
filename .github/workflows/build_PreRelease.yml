@@ -390,15 +390,17 @@ jobs:
           CUSTOM_NOTES_EOF
           sed -i 's/^          //' custom_notes.md
 
-          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
+          git fetch --tags --force --prune
+
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_SHA}^" 2>/dev/null || true)
           if [ -n "$PREV_TAG" ]; then
-            RANGE="$PREV_TAG..HEAD"
-            printf '##Ch anges (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
+            RANGE="$PREV_TAG..$GITHUB_SHA"
+            printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
           else
-            RANGE="HEAD"
+            RANGE="$GITHUB_SHA"
             printf '## Changes (%s)\n\n' "$TAG" > release_notes_auto.md
           fi
-          NOTES=$(git log --no-merges --format='- %s (%h)' $RANGE)
+          NOTES=$(git log --no-merges --format='- %s (%h)' "$RANGE")
           if [ -n "$NOTES" ]; then
             printf '%s\n' "$NOTES" >> release_notes_auto.md
           else
