@@ -46,6 +46,8 @@ class DownloadTask {
   bool isApk = false;
   String? coverUrl;
   String? bgUrl;
+  String? extractPassword;
+  bool _triedPresetPassword = false;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
   DateTime _lastNotifyTime = DateTime.now();
@@ -76,6 +78,7 @@ class DownloadTask {
     "progress": progress,
     "error": error,
     "outputPath": outputPath,
+    "extractPassword": extractPassword,
     "startedAt": startedAt.toIso8601String(),
   };
 }
@@ -149,6 +152,7 @@ class DownloadService with WidgetsBindingObserver {
           ..totalBytes = m["totalBytes"] ?? 0
           ..progress = (m["progress"] ?? 0).toDouble()
           ..error = m["error"]
+          ..extractPassword = m["extractPassword"]
           ..outputPath = m["outputPath"];
         _tasks.add(task);
         // Re-run active tasks
@@ -411,13 +415,15 @@ class DownloadService with WidgetsBindingObserver {
     required String companyName,
     String? coverUrl,
     String? bgUrl,
+    String? extractPassword,
   }) {
     final task = DownloadTask(
       gameId: gameId, versionId: versionId, fileName: fileName,
       downloadUrl: downloadUrl, gameName: gameName, companyName: companyName,
     )
       ..coverUrl = coverUrl
-      ..bgUrl = bgUrl;
+      ..bgUrl = bgUrl
+      ..extractPassword = extractPassword;
     _tasks.insert(0, task);
     _emit();
     _run(task);
@@ -466,6 +472,7 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "pending";
       task.error = null;
       task.needsPassword = false;
+      task._triedPresetPassword = false;
       task.progress = task.totalBytes > 0 ? task.receivedBytes / task.totalBytes : 0;
       _emit();
       _run(task);
@@ -765,6 +772,16 @@ class DownloadService with WidgetsBindingObserver {
       final errStr = "$e";
       // Check if archive is password-protected
       if (_isEncryptedError(errStr)) {
+        final presetPassword = t.extractPassword?.trim() ?? "";
+        if (presetPassword.isNotEmpty && !t._triedPresetPassword) {
+          t._triedPresetPassword = true;
+          t.status = "extracting";
+          t.error = null;
+          t.needsPassword = false;
+          _emit();
+          _runWithPassword(t, presetPassword);
+          return;
+        }
         t.needsPassword = true;
         t.status = "failed";
         t.error = "需要密码";

@@ -79,6 +79,7 @@ class GameVersion(Base):
     filename = Column(String(512), nullable=False)
     file_path = Column(String(1024), nullable=False)
     file_size = Column(BigInteger, default=0)
+    extract_password = Column(String(256), nullable=True)
 
     game = relationship("Game", back_populates="versions")
 

@@ -6,6 +6,7 @@ class GameVersion {
   final String filename;
   final String filePath;
   final int fileSize;
+  final String? extractPassword;
 
   GameVersion({
     required this.id,
@@ -13,6 +14,7 @@ class GameVersion {
     required this.filename,
     required this.filePath,
     required this.fileSize,
+    this.extractPassword,
   });
 
   factory GameVersion.fromJson(Map<String, dynamic> json) {
@@ -22,6 +24,7 @@ class GameVersion {
       filename: json["filename"] ?? "",
       filePath: json["file_path"] ?? "",
       fileSize: json["file_size"] ?? 0,
+      extractPassword: json["extract_password"],
     );
   }
 }
@@ -151,11 +154,13 @@ class GameDetail {
       isDeleted: json["is_deleted"] ?? false,
       importedAt: json["imported_at"] ?? "",
       updatedAt: json["updated_at"] ?? "",
-      versions: (json["versions"] as List<dynamic>?)
+      versions:
+          (json["versions"] as List<dynamic>?)
               ?.map((v) => GameVersion.fromJson(v as Map<String, dynamic>))
               .toList() ??
           [],
-      tags: (json["tags"] as List<dynamic>?)
+      tags:
+          (json["tags"] as List<dynamic>?)
               ?.map((t) => Tag.fromJson(t as Map<String, dynamic>))
               .toList() ??
           [],
