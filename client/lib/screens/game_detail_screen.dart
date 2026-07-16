@@ -652,6 +652,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       companyName: game.companyName ?? "",
       coverUrl: coverUrl,
       bgUrl: bgUrl,
+      extractPassword: v.extractPassword,
     );
     if (mounted) {
       showDialog(

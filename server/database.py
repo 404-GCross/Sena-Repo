@@ -76,6 +76,10 @@ async def create_tables():
         raise RuntimeError("Database not initialized. Call init_database() first.")
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
+        column_names = {row[1] for row in columns}
+        if "extract_password" not in column_names:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN extract_password VARCHAR(256)")
 
 
 async def get_engine():

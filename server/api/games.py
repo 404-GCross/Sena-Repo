@@ -11,7 +11,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from api.auth import get_current_user, require_admin
 from database import get_session
 from models.user import User
-from models.game import Company, Game, GameVersion, GameTag
+from models.game import Company, Game, GameVersion, GameTag, Platform
 from models.ignore_list import IgnoreList
 from models.tag import Tag
 from schemas.common import MessageResponse
@@ -208,6 +208,7 @@ async def get_game(
                 "filename": v.filename,
                 "file_path": v.file_path,
                 "file_size": v.file_size,
+                "extract_password": v.extract_password,
             }
             for v in game.versions
         ],
@@ -316,6 +317,11 @@ class GameUpdate(BaseModel):
     bangumi_id: str | None = None
 
 
+class VersionUpdate(BaseModel):
+    platform: str | None = None
+    extract_password: str | None = None
+
+
 @router.put("/{game_id}")
 async def update_game(
     game_id: int,
@@ -335,6 +341,50 @@ async def update_game(
     game.updated_at = datetime.utcnow()
     await session.commit()
     return {"message": "更新成功"}
+
+
+@router.put("/{game_id}/versions/{version_id}")
+async def update_version(
+    game_id: int,
+    version_id: int,
+    body: VersionUpdate,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Edit a game version's platform and extraction password (admin only)."""
+    result = await session.execute(
+        select(GameVersion).where(GameVersion.id == version_id, GameVersion.game_id == game_id)
+    )
+    version = result.scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    if body.platform is not None:
+        platform_value = body.platform.strip()
+        if platform_value == "KR":
+            platform_value = "KRKR"
+        try:
+            version.platform = Platform(platform_value)
+        except ValueError:
+            allowed = ", ".join(p.value for p in Platform)
+            raise HTTPException(status_code=400, detail=f"Invalid platform. Allowed: {allowed}")
+
+    if body.extract_password is not None:
+        password = body.extract_password.strip()
+        version.extract_password = password or None
+
+    await session.commit()
+    return {
+        "message": "Version updated",
+        "version": {
+            "id": version.id,
+            "platform": version.platform.value,
+            "filename": version.filename,
+            "file_path": version.file_path,
+            "file_size": version.file_size,
+            "extract_password": version.extract_password,
+        },
+    }
 
 
 @router.post("/{game_id}/versions/{version_id}/move")

@@ -13,6 +13,7 @@ class GameVersionOut(BaseModel):
     filename: str
     file_path: str
     file_size: int
+    extract_password: str | None = None
 
     model_config = {"from_attributes": True}
 
