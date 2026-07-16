@@ -180,14 +180,17 @@ class SteamScraper(BaseScraper):
                 except Exception:
                     continue
 
-            # Hero banner (landscape): library_hero.jpg (1920x620) is best, fall back to header.jpg
-            hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
-            try:
-                r = await client.head(hero_url)
-                if r.status_code != 200:
-                    hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
-            except Exception:
-                hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
+            # Background: prefer the Store API image, then fall back to CDN assets.
+            header_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
+            hero_url = details.get("header_image") or header_url
+            if not details.get("header_image"):
+                library_hero_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
+                try:
+                    r = await client.head(library_hero_url)
+                    if r.status_code == 200:
+                        hero_url = library_hero_url
+                except Exception:
+                    pass
 
             # Ratings and genres
             rating = 0.0

@@ -936,7 +936,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final pickedHero = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text("选择背景"),
+          title: Text("选择 ${sources[src]} 背景"),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
             child: GridView.builder(
@@ -1244,45 +1244,53 @@ class _GameEditScreenState extends State<GameEditScreen> {
                         ),
                       ]),
                       const SizedBox(height: 10),
-                      Row(children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: _bgUrl.text.isNotEmpty
-                              ? Image.network(
-                                  _bgUrl.text.startsWith("http")
-                                      ? _bgUrl.text
-                                      : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
-                                  width: 180, height: 90, fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    width: 180, height: 90, color: Colors.grey[800],
-                                    child: const Icon(Icons.broken_image, color: Colors.grey),
-                                  ),
-                                )
-                              : Container(width: 180, height: 90, color: Colors.grey[800],
-                                  child: const Icon(Icons.image, color: Colors.grey)),
-                        ),
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text("当前背景", style: AppText.caption.copyWith(color: hintColor(context))),
+                          const SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: _bgUrl.text.isNotEmpty
+                                ? Image.network(
+                                    _bgUrl.text.startsWith("http")
+                                        ? _bgUrl.text
+                                        : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
+                                    width: 180, height: 90, fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      width: 180, height: 90, color: Colors.grey[800],
+                                      child: const Icon(Icons.broken_image, color: Colors.grey),
+                                    ),
+                                  )
+                                : Container(width: 180, height: 90, color: Colors.grey[800],
+                                    child: const Icon(Icons.image, color: Colors.grey)),
+                          ),
+                        ]),
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          padding: const EdgeInsets.only(left: 12, right: 12, top: 50),
                           child: Icon(Icons.arrow_forward, size: 22, color: Colors.green[400]),
                         ),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(heroUrl, width: 180, height: 90, fit: BoxFit.cover,
-                            loadingBuilder: (_, child, progress) {
-                              if (progress == null) return child;
-                              return Container(width: 180, height: 90,
-                                color: Colors.grey.withValues(alpha: 0.15),
-                                child: Center(child: CircularProgressIndicator(strokeWidth: 2,
-                                  value: progress.expectedTotalBytes != null
-                                      ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
-                                      : null)));
-                            },
-                            errorBuilder: (_, __, ___) => Container(
-                              width: 180, height: 90, color: Colors.grey[800],
-                              child: const Icon(Icons.broken_image, color: Colors.grey),
+                        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text("${sources[src]} 背景", style: AppText.caption.copyWith(color: Colors.green[300])),
+                          const SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(heroUrl, width: 180, height: 90, fit: BoxFit.cover,
+                              loadingBuilder: (_, child, progress) {
+                                if (progress == null) return child;
+                                return Container(width: 180, height: 90,
+                                  color: Colors.grey.withValues(alpha: 0.15),
+                                  child: Center(child: CircularProgressIndicator(strokeWidth: 2,
+                                    value: progress.expectedTotalBytes != null
+                                        ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                        : null)));
+                              },
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 180, height: 90, color: Colors.grey[800],
+                                child: const Icon(Icons.broken_image, color: Colors.grey),
+                              ),
                             ),
                           ),
-                        ),
+                        ]),
                       ]),
                       const SizedBox(height: 10),
                       Row(children: [

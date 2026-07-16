@@ -383,6 +383,8 @@ jobs:
           path: dist
       - name: Generate release notes
         working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MODE="${{ inputs.notes_mode }}"
           TAG="v${{ steps.version.outputs.version }}"
@@ -391,15 +393,24 @@ jobs:
           CUSTOM_NOTES_EOF
           sed -i 's/^          //' custom_notes.md
 
-          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
+          git fetch --tags --force --prune
+
+          PREV_TAG=""
+          while IFS= read -r candidate; do
+            if git rev-parse "$candidate^{commit}" >/dev/null 2>&1 && git merge-base --is-ancestor "$candidate" "$GITHUB_SHA"; then
+              PREV_TAG="$candidate"
+              break
+            fi
+          done < <(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq ".[] | select(.prerelease == false and .tag_name != \"${TAG}\") | .tag_name")
+
           if [ -n "$PREV_TAG" ]; then
-            RANGE="$PREV_TAG..HEAD"
+            RANGE="$PREV_TAG..$GITHUB_SHA"
             printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
           else
-            RANGE="HEAD"
+            RANGE="$GITHUB_SHA"
             printf '## Changes (%s)\n\n' "$TAG" > release_notes_auto.md
           fi
-          NOTES=$(git log --no-merges --format='- %s (%h)' $RANGE)
+          NOTES=$(git log --no-merges --format='- %s (%h)' "$RANGE")
           if [ -n "$NOTES" ]; then
             printf '%s\n' "$NOTES" >> release_notes_auto.md
           else
