@@ -15,6 +15,7 @@ import "package:provider/provider.dart";
 
 import "../providers/game_provider.dart";
 import "../services/download_service.dart";
+import "../services/file_open_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
 import "../widgets/empty_state.dart";
@@ -291,28 +292,37 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
               const SizedBox(height: 6),
               Builder(builder: (_) {
                 final exes = ShortcutService.findAllExecutables(t.outputPath!, gameName: t.gameName);
-                if (exes.isEmpty) return const SizedBox.shrink();
                 final exeCount = exes.length > 1 ? " (${exes.length}个)" : "";
-                return Row(mainAxisSize: MainAxisSize.min, children: [
+                return Wrap(spacing: 6, runSpacing: 6, children: [
                   OutlinedButton.icon(
-                    onPressed: () => _addToSteam(t, t.outputPath!),
-                    icon: const Icon(Icons.gamepad, size: 14),
-                    label: Text("添加到 Steam$exeCount", style: const TextStyle(fontSize: 11)),
+                    onPressed: () => _openTargetFolder(t.outputPath!),
+                    icon: const Icon(Icons.folder_open, size: 14),
+                    label: const Text("打开文件夹", style: TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       minimumSize: Size.zero,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  OutlinedButton.icon(
-                    onPressed: () => _createShortcut(t, t.outputPath!),
-                    icon: const Icon(Icons.desktop_windows, size: 14),
-                    label: const Text("快捷方式", style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: Size.zero,
+                  if (exes.isNotEmpty) ...[
+                    OutlinedButton.icon(
+                      onPressed: () => _addToSteam(t, t.outputPath!),
+                      icon: const Icon(Icons.gamepad, size: 14),
+                      label: Text("添加到 Steam$exeCount", style: const TextStyle(fontSize: 11)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                      ),
                     ),
-                  ),
+                    OutlinedButton.icon(
+                      onPressed: () => _createShortcut(t, t.outputPath!),
+                      icon: const Icon(Icons.desktop_windows, size: 14),
+                      label: const Text("快捷方式", style: TextStyle(fontSize: 11)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                      ),
+                    ),
+                  ],
                 ]);
               }),
             ],
@@ -321,6 +331,15 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           Text(t.error!, style: AppText.caption.copyWith( color: Colors.red[300])),
       ]),
     );
+  }
+
+  Future<void> _openTargetFolder(String path) async {
+    try {
+      final ok = await FileOpenService.openTargetFolder(path);
+      if (!ok) _toast("无法打开目标文件夹");
+    } catch (e) {
+      _toast("无法打开目标文件夹: $e");
+    }
   }
 
   Future<String?> _pickExe(String dir) async {

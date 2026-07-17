@@ -10,6 +10,7 @@ import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
+import "../services/file_open_service.dart";
 import "../services/steam_service.dart";
 
 class SteamPatchScreen extends StatefulWidget {
@@ -177,9 +178,28 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   // ── Inject ──
 
+  String _gameInstallPath(PatchMatch m) {
+    if (_commonDir != null && _commonDir!.isNotEmpty) {
+      return "${_commonDir!}${Platform.pathSeparator}common${Platform.pathSeparator}${m.installDir}";
+    }
+    return m.installDir;
+  }
+
+  Future<void> _openGameDir(PatchMatch m) async {
+    final path = _gameInstallPath(m);
+    try {
+      final opened = await FileOpenService.openTargetFolder(path);
+      if (!opened) {
+        _showMsg("无法打开游戏目录\n$path", error: true);
+      }
+    } catch (e) {
+      if (mounted) _showMsg("无法打开游戏目录: $e", error: true);
+    }
+  }
+
   Future<void> _startInjection(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
-    final fullPath = _commonDir != null ? "${_commonDir!}${Platform.pathSeparator}common${Platform.pathSeparator}${m.installDir}" : m.installDir;
+    final fullPath = _gameInstallPath(m);
     setState(() => _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
       final result = await SteamService.injectPatch(
@@ -387,9 +407,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             Text("AppID ${m.appId}  ·  ${m.installDir}", maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.bodySmall.copyWith(color: subTextColor(context), fontSize: 11)),
           ])),
           if (state == null)
-            FilledButton.tonalIcon(onPressed: () => _startInjection(m), icon: const Icon(Icons.auto_fix_high, size: 16),
-              label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), minimumSize: Size.zero))
+            Wrap(spacing: 8, runSpacing: 6, alignment: WrapAlignment.end, children: [
+              OutlinedButton.icon(onPressed: () => _openGameDir(m), icon: const Icon(Icons.folder_open, size: 16),
+                label: Text("打开目录", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), minimumSize: Size.zero)),
+              FilledButton.tonalIcon(onPressed: () => _startInjection(m), icon: const Icon(Icons.auto_fix_high, size: 16),
+                label: Text("注入", style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), minimumSize: Size.zero)),
+            ])
           else if (state == "paused")
             Row(mainAxisSize: MainAxisSize.min, children: [
               Text("已暂停", style: AppText.bodySmall.copyWith(color: Colors.orange[300], fontWeight: FontWeight.w600)),
@@ -459,6 +484,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         Icon(Icons.block, size: 14, color: subTextColor(context)),
         const SizedBox(width: 10),
         Expanded(child: Text(m.gameName, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.bodySmall.copyWith(color: subTextColor(context)))),
+        IconButton(
+          icon: const Icon(Icons.folder_open, size: 16),
+          tooltip: "打开目录",
+          onPressed: () => _openGameDir(m),
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.all(6),
+          constraints: const BoxConstraints(),
+        ),
+        const SizedBox(width: 6),
         Text("AppID ${m.appId}", style: AppText.bodySmall.copyWith(color: subTextColor(context), fontSize: 11)),
       ]),
     );
