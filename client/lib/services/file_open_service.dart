@@ -5,8 +5,8 @@ class FileOpenService {
     final target = await _folderFor(path);
     if (target == null) return false;
 
-    final result = await _openPath(target);
-    return result.exitCode == 0;
+    await _openPath(target);
+    return true;
   }
 
   static Future<String?> _folderFor(String path) async {
@@ -16,13 +16,19 @@ class FileOpenService {
     return null;
   }
 
-  static Future<ProcessResult> _openPath(String path) {
+  static Future<void> _openPath(String path) async {
     if (Platform.isWindows) {
-      return Process.run("explorer.exe", [path]);
+      await Process.start(
+        "explorer.exe",
+        [path],
+        mode: ProcessStartMode.detached,
+      );
+      return;
     }
     if (Platform.isMacOS) {
-      return Process.run("open", [path]);
+      await Process.start("open", [path], mode: ProcessStartMode.detached);
+      return;
     }
-    return Process.run("xdg-open", [path]);
+    await Process.start("xdg-open", [path], mode: ProcessStartMode.detached);
   }
 }
