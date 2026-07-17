@@ -792,34 +792,32 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
             ])
         else if (_task.status == "done" || _task.status == "cancelled")
-          Row(children: [
+          Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             // PC-only: Steam + Shortcut buttons (Android has no Steam/desktop)
-            if (_task.status == "done" && _task.outputPath != null && !_task.isApk && !Platform.isAndroid)
-              Expanded(
-                child: Wrap(spacing: 8, runSpacing: 8, children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _openTargetFolder(_task.outputPath!),
-                    icon: const Icon(Icons.folder_open, size: 16),
-                    label: const Text("打开文件夹", style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _addToSteamDownload(_task),
-                    icon: const Icon(Icons.gamepad, size: 16),
-                    label: const Text("Steam", style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _createShortcut(_task),
-                    icon: const Icon(Icons.desktop_windows, size: 16),
-                    label: const Text("快捷方式", style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
-                  ),
-                ]),
-              )
-            else
-              const Spacer(),
-            FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭")),
+            if (_task.status == "done" && _task.outputPath != null && !_task.isApk && !Platform.isAndroid) ...[
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                OutlinedButton.icon(
+                  onPressed: () => _openTargetFolder(_task.outputPath!),
+                  icon: const Icon(Icons.folder_open, size: 16),
+                  label: const Text("打开文件夹", style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _addToSteamDownload(_task),
+                  icon: const Icon(Icons.gamepad, size: 16),
+                  label: const Text("Steam", style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _createShortcut(_task),
+                  icon: const Icon(Icons.desktop_windows, size: 16),
+                  label: const Text("快捷方式", style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                ),
+              ]),
+              const SizedBox(height: 10),
+            ],
+            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text("关闭"))),
           ]),
         if (_task.status == "paused")
           Row(children: [
