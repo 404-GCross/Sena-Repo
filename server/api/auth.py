@@ -6,7 +6,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_session
@@ -120,6 +120,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         token=secrets.token_hex(32),
     )
     session.add(user)
+    await session.flush()
 
     if not is_first:
         admins = await session.execute(
@@ -206,7 +207,10 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
 
     related = await session.execute(
         select(Notification).where(
-            Notification.target_user_id == body.user_id,
+            or_(
+                Notification.target_user_id == body.user_id,
+                Notification.title == f"新用户注册: {user.username}",
+            ),
             Notification.type == "approval_request",
         )
     )
@@ -228,7 +232,15 @@ async def approve_user(body: ApproveRequest, _admin: User = Depends(require_admi
 async def list_notifications(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     """List recent notifications."""
     query = select(Notification).order_by(Notification.created_at.desc()).limit(50)
-    if not user.is_admin:
+    if user.is_admin:
+        query = query.where(
+            or_(
+                Notification.type == "approval_request",
+                Notification.target_user_id == user.id,
+                Notification.target_user_id.is_(None),
+            )
+        )
+    else:
         query = query.where(Notification.target_user_id == user.id)
     result = await session.execute(query)
     notes = result.scalars().all()
@@ -240,7 +252,15 @@ async def list_notifications(user: User = Depends(get_current_user), session: As
 @router.get("/notifications/unread-count")
 async def unread_count(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     query = select(func.count()).select_from(Notification).where(Notification.read == False)
-    if not user.is_admin:
+    if user.is_admin:
+        query = query.where(
+            or_(
+                Notification.type == "approval_request",
+                Notification.target_user_id == user.id,
+                Notification.target_user_id.is_(None),
+            )
+        )
+    else:
         query = query.where(Notification.target_user_id == user.id)
     result = await session.execute(query)
     return {"count": result.scalar()}
@@ -249,7 +269,15 @@ async def unread_count(user: User = Depends(get_current_user), session: AsyncSes
 @router.post("/notifications/{note_id}/read")
 async def mark_read(note_id: int, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     query = select(Notification).where(Notification.id == note_id)
-    if not user.is_admin:
+    if user.is_admin:
+        query = query.where(
+            or_(
+                Notification.type == "approval_request",
+                Notification.target_user_id == user.id,
+                Notification.target_user_id.is_(None),
+            )
+        )
+    else:
         query = query.where(Notification.target_user_id == user.id)
     result = await session.execute(query)
     note = result.scalar_one_or_none()
@@ -262,7 +290,15 @@ async def mark_read(note_id: int, user: User = Depends(get_current_user), sessio
 @router.post("/notifications/read-all")
 async def mark_all_read(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     query = select(Notification).where(Notification.read == False)
-    if not user.is_admin:
+    if user.is_admin:
+        query = query.where(
+            or_(
+                Notification.type == "approval_request",
+                Notification.target_user_id == user.id,
+                Notification.target_user_id.is_(None),
+            )
+        )
+    else:
         query = query.where(Notification.target_user_id == user.id)
     result = await session.execute(query)
     for note in result.scalars().all():
