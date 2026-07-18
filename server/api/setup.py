@@ -82,8 +82,6 @@ async def initialize_setup(
             session.add(RootDirectory(path=path))
             roots_added += 1
 
-    await session.commit()
-
     # Save patch_dir and steam_dir to config.yaml
     import yaml, os
     config_path = "config.yaml"
@@ -96,11 +94,15 @@ async def initialize_setup(
     if body.steam_dir:
         config_data["steam_dir"] = body.steam_dir
     with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
+        yaml.safe_dump(config_data, f, allow_unicode=True)
 
     # Persist scan settings during initial setup. The normal settings endpoint
     # requires an authenticated admin, but setup runs before the first login.
     config = load_config()
+    if body.patch_dir:
+        config.patch_dir = body.patch_dir
+    if body.steam_dir:
+        config.steam_dir = body.steam_dir
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
     config._scan_structure = (
@@ -114,6 +116,9 @@ async def initialize_setup(
     except Exception as e:
         logger = logging.getLogger("sena-repo")
         logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
+
+    await session.commit()
 
     # Fire background scans (don't block response — user enters main page immediately)
     asyncio.create_task(_background_scan(config, body.patch_dir))
