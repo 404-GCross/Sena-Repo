@@ -159,10 +159,10 @@ class DownloadService with WidgetsBindingObserver {
         if (task.status == "downloading" || task.status == "pending" ||
             task.status == "retrying" || task.status == "extracting") {
           task.status = "pending";
-          _run(task);
         }
       }
       if (_tasks.isNotEmpty) _emit();
+      _scheduleDownloads();
     } catch (_) {}
   }
 
@@ -191,7 +191,13 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   final List<DownloadTask> _tasks = [];
+  final Set<DownloadTask> _runningTasks = <DownloadTask>{};
   final _controller = StreamController<List<DownloadTask>>.broadcast();
+  int? _maxConcurrentDownloads;
+  int? _downloadSpeedLimitKbps;
+  bool _schedulingDownloads = false;
+  DateTime _speedWindowStart = DateTime.now();
+  int _speedWindowBytes = 0;
 
   // ── patch injection tracking (static so SteamService cross-instance access works) ──
   static final Map<String, _PatchInjection> _patchInjections = {};
@@ -251,6 +257,59 @@ class DownloadService with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("local_download_dir", path);
     await Directory(path).create(recursive: true);
+  }
+
+  Future<int> get maxConcurrentDownloads async {
+    if (_maxConcurrentDownloads != null) return _maxConcurrentDownloads!;
+    final prefs = await SharedPreferences.getInstance();
+    _maxConcurrentDownloads = (prefs.getInt("max_concurrent_downloads") ?? 3).clamp(1, 10).toInt();
+    return _maxConcurrentDownloads!;
+  }
+
+  Future<void> setMaxConcurrentDownloads(int value) async {
+    final normalized = value.clamp(1, 10).toInt();
+    _maxConcurrentDownloads = normalized;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt("max_concurrent_downloads", normalized);
+    _scheduleDownloads();
+  }
+
+  Future<int> get downloadSpeedLimitKbps async {
+    if (_downloadSpeedLimitKbps != null) return _downloadSpeedLimitKbps!;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt("download_speed_limit_kbps") ?? 0;
+    _downloadSpeedLimitKbps = saved < 0 ? 0 : saved;
+    return _downloadSpeedLimitKbps!;
+  }
+
+  Future<void> setDownloadSpeedLimitKbps(int value) async {
+    _downloadSpeedLimitKbps = value < 0 ? 0 : value;
+    _speedWindowStart = DateTime.now();
+    _speedWindowBytes = 0;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt("download_speed_limit_kbps", _downloadSpeedLimitKbps!);
+  }
+
+  Future<void> _scheduleDownloads() async {
+    if (_schedulingDownloads) return;
+    _schedulingDownloads = true;
+    try {
+      final maxActive = await maxConcurrentDownloads;
+      while (_runningTasks.length < maxActive) {
+        DownloadTask? next;
+        for (final task in _tasks) {
+          if (task.status == "pending" && !_runningTasks.contains(task)) {
+            next = task;
+            break;
+          }
+        }
+        if (next == null) break;
+        _runningTasks.add(next);
+        _run(next);
+      }
+    } finally {
+      _schedulingDownloads = false;
+    }
   }
 
   // ── storage permission (Android) ──
@@ -426,7 +485,7 @@ class DownloadService with WidgetsBindingObserver {
       ..extractPassword = extractPassword;
     _tasks.insert(0, task);
     _emit();
-    _run(task);
+    _scheduleDownloads();
     return task;
   }
 
@@ -443,11 +502,15 @@ class DownloadService with WidgetsBindingObserver {
       await prefs.setInt("resume_${task.gameId}_${task.versionId}", received);
       await prefs.setInt("resume_total_${task.gameId}_${task.versionId}", total);
       _saveTasks();
+      _runningTasks.remove(task);
       _emit();
+      _scheduleDownloads();
     } else if (task.status == "extracting") {
       _killExtractor();
       task.status = "paused";
+      _runningTasks.remove(task);
       _emit();
+      _scheduleDownloads();
     }
   }
 
@@ -463,7 +526,7 @@ class DownloadService with WidgetsBindingObserver {
       }
       task.status = "pending";
       _emit();
-      _run(task);
+      _scheduleDownloads();
     }
   }
 
@@ -475,7 +538,7 @@ class DownloadService with WidgetsBindingObserver {
       task._triedPresetPassword = false;
       task.progress = task.totalBytes > 0 ? task.receivedBytes / task.totalBytes : 0;
       _emit();
-      _run(task);
+      _scheduleDownloads();
     }
   }
 
@@ -536,8 +599,10 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "cancelled";
       task.error = "已取消";
       NotificationService().cancel(task.gameId);
+      _runningTasks.remove(task);
       _emit();
       _cleanupTemp(task);
+      _scheduleDownloads();
     } else if (task.status == "failed") {
       task.status = "cancelled";
       NotificationService().cancel(task.gameId);
@@ -779,7 +844,7 @@ class DownloadService with WidgetsBindingObserver {
           t.error = null;
           t.needsPassword = false;
           _emit();
-          _runWithPassword(t, presetPassword);
+          await _runWithPassword(t, presetPassword);
           return;
         }
         t.needsPassword = true;
@@ -790,6 +855,10 @@ class DownloadService with WidgetsBindingObserver {
         t.error = errStr;
       }
       _emit();
+    } finally {
+      _runningTasks.remove(t);
+      _onDownloadEnded();
+      _scheduleDownloads();
     }
   }
 
@@ -859,6 +928,27 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _throttleDownload(int bytes) async {
+    final limitKbps = await downloadSpeedLimitKbps;
+    if (limitKbps <= 0) return;
+
+    final limitBytesPerSecond = limitKbps * 1024;
+    _speedWindowBytes += bytes;
+    final now = DateTime.now();
+    final elapsedMs = now.difference(_speedWindowStart).inMilliseconds;
+
+    if (elapsedMs >= 1000) {
+      _speedWindowStart = now;
+      _speedWindowBytes = 0;
+      return;
+    }
+
+    final expectedMs = (_speedWindowBytes * 1000 / limitBytesPerSecond).ceil();
+    if (expectedMs > elapsedMs) {
+      await Future.delayed(Duration(milliseconds: expectedMs - elapsedMs));
+    }
+  }
+
   Future<void> _attempt(DownloadTask t, File dest) async {
     final client = http.Client();
     t._client = client;
@@ -908,6 +998,7 @@ class DownloadService with WidgetsBindingObserver {
           mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write);
 
       await for (final chunk in resp.stream) {
+        await _throttleDownload(chunk.length);
         sink.add(chunk);
         received += chunk.length;
         t.receivedBytes = received;
