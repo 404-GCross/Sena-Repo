@@ -1,6 +1,7 @@
 /// Settings screen with menu-like sub-pages.
 
 import "package:flutter/material.dart";
+import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -13,6 +14,7 @@ import "../providers/theme_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
+import "../services/download_service.dart";
 import "../services/profile_service.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
@@ -88,6 +90,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileEditScreen()))),
             _menuItem(Icons.grid_view, Colors.teal, "显示", "封面大小、托盘设置",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DisplayPage()))),
+            _menuItem(Icons.download_outlined, Colors.green, "下载设置", "目录、并发数、限速",
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DownloadSettingsPage()))),
             _menuItem(Icons.palette, Colors.pink, "美化", "主题色",
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeautifyScreen()))),
             _menuItem(Icons.bug_report, Colors.grey, "日志", "查看客户端运行日志",
@@ -188,6 +192,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+// ── Download Settings Sub-Page ──
+class _DownloadSettingsPage extends StatefulWidget {
+  const _DownloadSettingsPage();
+  @override State<_DownloadSettingsPage> createState() => _DownloadSettingsPageState();
+}
+
+class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
+  String _downloadDir = "";
+  int _maxConcurrent = 3;
+  final _speedCtrl = TextEditingController();
+  bool _loading = true;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  @override
+  void dispose() { _speedCtrl.dispose(); super.dispose(); }
+
+  Future<void> _load() async {
+    final service = DownloadService();
+    final dir = await service.downloadDir;
+    final maxConcurrent = await service.maxConcurrentDownloads;
+    final speedLimit = await service.downloadSpeedLimitKbps;
+    if (!mounted) return;
+    setState(() {
+      _downloadDir = dir;
+      _maxConcurrent = maxConcurrent;
+      _speedCtrl.text = speedLimit > 0 ? "$speedLimit" : "";
+      _loading = false;
+    });
+  }
+
+  Future<void> _changeDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择下载目录");
+    if (result == null) return;
+    try {
+      await DownloadService().setDownloadDir(result);
+      if (mounted) setState(() => _downloadDir = result);
+    } catch (e) {
+      if (mounted) _toast(context, "保存下载目录失败: $e");
+    }
+  }
+
+  Future<void> _changeMaxConcurrent(int value) async {
+    await DownloadService().setMaxConcurrentDownloads(value);
+    if (mounted) setState(() => _maxConcurrent = value);
+  }
+
+  Future<void> _saveSpeedLimit() async {
+    final text = _speedCtrl.text.trim();
+    final value = text.isEmpty ? 0 : int.tryParse(text);
+    if (value == null || value < 0) {
+      _toast(context, "请输入有效的限速数值");
+      return;
+    }
+    await DownloadService().setDownloadSpeedLimitKbps(value);
+    if (mounted) _toast(context, value > 0 ? "下载限速已设置为 $value KB/s" : "下载限速已关闭");
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text("下载设置")),
+    body: _loading ? const Center(child: CircularProgressIndicator()) : ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _sectionTitle("下载目录"),
+        Container(
+          decoration: BoxDecoration(color: cardBg(context), borderRadius: BorderRadius.circular(12), border: Border.all(color: cardBorder(context))),
+          child: ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: Text(_downloadDir.isEmpty ? "未设置" : _downloadDir, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: TextButton.icon(onPressed: _changeDir, icon: const Icon(Icons.edit, size: 16), label: const Text("更改")),
+          ),
+        ),
+        const SizedBox(height: 20),
+        _sectionTitle("下载性能"),
+        Container(
+          decoration: BoxDecoration(color: cardBg(context), borderRadius: BorderRadius.circular(12), border: Border.all(color: cardBorder(context))),
+          child: Column(children: [
+            ListTile(
+              leading: const Icon(Icons.queue),
+              title: const Text("最大同时下载数"),
+              subtitle: const Text("最高 10 个任务"),
+              trailing: DropdownButton<int>(
+                value: _maxConcurrent,
+                underline: const SizedBox(),
+                items: List.generate(10, (i) => i + 1).map((v) => DropdownMenuItem(value: v, child: Text("$v"))).toList(),
+                onChanged: (v) { if (v != null) _changeMaxConcurrent(v); },
+              ),
+            ),
+            Divider(height: 1, color: cardBorder(context)),
+            ListTile(
+              leading: const Icon(Icons.speed),
+              title: const Text("下载限速"),
+              subtitle: const Text("留空或 0 表示不限速"),
+              trailing: SizedBox(
+                width: 132,
+                child: TextField(
+                  controller: _speedCtrl,
+                  textAlign: TextAlign.end,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(suffixText: "KB/s", isDense: true),
+                  onSubmitted: (_) => _saveSpeedLimit(),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(onPressed: _saveSpeedLimit, child: const Text("保存限速")),
+              ),
+            ),
+          ]),
+        ),
+      ],
+    ),
+  );
+
+  Widget _sectionTitle(String t) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(t, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+  );
 }
 
 // ── Batch scrape config dialog ──
