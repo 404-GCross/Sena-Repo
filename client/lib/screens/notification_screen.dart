@@ -11,7 +11,8 @@ import "../utils/theme_utils.dart";
 
 class NotificationScreen extends StatefulWidget {
   final ApiClient api;
-  const NotificationScreen({super.key, required this.api});
+  final Future<void> Function()? onChanged;
+  const NotificationScreen({super.key, required this.api, this.onChanged});
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -37,6 +38,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     await Future.wait([_loadNotifications(), _loadPending()]);
+    if (!mounted) return;
     setState(() => _loading = false);
   }
 
@@ -64,15 +66,40 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _approve(int userId, bool approve) async {
     try {
-      await http.post(
+      final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/auth/approve"),
         headers: await _authHeaders,
         body: jsonEncode({"user_id": userId, "approve": approve}),
       );
+      if (resp.statusCode != 200) {
+        final detail = _errorDetail(resp.body);
+        if (mounted) _showError(detail ?? "操作失败: ${resp.statusCode}");
+        return;
+      }
       await _load();
+      final onChanged = widget.onChanged;
+      if (onChanged != null) await onChanged();
     } catch (e) {
-      if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("操作失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
+      if (mounted) _showError("操作失败: $e");
     }
+  }
+
+  String? _errorDetail(String body) {
+    try {
+      final data = jsonDecode(body);
+      final detail = data is Map ? data["detail"] : null;
+      return detail?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _showError(String message) {
+    showDialog(context: context, builder: (d) => AlertDialog(
+      title: const Text("错误"),
+      content: Text(message),
+      actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))],
+    ));
   }
 
   @override
@@ -83,9 +110,15 @@ class _NotificationScreenState extends State<NotificationScreen> {
           icon: const Icon(Icons.done_all),
           tooltip: "全部已读",
           onPressed: () async {
-            await http.post(Uri.parse("${widget.api.baseUrl}/api/auth/notifications/read-all"),
+            final resp = await http.post(Uri.parse("${widget.api.baseUrl}/api/auth/notifications/read-all"),
                 headers: await _authHeaders);
-            _load();
+            if (resp.statusCode != 200) {
+              if (mounted) _showError("操作失败: ${resp.statusCode}");
+              return;
+            }
+            await _load();
+            final onChanged = widget.onChanged;
+            if (onChanged != null) await onChanged();
           },
         ),
       ]),
