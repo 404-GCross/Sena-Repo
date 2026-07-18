@@ -11,7 +11,8 @@ import "../utils/theme_utils.dart";
 
 class NotificationScreen extends StatefulWidget {
   final ApiClient api;
-  const NotificationScreen({super.key, required this.api});
+  final VoidCallback? onChanged;
+  const NotificationScreen({super.key, required this.api, this.onChanged});
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -70,6 +71,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         body: jsonEncode({"user_id": userId, "approve": approve}),
       );
       await _load();
+      widget.onChanged?.call();
     } catch (e) {
       if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("操作失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
     }
@@ -86,6 +88,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
             await http.post(Uri.parse("${widget.api.baseUrl}/api/auth/notifications/read-all"),
                 headers: await _authHeaders);
             _load();
+            widget.onChanged?.call();
           },
         ),
       ]),

@@ -63,15 +63,11 @@ class _HomeScreenState extends State<HomeScreen> {
       await Future.delayed(const Duration(seconds: 30));
       if (!mounted) return false;
       try {
+        await _refreshUnreadCount();
+        // Poll scrape jobs
         final api = context.read<GameProvider>().api;
         final base = api.baseUrl;
         final hdrs = api.headers;
-        // Poll notifications
-        final nResp = await http.get(Uri.parse("$base/api/auth/notifications/unread-count"), headers: hdrs);
-        if (mounted && nResp.statusCode == 200) {
-          setState(() => _unreadCount = (jsonDecode(nResp.body) as Map)["count"] ?? 0);
-        }
-        // Poll scrape jobs
         final jResp = await http.get(Uri.parse("$base/api/scrape/jobs"), headers: hdrs);
         if (mounted && jResp.statusCode == 200) {
           final jobs = jsonDecode(jResp.body) as List;
@@ -88,6 +84,16 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (_) {}
       return mounted;
     });
+  }
+
+  Future<void> _refreshUnreadCount() async {
+    try {
+      final api = context.read<GameProvider>().api;
+      final r = await http.get(Uri.parse("${api.baseUrl}/api/auth/notifications/unread-count"), headers: api.headers);
+      if (r.statusCode == 200 && mounted) {
+        setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
+      }
+    } catch (_) {}
   }
 
   Widget _buildGameLibrary(GameProvider gameProvider) {
@@ -639,13 +645,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           onPressed: () async {
             await Navigator.push(context,
-                MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
-            try {
-              final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"), headers: gameProvider.api.headers);
-              if (r.statusCode == 200 && mounted) {
-                setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
-              }
-            } catch (_) {}
+                MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api, onChanged: _refreshUnreadCount)));
+            await _refreshUnreadCount();
           },
         ),
         actions: [
@@ -674,13 +675,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               _sideBtn(Icons.notifications_outlined, "通知", () async {
                 await Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api)));
-                try {
-                  final r = await http.get(Uri.parse("${gameProvider.api.baseUrl}/api/auth/notifications/unread-count"), headers: gameProvider.api.headers);
-                  if (r.statusCode == 200 && mounted) {
-                    setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
-                  }
-                } catch (_) {}
+                    MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api, onChanged: _refreshUnreadCount)));
+                await _refreshUnreadCount();
               }),
               IconButton(
                 icon: Badge(
