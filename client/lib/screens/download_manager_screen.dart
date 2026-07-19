@@ -40,7 +40,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     _sub = DownloadService().tasks.listen((t) {
       if (mounted) setState(() => _tasks = t);
     });
-    ShortcutService.loadCustomDesktopDir();
   }
 
   @override
@@ -54,33 +53,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text("下载管理")),
       body: Column(children: [
-        // ── Shortcut directory (PC only) ──
-        if (Platform.isWindows)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Row(children: [
-              Icon(Icons.desktop_windows, size: 20, color: sectionIconColor(context)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(ShortcutService.customDesktopDir ?? "桌面",
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: AppText.bodySmall.copyWith( color: subTextColor(context))),
-              ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: _changeShortcutDir,
-                icon: const Icon(Icons.edit, size: 16),
-                label: const Text("快捷方式目录", style: TextStyle(fontSize: 12)),
-                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
-              ),
-            ]),
-          ),
         // ── Task list ──
         Expanded(
           child: _tasks.isEmpty
@@ -422,17 +394,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       _toast(ok ? "快捷方式已创建" : "创建失败");
     } catch (e) {
       _toast("创建失败: $e");
-    }
-  }
-
-  Future<void> _changeShortcutDir() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: "选择快捷方式存放目录",
-    );
-    if (result != null) {
-      await ShortcutService.setCustomDesktopDir(result);
-      if (mounted) setState(() {});
-      _toast("快捷方式目录已更改为: $result");
     }
   }
 

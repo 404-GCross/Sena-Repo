@@ -16,6 +16,7 @@ import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
+import "../services/shortcut_service.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
 import "profile_edit_screen.dart";
@@ -202,6 +203,7 @@ class _DownloadSettingsPage extends StatefulWidget {
 
 class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
   String _downloadDir = "";
+  String _shortcutDir = "";
   int _maxConcurrent = 3;
   final _speedCtrl = TextEditingController();
   bool _loading = true;
@@ -217,9 +219,11 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
     final dir = await service.downloadDir;
     final maxConcurrent = await service.maxConcurrentDownloads;
     final speedLimit = await service.downloadSpeedLimitKbps;
+    await ShortcutService.loadCustomDesktopDir();
     if (!mounted) return;
     setState(() {
       _downloadDir = dir;
+      _shortcutDir = ShortcutService.customDesktopDir ?? "";
       _maxConcurrent = maxConcurrent;
       _speedCtrl.text = speedLimit > 0 ? "$speedLimit" : "";
       _loading = false;
@@ -235,6 +239,13 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
     } catch (e) {
       if (mounted) _toast(context, "保存下载目录失败: $e");
     }
+  }
+
+  Future<void> _changeShortcutDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(dialogTitle: "选择快捷方式存放目录");
+    if (result == null) return;
+    await ShortcutService.setCustomDesktopDir(result);
+    if (mounted) setState(() => _shortcutDir = result);
   }
 
   Future<void> _changeMaxConcurrent(int value) async {
@@ -268,6 +279,18 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
             trailing: TextButton.icon(onPressed: _changeDir, icon: const Icon(Icons.edit, size: 16), label: const Text("更改")),
           ),
         ),
+        if (Platform.isWindows) ...[
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(color: cardBg(context), borderRadius: BorderRadius.circular(12), border: Border.all(color: cardBorder(context))),
+            child: ListTile(
+              leading: const Icon(Icons.desktop_windows),
+              title: Text(_shortcutDir.isEmpty ? "桌面" : _shortcutDir, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: const Text("快捷方式存放目录"),
+              trailing: TextButton.icon(onPressed: _changeShortcutDir, icon: const Icon(Icons.edit, size: 16), label: const Text("更改")),
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         _sectionTitle("下载性能"),
         Container(
