@@ -831,12 +831,20 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               child: const Text("取消", style: TextStyle(color: Colors.red)),
             ),
           ]),
-        if (_task.status == "downloading" || _task.status == "extracting" || _task.status == "pending")
+        if (_task.status == "downloading" || _task.status == "extracting")
           Row(children: [
             TextButton(
               onPressed: () { DownloadService().pauseTask(_task); },
               child: const Text("暂停"),
             ),
+            TextButton(
+              onPressed: () { DownloadService().cancelTask(_task); },
+              child: const Text("取消", style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
+          ]),
+        if (_task.status == "pending")
+          Row(children: [
             TextButton(
               onPressed: () { DownloadService().cancelTask(_task); },
               child: const Text("取消", style: TextStyle(color: Colors.red)),
@@ -1007,6 +1015,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                 style: AppText.bodySmall.copyWith( color: subTextColor(context))),
           ]),
         ]);
+      case "pending":
+        return Row(children: [
+          Icon(Icons.schedule, color: subTextColor(context), size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text("等待下载队列...",
+              style: AppText.bodyMedium.copyWith( color: subTextColor(context)))),
+        ]);
       case "extracting":
         return Row(children: [
           const SizedBox(width: 20, height: 20,
@@ -1050,10 +1065,10 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         ]);
       default:
         return Row(children: [
-          Icon(Icons.error, color: Colors.red[300], size: 20),
+          Icon(Icons.download, color: subTextColor(context), size: 20),
           const SizedBox(width: 8),
-          Expanded(child: Text(_task.error ?? "下载失败",
-              style: AppText.bodySmall.copyWith( color: Colors.red[300]))),
+          Expanded(child: Text("准备下载...",
+              style: AppText.bodySmall.copyWith( color: subTextColor(context)))),
         ]);
     }
   }
