@@ -827,7 +827,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
             ),
             TextButton(
-              onPressed: () { DownloadService().cancelTask(_task); },
+              onPressed: _cancelAndClose,
               child: const Text("取消", style: TextStyle(color: Colors.red)),
             ),
           ]),
@@ -838,7 +838,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               child: const Text("暂停"),
             ),
             TextButton(
-              onPressed: () { DownloadService().cancelTask(_task); },
+              onPressed: _cancelAndClose,
               child: const Text("取消", style: TextStyle(color: Colors.red)),
             ),
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
@@ -846,13 +846,18 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         if (_task.status == "pending")
           Row(children: [
             TextButton(
-              onPressed: () { DownloadService().cancelTask(_task); },
+              onPressed: _cancelAndClose,
               child: const Text("取消", style: TextStyle(color: Colors.red)),
             ),
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("后台运行")),
           ]),
       ],
     );
+  }
+
+  void _cancelAndClose() {
+    DownloadService().cancelTask(_task);
+    Navigator.pop(context);
   }
 
   Future<void> _openTargetFolder(String path) async {
@@ -1062,6 +1067,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           const SizedBox(width: 8),
           Expanded(child: Text(_task.error ?? "下载失败",
               style: AppText.bodySmall.copyWith( color: Colors.red[300]))),
+        ]);
+      case "cancelled":
+        return Row(children: [
+          Icon(Icons.cancel, color: subTextColor(context), size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text("已取消",
+              style: AppText.bodySmall.copyWith( color: subTextColor(context)))),
         ]);
       default:
         return Row(children: [
