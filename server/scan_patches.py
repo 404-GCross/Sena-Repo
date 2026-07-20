@@ -166,6 +166,44 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
     return archives
 
 
+def scan_patches_source(source, root_path: str, source_type: str = "local", source_id: int | None = None) -> list[dict]:
+    """Scan a generic file source for patch archive files."""
+    from services.file_source import canonical_source_path
+
+    keywords = dict(DEFAULT_TYPE_KEYWORDS)
+    archives = []
+    exts = (".zip", ".rar", ".7z", ".tar", ".gz", ".xz")
+    root = root_path.rstrip("/")
+    stack = [root_path]
+    while stack:
+        current = stack.pop()
+        for entry in source.list(current):
+            if entry.is_dir:
+                stack.append(entry.path)
+                continue
+            if not entry.name.lower().endswith(exts):
+                continue
+            rel = entry.path[len(root):].lstrip("/") if entry.path.startswith(root) else entry.name
+            app_id = _guess_app_id(rel, entry.name)
+            ptype = _guess_type(entry.name, keywords)
+            label = _extract_game_name(entry.name) if not app_id else ""
+            archives.append({
+                "app_id": app_id,
+                "file": canonical_source_path(source_type, source_id, entry.path),
+                "source_type": source_type,
+                "source_id": source_id,
+                "source_path": entry.path,
+                "display_file": rel,
+                "patch_dir": "",
+                "target_dir": "",
+                "label": label,
+                "type": ptype,
+                "game_name": _fetch_game_name(app_id) if app_id else "",
+            })
+    archives.sort(key=lambda p: p.get("file", ""))
+    return archives
+
+
 def load_existing(json_path: Path) -> dict | None:
     if json_path.exists():
         try:

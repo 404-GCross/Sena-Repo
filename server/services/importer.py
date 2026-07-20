@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
 from models.game import Company, Game, GameVersion, Platform, GameTag
+from models.file_source import FileSource
 from models.ignore_list import IgnoreList
 from models.root_directory import RootDirectory
 from models.tag import Tag
 from services.cleaner import clean_filename, normalize_company_name, _clean_name
-from services.scanner import scan_root, get_ignore_paths
+from services.file_source import adapter_from_source, canonical_source_path
+from services.scanner import scan_root, scan_source, get_ignore_paths
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +42,20 @@ async def import_from_root(
 
     ignore_paths = await get_ignore_paths(session)
 
-    # Scan the filesystem in a thread pool so slow/remote storage doesn't block the event loop
+    source_type = root.source_type or "local"
+    source_path = root.source_path or root.path
+    source_model = None
+    if source_type == "openlist" and root.source_id:
+        source_result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
+        source_model = source_result.scalar_one_or_none()
+
+    # Scan the filesystem/source in a thread pool so slow/remote storage doesn't block the event loop
     scan_structure = getattr(config, "_scan_structure", "company_game")
-    scan_result = await asyncio.to_thread(scan_root, root.path, ignore_paths, scan_structure)
+    if source_type == "local":
+        scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure)
+    else:
+        adapter = adapter_from_source(source_model, source_type)
+        scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure)
 
     stats = {"new_games": 0, "updated_games": 0, "new_versions": 0, "total": 0}
 
@@ -56,12 +69,13 @@ async def import_from_root(
 
         for game_folder in company_folder.games:
             # Upsert game
+            canonical_game_path = canonical_source_path(source_type, root.source_id, game_folder.path)
             game = await _upsert_game(
                 session,
                 name=game_folder.name,
                 company_id=company.id,
                 root_id=root.id,
-                folder_path=game_folder.path,
+                folder_path=canonical_game_path,
                 developer=company_name,
             )
 
@@ -90,8 +104,11 @@ async def import_from_root(
                     game_id=game.id,
                     platform=extraction.platform,
                     filename=archive.filename,
-                    file_path=archive.filepath,
+                    file_path=canonical_source_path(source_type, root.source_id, archive.filepath),
                     file_size=archive.file_size,
+                    source_type=source_type,
+                    source_id=root.source_id,
+                    source_path=archive.filepath,
                 )
                 if created:
                     version_count += 1
@@ -104,7 +121,8 @@ async def import_from_root(
 
     # Detect orphaned games (exist in DB but folder no longer on disk)
     scanned_paths = {
-        g.path for c in scan_result.companies for g in c.games
+        canonical_source_path(source_type, root.source_id, g.path)
+        for c in scan_result.companies for g in c.games
     }
     all_games = await session.execute(
         select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
@@ -112,8 +130,7 @@ async def import_from_root(
     orphans = 0
     for game in all_games.scalars().all():
         if game.folder_path and game.folder_path not in scanned_paths:
-            p = Path(game.folder_path)
-            if not p.exists():
+            if source_type != "local" or not Path(game.folder_path).exists():
                 game.is_deleted = True
                 game.updated_at = datetime.utcnow()
                 orphans += 1
@@ -221,6 +238,9 @@ async def _upsert_version(
     filename: str,
     file_path: str,
     file_size: int,
+    source_type: str = "local",
+    source_id: int | None = None,
+    source_path: str | None = None,
 ) -> bool:
     """Create a GameVersion if one with same file_path doesn't exist.
     Returns True if a new version was created.
@@ -232,6 +252,9 @@ async def _upsert_version(
     if existing is not None:
         # Update size if changed
         existing.file_size = file_size
+        existing.source_type = source_type
+        existing.source_id = source_id
+        existing.source_path = source_path or file_path
         return False
 
     version = GameVersion(
@@ -239,6 +262,9 @@ async def _upsert_version(
         platform=platform,
         filename=filename,
         file_path=file_path,
+        source_type=source_type,
+        source_id=source_id,
+        source_path=source_path or file_path,
         file_size=file_size,
     )
     session.add(version)

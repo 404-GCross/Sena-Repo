@@ -15,8 +15,10 @@ from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
 from models.user import User
+from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
+from services.file_source import adapter_from_source, canonical_source_path, normalize_remote_path
 from services.importer import import_from_root
 
 logger = logging.getLogger(__name__)
@@ -28,11 +30,21 @@ _scan_lock = asyncio.Lock()
 class RootCreate(BaseModel):
     path: str = Field(min_length=1, max_length=1024)
     enable_batch_scrape: bool = True
+    source_type: str = "local"
+    source_id: int | None = None
+    source_name: str | None = None
+    base_url: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class RootOut(BaseModel):
     id: int
     path: str
+    source_type: str = "local"
+    source_id: int | None = None
+    source_name: str | None = None
+    source_path: str | None = None
     enable_batch_scrape: bool
 
     model_config = {"from_attributes": True}
@@ -52,14 +64,51 @@ async def add_root(
     session: AsyncSession = Depends(get_session),
 ):
     """Add a new root directory."""
+    source_type = body.source_type if body.source_type in {"local", "openlist"} else "local"
+    source_id = body.source_id
+    source_name = body.source_name
+    source_path = body.path if source_type == "local" else normalize_remote_path(body.path)
+    if source_type == "openlist":
+        source = None
+        if source_id:
+            result = await session.execute(select(FileSource).where(FileSource.id == source_id))
+            source = result.scalar_one_or_none()
+            if source is None:
+                raise HTTPException(status_code=404, detail="OpenList source not found")
+        else:
+            if not body.base_url or not body.username:
+                raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+            source = FileSource(
+                name=source_name or body.base_url,
+                type="openlist",
+                base_url=body.base_url.rstrip("/"),
+                username=body.username,
+                password=body.password or "",
+            )
+            session.add(source)
+            await session.flush()
+            source_id = source.id
+        adapter = adapter_from_source(source, "openlist")
+        if not await asyncio.to_thread(adapter.exists, source_path):
+            raise HTTPException(status_code=404, detail="OpenList path not found")
+        source_name = source.name
+
+    stored_path = canonical_source_path(source_type, source_id, source_path)
     # Check for duplicate
     existing = await session.execute(
-        select(RootDirectory).where(RootDirectory.path == body.path)
+        select(RootDirectory).where(RootDirectory.path == stored_path)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Root directory already exists")
 
-    root = RootDirectory(path=body.path, enable_batch_scrape=body.enable_batch_scrape)
+    root = RootDirectory(
+        path=stored_path,
+        source_type=source_type,
+        source_id=source_id,
+        source_name=source_name,
+        source_path=source_path,
+        enable_batch_scrape=body.enable_batch_scrape,
+    )
     session.add(root)
     await session.commit()
     await session.refresh(root)

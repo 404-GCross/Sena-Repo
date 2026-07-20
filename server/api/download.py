@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +15,9 @@ from api.auth import get_current_user
 from config import load_config
 from database import get_session
 from models.game import Game, GameVersion
+from models.file_source import FileSource
 from models.user import User
+from services.file_source import adapter_from_source
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,13 @@ async def download_game_version(
         version = result.scalar_one_or_none()
         if version is None:
             raise HTTPException(status_code=404, detail="Version not found")
+
+        if (version.source_type or "local") == "openlist":
+            result = await session.execute(select(FileSource).where(FileSource.id == version.source_id))
+            source = result.scalar_one_or_none()
+            adapter = adapter_from_source(source, "openlist")
+            raw_url = await asyncio.to_thread(adapter.download_url, version.source_path or version.file_path)
+            return RedirectResponse(raw_url, status_code=302)
 
         file_path = Path(version.file_path).resolve()
         # Verify file is within configured games directory

@@ -439,6 +439,104 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
   }
 }
 
+class _SourceDirectoryDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> fileSources;
+  final String purposeLabel;
+  const _SourceDirectoryDialog({required this.fileSources, required this.purposeLabel});
+
+  @override State<_SourceDirectoryDialog> createState() => _SourceDirectoryDialogState();
+}
+
+class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
+  String _sourceType = "local";
+  bool _newOpenList = true;
+  int? _sourceId;
+  final _pathCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController(text: "OpenList");
+  final _baseUrlCtrl = TextEditingController();
+  final _usernameCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _pathCtrl.dispose();
+    _nameCtrl.dispose();
+    _baseUrlCtrl.dispose();
+    _usernameCtrl.dispose();
+    _passwordCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final openListSources = widget.fileSources.where((s) => s["type"] == "openlist").toList();
+    return AlertDialog(
+      title: Text("Add ${widget.purposeLabel} directory"),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: "local", label: Text("Local"), icon: Icon(Icons.folder_outlined)),
+            ButtonSegment(value: "openlist", label: Text("OpenList"), icon: Icon(Icons.cloud_outlined)),
+          ],
+          selected: {_sourceType},
+          onSelectionChanged: (v) => setState(() => _sourceType = v.first),
+        ),
+        const SizedBox(height: 16),
+        if (_sourceType == "openlist" && openListSources.isNotEmpty) ...[
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text("Create new OpenList source"),
+            value: _newOpenList,
+            onChanged: (v) => setState(() => _newOpenList = v),
+          ),
+          if (!_newOpenList)
+            DropdownButtonFormField<int>(
+              value: _sourceId,
+              decoration: const InputDecoration(labelText: "OpenList source"),
+              items: openListSources.map((s) => DropdownMenuItem<int>(
+                value: s["id"] as int,
+                child: Text((s["name"] ?? s["base_url"] ?? "OpenList").toString()),
+              )).toList(),
+              onChanged: (v) => setState(() => _sourceId = v),
+            ),
+        ],
+        if (_sourceType == "openlist" && (_newOpenList || openListSources.isEmpty)) ...[
+          TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "Name")),
+          TextField(controller: _baseUrlCtrl, decoration: const InputDecoration(labelText: "OpenList URL")),
+          TextField(controller: _usernameCtrl, decoration: const InputDecoration(labelText: "Username")),
+          TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: "Password"), obscureText: true),
+        ],
+        TextField(
+          controller: _pathCtrl,
+          decoration: InputDecoration(
+            labelText: _sourceType == "openlist" ? "Remote path" : "Server local path",
+            hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
+          ),
+        ),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+        FilledButton(onPressed: () {
+          final path = _pathCtrl.text.trim();
+          if (path.isEmpty) return;
+          final payload = <String, dynamic>{"source_type": _sourceType, "path": path};
+          if (_sourceType == "openlist") {
+            if (!_newOpenList && _sourceId != null) {
+              payload["source_id"] = _sourceId;
+            } else {
+              payload["source_name"] = _nameCtrl.text.trim();
+              payload["base_url"] = _baseUrlCtrl.text.trim();
+              payload["username"] = _usernameCtrl.text.trim();
+              payload["password"] = _passwordCtrl.text;
+            }
+          }
+          Navigator.pop(context, payload);
+        }, child: const Text("Save")),
+      ],
+    );
+  }
+}
+
 // ── Scan Settings Sub-Page ──
 class _ScanSettingsPage extends StatefulWidget {
   final ApiClient api;
@@ -448,7 +546,8 @@ class _ScanSettingsPage extends StatefulWidget {
 
 class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   List<Map<String, dynamic>> _roots = [];
-  final _dirCtrl = TextEditingController();
+  List<Map<String, dynamic>> _patchRoots = [];
+  List<Map<String, dynamic>> _fileSources = [];
   String _structure = "company_game";
   bool _autoScan = false;
   int _interval = 24;
@@ -460,7 +559,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   final _keys = {"vndb_token": TextEditingController(), "proxy": TextEditingController()};
 
   @override
-  void initState() { super.initState(); _loadRoots(); _loadScanSettings(); _loadScraperSettings(); _checkActiveJob(); }
+  void initState() { super.initState(); _loadRoots(); _loadPatchRoots(); _loadFileSources(); _loadScanSettings(); _loadScraperSettings(); _checkActiveJob(); }
 
   Future<void> _loadRoots() async {
     setState(() => _loading = true);
@@ -471,6 +570,20 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       }
     } catch (_) {}
     setState(() => _loading = false);
+  }
+
+  Future<void> _loadPatchRoots() async {
+    try {
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/steam/patch-roots"), headers: widget.api.headers);
+      if (resp.statusCode == 200 && mounted) setState(() => _patchRoots = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>());
+    } catch (_) {}
+  }
+
+  Future<void> _loadFileSources() async {
+    try {
+      final resp = await http.get(Uri.parse("${widget.api.baseUrl}/api/file-sources"), headers: widget.api.headers);
+      if (resp.statusCode == 200 && mounted) setState(() => _fileSources = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>());
+    } catch (_) {}
   }
 
   Future<void> _loadScanSettings() async {
@@ -509,16 +622,31 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
-  Future<void> _addRoot() async {
-    final p = _dirCtrl.text.trim(); if (p.isEmpty) return;
-    await http.post(Uri.parse("${widget.api.baseUrl}/api/roots"),
-        headers: {"Content-Type": "application/json", ...widget.api.headers}, body: jsonEncode({"path": p}));
-    _dirCtrl.clear(); _loadRoots();
+  Future<void> _addDirectory({required bool patchRoot}) async {
+    final payload = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _SourceDirectoryDialog(fileSources: _fileSources, purposeLabel: patchRoot ? "Steam patch library" : "Game library"),
+    );
+    if (payload == null) return;
+    final endpoint = patchRoot ? "/api/steam/patch-roots" : "/api/roots";
+    final resp = await http.post(Uri.parse("${widget.api.baseUrl}$endpoint"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers}, body: jsonEncode(payload));
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      await _loadFileSources();
+      if (patchRoot) { await _loadPatchRoots(); } else { await _loadRoots(); }
+    } else if (mounted) {
+      _toast(context, "Add directory failed: ${resp.body}");
+    }
   }
 
   Future<void> _delRoot(int id) async {
     await http.delete(Uri.parse("${widget.api.baseUrl}/api/roots/$id"), headers: widget.api.headers);
     _loadRoots();
+  }
+
+  Future<void> _delPatchRoot(int id) async {
+    await http.delete(Uri.parse("${widget.api.baseUrl}/api/steam/patch-roots/$id"), headers: widget.api.headers);
+    _loadPatchRoots();
   }
 
   Future<void> _scanNow() async {
@@ -589,75 +717,64 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
+  Widget _directorySection({
+    required String title,
+    required List<Map<String, dynamic>> items,
+    required VoidCallback onAdd,
+    required void Function(int id) onDelete,
+  }) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    _sectionHeader(title, Icons.folder_outlined),
+    const SizedBox(height: 8),
+    if (items.isEmpty)
+      _hintCard("No directories configured")
+    else
+      ...items.map((r) => Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: cardBg(context),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cardBorder(context)),
+        ),
+        child: Row(children: [
+          Icon((r["source_type"] == "openlist") ? Icons.cloud_outlined : Icons.folder, size: 20, color: hintColor(context)),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text((r["source_type"] == "openlist") ? "OpenList" : "Local", style: AppText.bodySmall.copyWith(color: hintColor(context))),
+            Text((r["source_path"] ?? r["path"] ?? "").toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
+          ])),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+            onPressed: () => onDelete(r["id"] as int),
+            tooltip: "Delete",
+          ),
+        ]),
+      )),
+    Align(
+      alignment: Alignment.centerLeft,
+      child: FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add, size: 18), label: const Text("Add directory")),
+    ),
+    const SizedBox(height: 24),
+  ]);
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text("扫描设置")),
     body: _loading ? const Center(child: CircularProgressIndicator()) : ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // ── Root directories ──
-        _sectionHeader("根目录", Icons.folder_outlined),
-        const SizedBox(height: 8),
-        if (_roots.isEmpty)
-          _hintCard("暂无根目录，请在下方添加")
-        else
-          ..._roots.map((r) => Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Row(children: [
-              Icon(Icons.folder, size: 20, color: hintColor(context)),
-              const SizedBox(width: 10),
-              Expanded(child: Text(r["path"] ?? "", style: const TextStyle(fontSize: 14))),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                onPressed: () => _delRoot(r["id"] as int),
-                tooltip: "删除",
-              ),
-            ]),
-          )),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _dirCtrl,
-              decoration: InputDecoration(
-                hintText: "添加路径，如 /mnt/nas/games",
-                hintStyle: AppText.bodySmall.copyWith( color: Colors.grey[600]),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: cardBorder(context)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: cardBorder(context)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: _addRoot,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text("添加"),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 24),
-
+        _directorySection(
+          title: "Game library directories",
+          items: _roots,
+          onAdd: () => _addDirectory(patchRoot: false),
+          onDelete: _delRoot,
+        ),
+        _directorySection(
+          title: "Steam patch library directories",
+          items: _patchRoots,
+          onAdd: () => _addDirectory(patchRoot: true),
+          onDelete: _delPatchRoot,
+        ),
         // ── Actions ──
         _sectionHeader("操作", Icons.play_arrow_outlined),
         const SizedBox(height: 8),
@@ -989,7 +1106,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   @override
   void dispose() {
-    _dirCtrl.dispose();
     for (final c in _keys.values) { c.dispose(); }
     super.dispose();
   }
