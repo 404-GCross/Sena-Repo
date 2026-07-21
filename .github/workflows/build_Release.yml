@@ -329,11 +329,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push to GHCR (multi-arch)
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to registries (multi-arch)
         run: |
+          DOCKERHUB_NAMESPACE=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/404-gcross/sena-repo:latest \
             -t ghcr.io/404-gcross/sena-repo:v${VERSION} \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:latest \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:v${VERSION} \
             server/ --build-arg SENA_VERSION=${VERSION} --push
 
       - name: Upload Server Image (AMD64)
