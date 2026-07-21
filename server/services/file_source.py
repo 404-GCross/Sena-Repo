@@ -85,6 +85,8 @@ class LocalFileSource:
 
 
 class OpenListFileSource:
+    _STATIC_HASH_SALT = "https://github.com/alist-org/alist"
+
     def __init__(self, source: FileSource):
         self.source = source
         self.base_url = (source.base_url or "").rstrip("/")
@@ -101,7 +103,7 @@ class OpenListFileSource:
     def _login(self) -> str:
         if not self.base_url:
             raise HTTPException(status_code=400, detail="OpenList base URL is empty")
-        password_hash = hashlib.sha256(self.password.encode("utf-8")).hexdigest()
+        password_hash = hashlib.sha256(f"{self.password}-{self._STATIC_HASH_SALT}".encode("utf-8")).hexdigest()
         try:
             with self._client() as client:
                 resp = client.post(
@@ -156,6 +158,9 @@ class OpenListFileSource:
             data = resp.json()
         except ValueError as exc:
             raise HTTPException(status_code=502, detail="OpenList returned invalid JSON") from exc
+        if data.get("code") in (401, 403) and retry:
+            self._token = None
+            return self._post(endpoint, body, retry=False)
         if data.get("code") not in (None, 200):
             raise HTTPException(status_code=502, detail=data.get("message") or "OpenList request failed")
         return data.get("data") or {}
