@@ -123,6 +123,66 @@ async def add_root(
     return root
 
 
+@router.put("/{root_id}", response_model=RootOut)
+async def update_root(
+    root_id: int,
+    body: RootCreate,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update a root directory without deleting the existing record."""
+    result = await session.execute(select(RootDirectory).where(RootDirectory.id == root_id))
+    root = result.scalar_one_or_none()
+    if root is None:
+        raise HTTPException(status_code=404, detail="Root directory not found")
+
+    source_type = body.source_type if body.source_type in {"local", "openlist"} else "local"
+    source_id = body.source_id
+    source_name = body.source_name
+    source_path = body.path if source_type == "local" else normalize_remote_path(body.path)
+    if source_type == "openlist":
+        source = None
+        if source_id:
+            result = await session.execute(select(FileSource).where(FileSource.id == source_id))
+            source = result.scalar_one_or_none()
+            if source is None:
+                raise HTTPException(status_code=404, detail="OpenList source not found")
+        else:
+            if not body.base_url or not body.username:
+                raise HTTPException(status_code=400, detail="OpenList source must be selected first")
+            source = FileSource(
+                name=source_name or body.base_url,
+                type="openlist",
+                base_url=body.base_url.rstrip("/"),
+                username=body.username,
+                password=body.password or "",
+            )
+            session.add(source)
+            await session.flush()
+            source_id = source.id
+        adapter = adapter_from_source(source, "openlist")
+        if not await asyncio.to_thread(adapter.exists, source_path):
+            raise HTTPException(status_code=404, detail="OpenList path not found")
+        source_name = source.name
+
+    stored_path = canonical_source_path(source_type, source_id, source_path)
+    existing = await session.execute(
+        select(RootDirectory).where(RootDirectory.path == stored_path, RootDirectory.id != root_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Root directory already exists")
+
+    root.path = stored_path
+    root.source_type = source_type
+    root.source_id = source_id
+    root.source_name = source_name
+    root.source_path = source_path
+    root.enable_batch_scrape = body.enable_batch_scrape
+    await session.commit()
+    await session.refresh(root)
+    return root
+
+
 @router.delete("/{root_id}", response_model=MessageResponse)
 async def delete_root(
     root_id: int,

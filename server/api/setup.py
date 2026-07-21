@@ -73,6 +73,8 @@ async def initialize_setup(
     user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, is_admin=True)
     session.add(user)
 
+    source_cache: dict[tuple[str, str], FileSource] = {}
+
     async def ensure_source(item: dict) -> tuple[str, int | None, str | None, str]:
         source_type = item.get("source_type") if item.get("source_type") in {"local", "openlist"} else "local"
         path = (item.get("path") or "").strip()
@@ -84,15 +86,23 @@ async def initialize_setup(
                 result = await session.execute(select(FileSource).where(FileSource.id == source_id))
                 source = result.scalar_one_or_none()
             if source is None:
-                source = FileSource(
-                    name=item.get("source_name") or item.get("name") or item.get("base_url") or "OpenList",
-                    type="openlist",
-                    base_url=(item.get("base_url") or "").rstrip("/"),
-                    username=item.get("username") or "",
-                    password=item.get("password") or "",
-                )
-                session.add(source)
-                await session.flush()
+                base_url = (item.get("base_url") or "").rstrip("/")
+                username = item.get("username") or ""
+                if not base_url or not username:
+                    raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+                cache_key = (base_url, username)
+                source = source_cache.get(cache_key)
+                if source is None:
+                    source = FileSource(
+                        name=item.get("source_name") or item.get("name") or base_url or "OpenList",
+                        type="openlist",
+                        base_url=base_url,
+                        username=username,
+                        password=item.get("password") or "",
+                    )
+                    session.add(source)
+                    await session.flush()
+                    source_cache[cache_key] = source
             return source_type, source.id, source.name, path
         return "local", None, item.get("source_name"), path
 

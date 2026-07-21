@@ -70,7 +70,38 @@ async def create_source(
         username=body.username,
         password=body.password or "",
     )
+    adapter = adapter_from_source(source, source.type)
+    await asyncio.to_thread(adapter.list, "/")
     session.add(source)
+    await session.commit()
+    await session.refresh(source)
+    return source
+
+
+@router.put("/{source_id}", response_model=FileSourceOut)
+async def update_source(
+    source_id: int,
+    body: FileSourceCreate,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(select(FileSource).where(FileSource.id == source_id))
+    source = result.scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail="File source not found")
+    if body.type != "openlist":
+        raise HTTPException(status_code=400, detail="Only OpenList sources can be saved here")
+    if not body.base_url or not body.username:
+        raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+
+    source.name = body.name
+    source.type = "openlist"
+    source.base_url = body.base_url.rstrip("/")
+    source.username = body.username
+    if body.password is not None:
+        source.password = body.password
+    adapter = adapter_from_source(source, source.type)
+    await asyncio.to_thread(adapter.list, "/")
     await session.commit()
     await session.refresh(source)
     return source
