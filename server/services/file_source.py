@@ -108,19 +108,35 @@ class OpenListFileSource:
                     self._url("/api/auth/login/hash"),
                     json={"username": self.username, "password": password_hash, "otp_code": ""},
                 )
+                data = self._parse_login_response(resp)
+                if data is None:
+                    resp = client.post(
+                        self._url("/api/auth/login"),
+                        json={"username": self.username, "password": self.password, "otp_code": ""},
+                    )
+                    data = self._parse_login_response(resp, strict=True)
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"OpenList login request failed: {exc}") from exc
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail="OpenList login failed")
-        try:
-            data = resp.json()
-        except ValueError as exc:
-            raise HTTPException(status_code=502, detail="OpenList login returned invalid JSON") from exc
         token = ((data.get("data") or {}).get("token") or "").strip()
         if not token:
             raise HTTPException(status_code=502, detail="OpenList did not return a token")
         self._token = token
         return token
+
+    def _parse_login_response(self, resp: httpx.Response, strict: bool = False) -> dict | None:
+        if resp.status_code >= 400:
+            if strict:
+                raise HTTPException(status_code=502, detail="OpenList login failed")
+            return None
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="OpenList login returned invalid JSON") from exc
+        if data.get("code") not in (None, 200):
+            if strict:
+                raise HTTPException(status_code=502, detail=data.get("message") or "OpenList login failed")
+            return None
+        return data
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": self._token or self._login()}
