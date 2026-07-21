@@ -13,7 +13,7 @@ from api.auth import require_admin
 from database import get_session
 from models.file_source import FileSource
 from models.user import User
-from services.file_source import adapter_from_source, normalize_remote_path
+from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
 
 router = APIRouter(prefix="/api/file-sources", tags=["file-sources"])
 
@@ -66,7 +66,7 @@ async def create_source(
     source = FileSource(
         name=body.name,
         type="openlist",
-        base_url=body.base_url.rstrip("/"),
+        base_url=normalize_base_url(body.base_url),
         username=body.username,
         password=body.password or "",
     )
@@ -96,7 +96,7 @@ async def update_source(
 
     source.name = body.name
     source.type = "openlist"
-    source.base_url = body.base_url.rstrip("/")
+    source.base_url = normalize_base_url(body.base_url)
     source.username = body.username
     if body.password is not None:
         source.password = body.password
@@ -123,7 +123,7 @@ async def test_source(
         source = FileSource(
             name=body.name or body.base_url or "OpenList",
             type="openlist",
-            base_url=(body.base_url or "").rstrip("/"),
+            base_url=normalize_base_url(body.base_url),
             username=body.username or "",
             password=body.password or "",
         )

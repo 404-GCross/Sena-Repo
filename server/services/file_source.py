@@ -55,6 +55,15 @@ def canonical_source_path(source_type: str, source_id: int | None, path: str) ->
     return path
 
 
+def normalize_base_url(base_url: str | None) -> str:
+    cleaned = (base_url or "").strip().rstrip("/")
+    if not cleaned:
+        return ""
+    if "://" not in cleaned:
+        cleaned = "http://" + cleaned
+    return cleaned
+
+
 class LocalFileSource:
     def list(self, path: str) -> list[FileEntry]:
         root = Path(path)
@@ -89,7 +98,7 @@ class OpenListFileSource:
 
     def __init__(self, source: FileSource):
         self.source = source
-        self.base_url = (source.base_url or "").rstrip("/")
+        self.base_url = normalize_base_url(source.base_url)
         self.username = source.username or ""
         self.password = source.password or ""
         self._token: str | None = None

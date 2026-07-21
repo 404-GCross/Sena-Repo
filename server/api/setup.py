@@ -14,7 +14,7 @@ from database import get_session
 from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
-from services.file_source import canonical_source_path, normalize_remote_path
+from services.file_source import canonical_source_path, normalize_base_url, normalize_remote_path
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -86,7 +86,7 @@ async def initialize_setup(
                 result = await session.execute(select(FileSource).where(FileSource.id == source_id))
                 source = result.scalar_one_or_none()
             if source is None:
-                base_url = (item.get("base_url") or "").rstrip("/")
+                base_url = normalize_base_url(item.get("base_url"))
                 username = item.get("username") or ""
                 if not base_url or not username:
                     raise HTTPException(status_code=400, detail="OpenList URL and username are required")
