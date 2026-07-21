@@ -43,7 +43,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useYmgal = true;
   final _vndbCtrl = TextEditingController();
 
-  static const _titles = ["Create admin", "Directories and scan", "Scrapers"];
+  static const _titles = ["创建管理员", "目录与扫描", "刮削源"];
 
   @override
   void dispose() {
@@ -56,7 +56,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   void _next() {
     if (_step == 0 && _passCtrl.text != _passConfirmCtrl.text) {
-      setState(() => _error = "Passwords do not match");
+      setState(() => _error = "两次密码不一致");
       return;
     }
     setState(() {
@@ -104,7 +104,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       if (resp.statusCode != 200) {
         final body = jsonDecode(resp.body);
         setState(() {
-          _error = body["detail"]?.toString() ?? "Setup failed";
+          _error = body["detail"]?.toString() ?? "初始化失败";
           _loading = false;
         });
         return;
@@ -147,7 +147,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Initial setup (${_step + 1}/3)")),
+      appBar: AppBar(title: Text("初始设置 (${_step + 1}/3)")),
       body: Center(
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -205,13 +205,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         if (_step > 0)
                           OutlinedButton(
                             onPressed: _prev,
-                            child: const Text("Back"),
+                            child: const Text("上一步"),
                           ),
                         const Spacer(),
                         if (_step < 2)
                           FilledButton(
                             onPressed: _next,
-                            child: const Text("Next"),
+                            child: const Text("下一步"),
                           ),
                         if (_step == 2)
                           FilledButton(
@@ -224,7 +224,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Text("Finish"),
+                                : const Text("完成"),
                           ),
                       ],
                     ),
@@ -242,7 +242,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _userCtrl,
       decoration: const InputDecoration(
-        labelText: "Username",
+        labelText: "用户名",
         prefixIcon: Icon(Icons.person),
       ),
     ),
@@ -250,7 +250,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _passCtrl,
       decoration: const InputDecoration(
-        labelText: "Password",
+        labelText: "密码",
         prefixIcon: Icon(Icons.lock),
       ),
       obscureText: true,
@@ -259,7 +259,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _passConfirmCtrl,
       decoration: const InputDecoration(
-        labelText: "Confirm password",
+        labelText: "确认密码",
         prefixIcon: Icon(Icons.lock),
       ),
       obscureText: true,
@@ -268,40 +268,40 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   List<Widget> _buildDirectoryStep() => [
     _librarySection(
-      "Game library",
+      "游戏库",
       _gameLibraries,
-      () => _addDirectory(_gameLibraries, "game library"),
+      () => _addDirectory(_gameLibraries, "游戏库"),
     ),
     const SizedBox(height: 16),
     _librarySection(
-      "Steam patch library",
+      "Steam 补丁库",
       _patchLibraries,
-      () => _addDirectory(_patchLibraries, "Steam patch library"),
+      () => _addDirectory(_patchLibraries, "Steam 补丁库"),
     ),
     const SizedBox(height: 16),
-    const Text("Scan options", style: TextStyle(fontWeight: FontWeight.bold)),
+    const Text("扫描选项", style: TextStyle(fontWeight: FontWeight.bold)),
     const SizedBox(height: 8),
     DropdownButtonFormField<String>(
       value: _structure,
-      decoration: const InputDecoration(labelText: "Directory structure"),
+      decoration: const InputDecoration(labelText: "目录结构"),
       items: const [
-        DropdownMenuItem(value: "company_game", child: Text("Company / Game")),
-        DropdownMenuItem(value: "game_only", child: Text("Game only")),
-        DropdownMenuItem(value: "flat", child: Text("Flat")),
+        DropdownMenuItem(value: "company_game", child: Text("会社 / 游戏")),
+        DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
+        DropdownMenuItem(value: "flat", child: Text("扁平")),
       ],
       onChanged: (v) => setState(() => _structure = v ?? "company_game"),
     ),
     SwitchListTile(
       contentPadding: EdgeInsets.zero,
-      title: const Text("Auto scan"),
-      subtitle: Text(_autoScan ? "Every $_scanInterval hours" : "Off"),
+      title: const Text("自动扫描"),
+      subtitle: Text(_autoScan ? "每 $_scanInterval 小时" : "关闭"),
       value: _autoScan,
       onChanged: (v) => setState(() => _autoScan = v),
     ),
     if (_autoScan)
       TextField(
         keyboardType: TextInputType.number,
-        decoration: const InputDecoration(labelText: "Scan interval hours"),
+        decoration: const InputDecoration(labelText: "扫描间隔（小时）"),
         onChanged: (v) {
           final n = int.tryParse(v);
           if (n != null && n > 0) setState(() => _scanInterval = n);
@@ -328,13 +328,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             TextButton.icon(
               onPressed: onAdd,
               icon: const Icon(Icons.add),
-              label: const Text("Add directory"),
+              label: const Text("添加目录"),
             ),
           ],
         ),
         if (items.isEmpty)
           Text(
-            "No directories configured",
+            "暂无目录",
             style: AppText.label.copyWith(color: hintColor(context)),
           )
         else
@@ -347,7 +347,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     : Icons.folder_outlined,
               ),
               title: Text(
-                entry.value["source_type"] == "openlist" ? "OpenList" : "Local",
+                entry.value["source_type"] == "openlist" ? "OpenList 源" : "本地文件源",
               ),
               subtitle: Text(
                 entry.value["path"]?.toString() ?? "",
@@ -380,7 +380,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     const SizedBox(height: 12),
     TextField(
       controller: _vndbCtrl,
-      decoration: const InputDecoration(labelText: "VNDB token optional"),
+      decoration: const InputDecoration(labelText: "VNDB Token（可选）"),
     ),
   ];
 
@@ -427,7 +427,7 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text("Add ${widget.label} directory"),
+      title: Text("添加${widget.label}目录"),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -437,7 +437,7 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
                 ButtonSegment(
                   value: "local",
                   icon: Icon(Icons.folder_outlined),
-                  label: Text("Local"),
+                  label: Text("本地文件源"),
                 ),
                 ButtonSegment(
                   value: "openlist",
@@ -452,19 +452,19 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
             if (_sourceType == "openlist") ...[
               TextField(
                 controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: "Name"),
+                decoration: const InputDecoration(labelText: "名称"),
               ),
               TextField(
                 controller: _baseUrlCtrl,
-                decoration: const InputDecoration(labelText: "OpenList URL"),
+                decoration: const InputDecoration(labelText: "OpenList 地址"),
               ),
               TextField(
                 controller: _usernameCtrl,
-                decoration: const InputDecoration(labelText: "Username"),
+                decoration: const InputDecoration(labelText: "用户名"),
               ),
               TextField(
                 controller: _passwordCtrl,
-                decoration: const InputDecoration(labelText: "Password"),
+                decoration: const InputDecoration(labelText: "密码"),
                 obscureText: true,
               ),
             ],
@@ -472,8 +472,8 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
               controller: _pathCtrl,
               decoration: InputDecoration(
                 labelText: _sourceType == "openlist"
-                    ? "Remote path"
-                    : "Server local path",
+                    ? "远程目录"
+                    : "服务端本地目录",
                 hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
               ),
             ),
@@ -483,7 +483,7 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("Cancel"),
+          child: const Text("取消"),
         ),
         FilledButton(
           onPressed: () {
@@ -501,7 +501,7 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
             }
             Navigator.pop(context, payload);
           },
-          child: const Text("Save"),
+          child: const Text("保存"),
         ),
       ],
     );

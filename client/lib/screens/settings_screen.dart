@@ -471,11 +471,11 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
   Widget build(BuildContext context) {
     final openListSources = widget.fileSources.where((s) => s["type"] == "openlist").toList();
     return AlertDialog(
-      title: Text("Add ${widget.purposeLabel} directory"),
+      title: Text("添加${widget.purposeLabel}目录"),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
         SegmentedButton<String>(
           segments: const [
-            ButtonSegment(value: "local", label: Text("Local"), icon: Icon(Icons.folder_outlined)),
+            ButtonSegment(value: "local", label: Text("本地文件源"), icon: Icon(Icons.folder_outlined)),
             ButtonSegment(value: "openlist", label: Text("OpenList"), icon: Icon(Icons.cloud_outlined)),
           ],
           selected: {_sourceType},
@@ -485,14 +485,14 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
         if (_sourceType == "openlist" && openListSources.isNotEmpty) ...[
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text("Create new OpenList source"),
+            title: const Text("新建 OpenList 源"),
             value: _newOpenList,
             onChanged: (v) => setState(() => _newOpenList = v),
           ),
           if (!_newOpenList)
             DropdownButtonFormField<int>(
               value: _sourceId,
-              decoration: const InputDecoration(labelText: "OpenList source"),
+              decoration: const InputDecoration(labelText: "OpenList 源"),
               items: openListSources.map((s) => DropdownMenuItem<int>(
                 value: s["id"] as int,
                 child: Text((s["name"] ?? s["base_url"] ?? "OpenList").toString()),
@@ -501,21 +501,21 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
             ),
         ],
         if (_sourceType == "openlist" && (_newOpenList || openListSources.isEmpty)) ...[
-          TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "Name")),
-          TextField(controller: _baseUrlCtrl, decoration: const InputDecoration(labelText: "OpenList URL")),
-          TextField(controller: _usernameCtrl, decoration: const InputDecoration(labelText: "Username")),
-          TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: "Password"), obscureText: true),
+          TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "名称")),
+          TextField(controller: _baseUrlCtrl, decoration: const InputDecoration(labelText: "OpenList 地址")),
+          TextField(controller: _usernameCtrl, decoration: const InputDecoration(labelText: "用户名")),
+          TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: "密码"), obscureText: true),
         ],
         TextField(
           controller: _pathCtrl,
           decoration: InputDecoration(
-            labelText: _sourceType == "openlist" ? "Remote path" : "Server local path",
+            labelText: _sourceType == "openlist" ? "远程目录" : "服务端本地目录",
             hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
           ),
         ),
       ])),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
         FilledButton(onPressed: () {
           final path = _pathCtrl.text.trim();
           if (path.isEmpty) return;
@@ -531,7 +531,7 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
             }
           }
           Navigator.pop(context, payload);
-        }, child: const Text("Save")),
+        }, child: const Text("保存")),
       ],
     );
   }
@@ -625,7 +625,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _addDirectory({required bool patchRoot}) async {
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => _SourceDirectoryDialog(fileSources: _fileSources, purposeLabel: patchRoot ? "Steam patch library" : "Game library"),
+      builder: (ctx) => _SourceDirectoryDialog(fileSources: _fileSources, purposeLabel: patchRoot ? "Steam 补丁库" : "游戏库"),
     );
     if (payload == null) return;
     final endpoint = patchRoot ? "/api/steam/patch-roots" : "/api/roots";
@@ -635,7 +635,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       await _loadFileSources();
       if (patchRoot) { await _loadPatchRoots(); } else { await _loadRoots(); }
     } else if (mounted) {
-      _toast(context, "Add directory failed: ${resp.body}");
+      _toast(context, "添加目录失败: ${resp.body}");
     }
   }
 
@@ -726,7 +726,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _sectionHeader(title, Icons.folder_outlined),
     const SizedBox(height: 8),
     if (items.isEmpty)
-      _hintCard("No directories configured")
+      _hintCard("暂无目录")
     else
       ...items.map((r) => Container(
         margin: const EdgeInsets.only(bottom: 6),
@@ -740,7 +740,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           Icon((r["source_type"] == "openlist") ? Icons.cloud_outlined : Icons.folder, size: 20, color: hintColor(context)),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text((r["source_type"] == "openlist") ? "OpenList" : "Local", style: AppText.bodySmall.copyWith(color: hintColor(context))),
+            Text((r["source_type"] == "openlist") ? "OpenList 源" : "本地文件源", style: AppText.bodySmall.copyWith(color: hintColor(context))),
             Text((r["source_path"] ?? r["path"] ?? "").toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
           ])),
           IconButton(
@@ -752,7 +752,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       )),
     Align(
       alignment: Alignment.centerLeft,
-      child: FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add, size: 18), label: const Text("Add directory")),
+      child: FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add, size: 18), label: const Text("添加目录")),
     ),
     const SizedBox(height: 24),
   ]);
@@ -764,13 +764,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       padding: const EdgeInsets.all(16),
       children: [
         _directorySection(
-          title: "Game library directories",
+          title: "游戏库目录",
           items: _roots,
           onAdd: () => _addDirectory(patchRoot: false),
           onDelete: _delRoot,
         ),
         _directorySection(
-          title: "Steam patch library directories",
+          title: "Steam 补丁库目录",
           items: _patchRoots,
           onAdd: () => _addDirectory(patchRoot: true),
           onDelete: _delPatchRoot,
