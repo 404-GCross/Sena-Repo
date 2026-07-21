@@ -102,14 +102,20 @@ class OpenListFileSource:
         if not self.base_url:
             raise HTTPException(status_code=400, detail="OpenList base URL is empty")
         password_hash = hashlib.sha256(self.password.encode("utf-8")).hexdigest()
-        with self._client() as client:
-            resp = client.post(
-                self._url("/api/auth/login/hash"),
-                json={"username": self.username, "password": password_hash, "otp_code": ""},
-            )
+        try:
+            with self._client() as client:
+                resp = client.post(
+                    self._url("/api/auth/login/hash"),
+                    json={"username": self.username, "password": password_hash, "otp_code": ""},
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"OpenList login request failed: {exc}") from exc
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail="OpenList login failed")
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="OpenList login returned invalid JSON") from exc
         token = ((data.get("data") or {}).get("token") or "").strip()
         if not token:
             raise HTTPException(status_code=502, detail="OpenList did not return a token")
@@ -120,49 +126,73 @@ class OpenListFileSource:
         return {"Authorization": self._token or self._login()}
 
     def _post(self, endpoint: str, body: dict, retry: bool = True) -> dict:
-        with self._client() as client:
-            resp = client.post(self._url(endpoint), json=body, headers=self._headers())
+        try:
+            with self._client() as client:
+                resp = client.post(self._url(endpoint), json=body, headers=self._headers())
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"OpenList request failed: {exc}") from exc
         if resp.status_code in {401, 403} and retry:
             self._token = None
             return self._post(endpoint, body, retry=False)
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"OpenList request failed: {resp.status_code}")
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="OpenList returned invalid JSON") from exc
         if data.get("code") not in (None, 200):
             raise HTTPException(status_code=502, detail=data.get("message") or "OpenList request failed")
         return data.get("data") or {}
 
     def list(self, path: str) -> list[FileEntry]:
         remote_path = normalize_remote_path(path)
-        data = self._post(
-            "/api/fs/list",
-            {"path": remote_path, "password": "", "page": 1, "per_page": 0, "refresh": False},
-        )
-        content = data.get("content") or []
         entries: list[FileEntry] = []
-        for item in content:
-            name = item.get("name") or ""
-            if not name:
-                continue
-            child_path = normalize_remote_path(posixpath.join(remote_path, name))
-            entries.append(
-                FileEntry(
-                    name=name,
-                    path=child_path,
-                    is_dir=bool(item.get("is_dir")),
-                    size=int(item.get("size") or 0),
-                    modified=item.get("modified"),
-                )
+        page = 1
+        per_page = 100
+        total: int | None = None
+        while True:
+            data = self._post(
+                "/api/fs/list",
+                {"path": remote_path, "password": "", "page": page, "per_page": per_page, "refresh": False},
             )
+            content = data.get("content") or []
+            if total is None:
+                raw_total = data.get("total")
+                total = int(raw_total) if raw_total is not None else None
+            for item in content:
+                name = item.get("name") or ""
+                if not name:
+                    continue
+                child_path = normalize_remote_path(posixpath.join(remote_path, name))
+                entries.append(
+                    FileEntry(
+                        name=name,
+                        path=child_path,
+                        is_dir=bool(item.get("is_dir")),
+                        size=int(item.get("size") or 0),
+                        modified=item.get("modified"),
+                    )
+                )
+            if not content or len(content) < per_page or (total is not None and len(entries) >= total):
+                break
+            page += 1
         entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
         return entries
 
     def exists(self, path: str) -> bool:
+        remote_path = normalize_remote_path(path)
         try:
-            self._post("/api/fs/get", {"path": normalize_remote_path(path), "password": ""})
+            self._post(
+                "/api/fs/list",
+                {"path": remote_path, "password": "", "page": 1, "per_page": 1, "refresh": False},
+            )
             return True
         except HTTPException:
-            return False
+            try:
+                self._post("/api/fs/get", {"path": remote_path, "password": ""})
+                return True
+            except HTTPException:
+                return False
 
     def download_url(self, path: str) -> str:
         data = self._post("/api/fs/get", {"path": normalize_remote_path(path), "password": ""})
