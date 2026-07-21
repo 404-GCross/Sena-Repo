@@ -51,11 +51,32 @@ async def import_from_root(
 
     # Scan the filesystem/source in a thread pool so slow/remote storage doesn't block the event loop
     scan_structure = getattr(config, "_scan_structure", "company_game")
+    logger.info(
+        "Scanning root id=%s type=%s path=%s structure=%s",
+        root.id,
+        source_type,
+        source_path,
+        scan_structure,
+    )
     if source_type == "local":
         scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure)
     else:
         adapter = adapter_from_source(source_model, source_type)
         scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure)
+
+    discovered_games = sum(len(company.games) for company in scan_result.companies)
+    discovered_archives = sum(
+        len(game.archives)
+        for company in scan_result.companies
+        for game in company.games
+    )
+    logger.info(
+        "Scan discovered root id=%s companies=%s games=%s archives=%s",
+        root.id,
+        len(scan_result.companies),
+        discovered_games,
+        discovered_archives,
+    )
 
     stats = {"new_games": 0, "updated_games": 0, "new_versions": 0, "total": 0}
 
@@ -145,6 +166,7 @@ async def import_from_root(
     )
     stats["total_games"] = len(count_result.scalars().all())
     stats["orphaned"] = orphans
+    logger.info("Import finished root id=%s stats=%s", root.id, stats)
 
     # Clean up companies that no longer have any games
     await cleanup_empty_companies(session)

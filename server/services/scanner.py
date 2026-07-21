@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.ignore_list import IgnoreList
 from utils.file_utils import is_archive
 from services.file_source import FileSourceAdapter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -206,7 +209,11 @@ def scan_source(
     result = ScanResult(root_path=root_path)
 
     def children(path: str) -> list:
-        return source.list(path)
+        try:
+            return source.list(path)
+        except Exception as exc:
+            logger.warning("Failed to list source path %s: %s", path, exc)
+            return []
 
     def archives_recursive(path: str) -> list[ArchiveFile]:
         found: list[ArchiveFile] = []

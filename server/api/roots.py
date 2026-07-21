@@ -223,6 +223,8 @@ async def refresh_all_roots(
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
     config = load_config()
+    from api.settings import _load_scan_settings
+    _load_scan_settings(config)
     _bg_scan(config, [r.id for r in roots], update_last=True)
     return {"message": "扫描已在后台启动", "roots": len(roots)}
 
@@ -242,6 +244,8 @@ async def refresh_root(
         raise HTTPException(status_code=404, detail="Root directory not found")
 
     config = load_config()
+    from api.settings import _load_scan_settings
+    _load_scan_settings(config)
     _bg_scan(config, [root_id], update_last=True)
     return {"message": "扫描已在后台启动", "root_id": root_id}
 
@@ -252,7 +256,8 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
         return {"skipped": True, "reason": "scan already running"}
     import database
     from sqlalchemy import select
-    from api.settings import _mark_auto_scan
+    from api.settings import _load_scan_settings, _mark_auto_scan
+    _load_scan_settings(config)
     total_games = 0
     async with _scan_lock:
         async with database._session_factory() as session:
