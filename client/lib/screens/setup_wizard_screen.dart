@@ -43,7 +43,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useYmgal = true;
   final _vndbCtrl = TextEditingController();
 
-  static const _titles = ["创建管理员", "目录与扫描", "刮削源"];
+  static const _titles = [
+    "\u521b\u5efa\u7ba1\u7406\u5458",
+    "\u76ee\u5f55\u4e0e\u626b\u63cf",
+    "\u522e\u524a\u6e90",
+  ];
 
   @override
   void dispose() {
@@ -56,7 +60,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   void _next() {
     if (_step == 0 && _passCtrl.text != _passConfirmCtrl.text) {
-      setState(() => _error = "两次密码不一致");
+      setState(() => _error = "\u4e24\u6b21\u5bc6\u7801\u4e0d\u4e00\u81f4");
       return;
     }
     setState(() {
@@ -104,7 +108,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       if (resp.statusCode != 200) {
         final body = jsonDecode(resp.body);
         setState(() {
-          _error = body["detail"]?.toString() ?? "初始化失败";
+          _error = body["detail"]?.toString() ?? "\u521d\u59cb\u5316\u5931\u8d25";
           _loading = false;
         });
         return;
@@ -147,7 +151,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("初始设置 (${_step + 1}/3)")),
+      appBar: AppBar(title: Text("\u521d\u59cb\u8bbe\u7f6e (${_step + 1}/3)")),
       body: Center(
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -205,13 +209,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         if (_step > 0)
                           OutlinedButton(
                             onPressed: _prev,
-                            child: const Text("上一步"),
+                            child: const Text("\u4e0a\u4e00\u6b65"),
                           ),
                         const Spacer(),
                         if (_step < 2)
                           FilledButton(
                             onPressed: _next,
-                            child: const Text("下一步"),
+                            child: const Text("\u4e0b\u4e00\u6b65"),
                           ),
                         if (_step == 2)
                           FilledButton(
@@ -224,7 +228,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Text("完成"),
+                                : const Text("\u5b8c\u6210"),
                           ),
                       ],
                     ),
@@ -242,7 +246,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _userCtrl,
       decoration: const InputDecoration(
-        labelText: "用户名",
+        labelText: "\u7528\u6237\u540d",
         prefixIcon: Icon(Icons.person),
       ),
     ),
@@ -250,7 +254,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _passCtrl,
       decoration: const InputDecoration(
-        labelText: "密码",
+        labelText: "\u5bc6\u7801",
         prefixIcon: Icon(Icons.lock),
       ),
       obscureText: true,
@@ -259,7 +263,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     TextField(
       controller: _passConfirmCtrl,
       decoration: const InputDecoration(
-        labelText: "确认密码",
+        labelText: "\u786e\u8ba4\u5bc6\u7801",
         prefixIcon: Icon(Icons.lock),
       ),
       obscureText: true,
@@ -268,40 +272,40 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   List<Widget> _buildDirectoryStep() => [
     _librarySection(
-      "游戏库",
+      "\u6e38\u620f\u5e93",
       _gameLibraries,
-      () => _addDirectory(_gameLibraries, "游戏库"),
+      () => _addDirectory(_gameLibraries, "\u6e38\u620f\u5e93"),
     ),
     const SizedBox(height: 16),
     _librarySection(
-      "Steam 补丁库",
+      "Steam \u8865\u4e01\u5e93",
       _patchLibraries,
-      () => _addDirectory(_patchLibraries, "Steam 补丁库"),
+      () => _addDirectory(_patchLibraries, "Steam \u8865\u4e01\u5e93"),
     ),
     const SizedBox(height: 16),
-    const Text("扫描选项", style: TextStyle(fontWeight: FontWeight.bold)),
+    const Text("\u626b\u63cf\u9009\u9879", style: TextStyle(fontWeight: FontWeight.bold)),
     const SizedBox(height: 8),
     DropdownButtonFormField<String>(
       value: _structure,
-      decoration: const InputDecoration(labelText: "目录结构"),
+      decoration: const InputDecoration(labelText: "\u76ee\u5f55\u7ed3\u6784"),
       items: const [
-        DropdownMenuItem(value: "company_game", child: Text("会社 / 游戏")),
-        DropdownMenuItem(value: "game_only", child: Text("仅游戏")),
-        DropdownMenuItem(value: "flat", child: Text("扁平")),
+        DropdownMenuItem(value: "company_game", child: Text("\u4f1a\u793e / \u6e38\u620f")),
+        DropdownMenuItem(value: "game_only", child: Text("\u4ec5\u6e38\u620f")),
+        DropdownMenuItem(value: "flat", child: Text("\u6241\u5e73")),
       ],
       onChanged: (v) => setState(() => _structure = v ?? "company_game"),
     ),
     SwitchListTile(
       contentPadding: EdgeInsets.zero,
-      title: const Text("自动扫描"),
-      subtitle: Text(_autoScan ? "每 $_scanInterval 小时" : "关闭"),
+      title: const Text("\u81ea\u52a8\u626b\u63cf"),
+      subtitle: Text(_autoScan ? "\u6bcf $_scanInterval \u5c0f\u65f6" : "\u5173\u95ed"),
       value: _autoScan,
       onChanged: (v) => setState(() => _autoScan = v),
     ),
     if (_autoScan)
       TextField(
         keyboardType: TextInputType.number,
-        decoration: const InputDecoration(labelText: "扫描间隔（小时）"),
+        decoration: const InputDecoration(labelText: "\u626b\u63cf\u95f4\u9694\uff08\u5c0f\u65f6\uff09"),
         onChanged: (v) {
           final n = int.tryParse(v);
           if (n != null && n > 0) setState(() => _scanInterval = n);
@@ -328,13 +332,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             TextButton.icon(
               onPressed: onAdd,
               icon: const Icon(Icons.add),
-              label: const Text("添加目录"),
+              label: const Text("\u6dfb\u52a0\u76ee\u5f55"),
             ),
           ],
         ),
         if (items.isEmpty)
           Text(
-            "暂无目录",
+            "\u6682\u65e0\u76ee\u5f55",
             style: AppText.label.copyWith(color: hintColor(context)),
           )
         else
@@ -347,7 +351,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     : Icons.folder_outlined,
               ),
               title: Text(
-                entry.value["source_type"] == "openlist" ? "OpenList 源" : "本地文件源",
+                entry.value["source_type"] == "openlist" ? "OpenList \u6e90" : "\u672c\u5730\u6587\u4ef6\u6e90",
               ),
               subtitle: Text(
                 entry.value["path"]?.toString() ?? "",
@@ -380,7 +384,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     const SizedBox(height: 12),
     TextField(
       controller: _vndbCtrl,
-      decoration: const InputDecoration(labelText: "VNDB Token（可选）"),
+      decoration: const InputDecoration(labelText: "VNDB Token\uff08\u53ef\u9009\uff09"),
     ),
   ];
 
@@ -427,63 +431,73 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text("添加${widget.label}目录"),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: "local",
-                  icon: Icon(Icons.folder_outlined),
-                  label: Text("本地文件源"),
+      title: Text("\u6dfb\u52a0${widget.label}\u76ee\u5f55"),
+      content: SizedBox(
+        width: 380,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: "local",
+                      icon: Icon(Icons.folder_outlined),
+                      label: Text("\u672c\u5730\u6587\u4ef6\u6e90"),
+                    ),
+                    ButtonSegment(
+                      value: "openlist",
+                      icon: Icon(Icons.cloud_outlined),
+                      label: Text("OpenList"),
+                    ),
+                  ],
+                  selected: {_sourceType},
+                  onSelectionChanged: (v) => setState(() => _sourceType = v.first),
                 ),
-                ButtonSegment(
-                  value: "openlist",
-                  icon: Icon(Icons.cloud_outlined),
-                  label: Text("OpenList"),
+              ),
+              const SizedBox(height: 20),
+              if (_sourceType == "openlist") ...[
+                TextField(
+                  controller: _nameCtrl,
+                  decoration: const InputDecoration(labelText: "\u540d\u79f0"),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _baseUrlCtrl,
+                  decoration: const InputDecoration(labelText: "OpenList \u5730\u5740"),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _usernameCtrl,
+                  decoration: const InputDecoration(labelText: "\u7528\u6237\u540d"),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordCtrl,
+                  decoration: const InputDecoration(labelText: "\u5bc6\u7801"),
+                  obscureText: true,
+                ),
+                const SizedBox(height: 12),
               ],
-              selected: {_sourceType},
-              onSelectionChanged: (v) => setState(() => _sourceType = v.first),
-            ),
-            const SizedBox(height: 16),
-            if (_sourceType == "openlist") ...[
               TextField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: "名称"),
-              ),
-              TextField(
-                controller: _baseUrlCtrl,
-                decoration: const InputDecoration(labelText: "OpenList 地址"),
-              ),
-              TextField(
-                controller: _usernameCtrl,
-                decoration: const InputDecoration(labelText: "用户名"),
-              ),
-              TextField(
-                controller: _passwordCtrl,
-                decoration: const InputDecoration(labelText: "密码"),
-                obscureText: true,
+                controller: _pathCtrl,
+                decoration: InputDecoration(
+                  labelText: _sourceType == "openlist"
+                      ? "\u8fdc\u7a0b\u76ee\u5f55"
+                      : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55",
+                  hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
+                ),
               ),
             ],
-            TextField(
-              controller: _pathCtrl,
-              decoration: InputDecoration(
-                labelText: _sourceType == "openlist"
-                    ? "远程目录"
-                    : "服务端本地目录",
-                hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
-              ),
-            ),
-          ],
+          ),
         ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("取消"),
+          child: const Text("\u53d6\u6d88"),
         ),
         FilledButton(
           onPressed: () {
@@ -501,7 +515,7 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
             }
             Navigator.pop(context, payload);
           },
-          child: const Text("保存"),
+          child: const Text("\u4fdd\u5b58"),
         ),
       ],
     );

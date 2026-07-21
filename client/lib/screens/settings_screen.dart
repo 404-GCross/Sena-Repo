@@ -471,51 +471,66 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
   Widget build(BuildContext context) {
     final openListSources = widget.fileSources.where((s) => s["type"] == "openlist").toList();
     return AlertDialog(
-      title: Text("添加${widget.purposeLabel}目录"),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: "local", label: Text("本地文件源"), icon: Icon(Icons.folder_outlined)),
-            ButtonSegment(value: "openlist", label: Text("OpenList"), icon: Icon(Icons.cloud_outlined)),
-          ],
-          selected: {_sourceType},
-          onSelectionChanged: (v) => setState(() => _sourceType = v.first),
-        ),
-        const SizedBox(height: 16),
-        if (_sourceType == "openlist" && openListSources.isNotEmpty) ...[
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text("新建 OpenList 源"),
-            value: _newOpenList,
-            onChanged: (v) => setState(() => _newOpenList = v),
-          ),
-          if (!_newOpenList)
-            DropdownButtonFormField<int>(
-              value: _sourceId,
-              decoration: const InputDecoration(labelText: "OpenList 源"),
-              items: openListSources.map((s) => DropdownMenuItem<int>(
-                value: s["id"] as int,
-                child: Text((s["name"] ?? s["base_url"] ?? "OpenList").toString()),
-              )).toList(),
-              onChanged: (v) => setState(() => _sourceId = v),
+      title: Text("\u6dfb\u52a0${widget.purposeLabel}\u76ee\u5f55"),
+      content: SizedBox(
+        width: 380,
+        child: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: "local", label: Text("\u672c\u5730\u6587\u4ef6\u6e90"), icon: Icon(Icons.folder_outlined)),
+                  ButtonSegment(value: "openlist", label: Text("OpenList"), icon: Icon(Icons.cloud_outlined)),
+                ],
+                selected: {_sourceType},
+                onSelectionChanged: (v) => setState(() => _sourceType = v.first),
+              ),
             ),
-        ],
-        if (_sourceType == "openlist" && (_newOpenList || openListSources.isEmpty)) ...[
-          TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "名称")),
-          TextField(controller: _baseUrlCtrl, decoration: const InputDecoration(labelText: "OpenList 地址")),
-          TextField(controller: _usernameCtrl, decoration: const InputDecoration(labelText: "用户名")),
-          TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: "密码"), obscureText: true),
-        ],
-        TextField(
-          controller: _pathCtrl,
-          decoration: InputDecoration(
-            labelText: _sourceType == "openlist" ? "远程目录" : "服务端本地目录",
-            hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
-          ),
-        ),
-      ])),
+            const SizedBox(height: 20),
+            if (_sourceType == "openlist" && openListSources.isNotEmpty) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("\u65b0\u5efa OpenList \u6e90"),
+                value: _newOpenList,
+                onChanged: (v) => setState(() => _newOpenList = v),
+              ),
+              if (!_newOpenList) ...[
+                DropdownButtonFormField<int>(
+                  value: _sourceId,
+                  decoration: const InputDecoration(labelText: "OpenList \u6e90"),
+                  items: openListSources.map((s) => DropdownMenuItem<int>(
+                    value: s["id"] as int,
+                    child: Text((s["name"] ?? s["base_url"] ?? "OpenList").toString()),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _sourceId = v),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+            if (_sourceType == "openlist" && (_newOpenList || openListSources.isEmpty)) ...[
+              TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "\u540d\u79f0")),
+              const SizedBox(height: 12),
+              TextField(controller: _baseUrlCtrl, decoration: const InputDecoration(labelText: "OpenList \u5730\u5740")),
+              const SizedBox(height: 12),
+              TextField(controller: _usernameCtrl, decoration: const InputDecoration(labelText: "\u7528\u6237\u540d")),
+              const SizedBox(height: 12),
+              TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: "\u5bc6\u7801"), obscureText: true),
+              const SizedBox(height: 12),
+            ],
+            TextField(
+              controller: _pathCtrl,
+              decoration: InputDecoration(
+                labelText: _sourceType == "openlist" ? "\u8fdc\u7a0b\u76ee\u5f55" : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55",
+                hintText: _sourceType == "openlist" ? "/Games" : "/data/games",
+              ),
+            ),
+          ],
+        )),
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("\u53d6\u6d88")),
         FilledButton(onPressed: () {
           final path = _pathCtrl.text.trim();
           if (path.isEmpty) return;
@@ -531,7 +546,7 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
             }
           }
           Navigator.pop(context, payload);
-        }, child: const Text("保存")),
+        }, child: const Text("\u4fdd\u5b58")),
       ],
     );
   }
@@ -625,7 +640,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _addDirectory({required bool patchRoot}) async {
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => _SourceDirectoryDialog(fileSources: _fileSources, purposeLabel: patchRoot ? "Steam 补丁库" : "游戏库"),
+      builder: (ctx) => _SourceDirectoryDialog(fileSources: _fileSources, purposeLabel: patchRoot ? "Steam \u8865\u4e01\u5e93" : "\u6e38\u620f\u5e93"),
     );
     if (payload == null) return;
     final endpoint = patchRoot ? "/api/steam/patch-roots" : "/api/roots";
@@ -635,7 +650,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       await _loadFileSources();
       if (patchRoot) { await _loadPatchRoots(); } else { await _loadRoots(); }
     } else if (mounted) {
-      _toast(context, "添加目录失败: ${resp.body}");
+      _toast(context, "\u6dfb\u52a0\u76ee\u5f55\u5931\u8d25: ${resp.body}");
     }
   }
 
@@ -726,7 +741,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _sectionHeader(title, Icons.folder_outlined),
     const SizedBox(height: 8),
     if (items.isEmpty)
-      _hintCard("暂无目录")
+      _hintCard("\u6682\u65e0\u76ee\u5f55")
     else
       ...items.map((r) => Container(
         margin: const EdgeInsets.only(bottom: 6),
@@ -740,7 +755,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           Icon((r["source_type"] == "openlist") ? Icons.cloud_outlined : Icons.folder, size: 20, color: hintColor(context)),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text((r["source_type"] == "openlist") ? "OpenList 源" : "本地文件源", style: AppText.bodySmall.copyWith(color: hintColor(context))),
+            Text((r["source_type"] == "openlist") ? "OpenList \u6e90" : "\u672c\u5730\u6587\u4ef6\u6e90", style: AppText.bodySmall.copyWith(color: hintColor(context))),
             Text((r["source_path"] ?? r["path"] ?? "").toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
           ])),
           IconButton(
@@ -752,7 +767,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       )),
     Align(
       alignment: Alignment.centerLeft,
-      child: FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add, size: 18), label: const Text("添加目录")),
+      child: FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add, size: 18), label: const Text("\u6dfb\u52a0\u76ee\u5f55")),
     ),
     const SizedBox(height: 24),
   ]);
@@ -764,13 +779,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       padding: const EdgeInsets.all(16),
       children: [
         _directorySection(
-          title: "游戏库目录",
+          title: "\u6e38\u620f\u5e93\u76ee\u5f55",
           items: _roots,
           onAdd: () => _addDirectory(patchRoot: false),
           onDelete: _delRoot,
         ),
         _directorySection(
-          title: "Steam 补丁库目录",
+          title: "Steam \u8865\u4e01\u5e93\u76ee\u5f55",
           items: _patchRoots,
           onAdd: () => _addDirectory(patchRoot: true),
           onDelete: _delPatchRoot,
