@@ -7,7 +7,7 @@ import posixpath
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import urljoin
+from urllib.parse import quote, urlencode, urljoin
 
 import httpx
 from fastapi import HTTPException
@@ -225,11 +225,13 @@ class OpenListFileSource:
                 return False
 
     def download_url(self, path: str) -> str:
-        data = self._post("/api/fs/get", {"path": normalize_remote_path(path), "password": ""})
-        raw_url = (data.get("raw_url") or "").strip()
-        if not raw_url:
-            raise HTTPException(status_code=502, detail="OpenList did not return a download URL")
-        return raw_url
+        remote_path = normalize_remote_path(path)
+        data = self._post("/api/fs/get", {"path": remote_path, "password": ""})
+        if data.get("is_dir"):
+            raise HTTPException(status_code=400, detail="OpenList path is a directory")
+        sign = (data.get("sign") or "").strip()
+        query = f"?{urlencode({'sign': sign})}" if sign else ""
+        return self._url("d" + quote(remote_path, safe="/") + query)
 
 
 def adapter_from_source(source: FileSource | None, source_type: str = "local") -> FileSourceAdapter:
