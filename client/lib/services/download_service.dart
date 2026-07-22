@@ -10,7 +10,8 @@ import "dart:io";
 
 import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
-import "package:flutter/widgets.dart" show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
+import "package:flutter/widgets.dart"
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import "../services/logger_service.dart";
 import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
@@ -32,7 +33,8 @@ class DownloadTask {
   final String gameName;
   final String companyName;
 
-  String status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
+  String
+  status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
   double progress;
   int receivedBytes;
   int totalBytes;
@@ -103,21 +105,32 @@ class DownloadService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
-  static const _foregroundChannel = MethodChannel("com.github.senarepo/foreground");
+  static const _foregroundChannel = MethodChannel(
+    "com.github.senarepo/foreground",
+  );
 
   Future<void> _startForegroundService() async {
     if (!Platform.isAndroid) return;
-    try { await _foregroundChannel.invokeMethod("start"); } catch (_) {}
+    try {
+      await _foregroundChannel.invokeMethod("start");
+    } catch (_) {}
   }
 
   Future<void> _stopForegroundService() async {
     if (!Platform.isAndroid) return;
-    try { await _foregroundChannel.invokeMethod("stop"); } catch (_) {}
+    try {
+      await _foregroundChannel.invokeMethod("stop");
+    } catch (_) {}
   }
 
   bool _hasActiveDownloads() {
-    return _tasks.any((t) =>
-      t.status == "downloading" || t.status == "retrying" || t.status == "extracting" || t.status == "pending");
+    return _tasks.any(
+      (t) =>
+          t.status == "downloading" ||
+          t.status == "retrying" ||
+          t.status == "extracting" ||
+          t.status == "pending",
+    );
   }
 
   void _onDownloadStarted() => _startForegroundService();
@@ -138,26 +151,30 @@ class DownloadService with WidgetsBindingObserver {
       final data = prefs.getStringList("saved_tasks") ?? [];
       for (final json in data) {
         final m = Map<String, dynamic>.from(
-            const JsonDecoder().convert(json) as Map);
-        final task = DownloadTask(
-          gameId: m["gameId"] ?? 0,
-          versionId: m["versionId"] ?? 0,
-          fileName: m["fileName"] ?? "",
-          downloadUrl: m["downloadUrl"] ?? "",
-          gameName: m["gameName"] ?? "",
-          companyName: m["companyName"] ?? "",
-        )
-          ..status = m["status"] ?? "failed"
-          ..receivedBytes = m["receivedBytes"] ?? 0
-          ..totalBytes = m["totalBytes"] ?? 0
-          ..progress = (m["progress"] ?? 0).toDouble()
-          ..error = m["error"]
-          ..extractPassword = m["extractPassword"]
-          ..outputPath = m["outputPath"];
+          const JsonDecoder().convert(json) as Map,
+        );
+        final task =
+            DownloadTask(
+                gameId: m["gameId"] ?? 0,
+                versionId: m["versionId"] ?? 0,
+                fileName: m["fileName"] ?? "",
+                downloadUrl: m["downloadUrl"] ?? "",
+                gameName: m["gameName"] ?? "",
+                companyName: m["companyName"] ?? "",
+              )
+              ..status = m["status"] ?? "failed"
+              ..receivedBytes = m["receivedBytes"] ?? 0
+              ..totalBytes = m["totalBytes"] ?? 0
+              ..progress = (m["progress"] ?? 0).toDouble()
+              ..error = m["error"]
+              ..extractPassword = m["extractPassword"]
+              ..outputPath = m["outputPath"];
         _tasks.add(task);
         // Re-run active tasks
-        if (task.status == "downloading" || task.status == "pending" ||
-            task.status == "retrying" || task.status == "extracting") {
+        if (task.status == "downloading" ||
+            task.status == "pending" ||
+            task.status == "retrying" ||
+            task.status == "extracting") {
           task.status = "pending";
         }
       }
@@ -171,20 +188,22 @@ class DownloadService with WidgetsBindingObserver {
       final prefs = await SharedPreferences.getInstance();
       final data = _tasks
           .where((t) => t.status != "done" && t.status != "cancelled")
-          .map((t) => const JsonEncoder().convert({
-                "gameId": t.gameId,
-                "versionId": t.versionId,
-                "fileName": t.fileName,
-                "downloadUrl": t.downloadUrl,
-                "gameName": t.gameName,
-                "companyName": t.companyName,
-                "status": t.status,
-                "receivedBytes": t.receivedBytes,
-                "totalBytes": t.totalBytes,
-                "progress": t.progress,
-                "error": t.error,
-                "outputPath": t.outputPath,
-              }))
+          .map(
+            (t) => const JsonEncoder().convert({
+              "gameId": t.gameId,
+              "versionId": t.versionId,
+              "fileName": t.fileName,
+              "downloadUrl": t.downloadUrl,
+              "gameName": t.gameName,
+              "companyName": t.companyName,
+              "status": t.status,
+              "receivedBytes": t.receivedBytes,
+              "totalBytes": t.totalBytes,
+              "progress": t.progress,
+              "error": t.error,
+              "outputPath": t.outputPath,
+            }),
+          )
           .toList();
       await prefs.setStringList("saved_tasks", data);
     } catch (_) {}
@@ -216,7 +235,9 @@ class DownloadService with WidgetsBindingObserver {
     inj.task._cancelled = true;
     inj.task.status = "cancelled";
     inj.task.error = "已取消";
-    try { File(inj.tempPath).delete(); } catch (_) {}
+    try {
+      File(inj.tempPath).delete();
+    } catch (_) {}
     _patchInjections.remove(appId);
     _emit();
   }
@@ -225,7 +246,9 @@ class DownloadService with WidgetsBindingObserver {
     final inj = _patchInjections[appId];
     if (inj == null) return;
     inj.paused = true;
-    if (inj.task.status == "downloading" || inj.task.status == "retrying" || inj.task.status == "pending") {
+    if (inj.task.status == "downloading" ||
+        inj.task.status == "retrying" ||
+        inj.task.status == "pending") {
       inj.task._client?.close();
       inj.task._client = null;
     } else if (inj.task.status == "extracting") {
@@ -246,7 +269,8 @@ class DownloadService with WidgetsBindingObserver {
   Future<String> get downloadDir async {
     if (_downloadDir != null) return _downloadDir!;
     final prefs = await SharedPreferences.getInstance();
-    _downloadDir = prefs.getString("local_download_dir") ??
+    _downloadDir =
+        prefs.getString("local_download_dir") ??
         "${(await getApplicationSupportDirectory()).path}/downloads";
     await Directory(_downloadDir!).create(recursive: true);
     return _downloadDir!;
@@ -262,7 +286,9 @@ class DownloadService with WidgetsBindingObserver {
   Future<int> get maxConcurrentDownloads async {
     if (_maxConcurrentDownloads != null) return _maxConcurrentDownloads!;
     final prefs = await SharedPreferences.getInstance();
-    _maxConcurrentDownloads = (prefs.getInt("max_concurrent_downloads") ?? 3).clamp(1, 10).toInt();
+    _maxConcurrentDownloads = (prefs.getInt("max_concurrent_downloads") ?? 3)
+        .clamp(1, 10)
+        .toInt();
     return _maxConcurrentDownloads!;
   }
 
@@ -342,18 +368,30 @@ class DownloadService with WidgetsBindingObserver {
     required String installDir,
     String? patchDir,
     String? targetDir,
-    void Function(double progress, int received, int total, int speed, String stage)? onProgress,
+    void Function(
+      double progress,
+      int received,
+      int total,
+      int speed,
+      String stage,
+    )?
+    onProgress,
   }) async {
     final dir = await downloadDir;
     final safeAppId = appId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), "_");
-    final ext = patchFilename.contains(".") ? patchFilename.substring(patchFilename.lastIndexOf(".")) : "";
+    final ext = patchFilename.contains(".")
+        ? patchFilename.substring(patchFilename.lastIndexOf("."))
+        : "";
     final tmpPath = "${dir}${Platform.pathSeparator}.patch_$safeAppId$ext";
     final tmp = File(tmpPath);
     // Track injection state for cross-instance cancellation
     final task = DownloadTask(
-      gameId: appId.hashCode, versionId: appId.hashCode,
-      fileName: patchFilename, downloadUrl: downloadUrl,
-      gameName: "Steam Patch", companyName: "Steam",
+      gameId: appId.hashCode,
+      versionId: appId.hashCode,
+      fileName: patchFilename,
+      downloadUrl: downloadUrl,
+      gameName: "Steam Patch",
+      companyName: "Steam",
     );
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
@@ -362,7 +400,13 @@ class DownloadService with WidgetsBindingObserver {
       StreamSubscription<List<DownloadTask>>? sub;
       if (onProgress != null) {
         sub = _controller.stream.listen((_) {
-          onProgress(task.progress, task.receivedBytes, task.totalBytes, task.speedBytesPerSecond, task.status);
+          onProgress(
+            task.progress,
+            task.receivedBytes,
+            task.totalBytes,
+            task.speedBytesPerSecond,
+            task.status,
+          );
         });
       }
       // Restore partial download from paused state so Range resume works
@@ -377,7 +421,11 @@ class DownloadService with WidgetsBindingObserver {
         await sub?.cancel();
       }
       if (_stopped(task)) {
-        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+        if (task.status != "paused") {
+          try {
+            await tmp.delete();
+          } catch (_) {}
+        }
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       if (task.status == "failed") return (task.error ?? "下载失败", null);
@@ -397,48 +445,81 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
-      if ((patchDir == null || patchDir.isEmpty) && (targetDir == null || targetDir.isEmpty)) {
+      if ((patchDir == null || patchDir.isEmpty) &&
+          (targetDir == null || targetDir.isEmpty)) {
         LoggerService().info("patch extract: $exe x -y -o$destDir ${tmp.path}");
-        await _runTool(exe, ["x", "-y", "-o$destDir", tmp.path], timeout: 1800,
-            injectionAppId: appId,
-            onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        await _runTool(
+          exe,
+          ["x", "-y", "-o$destDir", tmp.path],
+          timeout: 1800,
+          injectionAppId: appId,
+          onProgress: (p) {
+            if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
+          },
+        );
         if (_stopped(task)) {
-          if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+          if (task.status != "paused") {
+            try {
+              await tmp.delete();
+            } catch (_) {}
+          }
           return (task.status == "paused" ? "已暂停" : "已取消", null);
         }
         LoggerService().info("patch extract done: $destDir");
       } else {
-        final tmpExtract = "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
-        LoggerService().info("patch extract: $exe x -y -o$tmpExtract ${tmp.path}");
+        final tmpExtract =
+            "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+        LoggerService().info(
+          "patch extract: $exe x -y -o$tmpExtract ${tmp.path}",
+        );
         await Directory(tmpExtract).create(recursive: true);
-        await _runTool(exe, ["x", "-y", "-o$tmpExtract", tmp.path], timeout: 1800,
-            injectionAppId: appId,
-            onProgress: (p) { if (onProgress != null) onProgress(p, 0, 0, 0, "extracting"); });
+        await _runTool(
+          exe,
+          ["x", "-y", "-o$tmpExtract", tmp.path],
+          timeout: 1800,
+          injectionAppId: appId,
+          onProgress: (p) {
+            if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
+          },
+        );
         if (_stopped(task)) {
-          try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
-          if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+          try {
+            await Directory(tmpExtract).delete(recursive: true);
+          } catch (_) {}
+          if (task.status != "paused") {
+            try {
+              await tmp.delete();
+            } catch (_) {}
+          }
           return (task.status == "paused" ? "已暂停" : "已取消", null);
         }
-        LoggerService().info("patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir");
+        LoggerService().info(
+          "patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir",
+        );
         String sourceDir = tmpExtract;
         if (patchDir != null && patchDir.isNotEmpty) {
           String pd;
           try {
             pd = _resolveSafeRelativePath(tmpExtract, patchDir);
           } catch (e) {
-            try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
+            try {
+              await Directory(tmpExtract).delete(recursive: true);
+            } catch (_) {}
             return ("补丁源目录非法: $patchDir", null);
           }
           LoggerService().info("patch resolve: looking for $pd");
           if (await Directory(pd).exists()) {
             sourceDir = pd;
           } else {
-            try { await Directory(tmpExtract).delete(recursive: true); } catch (_) {}
+            try {
+              await Directory(tmpExtract).delete(recursive: true);
+            } catch (_) {}
             return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
           }
         } else {
           final entries = Directory(tmpExtract).listSync();
-          if (entries.length == 1 && entries.first is Directory) sourceDir = entries.first.path;
+          if (entries.length == 1 && entries.first is Directory)
+            sourceDir = entries.first.path;
         }
         LoggerService().info("patch merge: $sourceDir -> $destDir");
         await _copyMerge(sourceDir, destDir);
@@ -446,17 +527,29 @@ class DownloadService with WidgetsBindingObserver {
         await Directory(tmpExtract).delete(recursive: true);
       }
       if (_stopped(task)) {
-        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+        if (task.status != "paused") {
+          try {
+            await tmp.delete();
+          } catch (_) {}
+        }
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
-      try { await tmp.delete(); } catch (_) {}
+      try {
+        await tmp.delete();
+      } catch (_) {}
       return (null, destDir);
     } catch (e) {
       if (_stopped(task)) {
-        if (task.status != "paused") { try { await tmp.delete(); } catch (_) {} }
+        if (task.status != "paused") {
+          try {
+            await tmp.delete();
+          } catch (_) {}
+        }
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
-      try { await tmp.delete(); } catch (_) {}
+      try {
+        await tmp.delete();
+      } catch (_) {}
       return ("$e", null);
     } finally {
       _patchInjections.remove(appId);
@@ -476,13 +569,18 @@ class DownloadService with WidgetsBindingObserver {
     String? bgUrl,
     String? extractPassword,
   }) {
-    final task = DownloadTask(
-      gameId: gameId, versionId: versionId, fileName: fileName,
-      downloadUrl: downloadUrl, gameName: gameName, companyName: companyName,
-    )
-      ..coverUrl = coverUrl
-      ..bgUrl = bgUrl
-      ..extractPassword = extractPassword;
+    final task =
+        DownloadTask(
+            gameId: gameId,
+            versionId: versionId,
+            fileName: fileName,
+            downloadUrl: downloadUrl,
+            gameName: gameName,
+            companyName: companyName,
+          )
+          ..coverUrl = coverUrl
+          ..bgUrl = bgUrl
+          ..extractPassword = extractPassword;
     _tasks.insert(0, task);
     _emit();
     _scheduleDownloads();
@@ -500,7 +598,10 @@ class DownloadService with WidgetsBindingObserver {
       // Persist byte counts to a dedicated key for safe resume
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt("resume_${task.gameId}_${task.versionId}", received);
-      await prefs.setInt("resume_total_${task.gameId}_${task.versionId}", total);
+      await prefs.setInt(
+        "resume_total_${task.gameId}_${task.versionId}",
+        total,
+      );
       _saveTasks();
       _runningTasks.remove(task);
       _emit();
@@ -536,7 +637,9 @@ class DownloadService with WidgetsBindingObserver {
       task.error = null;
       task.needsPassword = false;
       task._triedPresetPassword = false;
-      task.progress = task.totalBytes > 0 ? task.receivedBytes / task.totalBytes : 0;
+      task.progress = task.totalBytes > 0
+          ? task.receivedBytes / task.totalBytes
+          : 0;
       _emit();
       _scheduleDownloads();
     }
@@ -555,7 +658,9 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await downloadDir;
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
+    final tmp = File(
+      "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
+    );
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
     try {
@@ -589,8 +694,10 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   void cancelTask(DownloadTask task) {
-    if (task.status == "downloading" || task.status == "pending" ||
-        task.status == "retrying" || task.status == "extracting" ||
+    if (task.status == "downloading" ||
+        task.status == "pending" ||
+        task.status == "retrying" ||
+        task.status == "extracting" ||
         task.status == "paused") {
       task._client?.close();
       task._client = null;
@@ -630,9 +737,13 @@ class DownloadService with WidgetsBindingObserver {
     try {
       final r = await Process.run(path, []);
       final m = RegExp(r'(\d+)\.(\d+)').firstMatch("${r.stdout}${r.stderr}");
-      if (m != null) { return int.parse(m.group(1)!) * 100 + int.parse(m.group(2)!); }
+      if (m != null) {
+        return int.parse(m.group(1)!) * 100 + int.parse(m.group(2)!);
+      }
       return null;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String> _getSevenZipPath() async {
@@ -646,33 +757,49 @@ class DownloadService with WidgetsBindingObserver {
     if (await dest.exists()) {
       final v = await _get7zaVersion(dest.path);
       if (v != null && v < _min7zaVersion) {
-        try { await dest.delete(); } catch (_) {}
-        try { await File("${dir.path}/7z.dll").delete(); } catch (_) {}
+        try {
+          await dest.delete();
+        } catch (_) {}
+        try {
+          await File("${dir.path}/7z.dll").delete();
+        } catch (_) {}
       }
       // Also clean up old 7za from previous versions
-      try { await File("${dir.path}/7za.exe").delete(); } catch (_) {}
-      try { await File("${dir.path}/7za.dll").delete(); } catch (_) {}
+      try {
+        await File("${dir.path}/7za.exe").delete();
+      } catch (_) {}
+      try {
+        await File("${dir.path}/7za.dll").delete();
+      } catch (_) {}
     }
 
     if (!await dest.exists()) {
       // Extract from bundled assets
       bool ok = false;
       try {
-        debugPrint("[SenaRepo] Loading 7zz from assets: assets/binaries/$exeName");
+        debugPrint(
+          "[SenaRepo] Loading 7zz from assets: assets/binaries/$exeName",
+        );
         final data = await rootBundle.load("assets/binaries/$exeName");
-        debugPrint("[SenaRepo] 7zz size from assets: ${data.buffer.lengthInBytes} bytes");
+        debugPrint(
+          "[SenaRepo] 7zz size from assets: ${data.buffer.lengthInBytes} bytes",
+        );
         await dest.writeAsBytes(data.buffer.asUint8List());
         // 7z.dll (Windows only — full format support incl. RAR)
         if (Platform.isWindows) {
           try {
             final dll = await rootBundle.load("assets/binaries/7z.dll");
-            await File("${dir.path}/7z.dll").writeAsBytes(dll.buffer.asUint8List());
+            await File(
+              "${dir.path}/7z.dll",
+            ).writeAsBytes(dll.buffer.asUint8List());
           } catch (_) {}
         }
         if (Platform.isLinux || Platform.isAndroid) {
           try {
-            await Process.run(Platform.isAndroid ? "/system/bin/chmod" : "chmod",
-              ["+x", dest.path]);
+            await Process.run(
+              Platform.isAndroid ? "/system/bin/chmod" : "chmod",
+              ["+x", dest.path],
+            );
           } catch (_) {}
         }
         if (await dest.exists()) ok = true;
@@ -702,38 +829,55 @@ class DownloadService with WidgetsBindingObserver {
       final tmp = File("$dir/_7z_installer.exe");
       final client = http.Client();
       try {
-        final resp = await client.send(http.Request("GET",
-            Uri.parse("https://www.7-zip.org/a/7z2601-x64.exe")));
+        final resp = await client.send(
+          http.Request(
+            "GET",
+            Uri.parse("https://www.7-zip.org/a/7z2601-x64.exe"),
+          ),
+        );
         if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
         final sink = tmp.openWrite();
         await for (final c in resp.stream) sink.add(c);
         await sink.flush();
         await sink.close();
         await Process.run(tmp.path, ["/S"]);
-        for (final d in ["C:/Program Files/7-Zip", r"C:\Program Files (x86)\7-Zip"]) {
+        for (final d in [
+          "C:/Program Files/7-Zip",
+          r"C:\Program Files (x86)\7-Zip",
+        ]) {
           final src = File("$d/7z.exe");
           if (await src.exists()) {
             await src.copy(dest.path);
-            try { await File("$d/7z.dll").copy("${dir}/7z.dll"); } catch (_) {}
+            try {
+              await File("$d/7z.dll").copy("${dir}/7z.dll");
+            } catch (_) {}
             break;
           }
         }
         await tmp.delete();
-      } finally { client.close(); }
+      } finally {
+        client.close();
+      }
     } else {
       // Linux: extract from tar.xz
       final tmp = File("$dir/_7z_dl");
       final client = http.Client();
       try {
-        final resp = await client.send(http.Request("GET",
-            Uri.parse("https://www.7-zip.org/a/7z2409-linux-x64.tar.xz")));
+        final resp = await client.send(
+          http.Request(
+            "GET",
+            Uri.parse("https://www.7-zip.org/a/7z2409-linux-x64.tar.xz"),
+          ),
+        );
         if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
         final sink = tmp.openWrite();
         await for (final c in resp.stream) sink.add(c);
         await sink.close();
         await Process.run("tar", ["-xf", tmp.path, "-C", dir]);
         await tmp.delete();
-      } finally { client.close(); }
+      } finally {
+        client.close();
+      }
     }
   }
 
@@ -743,7 +887,9 @@ class DownloadService with WidgetsBindingObserver {
     final dir = await downloadDir;
     // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}");
+    final tmp = File(
+      "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
+    );
     final outDir = _outDir(t, dir);
     final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
     try {
@@ -753,7 +899,13 @@ class DownloadService with WidgetsBindingObserver {
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
       for (int retry = 0; retry <= maxExtractRetries; retry++) {
-        if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
+        if (t._cancelled) {
+          try {
+            LoggerService().warn("DELETING temp file: $tmp");
+            await tmp.delete();
+          } catch (_) {}
+          return;
+        }
         if (t.status == "paused") return;
 
         // Phase 1: download
@@ -761,19 +913,36 @@ class DownloadService with WidgetsBindingObserver {
         _onDownloadStarted();
         _emit();
         NotificationService().showDownloadProgress(
-          id: t.gameId, gameName: t.gameName,
-          progress: 0, receivedBytes: 0, totalBytes: t.totalBytes);
+          id: t.gameId,
+          gameName: t.gameName,
+          progress: 0,
+          receivedBytes: 0,
+          totalBytes: t.totalBytes,
+        );
         await _download(t, tmp);
-        if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
+        if (t._cancelled) {
+          try {
+            LoggerService().warn("DELETING temp file: $tmp");
+            await tmp.delete();
+          } catch (_) {}
+          return;
+        }
         if (t.status == "paused") return;
 
         // Check if APK — move to output dir, skip extraction
         if (t.fileName.toLowerCase().endsWith(".apk")) {
           t.isApk = true;
           final apkFile = File("$outDir/${_safeName(t.fileName)}");
-          try { await apkFile.parent.create(recursive: true); } catch (_) {}
-          try { await tmp.rename(apkFile.path); } catch (e) {
-            try { await tmp.copy(apkFile.path); await tmp.delete(); } catch (_) {
+          try {
+            await apkFile.parent.create(recursive: true);
+          } catch (_) {}
+          try {
+            await tmp.rename(apkFile.path);
+          } catch (e) {
+            try {
+              await tmp.copy(apkFile.path);
+              await tmp.delete();
+            } catch (_) {
               throw Exception("无法保存 APK 文件: $e");
             }
           }
@@ -781,7 +950,10 @@ class DownloadService with WidgetsBindingObserver {
           t.outputPath = apkFile.path;
           t.progress = 1.0;
           _emit();
-          NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
+          NotificationService().showCompleted(
+            id: t.gameId,
+            gameName: t.gameName,
+          );
           return;
         }
 
@@ -792,7 +964,10 @@ class DownloadService with WidgetsBindingObserver {
         await Future.delayed(const Duration(milliseconds: 100));
         try {
           await _extract(tmp.path, outDir, gameDir, (p) {
-            if (p > t.progress) { t.progress = p; _emit(); }
+            if (p > t.progress) {
+              t.progress = p;
+              _emit();
+            }
           });
           t.progress = 1.0;
           _emit();
@@ -800,7 +975,13 @@ class DownloadService with WidgetsBindingObserver {
           await tmp.delete();
           break; // success
         } catch (e) {
-          if (t._cancelled) { try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {} return; }
+          if (t._cancelled) {
+            try {
+              LoggerService().warn("DELETING temp file: $tmp");
+              await tmp.delete();
+            } catch (_) {}
+            return;
+          }
           if (t.status == "paused") return;
           // Encrypted or no-extractor error — throw immediately, don't waste retries
           final errStr = "$e";
@@ -808,7 +989,10 @@ class DownloadService with WidgetsBindingObserver {
           if (_isExtractorMissingError(errStr)) rethrow;
           if (retry < maxExtractRetries) {
             // Corrupted file — delete and re-download
-            try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
+            try {
+              LoggerService().warn("DELETING temp file: $tmp");
+              await tmp.delete();
+            } catch (_) {}
             t.receivedBytes = 0;
             t.totalBytes = 0;
             t.status = "retrying";
@@ -829,7 +1013,10 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       if (t._cancelled) {
         NotificationService().cancel(t.gameId);
-        try { LoggerService().warn("DELETING temp file: $tmp"); await tmp.delete(); } catch (_) {}
+        try {
+          LoggerService().warn("DELETING temp file: $tmp");
+          await tmp.delete();
+        } catch (_) {}
         return;
       }
       if (t.status == "paused") return;
@@ -885,6 +1072,8 @@ class DownloadService with WidgetsBindingObserver {
 
   static const _maxRetries = 3;
   static const _retryDelays = [1, 3, 7]; // seconds
+  static const _downloadConnectTimeout = Duration(seconds: 20);
+  static const _downloadIdleTimeout = Duration(seconds: 45);
 
   Future<void> _download(DownloadTask t, File dest) async {
     for (int attempt = 0; attempt <= _maxRetries; attempt++) {
@@ -895,7 +1084,9 @@ class DownloadService with WidgetsBindingObserver {
         LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
           final sz = await dest.length();
-          LoggerService().info("Resume: receivedBytes=$t.receivedBytes fileSize=$sz");
+          LoggerService().info(
+            "Resume: receivedBytes=$t.receivedBytes fileSize=$sz",
+          );
           if (sz != t.receivedBytes) t.receivedBytes = sz;
         } else {
           LoggerService().warn("Resume: temp file GONE: ${dest.path}");
@@ -912,14 +1103,25 @@ class DownloadService with WidgetsBindingObserver {
         return; // success
       } on http.ClientException catch (e) {
         if (_stopped(t)) return;
-        if (attempt >= _maxRetries) throw Exception("网络中断（重试${_maxRetries}次后仍失败）: $e");
+        if (attempt >= _maxRetries)
+          throw Exception("网络中断（重试${_maxRetries}次后仍失败）: $e");
         _setStatus(t, "retrying");
         await Future.delayed(Duration(seconds: _retryDelays[attempt]));
         if (_stopped(t)) return;
         _setStatus(t, "downloading");
       } on SocketException catch (e) {
         if (_stopped(t)) return;
-        if (attempt >= _maxRetries) throw Exception("网络不通（重试${_maxRetries}次后仍失败）: $e");
+        if (attempt >= _maxRetries)
+          throw Exception("网络不通（重试${_maxRetries}次后仍失败）: $e");
+        _setStatus(t, "retrying");
+        await Future.delayed(Duration(seconds: _retryDelays[attempt]));
+        if (_stopped(t)) return;
+        _setStatus(t, "downloading");
+      } on TimeoutException catch (e) {
+        if (_stopped(t)) return;
+        if (attempt >= _maxRetries) {
+          throw Exception("下载超时（重试${_maxRetries}次后仍失败）: ${e.message ?? e}");
+        }
         _setStatus(t, "retrying");
         await Future.delayed(Duration(seconds: _retryDelays[attempt]));
         if (_stopped(t)) return;
@@ -966,7 +1168,22 @@ class DownloadService with WidgetsBindingObserver {
         req.headers["Range"] = "bytes=${t.receivedBytes}-";
       }
 
-      final resp = await client.send(req);
+      LoggerService().info(
+        "download request: ${t.downloadUrl} range=${req.headers["Range"] ?? "-"}",
+      );
+      final resp = await client
+          .send(req)
+          .timeout(
+            _downloadConnectTimeout,
+            onTimeout: () =>
+                throw TimeoutException("连接下载服务器超时", _downloadConnectTimeout),
+          );
+      LoggerService().info(
+        "download response: status=${resp.statusCode} "
+        "contentLength=${resp.contentLength ?? 0} "
+        "contentRange=${resp.headers["content-range"] ?? "-"} "
+        "acceptRanges=${resp.headers["accept-ranges"] ?? "-"}",
+      );
 
       // 416 = Range not satisfiable → already complete
       if (resp.statusCode == 416) {
@@ -995,9 +1212,22 @@ class DownloadService with WidgetsBindingObserver {
       // Stream to file
       int received = t.receivedBytes;
       sink = dest.openWrite(
-          mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write);
+        mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write,
+      );
 
-      await for (final chunk in resp.stream) {
+      var gotFirstChunk = false;
+      await for (final List<int> chunk in resp.stream.timeout(
+        _downloadIdleTimeout,
+        onTimeout: (sink) {
+          sink.addError(
+            TimeoutException("下载连接长时间没有收到数据", _downloadIdleTimeout),
+          );
+        },
+      )) {
+        if (!gotFirstChunk) {
+          gotFirstChunk = true;
+          LoggerService().info("download first chunk: ${chunk.length} bytes");
+        }
         await _throttleDownload(chunk.length);
         sink.add(chunk);
         received += chunk.length;
@@ -1006,8 +1236,8 @@ class DownloadService with WidgetsBindingObserver {
         final now = DateTime.now();
         final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
         if (elapsed >= 1000) {
-          t.speedBytesPerSecond =
-              ((received - t._lastBytes) / elapsed * 1000).round();
+          t.speedBytesPerSecond = ((received - t._lastBytes) / elapsed * 1000)
+              .round();
           t._lastBytes = received;
           t._lastSpeedTime = now;
         }
@@ -1018,9 +1248,12 @@ class DownloadService with WidgetsBindingObserver {
         if (notifyElapsed >= 1000) {
           t._lastNotifyTime = now;
           NotificationService().showDownloadProgress(
-            id: t.gameId, gameName: t.gameName,
-            progress: t.progress, receivedBytes: received,
-            totalBytes: t.totalBytes);
+            id: t.gameId,
+            gameName: t.gameName,
+            progress: t.progress,
+            receivedBytes: received,
+            totalBytes: t.totalBytes,
+          );
         }
       }
       // Tell UI we're done downloading before slow disk flush
@@ -1034,7 +1267,9 @@ class DownloadService with WidgetsBindingObserver {
       if (t.totalBytes > 0 && fileSize != t.totalBytes) {
         t.receivedBytes = 0;
         t.totalBytes = 0;
-        try { await dest.delete(); } catch (_) {}
+        try {
+          await dest.delete();
+        } catch (_) {}
         throw Exception("文件不完整: 预期${t.totalBytes}B 实际${fileSize}B");
       }
       if (fileSize == 0) {
@@ -1044,17 +1279,23 @@ class DownloadService with WidgetsBindingObserver {
       if (t.receivedBytes != fileSize) t.receivedBytes = fileSize;
     } finally {
       // Ensure data is flushed to disk before returning
-      try { await sink?.flush(); } catch (_) {}
-      try { await sink?.close(); } catch (_) {}
+      try {
+        await sink?.flush();
+      } catch (_) {}
+      try {
+        await sink?.close();
+      } catch (_) {}
       // Small delay for Android filesystem to update metadata
-      if (Platform.isAndroid) await Future.delayed(const Duration(milliseconds: 200));
+      if (Platform.isAndroid)
+        await Future.delayed(const Duration(milliseconds: 200));
       client.close();
       t._client = null;
       // Sync counter with actual file size (critical for resume)
       try {
         final actualSize = await dest.length();
         if (actualSize > 0) t.receivedBytes = actualSize;
-        if (t.totalBytes > 0 && actualSize >= t.totalBytes) t.receivedBytes = t.totalBytes;
+        if (t.totalBytes > 0 && actualSize >= t.totalBytes)
+          t.receivedBytes = t.totalBytes;
       } catch (_) {}
       // Save task state immediately so resume has correct receivedBytes
       if (t.status == "paused") _saveTasks();
@@ -1063,8 +1304,13 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── extract (desktop only) ──
 
-  Future<void> _extract(String filePath, String outDir, String gameDir,
-      [void Function(double)? onProgress, String? password]) async {
+  Future<void> _extract(
+    String filePath,
+    String outDir,
+    String gameDir, [
+    void Function(double)? onProgress,
+    String? password,
+  ]) async {
     final String exe;
     try {
       exe = await _getSevenZipPath();
@@ -1073,19 +1319,36 @@ class DownloadService with WidgetsBindingObserver {
     }
     // Extract to a temp subdirectory so _fixLayout only sees the new content
     // and isn't confused by pre-existing sibling game folders in outDir.
-    final extractTempDir = "$outDir${Platform.pathSeparator}.sena_tmp_${gameDir.hashCode.abs()}";
+    final extractTempDir =
+        "$outDir${Platform.pathSeparator}.sena_tmp_${gameDir.hashCode.abs()}";
     // Clean up any leftover from a previous crashed extraction
-    try { await Directory(extractTempDir).delete(recursive: true); } catch (_) {}
+    try {
+      await Directory(extractTempDir).delete(recursive: true);
+    } catch (_) {}
     try {
       final args = ["x", "-y", "-p-", "-o$extractTempDir", filePath];
-      if (password != null) { args.remove("-p-"); args.insert(1, "-p$password"); }
+      if (password != null) {
+        args.remove("-p-");
+        args.insert(1, "-p$password");
+      }
       // Skip integrity test on Android (saves time, verified during extraction)
       if (password == null && !Platform.isAndroid) {
-        try { await _runTool(exe, ["t", filePath], onProgress: onProgress, timeout: 300); } catch (_) {}
+        try {
+          await _runTool(
+            exe,
+            ["t", filePath],
+            onProgress: onProgress,
+            timeout: 300,
+          );
+        } catch (_) {}
       }
       debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
-      await _runTool(exe, args, onProgress: onProgress,
-        timeout: Platform.isAndroid ? 600 : 1800); // Android: 10min timeout
+      await _runTool(
+        exe,
+        args,
+        onProgress: onProgress,
+        timeout: Platform.isAndroid ? 600 : 1800,
+      ); // Android: 10min timeout
       await _fixLayout(extractTempDir, gameDir);
       // Move result from temp to final location
       final finalDir = "$outDir${Platform.pathSeparator}$gameDir";
@@ -1093,7 +1356,10 @@ class DownloadService with WidgetsBindingObserver {
       if (await Directory(source).exists()) {
         // _fixLayout produced a subfolder named gameDir → move it out
         // Remove stale empty dir from prior attempt
-        try { if (await Directory(finalDir).exists()) await Directory(finalDir).delete(recursive: true); } catch (_) {}
+        try {
+          if (await Directory(finalDir).exists())
+            await Directory(finalDir).delete(recursive: true);
+        } catch (_) {}
         try {
           await Directory(source).rename(finalDir);
         } catch (_) {
@@ -1104,7 +1370,10 @@ class DownloadService with WidgetsBindingObserver {
       } else {
         // _fixLayout case 2 (already named correctly) or no subfolder produced
         // Move the whole temp dir to final location
-        try { if (await Directory(finalDir).exists()) await Directory(finalDir).delete(recursive: true); } catch (_) {}
+        try {
+          if (await Directory(finalDir).exists())
+            await Directory(finalDir).delete(recursive: true);
+        } catch (_) {}
         try {
           await Directory(extractTempDir).rename(finalDir);
         } catch (_) {
@@ -1114,7 +1383,9 @@ class DownloadService with WidgetsBindingObserver {
       }
     } finally {
       // Clean up temp directory
-      try { await Directory(extractTempDir).delete(recursive: true); } catch (_) {}
+      try {
+        await Directory(extractTempDir).delete(recursive: true);
+      } catch (_) {}
     }
   }
 
@@ -1122,7 +1393,11 @@ class DownloadService with WidgetsBindingObserver {
   /// or wrap scattered files in [gameDir] folder.
   Future<void> _fixLayout(String outDir, String gameDir) async {
     List<FileSystemEntity> entries;
-    try { entries = await Directory(outDir).list().toList(); } catch (_) { return; }
+    try {
+      entries = await Directory(outDir).list().toList();
+    } catch (_) {
+      return;
+    }
     if (entries.isEmpty) return;
 
     // One folder = archive had its own wrapper
@@ -1146,13 +1421,20 @@ class DownloadService with WidgetsBindingObserver {
     }
 
     // Multiple items = archive has no wrapper → create game folder and move in
-    if (entries.any((e) => e is Directory && e.uri.pathSegments.last == gameDir)) return;
+    if (entries.any(
+      (e) => e is Directory && e.uri.pathSegments.last == gameDir,
+    ))
+      return;
 
     final wrap = "${outDir}${Platform.pathSeparator}$gameDir";
     try {
       await Directory(wrap).create();
       for (final e in entries) {
-        try { await e.rename("${wrap}${Platform.pathSeparator}${e.uri.pathSegments.last}"); } catch (_) {}
+        try {
+          await e.rename(
+            "${wrap}${Platform.pathSeparator}${e.uri.pathSegments.last}",
+          );
+        } catch (_) {}
       }
     } catch (_) {}
   }
@@ -1160,7 +1442,9 @@ class DownloadService with WidgetsBindingObserver {
   /// Recursively copy/merge ALL contents of [from] into [to], preserving directory structure.
   Future<void> _copyMerge(String from, String to) async {
     await for (final child in Directory(from).list(recursive: true)) {
-      final rel = child.path.substring(from.length).replaceFirst(RegExp(r'^[/\\]'), '');
+      final rel = child.path
+          .substring(from.length)
+          .replaceFirst(RegExp(r'^[/\\]'), '');
       final dest = "$to${Platform.pathSeparator}$rel";
       if (child is Directory) {
         await Directory(dest).create(recursive: true);
@@ -1198,19 +1482,29 @@ class DownloadService with WidgetsBindingObserver {
       current = "$current${Platform.pathSeparator}$part";
     }
 
-    final baseResolved = Directory(base).absolute.uri.normalizePath().toFilePath();
-    final targetResolved = Directory(current).absolute.uri.normalizePath().toFilePath();
+    final baseResolved = Directory(
+      base,
+    ).absolute.uri.normalizePath().toFilePath();
+    final targetResolved = Directory(
+      current,
+    ).absolute.uri.normalizePath().toFilePath();
     final baseWithSep = baseResolved.endsWith(Platform.pathSeparator)
         ? baseResolved
         : "$baseResolved${Platform.pathSeparator}";
-    if (targetResolved != baseResolved && !targetResolved.startsWith(baseWithSep)) {
+    if (targetResolved != baseResolved &&
+        !targetResolved.startsWith(baseWithSep)) {
       throw ArgumentError("path escapes base");
     }
     return targetResolved;
   }
 
-  Future<void> _runTool(String exe, List<String> args,
-      {void Function(double)? onProgress, int timeout = 1800, String? injectionAppId}) async {
+  Future<void> _runTool(
+    String exe,
+    List<String> args, {
+    void Function(double)? onProgress,
+    int timeout = 1800,
+    String? injectionAppId,
+  }) async {
     // Android: bypass noexec by using dynamic linker to load the ELF
     if (Platform.isAndroid) {
       args = [exe, ...args];
@@ -1248,21 +1542,24 @@ class DownloadService with WidgetsBindingObserver {
       await stdoutSub.cancel();
       await stderrSub.cancel();
       _extractionProcess = null;
-      if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
+      if (injectionAppId != null)
+        _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("超时（${timeout}s）");
     } catch (e) {
       proc.kill();
       await stdoutSub.cancel();
       await stderrSub.cancel();
       _extractionProcess = null;
-      if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
+      if (injectionAppId != null)
+        _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("$e");
     }
 
     await stdoutSub.cancel();
     await stderrSub.cancel();
     _extractionProcess = null;
-    if (injectionAppId != null) _patchInjections[injectionAppId]?.extractProcess = null;
+    if (injectionAppId != null)
+      _patchInjections[injectionAppId]?.extractProcess = null;
 
     if (exitCode != 0) {
       final err = String.fromCharCodes(stderrChunks).trim();
@@ -1283,7 +1580,10 @@ class DownloadService with WidgetsBindingObserver {
 
   bool _stopped(DownloadTask t) => t._cancelled || t.status == "paused";
 
-  void _setStatus(DownloadTask t, String s) { t.status = s; _emit(); }
+  void _setStatus(DownloadTask t, String s) {
+    t.status = s;
+    _emit();
+  }
 
   void _killExtractor() {
     _extractionProcess?.kill();
@@ -1293,7 +1593,9 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      await File("$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}").delete();
+      await File(
+        "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
+      ).delete();
     } catch (_) {}
   }
 
