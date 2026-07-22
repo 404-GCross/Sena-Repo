@@ -84,10 +84,19 @@ User ──→ Notification          Game ──→ GameVersion
 ### 扫描与导入流程
 
 1. `POST /api/roots/refresh-all` 触发全量扫描
-2. `services/scanner.py` 遍历根目录 → 识别会社/游戏/版本层级
-3. 文件名清洗：正则提取平台标识 `[PC]` `[KRKR]` 等
-4. 导入数据库：创建 Company/Game/GameVersion 记录
-5. 刮削：按游戏名 + 会社搜索元数据源
+2. `services/file_source.py` 根据根目录类型选择本地文件或 OpenList 适配器
+3. `services/scanner.py` 遍历根目录 → 识别会社/游戏/版本层级
+4. 文件名清洗：正则提取平台标识 `[PC]` `[KRKR]` 等
+5. 导入数据库：创建 Company/Game/GameVersion 记录
+6. 刮削：按游戏名 + 会社搜索元数据源
+
+### 文件源抽象
+
+服务端通过统一的 FileSource 适配器处理本地目录和 OpenList：
+
+- `LocalFileSource`：直接遍历本地挂载目录，下载时由 Sena 服务端 `FileResponse` 发送文件
+- `OpenListFileSource`：调用 OpenList `/api/fs/list` 扫描，调用 `/api/fs/get` 取得签名，再生成 OpenList `/d/...` 下载入口
+- OpenList 下载不经 Sena 服务端代理大文件流量，而是返回 302 给客户端，由客户端继续跟随到 OpenList 和网盘/CDN
 
 ### 刮削架构
 
@@ -98,7 +107,6 @@ User ──→ Notification          Game ──→ GameVersion
     ├── VNDB   → api.vndb.org/kana/vn
     ├── Bangumi → api.bgm.tv
     ├── Steam  → store.steampowered.com
-    ├── DLsite → dlsite.com
     └── 月幕   → api.ymgal.games
 ```
 
@@ -109,7 +117,6 @@ User ──→ Notification          Game ──→ GameVersion
     ├── vndb_kana.py → api.vndb.org/kana/vn
     ├── bangumi.py   → api.bgm.tv
     ├── steam.py     → Steam 商店搜索
-    ├── dlsite.py    → dlsite.com
     └── ymgal.py     → ymgal.games
 ```
 
@@ -168,6 +175,7 @@ User ──→ Notification          Game ──→ GameVersion
 ```
 startDownload(gameId, versionId, fileName, downloadUrl)
     → DownloadTask（状态管理）
+        → _sendDownloadRequest() → 手动跟随 302 并记录每一跳
         → _download() → stream 写入临时文件（支持 Range 续传）
         → _extract() → 7z 解压到目标目录
         → _fixLayout() → 修正目录结构
@@ -177,6 +185,8 @@ startDownload(gameId, versionId, fileName, downloadUrl)
 - 暂停：关闭 HTTP Client，保留已下载字节
 - 恢复：检查临时文件大小，Range 头续传
 - 取消：关闭 Client + 杀 7z 进程 + 清理临时文件
+- 下载进度：UI 刷新节流到约 250ms，任务状态约 2 秒保存一次，避免每个网络 chunk 都写 SharedPreferences
+- OpenList：客户端手动跟随 Sena → OpenList `/d/...` → 网盘/CDN 的 302 链，并只把 Sena Token 发给 Sena 服务端
 
 ### Steam 补丁注入（PC）
 

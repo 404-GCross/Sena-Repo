@@ -11,6 +11,7 @@ import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
+import "../services/secure_store.dart";
 import "profile_switch_screen.dart";
 import "settings_screen.dart";
 import "notification_screen.dart";
@@ -63,7 +64,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-
   Future<void> _loadServerVersion() async {
     try {
       final api = context.read<GameProvider>().api;
@@ -79,7 +79,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     final settings = context.read<SettingsProvider>();
-    final token = prefs.getString("auth_token");
+    final token = await SecureStore.getString("auth_token");
     _userId = int.tryParse(token ?? "") ?? 0;
     if (mounted) {
       setState(() {
@@ -89,17 +89,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     // Try loading avatar from server
     try {
-      final resp = await http.get(Uri.parse(
-          "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/me"),
-          headers: {"Authorization": "Bearer ${prefs.getString("auth_token") ?? ""}"});
+      final resp = await http.get(
+        Uri.parse(
+          "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/me",
+        ),
+        headers: {"Authorization": "Bearer ${token ?? ""}"},
+      );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        if (mounted) setState(() {
-          _userId = data["id"] ?? 0;
-          _avatarPath = data["avatar_path"];
-          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-          _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
-        });
+        if (mounted)
+          setState(() {
+            _userId = data["id"] ?? 0;
+            _avatarPath = data["avatar_path"];
+            _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+            _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
+          });
       }
     } catch (_) {}
   }
@@ -120,12 +124,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.5),
                 width: 3,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.2),
                   blurRadius: 20,
                 ),
               ],
@@ -139,8 +147,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: _avatarUrl == null
                   ? Text(
                       _username.isNotEmpty ? _username[0].toUpperCase() : "S",
-                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary),
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     )
                   : null,
             ),
@@ -157,7 +168,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Center(
           child: Text(
             "服务器: ${settings.serverHost}:${settings.serverPort}",
-            style: AppText.bodyMedium.copyWith( color: hintColor(context)),
+            style: AppText.bodyMedium.copyWith(color: hintColor(context)),
           ),
         ),
         const SizedBox(height: 32),
@@ -168,8 +179,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.settings,
             title: "设置",
             trailing: "服务器、刮削源、显示",
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
           ),
         ]),
         const SizedBox(height: 16),
@@ -177,7 +190,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _menuItem(
             icon: Icons.info_outline,
             title: "关于",
-            trailing: "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "..."}",
+            trailing:
+                "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "..."}",
             onTap: () => _showAbout(context),
           ),
         ]),
@@ -192,7 +206,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               foregroundColor: Colors.red,
               side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
             icon: const Icon(Icons.logout, size: 18),
             label: const Text("退出登录"),
@@ -224,33 +240,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: cardBorder(context),
-              borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cardBorder(context),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 22, color: sectionTextColor(context)),
             ),
-            child: Icon(icon, size: 22, color: sectionTextColor(context)),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 2),
-                Text(trailing, style: AppText.bodySmall.copyWith( color: hintColor(context))),
-              ],
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    trailing,
+                    style: AppText.bodySmall.copyWith(
+                      color: hintColor(context),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
-        ]),
+            Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _menuDivider() => Divider(height: 1, indent: 68, color: cardBorder(context));
+  Widget _menuDivider() =>
+      Divider(height: 1, indent: 68, color: cardBorder(context));
 
   void _showAbout(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -258,33 +288,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Column(children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Image.asset("assets/icon.png", width: 56, height: 56),
-          ),
-          const SizedBox(height: 12),
-          const Text("Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 2),
-          Text("客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-              style: TextStyle(fontSize: 13, color: cs.primary)),
-        ]),
+        title: Column(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Image.asset("assets/icon.png", width: 56, height: 56),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Sena Repo",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
+              style: TextStyle(fontSize: 13, color: cs.primary),
+            ),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Divider(),
             const SizedBox(height: 8),
-            Text("GalGame 私有库管理器", style: AppText.bodyMedium.copyWith(color: subTextColor(context))),
+            Text(
+              "GalGame 私有库管理器",
+              style: AppText.bodyMedium.copyWith(color: subTextColor(context)),
+            ),
             const SizedBox(height: 12),
             InkWell(
               onTap: () {},
-              child: Text("github.com/404-GCross/Sena-Repo",
-                  style: TextStyle(fontSize: 12, color: cs.primary.withValues(alpha: 0.8))),
+              child: Text(
+                "github.com/404-GCross/Sena-Repo",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.primary.withValues(alpha: 0.8),
+                ),
+              ),
             ),
           ],
         ),
         actions: [
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text("确定")),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("确定"),
+          ),
         ],
       ),
     );
@@ -297,8 +345,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text("退出登录"),
         content: const Text("确定退出登录吗？"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("取消")),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("确定")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("确定"),
+          ),
         ],
       ),
     );
@@ -306,7 +360,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await ApiClient.clearTokens();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
-      await prefs.remove("auth_token");
+      await SecureStore.delete("auth_token");
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),

@@ -78,6 +78,9 @@ class GameVersion(Base):
     platform = Column(Enum(Platform), nullable=False)
     filename = Column(String(512), nullable=False)
     file_path = Column(String(1024), nullable=False)
+    source_type = Column(String(32), nullable=False, default="local")
+    source_id = Column(Integer, nullable=True)
+    source_path = Column(String(1024), nullable=True)
     file_size = Column(BigInteger, default=0)
     extract_password = Column(String(256), nullable=True)
 

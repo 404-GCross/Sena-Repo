@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.ignore_list import IgnoreList
 from utils.file_utils import is_archive
+from services.file_source import FileSourceAdapter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -186,6 +190,88 @@ def scan_root(
             if game.archives:
                 company.games.append(game)
 
+        if company.games:
+            result.companies.append(company)
+
+    return result
+
+
+def scan_source(
+    source: FileSourceAdapter,
+    root_path: str,
+    ignore_paths: set[str] | None = None,
+    structure: str = "company_game",
+) -> ScanResult:
+    """Scan a generic file source and return the same structure as scan_root."""
+    if ignore_paths is None:
+        ignore_paths = set()
+
+    result = ScanResult(root_path=root_path)
+
+    def children(path: str) -> list:
+        try:
+            return source.list(path)
+        except Exception as exc:
+            logger.warning("Failed to list source path %s: %s", path, exc)
+            return []
+
+    def archives_recursive(path: str) -> list[ArchiveFile]:
+        found: list[ArchiveFile] = []
+        stack = [path]
+        while stack:
+            current = stack.pop()
+            for entry in children(current):
+                if entry.path in ignore_paths:
+                    continue
+                if entry.is_dir:
+                    stack.append(entry.path)
+                elif is_archive(entry.name):
+                    found.append(ArchiveFile(entry.name, entry.path, entry.size))
+        found.sort(key=lambda a: a.filepath.lower())
+        return found
+
+    root_entries = children(root_path)
+
+    if structure == "game_only":
+        company = CompanyFolder(name=Path(root_path).name or root_path.strip("/") or "OpenList", path=root_path)
+        for entry in root_entries:
+            if entry.path in ignore_paths:
+                continue
+            if not entry.is_dir and is_archive(entry.name):
+                company.games.append(
+                    GameFolder(entry.name.rsplit(".", 1)[0], entry.path, [ArchiveFile(entry.name, entry.path, entry.size)])
+                )
+            elif entry.is_dir:
+                archives = archives_recursive(entry.path)
+                if archives:
+                    company.games.append(GameFolder(entry.name, entry.path, archives))
+        if company.games:
+            result.companies.append(company)
+        return result
+
+    if structure == "flat":
+        company = CompanyFolder(name=Path(root_path).name or root_path.strip("/") or "OpenList", path=root_path)
+        for archive in archives_recursive(root_path):
+            company.games.append(GameFolder(archive.filename.rsplit(".", 1)[0], archive.filepath, [archive]))
+        if company.games:
+            result.companies.append(company)
+        return result
+
+    for company_entry in root_entries:
+        if not company_entry.is_dir:
+            continue
+        company = CompanyFolder(name=company_entry.name, path=company_entry.path)
+        for entry in children(company_entry.path):
+            if entry.path in ignore_paths:
+                continue
+            if not entry.is_dir and is_archive(entry.name):
+                company.games.append(
+                    GameFolder(entry.name.rsplit(".", 1)[0], entry.path, [ArchiveFile(entry.name, entry.path, entry.size)])
+                )
+            elif entry.is_dir:
+                archives = archives_recursive(entry.path)
+                if archives:
+                    company.games.append(GameFolder(entry.name, entry.path, archives))
         if company.games:
             result.companies.append(company)
 

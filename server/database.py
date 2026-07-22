@@ -77,9 +77,26 @@ async def create_tables():
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
-        column_names = {row[1] for row in columns}
-        if "extract_password" not in column_names:
+        version_columns = {row[1] for row in columns}
+        if "extract_password" not in version_columns:
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN extract_password VARCHAR(256)")
+        if "source_type" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_type VARCHAR(32) NOT NULL DEFAULT 'local'")
+        if "source_id" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_id INTEGER")
+        if "source_path" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_path VARCHAR(1024)")
+
+        columns = await conn.exec_driver_sql("PRAGMA table_info(root_directories)")
+        root_columns = {row[1] for row in columns}
+        if "source_type" not in root_columns:
+            await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_type VARCHAR(32) NOT NULL DEFAULT 'local'")
+        if "source_id" not in root_columns:
+            await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_id INTEGER")
+        if "source_name" not in root_columns:
+            await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_name VARCHAR(255)")
+        if "source_path" not in root_columns:
+            await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_path VARCHAR(1024)")
 
 
 async def get_engine():

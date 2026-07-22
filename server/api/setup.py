@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import load_config
 from database import get_session
 from models.root_directory import RootDirectory
+from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
+from services.file_source import canonical_source_path, normalize_base_url, normalize_remote_path
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -33,6 +35,8 @@ class InitRequest(BaseModel):
     auto_scan: bool = False
     scan_interval: int = Field(default=24, ge=1)
     scan_structure: str = "company_game"
+    game_libraries: list[dict] = Field(default_factory=list)
+    steam_patch_libraries: list[dict] = Field(default_factory=list)
 
 
 @router.get("/status", response_model=SetupStatus)
@@ -69,18 +73,78 @@ async def initialize_setup(
     user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, is_admin=True)
     session.add(user)
 
+    source_cache: dict[tuple[str, str], FileSource] = {}
+
+    async def ensure_source(item: dict) -> tuple[str, int | None, str | None, str]:
+        source_type = item.get("source_type") if item.get("source_type") in {"local", "openlist"} else "local"
+        path = (item.get("path") or "").strip()
+        if source_type == "openlist":
+            path = normalize_remote_path(path)
+            source_id = item.get("source_id")
+            source = None
+            if source_id:
+                result = await session.execute(select(FileSource).where(FileSource.id == source_id))
+                source = result.scalar_one_or_none()
+            if source is None:
+                base_url = normalize_base_url(item.get("base_url"))
+                username = item.get("username") or ""
+                if not base_url or not username:
+                    raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+                cache_key = (base_url, username)
+                source = source_cache.get(cache_key)
+                if source is None:
+                    source = FileSource(
+                        name=item.get("source_name") or item.get("name") or base_url or "OpenList",
+                        type="openlist",
+                        base_url=base_url,
+                        username=username,
+                        password=item.get("password") or "",
+                    )
+                    session.add(source)
+                    await session.flush()
+                    source_cache[cache_key] = source
+            return source_type, source.id, source.name, path
+        return "local", None, item.get("source_name"), path
+
+    game_libraries = list(body.game_libraries)
+    if not game_libraries:
+        game_libraries = [{"source_type": "local", "path": p} for p in body.game_dirs]
+
     # Add game directories
     roots_added = 0
-    for path in body.game_dirs:
-        path = path.strip()
+    for item in game_libraries:
+        source_type, source_id, source_name, path = await ensure_source(item)
         if not path:
             continue
+        stored_path = canonical_source_path(source_type, source_id, path)
         existing = await session.execute(
-            select(RootDirectory).where(RootDirectory.path == path)
+            select(RootDirectory).where(RootDirectory.path == stored_path)
         )
         if existing.scalar_one_or_none() is None:
-            session.add(RootDirectory(path=path))
+            session.add(RootDirectory(
+                path=stored_path,
+                source_type=source_type,
+                source_id=source_id,
+                source_name=source_name,
+                source_path=path,
+            ))
             roots_added += 1
+
+    patch_libraries = list(body.steam_patch_libraries)
+    if not patch_libraries and body.patch_dir:
+        patch_libraries = [{"source_type": "local", "path": body.patch_dir}]
+    patch_roots_added = 0
+    for item in patch_libraries:
+        source_type, source_id, source_name, path = await ensure_source(item)
+        if not path:
+            continue
+        session.add(SteamPatchRoot(
+            source_type=source_type,
+            source_id=source_id,
+            source_name=source_name,
+            path=path,
+        ))
+        patch_roots_added += 1
 
     # Save patch_dir and steam_dir to config.yaml
     import yaml, os
@@ -121,7 +185,7 @@ async def initialize_setup(
     await session.commit()
 
     # Fire background scans (don't block response — user enters main page immediately)
-    asyncio.create_task(_background_scan(config, body.patch_dir))
+    asyncio.create_task(_background_scan(config))
 
     # Also trigger scrape on new games after scan completes
     # (handled inside _background_scan via _run_scan)
@@ -130,10 +194,11 @@ async def initialize_setup(
         "message": "Setup complete",
         "admin_created": True,
         "roots_added": roots_added,
+        "patch_roots_added": patch_roots_added,
     }
 
 
-async def _background_scan(config, patch_dir: str):
+async def _background_scan(config):
     """Run game + patch scan in background without blocking setup response."""
     logger = logging.getLogger("sena-repo")
     try:
@@ -144,20 +209,11 @@ async def _background_scan(config, patch_dir: str):
     except Exception as e:
         logger.error(f"Background game scan failed: {e}\n{traceback.format_exc()}")
 
-    if patch_dir:
-        try:
-            from scan_patches import scan_patches_dir, load_existing, merge
-            from pathlib import Path as _Path
-            patches_dir = _Path(patch_dir)
-            patches_dir.mkdir(parents=True, exist_ok=True)
-            scanned = await asyncio.to_thread(scan_patches_dir, patches_dir)
-            if scanned:
-                json_path = patches_dir / "patches.json"
-                existing = load_existing(json_path)
-                existing_list = existing.get("patches", []) if existing else []
-                merged_patches = merge(existing_list, scanned)
-                with open(json_path, "w", encoding="utf-8") as _f:
-                    json.dump({"patches": merged_patches}, _f, ensure_ascii=False, indent=2)
-                logger.info(f"Background patch scan complete: {len(scanned)} files")
-        except Exception as e:
-            logger.error(f"Background patch scan failed: {e}\n{traceback.format_exc()}")
+    try:
+        import database
+        from api.steam_patch import scan_patches_endpoint
+        async with database._session_factory() as session:
+            result = await scan_patches_endpoint(user=None, session=session)
+            logger.info(f"Background patch scan complete: {result.get('scanned', 0)} files")
+    except Exception as e:
+        logger.error(f"Background patch scan failed: {e}\n{traceback.format_exc()}")

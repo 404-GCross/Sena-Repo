@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import ipaddress
+import socket
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
@@ -22,6 +25,29 @@ from .steam import SteamScraper
 from .ymgal import YmgalScraper
 
 logger = logging.getLogger(__name__)
+
+
+def _is_public_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+        return not (ip.is_loopback or ip.is_private or ip.is_link_local)
+    except ValueError:
+        pass
+    try:
+        addrs = socket.getaddrinfo(parsed.hostname, None)
+    except OSError:
+        return False
+    for addr in addrs:
+        try:
+            ip = ipaddress.ip_address(addr[4][0])
+        except ValueError:
+            return False
+        if ip.is_loopback or ip.is_private or ip.is_link_local:
+            return False
+    return True
 
 
 def _build_scrapers(config: Config) -> list[BaseScraper]:
@@ -45,6 +71,9 @@ async def _download_cover(
     dest_path: Path,
 ) -> bool:
     """Download a cover image to the specified path."""
+    if not _is_public_http_url(url):
+        logger.warning(f"Skipping non-public image URL: {url}")
+        return False
     try:
         resp = await client.get(url, timeout=30.0)
         resp.raise_for_status()

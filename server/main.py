@@ -113,6 +113,7 @@ from api.games import router as games_router
 from api.tags import router as tags_router
 from api.roots import router as roots_router
 from api.download import router as download_router
+from api.file_sources import router as file_sources_router
 from api.settings import router as settings_router
 from api.scraper import router as scraper_router
 from api.files import router as files_router
@@ -124,6 +125,7 @@ app.include_router(games_router)
 app.include_router(tags_router)
 app.include_router(roots_router)
 app.include_router(download_router)
+app.include_router(file_sources_router)
 app.include_router(settings_router)
 app.include_router(scraper_router)
 app.include_router(files_router)
