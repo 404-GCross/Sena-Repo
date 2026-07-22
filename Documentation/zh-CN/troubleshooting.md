@@ -51,6 +51,42 @@ docker logs sena-repo 2>&1 | tail -30
    ```
 3. 自动扫描每 5 分钟检查一次，刚设置完后等几分钟再观察
 
+### OpenList 游戏扫描不到
+
+OpenList 源添加成功，但扫描后游戏库为空。
+
+1. 确认 OpenList 地址带有客户端和 Sena 服务端都能访问的 IP/域名，例如 `http://192.168.1.100:5244`
+2. 服务端日志中如果出现 `Request URL is missing an 'http://' or 'https://' protocol`，说明旧配置缺少协议；编辑 OpenList 服务器后保存一次
+3. 确认 OpenList 路径填的是游戏库根目录，例如 `/115/Games/GalGame/Library`
+4. 确认路径下面仍符合 Sena 的目录结构：`会社/游戏/压缩包`
+5. 在 Sena 容器内测试 OpenList API：
+   ```bash
+   docker exec -i sena-repo python - <<'PY'
+   import json, urllib.request
+   base = "http://你的OpenList地址:5244"
+   username = "用户名"
+   password = "密码"
+   path = "/115/Games/GalGame/Library"
+   req = urllib.request.Request(
+       base + "/api/auth/login",
+       data=json.dumps({"username": username, "password": password}).encode(),
+       headers={"Content-Type": "application/json"},
+   )
+   with urllib.request.urlopen(req, timeout=10) as r:
+       token = json.loads(r.read().decode())["data"]["token"]
+   req = urllib.request.Request(
+       base + "/api/fs/list",
+       data=json.dumps({"path": path, "password": "", "page": 1, "per_page": 50, "refresh": False}).encode(),
+       headers={"Content-Type": "application/json", "Authorization": token},
+   )
+   with urllib.request.urlopen(req, timeout=10) as r:
+       data = json.loads(r.read().decode())
+   print(data.get("code"), data.get("message"))
+   for item in (data.get("data", {}).get("content") or [])[:20]:
+       print(item.get("name"), "dir=", item.get("is_dir"))
+   PY
+   ```
+
 ### SQLite database is locked
 
 并发写入导致。SQLite 只支持单写者。减少并发写入操作。SQLAlchemy 的 `aiosqlite` 驱动会排队，但超时后仍会报错。
@@ -60,6 +96,20 @@ docker logs sena-repo 2>&1 | tail -30
 **拉取：** GHCR 公开，不需要登录。404 则检查 tag 是否存在。
 
 **推送：** Settings → Actions → General → Workflow permissions 设为 "Read and write"。
+
+### DockerHub 镜像
+
+正式版：
+
+```bash
+docker pull 404gcross/sena-repo:latest
+```
+
+测试版：
+
+```bash
+docker pull 404gcross/sena-repo:pre-release
+```
 
 ---
 
@@ -211,3 +261,46 @@ Python 随客户端分发，在 `sena_repo.exe` 同级目录的 `python/` 文件
 ### Android：权限弹窗无法跳转设置
 
 通过 `permission_handler` 打开系统设置页。如仍失败，手动在系统设置中搜索"所有文件访问"并开启。
+
+### OpenList 下载卡在正在连接
+
+新版客户端日志会记录每一跳：
+
+```text
+download request[0]: Sena /api/download ...
+download redirect[0]: Sena -> OpenList /d/...
+download request[1]: OpenList /d/...
+download redirect[1]: OpenList -> 网盘/CDN
+download request[2]: CDN ...
+download final[2]: HTTP 200/206 ...
+download first chunk: ...
+```
+
+判断方法：
+
+- 停在 `request[0]`：客户端到 Sena 服务端不通
+- 停在 `request[1]`：客户端访问不了 OpenList 地址。OpenList 地址必须对客户端可达，不能只对 Sena 服务端可达
+- 停在 `request[2]`：客户端访问网盘/CDN 不通或被 CDN 限制
+- 有 `final` 但无 `first chunk`：CDN 返回响应头后长时间不发数据，客户端会在空闲超时后失败
+- 有 `first chunk`：下载已经开始，速度慢通常是网络/CDN 或客户端写盘性能问题
+
+可在客户端所在设备上用 curl 验证完整链路：
+
+```bash
+curl -v -L -r 0-1023 -o /dev/null \
+  -H "Authorization: Bearer <SenaToken>" \
+  "http://Sena地址:11451/api/download/游戏ID/版本ID"
+```
+
+如果 curl 能拿到 `206 Partial Content`，说明 Sena → OpenList → CDN 的 302 链路正常。
+
+### OpenList 下载比网页慢
+
+优先检查：
+
+1. 下载设置里的限速是否为 `0`
+2. 客户端日志是否已经出现 `download first chunk`
+3. 客户端设备到 CDN 的网络是否与 OpenList 网页测试设备一致
+4. 磁盘写入是否较慢，尤其是 AppImage、SD 卡、移动硬盘或 Android 共享存储
+
+客户端下载器已对 UI 刷新和任务状态保存做节流，避免每个网络分片都写 `SharedPreferences`。如果仍显著慢于浏览器，通常是 CDN 对客户端设备网络、UA 或连接方式的差异。

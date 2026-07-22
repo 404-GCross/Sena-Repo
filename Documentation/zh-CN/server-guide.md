@@ -57,6 +57,13 @@ docker pull ghcr.io/404-gcross/sena-repo:latest
 docker pull ghcr.io/404-gcross/sena-repo:v0.1.0
 ```
 
+同一服务端镜像也会推送到 DockerHub：
+
+```bash
+docker pull 404gcross/sena-repo:latest        # 正式版
+docker pull 404gcross/sena-repo:pre-release   # 测试版
+```
+
 **基础启动：**
 
 ```bash
@@ -65,7 +72,7 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
+  -v /path/to/steam_patches:/data/steam_patches \
   ghcr.io/404-gcross/sena-repo:latest
 ```
 
@@ -77,7 +84,7 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
+  -v /path/to/steam_patches:/data/steam_patches \
   -e SENA_BANGUMI_TOKEN="your_token" \
   -e SENA_PROXY="http://127.0.0.1:7890" \
   ghcr.io/404-gcross/sena-repo:latest
@@ -95,7 +102,7 @@ services:
     volumes:
       - /path/to/games:/games
       - /path/to/data:/data
-      - /path/to/steam_patches:/steam_patch
+      - /path/to/steam_patches:/data/steam_patches
     environment:
       - SENA_BANGUMI_TOKEN=your_token      # 可选
       - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
@@ -114,7 +121,7 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
-  -v /path/to/steam_patches:/steam_patch \
+  -v /path/to/steam_patches:/data/steam_patches \
   sena-repo:latest
 ```
 
@@ -173,7 +180,8 @@ pkill -f "python main.py" && python main.py ...
 |-------------|------|------|
 | `/games` | 游戏文件存放目录 | 是 |
 | `/data` | 数据库、封面、背景、配置 | 是 |
-| `/steam_patch` | Steam 补丁压缩包目录 | Steam 补丁功能需要 |
+| `/data/steam_patches` | 默认 Steam 补丁压缩包目录 | Steam 补丁功能需要 |
+| `SENA_PATCH_DIR` | 自定义 Steam 补丁目录，例如 `/steam_patch` | 可选 |
 | `SENA_BANGUMI_TOKEN` | Bangumi API Token | 可选 |
 | `SENA_PROXY` | 刮削 HTTP 代理 | 可选 |
 
@@ -232,8 +240,33 @@ pkill -f "python main.py" && python main.py ...
 | VNDB Kana v2 | 免认证，含游戏时长数据 |
 | Bangumi | 免认证 |
 | Steam | 免认证 |
-| DLsite | 免认证 |
 | 月幕 GalGame | 免认证 |
+
+---
+
+## OpenList 文件源
+
+Sena-Repo 可以把 OpenList 作为游戏库或 Steam 补丁库的文件来源。添加时分两步：
+
+1. 在「扫描设置」中添加 OpenList 服务器，填写客户端也能访问的 OpenList 地址、用户名和密码
+2. 添加游戏库目录或 Steam 补丁库目录时选择该 OpenList 服务器，并填写 OpenList 内部路径，例如 `/115/Games/GalGame/Library`
+
+OpenList 下载链路：
+
+```text
+客户端请求 Sena /api/download/{game}/{version}
+  → Sena 返回 302 到 OpenList /d/文件路径?sign=...
+  → OpenList 返回 302 到网盘/CDN直链
+  → 客户端直接从网盘/CDN下载
+```
+
+注意事项：
+
+- OpenList 地址必须从客户端设备可访问；只从 Sena 服务端可访问是不够的
+- Sena 服务端只负责生成跳转，不代理大文件下载流量
+- OpenList 登录支持 `/api/auth/login/hash`，失败时回退 `/api/auth/login`
+- 如果 OpenList 服务器地址未写协议，Sena 会自动补 `http://`
+- 扫描时仍按所选目录结构解析，例如会社/游戏/版本文件
 
 ---
 
