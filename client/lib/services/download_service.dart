@@ -44,6 +44,7 @@ class DownloadTask {
   final DateTime startedAt;
   http.Client? _client;
   bool _cancelled = false;
+  bool headersReceived = false;
   bool needsPassword = false;
   bool isApk = false;
   String? coverUrl;
@@ -581,6 +582,7 @@ class DownloadService with WidgetsBindingObserver {
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
           ..extractPassword = extractPassword;
+    task.headersReceived = false;
     _tasks.insert(0, task);
     _emit();
     _scheduleDownloads();
@@ -636,6 +638,7 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "pending";
       task.error = null;
       task.needsPassword = false;
+      task.headersReceived = false;
       task._triedPresetPassword = false;
       task.progress = task.totalBytes > 0
           ? task.receivedBytes / task.totalBytes
@@ -1099,6 +1102,7 @@ class DownloadService with WidgetsBindingObserver {
       if (t.totalBytes > 0 && t.receivedBytes >= t.totalBytes) return;
 
       try {
+        t.headersReceived = false;
         await _attempt(t, dest);
         return; // success
       } on http.ClientException catch (e) {
@@ -1156,28 +1160,14 @@ class DownloadService with WidgetsBindingObserver {
     t._client = client;
     IOSink? sink;
     try {
-      // Token refresh removed — using simple static token
-      final req = http.Request("GET", Uri.parse(t.downloadUrl));
-      // Add auth header for server authentication
-      if (globalToken != null && globalToken!.isNotEmpty) {
-        req.headers["Authorization"] = "Bearer $globalToken";
-      }
+      final headers = <String, String>{};
 
-      // Range for resume
-      if (t.receivedBytes > 0 && await dest.exists()) {
-        req.headers["Range"] = "bytes=${t.receivedBytes}-";
-      }
+      // Always request ranges so OpenList/cloud sources return resumable metadata early.
+      headers["Range"] = "bytes=${t.receivedBytes}-";
 
-      LoggerService().info(
-        "download request: ${t.downloadUrl} range=${req.headers["Range"] ?? "-"}",
-      );
-      final resp = await client
-          .send(req)
-          .timeout(
-            _downloadConnectTimeout,
-            onTimeout: () =>
-                throw TimeoutException("连接下载服务器超时", _downloadConnectTimeout),
-          );
+      final resp = await _sendDownloadRequest(client, t.downloadUrl, headers);
+      t.headersReceived = true;
+      _emit();
       LoggerService().info(
         "download response: status=${resp.statusCode} "
         "contentLength=${resp.contentLength ?? 0} "
@@ -1300,6 +1290,64 @@ class DownloadService with WidgetsBindingObserver {
       // Save task state immediately so resume has correct receivedBytes
       if (t.status == "paused") _saveTasks();
     }
+  }
+
+  Future<http.StreamedResponse> _sendDownloadRequest(
+    http.Client client,
+    String url,
+    Map<String, String> baseHeaders,
+  ) async {
+    var current = Uri.parse(url);
+    final originalScheme = current.scheme;
+    final originalHost = current.host;
+    final originalPort = current.hasPort ? current.port : null;
+
+    for (var redirectCount = 0; redirectCount < 8; redirectCount++) {
+      final req = http.Request("GET", current)..followRedirects = false;
+      req.headers.addAll(baseHeaders);
+
+      final sameOrigin =
+          current.scheme == originalScheme &&
+          current.host == originalHost &&
+          (current.hasPort ? current.port : null) == originalPort;
+      if (sameOrigin && globalToken != null && globalToken!.isNotEmpty) {
+        req.headers["Authorization"] = "Bearer $globalToken";
+      }
+
+      LoggerService().info(
+        "download request[$redirectCount]: $current range=${req.headers["Range"] ?? "-"} auth=${req.headers.containsKey("Authorization")}",
+      );
+      final resp = await client
+          .send(req)
+          .timeout(
+            _downloadConnectTimeout,
+            onTimeout: () => throw TimeoutException(
+              "连接下载地址超时: $current",
+              _downloadConnectTimeout,
+            ),
+          );
+
+      if (resp.statusCode >= 300 && resp.statusCode < 400) {
+        final location = resp.headers["location"];
+        await resp.stream.drain<void>();
+        if (location == null || location.trim().isEmpty) {
+          throw Exception("下载重定向缺少 Location: HTTP ${resp.statusCode}");
+        }
+        final next = current.resolve(location.trim());
+        LoggerService().info(
+          "download redirect[$redirectCount]: HTTP ${resp.statusCode} $current -> $next",
+        );
+        current = next;
+        continue;
+      }
+
+      LoggerService().info(
+        "download final[$redirectCount]: HTTP ${resp.statusCode} $current",
+      );
+      return resp;
+    }
+
+    throw Exception("下载重定向次数过多");
   }
 
   // ── extract (desktop only) ──

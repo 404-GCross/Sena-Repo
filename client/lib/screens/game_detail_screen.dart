@@ -1684,6 +1684,9 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     if (_task.receivedBytes > 0) {
       return "已下载 ${_formatBytes(_task.receivedBytes)}";
     }
+    if (_task.headersReceived) {
+      return "已连接，等待数据...";
+    }
     return "正在连接...";
   }
 

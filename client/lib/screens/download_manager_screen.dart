@@ -275,6 +275,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                       ? "${(t.progress * 100).toStringAsFixed(0)}% · ${_fmtSize(t.receivedBytes)} / ${_fmtSize(t.totalBytes)}"
                       : t.receivedBytes > 0
                       ? "已下载 ${_fmtSize(t.receivedBytes)}"
+                      : t.headersReceived
+                      ? "已连接，等待数据..."
                       : "正在连接...",
                   style: AppText.caption.copyWith(color: hintColor(context)),
                 ),
