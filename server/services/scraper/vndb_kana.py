@@ -53,10 +53,21 @@ class VndbKanaScraper(BaseScraper):
         name: str,
         company_hint: str | None = None,
     ) -> list[ScraperResult]:
+        return await self._search(name, results=5)
+
+    async def search_best(
+        self,
+        name: str,
+        company_hint: str | None = None,
+    ) -> ScraperResult | None:
+        results = await self._search(name, results=1)
+        return results[0] if results else None
+
+    async def _search(self, name: str, *, results: int) -> list[ScraperResult]:
         client = await self._get_client()
-        results = []
+        parsed_results = []
         try:
-            body = _build_vndb_body(name, fields=VNDB_FIELDS)
+            body = _build_vndb_body(name, fields=VNDB_FIELDS, results=results)
             resp = await self._request_with_retry(
                 client, "POST", self.base_url,
                 json=body,
@@ -64,12 +75,69 @@ class VndbKanaScraper(BaseScraper):
             )
             items = resp.json().get("results", [])
             for item in items:
-                results.append(self._parse(item))
+                cover = await self._pick_cover(client, item)
+                parsed_results.append(self._parse(item, cover))
         except Exception as e:
             logger.warning(f"VNDB Kana failed for '{name}': {e}")
-        return results
+        return parsed_results
 
-    def _parse(self, item: dict) -> ScraperResult:
+    async def _pick_cover(self, client: httpx.AsyncClient, item: dict) -> str:
+        default_cover = ((item.get("image") or {}).get("url") or "")
+        vndb_id = str(item.get("id") or "")
+        chinese_cover = await self._find_chinese_release_cover(client, vndb_id)
+        return chinese_cover or default_cover
+
+    async def _find_chinese_release_cover(self, client: httpx.AsyncClient, vndb_id: str) -> str:
+        if not vndb_id:
+            return ""
+        try:
+            resp = await self._request_with_retry(
+                client,
+                "POST",
+                "https://api.vndb.org/kana/release",
+                json={
+                    "filters": ["vn", "=", ["id", "=", vndb_id]],
+                    "fields": "id,title,languages.lang,images.url,official,released",
+                    "sort": "released",
+                    "reverse": True,
+                    "results": 100,
+                },
+                headers={"Content-Type": "application/json"},
+            )
+            releases = resp.json().get("results", [])
+        except Exception as e:
+            logger.debug(f"VNDB release cover lookup failed for '{vndb_id}': {e}")
+            return ""
+
+        best_url = ""
+        best_score = -1
+        for release in releases:
+            images = release.get("images") or []
+            if not images:
+                continue
+            langs = {
+                (lang.get("lang") or "")
+                for lang in (release.get("languages") or [])
+                if isinstance(lang, dict)
+            }
+            score = -1
+            if "zh-Hans" in langs:
+                score = 40
+            elif "zh-Hant" in langs:
+                score = 35
+            elif "zh" in langs:
+                score = 30
+            if score < 0:
+                continue
+            if release.get("official"):
+                score += 5
+            url = images[0].get("url", "") if isinstance(images[0], dict) else ""
+            if url and score > best_score:
+                best_url = url
+                best_score = score
+        return best_url
+
+    def _parse(self, item: dict, cover: str) -> ScraperResult:
         # Pick best display title (Chinese preferred, like LunaBox)
         titles = item.get("titles", [])
         title = self._pick_title(titles) or item.get("title", "")
@@ -77,10 +145,6 @@ class VndbKanaScraper(BaseScraper):
         # Developer
         devs = item.get("developers", [])
         developer = devs[0].get("name", "") if devs else ""
-
-        # Cover
-        image = item.get("image") or {}
-        cover = image.get("url", "")
 
         # Hero: first landscape screenshot, all screenshots for picker
         screenshots = item.get("screenshots") or []
