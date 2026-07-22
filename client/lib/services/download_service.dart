@@ -1201,6 +1201,9 @@ class DownloadService with WidgetsBindingObserver {
 
       // Stream to file
       int received = t.receivedBytes;
+      final speedLimitEnabled = await downloadSpeedLimitKbps > 0;
+      var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
+      var lastStateSave = DateTime.now();
       sink = dest.openWrite(
         mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write,
       );
@@ -1218,7 +1221,9 @@ class DownloadService with WidgetsBindingObserver {
           gotFirstChunk = true;
           LoggerService().info("download first chunk: ${chunk.length} bytes");
         }
-        await _throttleDownload(chunk.length);
+        if (speedLimitEnabled) {
+          await _throttleDownload(chunk.length);
+        }
         sink.add(chunk);
         received += chunk.length;
         t.receivedBytes = received;
@@ -1232,7 +1237,14 @@ class DownloadService with WidgetsBindingObserver {
           t._lastSpeedTime = now;
         }
         t.progress = t.totalBytes > 0 ? received / t.totalBytes : 0.0;
-        _emit();
+        if (now.difference(lastUiEmit).inMilliseconds >= 250) {
+          lastUiEmit = now;
+          _emit(save: false);
+        }
+        if (now.difference(lastStateSave).inSeconds >= 2) {
+          lastStateSave = now;
+          _saveTasks();
+        }
         // Throttle notification updates to ~1 per second
         final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
         if (notifyElapsed >= 1000) {
@@ -1305,6 +1317,11 @@ class DownloadService with WidgetsBindingObserver {
     for (var redirectCount = 0; redirectCount < 8; redirectCount++) {
       final req = http.Request("GET", current)..followRedirects = false;
       req.headers.addAll(baseHeaders);
+      req.headers["User-Agent"] =
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+      req.headers["Accept"] = "*/*";
+      req.headers["Connection"] = "keep-alive";
 
       final sameOrigin =
           current.scheme == originalScheme &&
@@ -1651,9 +1668,9 @@ class DownloadService with WidgetsBindingObserver {
   /// using the refresh_token from ApiClient and extracting the server
   /// base URL from the download URL itself.
 
-  void _emit() {
+  void _emit({bool save = true}) {
     _controller.add(List.unmodifiable(_tasks));
-    _saveTasks();
+    if (save) _saveTasks();
     if (!_hasActiveDownloads()) _stopForegroundService();
   }
 }
