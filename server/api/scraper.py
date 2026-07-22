@@ -39,29 +39,30 @@ def _validate_public_url(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="仅支持 HTTP/HTTPS URL")
-    if parsed.hostname:
-        try:
-            ip = ipaddress.ip_address(parsed.hostname)
-            if ip.is_loopback or ip.is_private or ip.is_link_local:
-                raise HTTPException(status_code=400, detail="不允许使用内网地址")
-        except ValueError:
-            # Hostname — resolve DNS with 3s per-host timeout
-            try:
-                future = ThreadPoolExecutor(max_workers=1).submit(
-                    socket.getaddrinfo, parsed.hostname, None
-                )
-                addrs = future.result(timeout=3)
-                for addr in addrs:
-                    ip_str = addr[4][0]
-                    ip = ipaddress.ip_address(ip_str)
-                    if ip.is_loopback or ip.is_private or ip.is_link_local:
-                        raise HTTPException(status_code=400, detail="不允许使用内网地址")
-            except FuturesTimeout:
-                pass  # DNS timeout — allow (fail-open)
-            except HTTPException:
-                raise
-            except Exception:
-                pass  # DNS failure — allow (fail-open for availability)
+    if not parsed.hostname:
+        raise HTTPException(status_code=400, detail="URL 缺少主机名")
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+        if ip.is_loopback or ip.is_private or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="不允许使用内网地址")
+        return
+    except ValueError:
+        pass
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(socket.getaddrinfo, parsed.hostname, None)
+            addrs = future.result(timeout=3)
+    except FuturesTimeout as exc:
+        raise HTTPException(status_code=400, detail="URL 主机名解析超时") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="URL 主机名解析失败") from exc
+
+    for addr in addrs:
+        ip_str = addr[4][0]
+        ip = ipaddress.ip_address(ip_str)
+        if ip.is_loopback or ip.is_private or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="不允许使用内网地址")
 
 
 class BatchScrapeRequest(BaseModel):
@@ -240,6 +241,7 @@ async def scrape_game_cover(
                         ext = ".jpg"
                         cover_path = covers_dir / f"{game_id}_{scraper.source_name}{ext}"
                         try:
+                            _validate_public_url(result.cover_url)
                             resp = await client.get(result.cover_url, timeout=30.0)
                             resp.raise_for_status()
                             covers_dir.mkdir(parents=True, exist_ok=True)
@@ -251,6 +253,7 @@ async def scrape_game_cover(
                     # Download hero/landscape banner
                     if result.hero_url and not game.bg_path:
                         try:
+                            _validate_public_url(result.hero_url)
                             bg_dir = config.backgrounds_path
                             bg_dir.mkdir(parents=True, exist_ok=True)
                             resp = await client.get(result.hero_url, timeout=30.0)

@@ -72,7 +72,7 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
-  -v /path/to/steam_patches:/data/steam_patches \
+  -v /path/to/steam_patches:/steam_patch \
   ghcr.io/404-gcross/sena-repo:latest
 ```
 
@@ -84,7 +84,7 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
-  -v /path/to/steam_patches:/data/steam_patches \
+  -v /path/to/steam_patches:/steam_patch \
   -e SENA_BANGUMI_TOKEN="your_token" \
   -e SENA_PROXY="http://127.0.0.1:7890" \
   ghcr.io/404-gcross/sena-repo:latest
@@ -102,7 +102,7 @@ services:
     volumes:
       - /path/to/games:/games
       - /path/to/data:/data
-      - /path/to/steam_patches:/data/steam_patches
+      - /path/to/steam_patches:/steam_patch
     environment:
       - SENA_BANGUMI_TOKEN=your_token      # 可选
       - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
@@ -121,7 +121,7 @@ docker run -d \
   -p 11451:11451 \
   -v /path/to/games:/games \
   -v /path/to/data:/data \
-  -v /path/to/steam_patches:/data/steam_patches \
+  -v /path/to/steam_patches:/steam_patch \
   sena-repo:latest
 ```
 
@@ -180,8 +180,8 @@ pkill -f "python main.py" && python main.py ...
 |-------------|------|------|
 | `/games` | 游戏文件存放目录 | 是 |
 | `/data` | 数据库、封面、背景、配置 | 是 |
-| `/data/steam_patches` | 默认 Steam 补丁压缩包目录 | Steam 补丁功能需要 |
-| `SENA_PATCH_DIR` | 自定义 Steam 补丁目录，例如 `/steam_patch` | 可选 |
+| `/steam_patch` | 默认 Steam 补丁压缩包目录 | Steam 补丁功能需要 |
+| `SENA_PATCH_DIR` | 自定义 Steam 补丁目录 | 可选 |
 | `SENA_BANGUMI_TOKEN` | Bangumi API Token | 可选 |
 | `SENA_PROXY` | 刮削 HTTP 代理 | 可选 |
 

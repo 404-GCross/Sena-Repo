@@ -19,7 +19,7 @@
 | 1.4 | Docker Compose | 按说明书 compose 文件启动 | 服务正常运行 |
 | 1.5 | Tarball 加载 | `docker load < tar.gz` 后启动 | 服务正常运行 |
 | 1.6 | 服务端更新 | `docker pull` → `stop/rm` → 重新 `run` | 新版本生效，数据不丢失 |
-| 1.7 | 挂载目录检查 | 检查 `/games` `/data` `/data/steam_patches` 挂载 | 容器内路径可读写 |
+| 1.7 | 挂载目录检查 | 检查 `/games` `/data` `/steam_patch` 挂载 | 容器内路径可读写 |
 
 ---
 

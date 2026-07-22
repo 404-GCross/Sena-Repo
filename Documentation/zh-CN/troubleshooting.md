@@ -25,11 +25,11 @@ docker logs sena-repo 2>&1 | tail -30
 
 显示"扫描完成，找到 0 个文件"，但补丁文件实际存在。
 
-1. **补丁目录挂载错误——最常见。** 默认目录是 `/data/steam_patches`，不是 `/steam_patch`。确认：
+1. **补丁目录挂载错误——最常见。** 默认目录是 `/steam_patch`。确认：
    ```bash
-   docker exec sena-repo ls /data/steam_patches/
+   docker exec sena-repo ls /steam_patch/
    ```
-2. 可在 `docker run` 时加 `-e SENA_PATCH_DIR=/steam_patch` 显式指定
+2. 如果你想使用其他容器内路径，可在 `docker run` 时加 `-e SENA_PATCH_DIR=/你的路径` 显式指定
 3. 容器内区分大小写，`.ZIP` 不会被识别
 4. 支持的扩展名：`.zip` `.rar` `.7z` `.tar` `.gz` `.xz`
 

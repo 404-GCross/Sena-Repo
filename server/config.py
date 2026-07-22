@@ -36,7 +36,7 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     games_path: str = "/games"
     data_path: str = "/data"
-    patch_dir: str = ""  # custom patch directory (default: {data_path}/steam_patches)
+    patch_dir: str = "/steam_patch"
     steam_dir: str = ""
     proxy: str = ""
     custom_regex: list[CustomRegex] = field(default_factory=list)

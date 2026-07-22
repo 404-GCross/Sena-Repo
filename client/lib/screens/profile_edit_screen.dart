@@ -7,9 +7,9 @@ import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:provider/provider.dart";
-import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/game_provider.dart";
+import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 
 class ProfileEditScreen extends StatefulWidget {
@@ -50,9 +50,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<Map<String, String>> get _authHeaders async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("auth_token") ?? "";
-    return {"Authorization": "Bearer $token", "Content-Type": "application/json"};
+    final token = await SecureStore.getString("auth_token") ?? "";
+    return {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    };
   }
 
   @override
@@ -65,16 +67,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     try {
       final resp = await http.get(
         Uri.parse("$_baseUrl/api/auth/profile/me"),
-        headers: await _authHeaders);
+        headers: await _authHeaders,
+      );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        if (mounted) setState(() {
-          _userCtrl.text = data["username"] ?? "";
-          _avatarPath = data["avatar_path"];
-          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-          _userId = data["id"] ?? 0;
-          _loading = false;
-        });
+        if (mounted)
+          setState(() {
+            _userCtrl.text = data["username"] ?? "";
+            _avatarPath = data["avatar_path"];
+            _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+            _userId = data["id"] ?? 0;
+            _loading = false;
+          });
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -82,7 +86,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _save() async {
-    setState(() { _saving = true; _error = null; _msg = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+      _msg = null;
+    });
 
     try {
       final body = <String, dynamic>{};
@@ -123,19 +131,30 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result == null || result.files.single.path == null) return;
 
-    setState(() { _saving = true; _error = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final uri = Uri.parse("$_baseUrl/api/auth/profile/$_userId/avatar");
       final request = http.MultipartRequest("POST", uri);
       final h = await _authHeaders;
       request.headers.addAll(h);
-      request.files.add(await http.MultipartFile.fromPath("file", result.files.single.path!));
+      request.files.add(
+        await http.MultipartFile.fromPath("file", result.files.single.path!),
+      );
       final resp = await request.send();
       if (resp.statusCode == 200) {
-        final data = jsonDecode(await resp.stream.bytesToString()) as Map<String, dynamic>;
+        final data =
+            jsonDecode(await resp.stream.bytesToString())
+                as Map<String, dynamic>;
         // Use "url" (API path) not "avatar_path" (server filesystem path)
         final url = data["url"]?.toString() ?? "";
-        setState(() { _avatarPath = url; _avatarVersion = DateTime.now().millisecondsSinceEpoch; _msg = "头像更新成功"; });
+        setState(() {
+          _avatarPath = url;
+          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+          _msg = "头像更新成功";
+        });
       } else {
         setState(() => _error = "头像上传失败");
       }
@@ -158,50 +177,72 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               children: [
                 // ── Avatar ──
                 Center(
-                  child: Stack(children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
-                          width: 3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                            blurRadius: 24,
+                  child: Stack(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.4),
+                            width: 3,
                           ),
-                        ],
-                      ),
-                      child: CircleAvatar(
-                        radius: 52,
-                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                        backgroundImage: hasAvatar && _avatarUrl != null
-                            ? NetworkImage(_avatarUrl!)
-                            : null,
-                        child: hasAvatar ? null : Text(
-                          _userCtrl.text.isNotEmpty ? _userCtrl.text[0].toUpperCase() : "?",
-                          style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.primary),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.15),
+                              blurRadius: 24,
+                            ),
+                          ],
+                        ),
+                        child: CircleAvatar(
+                          radius: 52,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primaryContainer,
+                          backgroundImage: hasAvatar && _avatarUrl != null
+                              ? NetworkImage(_avatarUrl!)
+                              : null,
+                          child: hasAvatar
+                              ? null
+                              : Text(
+                                  _userCtrl.text.isNotEmpty
+                                      ? _userCtrl.text[0].toUpperCase()
+                                      : "?",
+                                  style: TextStyle(
+                                    fontSize: 36,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      bottom: 0, right: 0,
-                      child: Material(
-                        color: Theme.of(context).colorScheme.primary,
-                        shape: const CircleBorder(),
-                        child: InkWell(
-                          onTap: _pickAvatar,
-                          customBorder: const CircleBorder(),
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(Icons.camera_alt, size: 20, color: Colors.white),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Material(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            onTap: _pickAvatar,
+                            customBorder: const CircleBorder(),
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(
+                                Icons.camera_alt,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ]),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
 
@@ -213,13 +254,29 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     decoration: BoxDecoration(
                       color: Colors.red.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: Colors.red.withValues(alpha: 0.2),
+                      ),
                     ),
-                    child: Row(children: [
-                      const Icon(Icons.error_outline, size: 18, color: Colors.red),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13))),
-                    ]),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          size: 18,
+                          color: Colors.red,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 if (_msg != null)
                   Container(
@@ -228,13 +285,29 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     decoration: BoxDecoration(
                       color: Colors.green.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: Colors.green.withValues(alpha: 0.2),
+                      ),
                     ),
-                    child: Row(children: [
-                      const Icon(Icons.check_circle, size: 18, color: Colors.green),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(_msg!, style: const TextStyle(color: Colors.green, fontSize: 13))),
-                    ]),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle,
+                          size: 18,
+                          color: Colors.green,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _msg!,
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
 
                 // ── Username ──
@@ -257,21 +330,23 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: cardBorder(context)),
                   ),
-                  child: Column(children: [
-                    TextField(
-                      controller: _currentPassCtrl,
-                      decoration: _dec("当前密码"),
-                      obscureText: true,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _newPassCtrl,
-                      decoration: _dec("新密码（留空不修改）"),
-                      obscureText: true,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ]),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _currentPassCtrl,
+                        decoration: _dec("当前密码"),
+                        obscureText: true,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _newPassCtrl,
+                        decoration: _dec("新密码（留空不修改）"),
+                        obscureText: true,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 32),
 
@@ -279,12 +354,21 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 FilledButton.icon(
                   onPressed: _saving ? null : _save,
                   icon: _saving
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
                       : const Icon(Icons.save, size: 18),
                   label: Text(_saving ? "保存中..." : "保存修改"),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ],
@@ -294,12 +378,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Widget _section(String t) => Padding(
     padding: const EdgeInsets.only(left: 4, bottom: 4),
-    child: Text(t, style: AppText.bodyMedium.copyWith( fontWeight: FontWeight.w600, color: subTextColor(context))),
+    child: Text(
+      t,
+      style: AppText.bodyMedium.copyWith(
+        fontWeight: FontWeight.w600,
+        color: subTextColor(context),
+      ),
+    ),
   );
 
   InputDecoration _dec(String hint) => InputDecoration(
     hintText: hint,
-    hintStyle: AppText.bodyMedium.copyWith( color: Colors.grey[600]),
+    hintStyle: AppText.bodyMedium.copyWith(color: Colors.grey[600]),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -311,7 +401,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
+      borderSide: BorderSide(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+      ),
     ),
   );
 

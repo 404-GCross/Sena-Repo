@@ -1,4 +1,4 @@
-﻿"""Steam patch injection API 鈥?PC client feature.
+"""Steam patch injection API - PC client feature.
 
 Reads patches.json in the patch directory for patch index.
 Falls back to bare file scanning if no patches.json exists.
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 def _get_patches_dir(config=None):
     if config is None:
         config = load_config()
-    return Path(config.patch_dir) if config.patch_dir else Path(config.data_path) / "steam_patches"
+    return Path(config.patch_dir or "/steam_patch")
 
 
 async def _patch_roots(session: AsyncSession) -> list[SteamPatchRoot]:
@@ -202,7 +202,7 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
         return []
 
 
-# 鈹€鈹€ Patch-type keyword matching 鈹€鈹€
+# Patch-type keyword matching
 
 _KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
 
@@ -257,7 +257,7 @@ def _save_type_keywords(patches_dir: Path, keywords: dict[str, list[str]]):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# 鈹€鈹€ Models 鈹€鈹€
+# Models
 
 class SteamGameInfo(BaseModel):
     app_id: str
@@ -282,7 +282,7 @@ class ScanRequest(BaseModel):
     games: list[SteamGameInfo]
 
 
-# 鈹€鈹€ Endpoints 鈹€鈹€
+# Endpoints
 
 @router.post("/scan", response_model=list[PatchMatch])
 async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_user)):
@@ -477,7 +477,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         with open(json_path, "r", encoding="utf-8") as f:
             data = _json.load(f)
     except Exception:
-        raise HTTPException(status_code=400, detail="patches.json 鏍煎紡閿欒")
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
 
     patches = data.get("patches", [])
     for p in patches:
@@ -502,10 +502,10 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
                 _json.dump(data, f, ensure_ascii=False, indent=2)
             return {"message": "Updated", "lookup_key": lookup_key}
 
-    raise HTTPException(status_code=404, detail=f"鏈壘鍒?App ID/File: {lookup_key}")
+    raise HTTPException(status_code=404, detail=f"未找到 App ID/File: {lookup_key}")
 
 
-# 鈹€鈹€ Patch scan endpoint 鈹€鈹€
+# Patch scan endpoint
 
 @router.post("/scan-patches")
 async def scan_patches_endpoint(user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
@@ -546,7 +546,7 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
         logger.error(f"Patch scan failed: {e}")
         raise HTTPException(status_code=500, detail="Patch scan failed; check server logs")
 
-# 鈹€鈹€ Patch type keywords API 鈹€鈹€
+# Patch type keywords API
 
 @router.get("/patch-type-keywords")
 async def get_type_keywords(user: User = Depends(get_current_user)):
@@ -564,7 +564,7 @@ async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(re
     """Overwrite patch_type_keywords.json (admin only)."""
     patches_dir = _get_patches_dir()
     _save_type_keywords(patches_dir, body.keywords)
-    return {"message": "鍏抽敭璇嶅凡鏇存柊"}
+    return {"message": "关键词已更新"}
 
 
 def _safe_patch_path(patches_dir: Path, filename: str) -> Path | None:
@@ -597,7 +597,7 @@ def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:
     return None
 
 
-# 鈹€鈹€ Patch ID re-scrape 鈹€鈹€
+# Patch ID re-scrape
 
 class RescrapeResult(BaseModel):
     lookup_key: str
@@ -622,7 +622,7 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
-        raise HTTPException(status_code=400, detail="patches.json 鏍煎紡閿欒")
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
 
     patches = data.get("patches", [])
     target = None
@@ -633,7 +633,7 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
             target = p; break
 
     if target is None:
-        raise HTTPException(status_code=404, detail=f"鏈壘鍒拌ˉ涓? {lookup_key}")
+        raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
 
     old_app_id = str(target.get("app_id", "") or "")
     filename = target.get("file", "").split("/")[-1]
@@ -643,7 +643,7 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     try:
         new_id = await _asyncio.to_thread(_search_steam_app_id, game_name_candidate)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Steam API 鏌ヨ澶辫触: {e}")
+        raise HTTPException(status_code=500, detail=f"Steam API 查询失败: {e}")
 
     result = RescrapeResult(
         lookup_key=lookup_key,
@@ -688,7 +688,7 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
-        raise HTTPException(status_code=400, detail="patches.json 鏍煎紡閿欒")
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
 
     patches = data.get("patches", [])
     from scan_patches import _extract_game_name, _search_steam_app_id, _fetch_game_name
@@ -742,7 +742,7 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
     return {"message": f"Batch rescrape completed: {updated} updated", "updated": updated, "total": len(patches), "results": [r.model_dump() for r in results]}
 
 
-# 鈹€鈹€ Steam game name resolution 鈹€鈹€
+# Steam game name resolution
 
 class AppIdList(BaseModel):
     appids: list[str]

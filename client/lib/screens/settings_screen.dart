@@ -17,6 +17,7 @@ import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
+import "../services/secure_store.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
 import "profile_edit_screen.dart";
@@ -2089,8 +2090,7 @@ class _UserManagePageState extends State<_UserManagePage> {
   int _currentUserId = 0;
 
   Future<Map<String, String>> get _authHeaders async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("auth_token") ?? "";
+    final token = await SecureStore.getString("auth_token") ?? "";
     return {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
@@ -2105,8 +2105,7 @@ class _UserManagePageState extends State<_UserManagePage> {
   }
 
   Future<void> _loadCurrentUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("auth_token");
+    final token = await SecureStore.getString("auth_token");
     _currentUserId = int.tryParse(token ?? "") ?? 0;
   }
 

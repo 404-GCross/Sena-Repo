@@ -4,6 +4,8 @@ import "dart:convert";
 
 import "package:shared_preferences/shared_preferences.dart";
 
+import "secure_store.dart";
+
 class UserProfile {
   String name;
   String host;
@@ -57,15 +59,19 @@ class ProfileService {
 
   Future<List<UserProfile>> loadProfiles() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_keyProfiles);
+    final raw = await SecureStore.getString(_keyProfiles);
     if (raw == null || raw.isEmpty) return [];
     final list = jsonDecode(raw) as List;
-    return list.map((j) => UserProfile.fromJson(j as Map<String, dynamic>)).toList();
+    return list
+        .map((j) => UserProfile.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> saveProfiles(List<UserProfile> profiles) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyProfiles, jsonEncode(profiles.map((p) => p.toJson()).toList()));
+    await SecureStore.setString(
+      _keyProfiles,
+      jsonEncode(profiles.map((p) => p.toJson()).toList()),
+    );
   }
 
   Future<int> getActiveIndex() async {
@@ -84,7 +90,7 @@ class ProfileService {
     // Save as current
     await prefs.setString("server_host", profile.host);
     await prefs.setInt("server_port", profile.port);
-    await prefs.setString("auth_token", profile.authToken);
+    await SecureStore.setString("auth_token", profile.authToken);
     // final rt = profile.refreshToken; — removed
     // if (rt.isNotEmpty) await prefs.setString("refresh_token", rt);
     await prefs.setString("username", profile.username);
@@ -97,7 +103,7 @@ class ProfileService {
     final prefs = await SharedPreferences.getInstance();
     final host = prefs.getString("server_host") ?? "";
     final port = prefs.getInt("server_port") ?? 11451;
-    final token = prefs.getString("auth_token") ?? "";
+    final token = await SecureStore.getString("auth_token") ?? "";
     // final refreshToken = prefs.getString("refresh_token") ?? "";
     final username = prefs.getString("username") ?? "";
     final isAdmin = prefs.getBool("is_admin") ?? false;
@@ -106,14 +112,23 @@ class ProfileService {
     final profiles = await loadProfiles();
     // Update existing or add new. Keep different servers separate even when
     // they use the same profile name or username.
-    final existing = profiles.indexWhere((p) =>
-        p.host == host &&
-        p.port == port &&
-        p.useHttps == useHttps &&
-        p.username == username);
-    final profile = UserProfile(name: name, host: host, port: port,
-        authToken: token, /* refreshToken: refreshToken, */
-        username: username, isAdmin: isAdmin, useHttps: useHttps);
+    final existing = profiles.indexWhere(
+      (p) =>
+          p.host == host &&
+          p.port == port &&
+          p.useHttps == useHttps &&
+          p.username == username,
+    );
+    final profile = UserProfile(
+      name: name,
+      host: host,
+      port: port,
+      authToken: token,
+      /* refreshToken: refreshToken, */
+      username: username,
+      isAdmin: isAdmin,
+      useHttps: useHttps,
+    );
     if (existing >= 0) {
       profiles[existing] = profile;
       await setActiveIndex(existing);
