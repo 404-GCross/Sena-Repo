@@ -1,0 +1,136 @@
+name: Build 7zz-zstd binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "7-Zip-zstd git ref/tag"
+        required: true
+        default: "v26.02-v1.5.7-R2"
+  push:
+    paths:
+      - ".github/workflows/build-7zz-zstd.yml"
+
+env:
+  SEVENZIP_ZSTD_REF: ${{ inputs.ref || 'v26.02-v1.5.7-R2' }}
+
+jobs:
+  build-android-arm64:
+    name: Android ARM64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" 2>&1
+
+      - name: Clone 7-Zip-zstd source
+        run: |
+          git clone --depth 1 --branch "$SEVENZIP_ZSTD_REF" https://github.com/mcmilk/7-Zip-zstd.git /tmp/7zsrc
+          test -d /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          git -C /tmp/7zsrc rev-parse --short HEAD
+
+      - name: Build 7zz-zstd for aarch64
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cd /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          # Remove -lpthread and -ldl (Bionic has them built-in)
+          grep -rl '\-lpthread\|\-ldl' /tmp/7zsrc/CPP/7zip/ | xargs -r sed -i 's/-lpthread//g; s/-ldl//g'
+          make -j$(nproc) -f makefile.gcc \
+            CC="$NDK/aarch64-linux-android29-clang" \
+            CXX="$NDK/aarch64-linux-android29-clang++"
+          echo "=== Build output ==="
+          file _o/7zz
+          ls -la _o/7zz
+          sha256sum _o/7zz > _o/7zz.sha256
+          cp /tmp/7zsrc/DOC/License.txt _o/License.txt || printf 'See https://github.com/mcmilk/7-Zip-zstd for license details.\n' > _o/License.txt
+          printf 'Built from mcmilk/7-Zip-zstd ref %s\nSource: https://github.com/mcmilk/7-Zip-zstd\n' "$SEVENZIP_ZSTD_REF" > _o/NOTICE.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7zz-zstd-android-arm64
+          path: |
+            /tmp/7zsrc/CPP/7zip/Bundles/Alone2/_o/7zz
+            /tmp/7zsrc/CPP/7zip/Bundles/Alone2/_o/7zz.sha256
+            /tmp/7zsrc/CPP/7zip/Bundles/Alone2/_o/License.txt
+            /tmp/7zsrc/CPP/7zip/Bundles/Alone2/_o/NOTICE.txt
+
+  build-linux-x64:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git file
+
+      - name: Clone 7-Zip-zstd source
+        run: |
+          git clone --depth 1 --branch "$SEVENZIP_ZSTD_REF" https://github.com/mcmilk/7-Zip-zstd.git /tmp/7zsrc
+          test -d /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          git -C /tmp/7zsrc rev-parse --short HEAD
+
+      - name: Build 7zz-zstd for linux x64
+        run: |
+          cd /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          make -j$(nproc) -f makefile.gcc
+          mkdir -p /tmp/7zz-zstd-linux-x64
+          cp _o/7zz /tmp/7zz-zstd-linux-x64/7zz
+          cp /tmp/7zsrc/DOC/License.txt /tmp/7zz-zstd-linux-x64/License.txt || printf 'See https://github.com/mcmilk/7-Zip-zstd for license details.\n' > /tmp/7zz-zstd-linux-x64/License.txt
+          printf 'Built from mcmilk/7-Zip-zstd ref %s\nSource: https://github.com/mcmilk/7-Zip-zstd\n' "$SEVENZIP_ZSTD_REF" > /tmp/7zz-zstd-linux-x64/NOTICE.txt
+          file /tmp/7zz-zstd-linux-x64/7zz
+          sha256sum /tmp/7zz-zstd-linux-x64/7zz > /tmp/7zz-zstd-linux-x64/7zz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7zz-zstd-linux-x64
+          path: /tmp/7zz-zstd-linux-x64/*
+
+  build-windows-x64:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Clone 7-Zip-zstd source
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch "$env:SEVENZIP_ZSTD_REF" https://github.com/mcmilk/7-Zip-zstd.git "$env:TEMP\7zsrc"
+          if (!(Test-Path "$env:TEMP\7zsrc\CPP\7zip\Bundles\Alone2")) { throw "Alone2 source directory not found" }
+          git -C "$env:TEMP\7zsrc" rev-parse --short HEAD
+
+      - name: Build 7zz-zstd for windows x64
+        shell: pwsh
+        run: |
+          Set-Location "$env:TEMP\7zsrc\CPP\7zip\Bundles\Alone2"
+          nmake /f makefile
+          $built = Get-ChildItem "$env:TEMP\7zsrc" -Recurse -File -Filter "7zz.exe" |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if ($null -eq $built) { throw "7zz.exe build output not found" }
+          New-Item -ItemType Directory -Force "$env:TEMP\7zz-zstd-windows-x64" | Out-Null
+          Copy-Item $built.FullName "$env:TEMP\7zz-zstd-windows-x64\7zz.exe"
+          Copy-Item $built.FullName "$env:TEMP\7zz-zstd-windows-x64\7z.exe"
+          if (Test-Path "$env:TEMP\7zsrc\DOC\License.txt") {
+            Copy-Item "$env:TEMP\7zsrc\DOC\License.txt" "$env:TEMP\7zz-zstd-windows-x64\License.txt"
+          } else {
+            Set-Content "$env:TEMP\7zz-zstd-windows-x64\License.txt" "See https://github.com/mcmilk/7-Zip-zstd for license details."
+          }
+          Set-Content "$env:TEMP\7zz-zstd-windows-x64\NOTICE.txt" "Built from mcmilk/7-Zip-zstd ref $env:SEVENZIP_ZSTD_REF`nSource: https://github.com/mcmilk/7-Zip-zstd"
+          Get-FileHash "$env:TEMP\7zz-zstd-windows-x64\7zz.exe" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  7zz.exe" } |
+            Set-Content "$env:TEMP\7zz-zstd-windows-x64\7zz.sha256"
+          Get-FileHash "$env:TEMP\7zz-zstd-windows-x64\7z.exe" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  7z.exe" } |
+            Set-Content "$env:TEMP\7zz-zstd-windows-x64\7z.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7zz-zstd-windows-x64
+          path: ${{ runner.temp }}\7zz-zstd-windows-x64\*

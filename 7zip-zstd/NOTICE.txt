@@ -1,0 +1,25 @@
+Sena Repo bundled 7-Zip-zstd binaries
+=====================================
+
+This directory contains prebuilt archive extraction binaries used by the
+Sena Repo client.
+
+The binaries are built from 7-Zip-zstd:
+  https://github.com/mcmilk/7-Zip-zstd
+
+7-Zip-zstd is based on 7-Zip by Igor Pavlov and adds support for additional
+compression methods such as Zstandard.
+
+Relevant upstream projects:
+  7-Zip: https://www.7-zip.org/
+  7-Zip-zstd: https://github.com/mcmilk/7-Zip-zstd
+  Zstandard: https://github.com/facebook/zstd
+
+License summary:
+  - 7-Zip code is primarily licensed under the GNU LGPL.
+  - Some 7-Zip code is licensed under BSD 2-clause or BSD 3-clause terms.
+  - Zstandard code is licensed under BSD terms.
+
+Redistribution must preserve the corresponding upstream license information.
+See the upstream repository and the platform-specific license files in this
+directory for the complete license text applicable to each binary.
