@@ -1,87 +1,107 @@
-# Sena-Repo 服务端部署说明书
-
-Sena-Repo 服务端负责扫描游戏库目录、维护数据库、提供下载接口、处理批量刮削任务和 Steam 补丁索引。客户端只需要连接服务端地址即可浏览、下载和管理自己的视觉小说库。
-
-> [!CAUTION]
-> Sena-Repo 面向私有库使用，建议只部署在家庭内网、NAS、VPN 或可信网络中。不要在没有反向代理鉴权、防火墙和 HTTPS 的情况下直接暴露到公网。
+﻿# Sena-Repo 服务端部署说明书
 
 ## 目录
 
 - [部署前准备](#部署前准备)
-- [Docker 部署](#docker-部署)
-- [更新服务端](#更新服务端)
-- [首次初始化](#首次初始化)
-- [游戏库目录](#游戏库目录)
-- [OpenList 文件来源](#openlist-文件来源)
-- [扫描与刮削](#扫描与刮削)
-- [Steam 补丁库](#steam-补丁库)
+- [服务端部署](#服务端部署)
 - [配置参考](#配置参考)
-- [维护与排障](#维护与排障)
+- [导入及清洗逻辑](#导入及清洗逻辑)
+- [Steam 补丁](#steam-补丁)
+- [附录](#附录)
+
+---
+
+> [!CAUTION]
+>
+> Sena-Repo 为vibe-coding开发，安全性无法切实保证。**强烈建议仅在 VPN 或家庭内网环境中使用，不建议直接暴露到公网。**
+
+---
+
+
+
 
 ## 部署前准备
 
-### 推荐目录
+Sena-Repo 按固定目录结构扫描游戏，**部署前请先整理好文件**：
 
-```text
-/docker/Sena-Repo/
-  data/          # 数据库、封面、背景、配置文件
-  games/         # 本地游戏库，可选
-  steam_patch/   # Steam 补丁库，默认路径
+```
+游戏目录/
+  ├── 会社A/
+  │   ├── 游戏1/
+  │   │   ├── [PC]游戏1.rar       ← 带平台标记的压缩包
+  │   │   └── [KRKR]游戏1_v2.zip
+  │   └── 游戏2/
+  │       └── [Ty]游戏2.7z
+  └── 会社B/
+      └── 游戏3/
+          └── 直装_游戏3.apk
 ```
 
-容器内默认路径：
+- **第一级** → 会社（文件夹名即会社名）
+- **第二级** → 游戏（文件夹名即游戏名）
+- **第三级** → 压缩包（`.rar` `.zip` `.7z` `.tar` `.gz` `.xz` `.apk`）
+- 平台标记：`[PC]` `[KRKR]` `[Ty]` `[ONS]` `直装_`，无标记默认 PC
+- 压缩包直接放在会社目录下也可以（自动视为独立游戏）
 
-| 容器路径 | 用途 | 是否建议挂载 |
-| --- | --- | --- |
-| `/data` | SQLite 数据库、封面、背景、设置文件 | 必须 |
-| `/games` | 默认本地游戏库目录 | 可选，但推荐 |
-| `/steam_patch` | 默认 Steam 补丁目录 | 使用补丁功能时推荐 |
+> **文件不按规则整理 → 扫不出来。** 安排好了再部署容器进行扫描。
 
-### 安全建议
+注：如果仅使用openlist作为游戏库和steam补丁文件来源，则game目录和steam_patch目录可以直接忽略不挂载，但openlist挂载的目录也需要遵守对应的目录结构。
 
-- 使用强密码创建首个管理员。
-- 新注册用户默认应保持普通用户，管理员审核后再授予权限。
-- 服务端数据库位于 `/data/sena_repo.db`，更新容器前不要删除 `/data`。
-- 如果需要公网访问，建议放在 HTTPS 反向代理后，并限制来源 IP 或配合 VPN。
+## 方式一：docker 拉取（推荐）
 
-## Docker 部署
-
-### GHCR 镜像
+每次 Release 发布时，Docker 镜像会自动推送到 GitHub Container Registry。本仓库公开，镜像可直接拉取，无需登录。镜像同时包含 **amd64** 和 **arm64** 架构，Docker 会自动拉取匹配的版本。
 
 ```bash
-docker pull ghcr.io/404-gcross/sena-repo:latest
+# 拉取最新版本
+docker pull 404gcross/sena-repo:latest
 
+# 或拉取指定版本
+docker pull 404gcross/sena-repo:v0.1.0
+```
+
+
+
+**基础启动：**
+
+```bash
 docker run -d \
   --name sena-repo \
   -p 11451:11451 \
-  -v /docker/Sena-Repo/data:/data \
-  -v /docker/Sena-Repo/games:/games \
-  -v /docker/Sena-Repo/steam_patch:/steam_patch \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  404gcross/sena-repo:latest
+```
+
+**纯 OpenList 启动：**
+
+如果游戏库和 Steam 补丁库都只使用 OpenList 作为文件来源，服务端本地不需要挂载 `/games` 和 `/steam_patch`，只保留 `/data` 用于保存数据库、封面、背景和配置即可。
+
+```bash
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/data:/data \
+  -e SENA_DATA_PATH=/data \
   --restart unless-stopped \
+  404gcross/sena-repo:latest
+```
+
+**完整启动（含刮削 API Key 与代理）：**
+
+```bash
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  -e SENA_BANGUMI_TOKEN="your_token" \
+  -e SENA_PROXY="http://127.0.0.1:7890" \
   ghcr.io/404-gcross/sena-repo:latest
 ```
 
-### DockerHub 镜像
-
-```bash
-docker pull 404gcross/sena-repo:latest
-docker pull 404gcross/sena-repo:pre-release
-```
-
-测试预发布版本时可以使用：
-
-```bash
-docker run -d \
-  --name sena-repo \
-  -p 11451:11451 \
-  -v /docker/Sena-Repo/data:/data \
-  -v /docker/Sena-Repo/games:/games \
-  -v /docker/Sena-Repo/steam_patch:/steam_patch \
-  --restart unless-stopped \
-  404gcross/sena-repo:pre-release
-```
-
-### Docker Compose
+**Docker Compose：**
 
 ```yaml
 services:
@@ -91,344 +111,307 @@ services:
     ports:
       - "11451:11451"
     volumes:
-      - /docker/Sena-Repo/data:/data
-      - /docker/Sena-Repo/games:/games
-      - /docker/Sena-Repo/steam_patch:/steam_patch
+      - /path/to/games:/games
+      - /path/to/data:/data
+      - /path/to/steam_patches:/steam_patch
     environment:
-      - SENA_GAMES_PATH=/games
-      - SENA_DATA_PATH=/data
-      - SENA_PATCH_DIR=/steam_patch
-      # 可选：刮削代理
-      # - SENA_PROXY=http://127.0.0.1:7890
-      # 可选：API Token
-      # - SENA_BANGUMI_TOKEN=your_token
-      # - SENA_VNDB_TOKEN=your_token
+      - SENA_BANGUMI_TOKEN=your_token      # 可选
+      - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
     restart: unless-stopped
 ```
 
-启动：
+**纯 OpenList Docker Compose：**
 
-```bash
-docker compose up -d
-docker logs -f sena-repo
+```yaml
+services:
+  sena-repo:
+    image: 404gcross/sena-repo:latest
+    container_name: sena-repo
+    ports:
+      - "11451:11451"
+    volumes:
+      - /path/to/data:/data
+    environment:
+      - SENA_DATA_PATH=/data
+      - SENA_BANGUMI_TOKEN=your_token      # 可选
+      - SENA_PROXY=http://127.0.0.1:7890   # 可选，刮削代理
+    restart: unless-stopped
 ```
 
-健康检查：
+## 方式二：Tarball 加载
+
+从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载 `Sena-Repo_Server_v*.tar.gz` 后手动加载。
 
 ```bash
-curl http://127.0.0.1:11451/api/health
+docker load < Sena-Repo_Server_v0.1.0.tar.gz  # 改成对应版本号
+
+docker run -d \
+  --name sena-repo \
+  -p 11451:11451 \
+  -v /path/to/games:/games \
+  -v /path/to/data:/data \
+  -v /path/to/steam_patches:/steam_patch \
+  sena-repo:latest
 ```
 
-## 更新服务端
+从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载时注意选择对应架构的包：
 
-### Docker / Compose
+| 架构 | 文件名 |
+|------|--------|
+| x86_64 / amd64 | `Sena-Repo_Server_amd64_v*.tar.gz` |
+| ARM64 | `Sena-Repo_Server_arm64_v*.tar.gz` |
+
+
+## 方式三：直接部署
+
+>[!TIPS]
+>
+> 此方式未经过充分测试，不推荐。建议优先使用 Docker。
 
 ```bash
-docker compose pull
-docker compose up -d
+#把图中的/path/to/替换成您服务端实际的目录，如果
+git clone https://github.com/404-GCross/Sena-Repo.git
+cd Sena-Repo/server
+pip install -r requirements.txt
+python main.py --host 0.0.0.0 --port 11451 \
+  --games-path /path/to/games \
+  --data-path /path/to/data
 ```
 
-如果使用 `docker run`：
+## 服务端更新
 
 ```bash
+# ── GHCR ──
 docker pull ghcr.io/404-gcross/sena-repo:latest
-docker stop sena-repo
-docker rm sena-repo
-# 使用原来的 -v 参数重新 docker run
+docker stop sena-repo && docker rm sena-repo
+# 执行完以上命令后，重新执行服务端部署（挂载目录不变，数据不丢失）
+
+# ── docker-compose ──
+docker pull ghcr.io/404-gcross/sena-repo:latest
+docker-compose down && docker-compose up -d
+
+# ── Tarball ──
+docker load < Sena-Repo_Server_v新版本.tar.gz
+docker stop sena-repo && docker rm sena-repo
+# 执行完以上命令后，重新执行服务端部署（挂载目录不变，数据不丢失）
+
+# ── 直接部署 ──
+cd Sena-Repo && git pull && cd server && pip install -r requirements.txt
+pkill -f "python main.py" && python main.py ...
 ```
 
-只要 `/data` 挂载路径不变，数据库、封面、背景和设置不会丢失。
-
-### 查看版本
-
-客户端“关于”页会显示服务端版本。容器日志中也会输出启动信息和数据库路径。
-
-## 首次初始化
-
-首次连接一个未初始化的服务端时，客户端会进入初始化向导。服务端初始化会完成：
-
-1. 创建管理员账号。
-2. 添加游戏库目录。
-3. 添加 Steam 补丁库目录。
-4. 保存扫描设置和自动扫描间隔。
-5. 保存批量自动刮削字段来源规则。
-6. 启动后台扫描。
-
-如果服务端被重置，客户端使用旧配置连接时会重新进入初始化流程。
-
-## 游戏库目录
-
-Sena-Repo 支持三种扫描结构，推荐使用“会社 / 游戏”。
-
-### 会社 / 游戏
-
-```text
-/games/
-  SAGA PLANETS/
-    金辉恋曲四重奏/
-      [PC]金辉恋曲四重奏.rar
-      [KRKR]金辉恋曲四重奏.7z
-  ALcot/
-    Clover Day's/
-      Clover Day's Plus.rar
-```
-
-含义：
-
-- 第一级目录：会社 / 开发商。
-- 第二级目录：游戏条目。
-- 第三级文件：游戏版本压缩包。
-
-### 仅游戏
-
-```text
-/games/
-  金辉恋曲四重奏/
-    [PC]金辉恋曲四重奏.rar
-```
-
-适合没有按会社整理的游戏库。
-
-### 扁平
-
-```text
-/games/
-  [PC]游戏A.rar
-  [KRKR]游戏B.7z
-```
-
-适合简单目录，但元数据整理效果通常不如前两种。
-
-### 平台识别
-
-常见平台标记：
-
-| 标记 | 平台 |
-| --- | --- |
-| `[PC]` | PC |
-| `[KRKR]` | KRKR |
-| `[Ty]` | Tyranor |
-| `[ONS]` | ONScripter |
-| `直装` / `.apk` | Android 直装 |
-
-支持的常见压缩格式包括 `.zip`、`.rar`、`.7z`、`.tar`、`.gz`、`.xz`、`.apk`。当前项目内置 7zip-zstd，用于提升压缩格式兼容性。
-
-## OpenList 文件来源
-
-Sena-Repo 可以把 OpenList 作为游戏库或 Steam 补丁库来源。OpenList 添加逻辑分两步：
-
-1. 先在“扫描设置”中添加 OpenList 服务器。
-2. 再添加游戏库目录或 Steam 补丁库目录，并选择对应 OpenList 服务器。
-
-### 地址填写原则
-
-OpenList 地址是服务端和客户端都需要能访问的地址。因为下载时会经过 302 跳转，最终由客户端直接访问 OpenList 和网盘 CDN。
-
-推荐填写：
-
-```text
-http://192.168.1.100:5244
-```
-
-目录路径填写 OpenList 内部路径，例如：
-
-```text
-/115/Games/GalGame/Library
-/115/Games/GalGame/Steam_Patch
-```
-
-### 下载链路
-
-```text
-客户端请求 Sena /api/download/{game_id}/{version_id}
-  -> Sena 返回 302 到 OpenList /d/...?...sign=...
-  -> OpenList 返回 302 到网盘 / CDN 直链
-  -> 客户端直接下载文件
-```
-
-Sena-Repo 不转发大文件流量，因此 OpenList 地址必须对客户端可达；否则扫描可能成功，但客户端下载会失败或卡住。
-
-### OpenList 排障
-
-在 Sena 容器内测试：
-
-```bash
-docker exec -i sena-repo python - <<'PY'
-import urllib.request
-url = "http://192.168.1.100:5244/api/public/settings"
-with urllib.request.urlopen(url, timeout=10) as r:
-    print(r.status)
-    print(r.read(200).decode("utf-8", "ignore"))
-PY
-```
-
-测试 OpenList 登录和列目录时，优先使用 `/api/auth/login`；部分 OpenList 配置下 `/api/auth/login/hash` 可能返回用户名或密码错误。
-
-## 扫描与刮削
-
-### 扫描设置
-
-客户端“设置 -> 扫描设置”中可以管理：
-
-- OpenList 服务器。
-- 游戏库目录。
-- Steam 补丁库目录。
-- 目录结构。
-- 自动扫描开关和间隔。
-- 立即扫描。
-- 清空游戏库并重新扫描。
-- 批量刮削任务。
-- 刮削源和批量自动刮削字段来源。
-
-### 清空游戏库并重新扫描
-
-“清空并重扫”会删除数据库中的游戏条目、版本、标签关联和已刮削元数据，然后重新扫描所有游戏库目录。
-
-不会删除：
-
-- 本地游戏文件。
-- OpenList / 网盘文件。
-- 游戏库目录设置。
-- Steam 补丁库目录设置。
-- 用户账号。
-
-如果当前已经有扫描任务运行，服务端会拒绝清空重扫，避免边扫边删导致数据错乱。
-
-### 刮削源
-
-当前支持：
-
-| 来源 | 说明 |
-| --- | --- |
-| VNDB Kana v2 | 支持中文标题、时长等信息，可使用 VNDB Token |
-| Bangumi | 支持关键词或 ID 刮削 |
-| Steam | 使用 Steam Store 信息，背景图优先使用 `header_image` |
-| YMGal | 月幕 GalGame 元数据 |
-
-### 批量自动刮削字段来源
-
-批量和自动刮削可以按字段指定来源，例如：
-
-- 名称：Steam。
-- 封面：VNDB Kana。
-- 背景图：Steam。
-- 简介：Bangumi。
-- 平均游戏时长：VNDB Kana。
-
-选择“跟随刮削源顺序”的字段会保持旧逻辑：按启用来源顺序填充缺失字段。单个游戏手动刮削不受这套批量规则影响。
-
-## Steam 补丁库
-
-Steam 补丁库用于管理汉化、语音、剧情、额外内容等补丁压缩包，客户端可将补丁注入到本地 Steam 游戏目录。
-
-### 默认目录
-
-服务端默认补丁目录为：
-
-```text
-/steam_patch
-```
-
-Docker 建议挂载：
-
-```bash
--v /docker/Sena-Repo/steam_patch:/steam_patch
-```
-
-也可以通过环境变量修改：
-
-```bash
-SENA_PATCH_DIR=/steam_patch
-```
-
-### 补丁文件
-
-直接把补丁压缩包放入补丁库即可，可以使用子目录：
-
-```text
-/steam_patch/
-  金辉恋曲四重奏_Steam_Chinese_Patch.rar
-  ATRI_Steam_Extra_Patch.7z
-```
-
-扫描补丁后，服务端会生成或更新补丁索引。客户端 Steam 补丁页可以：
-
-- 扫描服务端补丁库。
-- 自动识别 Steam AppID。
-- 编辑补丁类型、AppID、目标目录等参数。
-- 下载并注入补丁。
-- 打开对应游戏目录。
-
-### 补丁路径规则
-
-- `patch_dir`：从压缩包内哪个目录取文件。
-- `target_dir`：复制到游戏目录下哪个子目录。
-- 两者为空时，默认把压缩包内容解到游戏根目录。
-
-Windows 和 Linux 的配置路径建议统一使用 `/` 风格路径，服务端会按平台处理，不需要在配置里强制写 `\`。
+---
 
 ## 配置参考
 
-### 环境变量
+### 挂载 / 环境变量
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `SENA_GAMES_PATH` | `/games` | 默认本地游戏库目录 |
-| `SENA_DATA_PATH` | `/data` | 数据库和资源目录 |
-| `SENA_PATCH_DIR` | `/steam_patch` | Steam 补丁目录 |
-| `SENA_HOST` | `0.0.0.0` | 监听地址 |
-| `SENA_PORT` | `11451` | 监听端口 |
-| `SENA_PROXY` | 空 | 刮削请求代理 |
-| `SENA_BANGUMI_TOKEN` | 空 | Bangumi Token |
-| `SENA_VNDB_TOKEN` | 空 | VNDB Token |
-| `SENA_YMGAL_CLIENT_ID` | `ymgal` | YMGal Client ID |
-| `SENA_YMGAL_CLIENT_SECRET` | `luna0327` | YMGal Client Secret |
+| 目录 / 变量 | 作用 | 必须 |
+|-------------|------|------|
+| `/games` | 游戏文件存放目录 | 是 |
+| `/data` | 数据库、封面、背景、配置 | 是 |
+| `/steam_patch` | 默认 Steam 补丁压缩包目录 | Steam 补丁功能需要 |
+| `SENA_PATCH_DIR` | 自定义 Steam 补丁目录 | 可选 |
+| `SENA_BANGUMI_TOKEN` | Bangumi API Token | 可选 |
+| `SENA_PROXY` | 刮削 HTTP 代理 | 可选 |
 
-### 数据目录内容
+### 刮削 API Key 获取地址
+
+| 刮削源 | 获取地址 |
+|--------|---------|
+| Bangumi | [bgm.tv/dev/app](https://bgm.tv/dev/app) |
+| VNDB | —（免认证） |
+
+---
+
+## 导入及清洗逻辑
+
+### 文件结构
+
+>[!IMPORTANT]
+>
+> - 当前 Sena-Repo 仅测试通过会社/游戏的文件结构，其他文件结构仍未测试，未确保可用。
+> - Sena-Repo 严格按照所选择的文件目录模式来扫描，建议先整理好服务端内的资源文件再进行部署扫描。
+
+会社/游戏模式里，服务端按三级目录扫描，每一级都有特定含义：
+
+```
+根目录/                         ← --games-path
+  ├── 会社A/                    ← 第一级：会社
+  │   ├── 游戏1/                ← 第二级：游戏
+  │   │   ├── [PC]游戏1.rar     ← 第三级：版本文件
+  │   │   └── [Ty]游戏1.zip
+  │   └── 游戏2/
+  │       ├── [PC]游戏2.zip
+  │       └── [KRKR]游戏2.zip
+  └── 会社B/
+      └── 游戏3/
+          └── 直装_游戏3.apk
+```
+
+**第一级 · 会社** — 文件夹名自动填入游戏的**开发商**字段（不覆盖手动修改的值），同时作为标签附加。
+
+**第二级 · 游戏** — 每个子文件夹视为一个独立游戏项目，文件夹名即为游戏名。
+
+**第三级 · 版本文件** — 同一游戏下的每个压缩包各生成一个可下载版本，非压缩包文件自动过滤。文件名按规则解析：
+
+| 格式 | 示例 | 解析结果 |
+|------|------|---------|
+| `[平台]游戏名.rar` | `[PC]游戏1.rar` | 平台=PC，游戏名=游戏1 |
+| `[平台]游戏名.zip` | `[KRKR]游戏2.zip` | 平台=KRKR，游戏名=游戏2 |
+| `直装_游戏名.apk` | `直装_游戏5.apk` | 平台=安卓直装，游戏名=游戏5 |
+
+支持的平台标识：`PC`、`KRKR`、`Ty`、`ONS`、`直装`，`.apk` 后缀或含"安卓""直装"字样自动归类为安卓直装。
+
+### 刮削源
+
+| 刮削源 | 说明 |
+|--------|------|
+| VNDB Kana v2 | 免认证，含游戏时长数据 |
+| Bangumi | 免认证 |
+| Steam | 免认证 |
+| 月幕 GalGame | 免认证 |
+
+---
+
+## OpenList 文件源
+
+Sena-Repo 可以把 OpenList 作为游戏库或 Steam 补丁库的文件来源。添加时分两步：
+
+1. 在「扫描设置」中添加 OpenList 服务器，填写客户端也能访问的 OpenList 地址、用户名和密码
+2. 添加游戏库目录或 Steam 补丁库目录时选择该 OpenList 服务器，并填写 OpenList 内部路径，例如 `/115/Games/GalGame/Library`
+
+OpenList 下载链路：
 
 ```text
-/data/
-  sena_repo.db
-  covers/
-  backgrounds/
-  scan_settings.json
-  scraper_config.json
+客户端请求 Sena /api/download/{game}/{version}
+  → Sena 返回 302 到 OpenList /d/文件路径?sign=...
+  → OpenList 返回 302 到网盘/CDN直链
+  → 客户端直接从网盘/CDN下载
 ```
 
-升级、迁移和备份时优先备份整个 `/data`。
+注意事项：
 
-## 维护与排障
+- OpenList 地址必须从客户端设备可访问；只从 Sena 服务端可访问是不够的
+- Sena 服务端只负责生成跳转，不代理大文件下载流量
+- OpenList 登录支持 `/api/auth/login/hash`，失败时回退 `/api/auth/login`
+- 如果 OpenList 服务器地址未写协议，Sena 会自动补 `http://`
+- 扫描时仍按所选目录结构解析，例如会社/游戏/版本文件
 
-### 查看日志
+---
 
-```bash
-docker logs -f sena-repo
+## Steam 补丁
+
+### 工作原理
+
+```
+补丁目录（.zip/.rar/.7z 等）
+    │
+scan_patches.py ──→ patches.json
+    │                   ↓             客户端: 扫 steamapps → 匹配 → 注入
+    │              ┌─ 服务端Tab: 查看/编辑/扫描索引
+    └─ Steam API ─┘  (根据文件名搜索 AppID)
 ```
 
-关注关键词：
+补丁文件放在服务端，客户端扫描本地 Steam 库后自动匹配并注入。
 
-- `Database initialized at`：数据库路径。
-- `Scanning root`：正在扫描的目录。
-- `Scan discovered`：扫描到的会社、游戏、压缩包数量。
-- `OpenList login request failed`：OpenList 登录失败。
-- `Request URL is missing an 'http://' or 'https://' protocol`：OpenList 地址缺少协议或未正常保存。
+### 补丁目录结构
 
-### 扫描不到游戏
+```
+steam_patches/
+├── patches.json               ← 自动生成
+├── patch_type_keywords.json   ← 类型识别关键词
+├── 游戏1_Steam_extra_Patch.7z
+└── 游戏2_Steam_Chinese_Patch.rar
+```
 
-按顺序检查：
+直接把补丁压缩包放在补丁目录下即可，`scan_patches.py` 会递归扫描所有子目录。
 
-1. 游戏库目录是否已添加到“扫描设置”。
-2. 目录结构是否选对。
-3. 压缩包是否放在对应层级。
-4. OpenList 路径是否能列出下级目录和压缩包。
-5. 服务端日志中 `Scan discovered` 的数量是否为 0。
+### AppID 自动识别
 
-### OpenList 下载慢或卡住
+1. 文件名中的纯数字（如 `123456.zip` → 123456）
+2. 父目录名中的纯数字（如 `123456/v2.zip` → 123456）
+3. 从文件名提取游戏名 → 调 Steam Store API 搜索 → 获取 AppID
+4. 都失败则 `app_id: null`，可手动填写
 
-1. 在客户端浏览器直接打开 OpenList 文件下载，确认网盘本身速度正常。
-2. 检查客户端日志中的 302 链路是否跳到 OpenList，再跳到网盘 CDN。
-3. 确认客户端能访问 OpenList 地址，而不仅是 Sena 服务端能访问。
-4. 检查客户端是否设置了下载限速。
+> 游戏名提取规则：去掉文件扩展名 → 去掉类型关键词后缀 → 下划线替换空格。
+
+### 补丁类型自动分类
+
+根据文件名中的关键词（大小写不敏感）：
+
+| 类型 | 默认关键词 |
+|------|-----------|
+| `translation`（汉化） | `_Steam_Chinese_Patch` |
+| `voice`（音声） | `_Steam_Voice_Patch` |
+| `story`（剧情） | `_Steam_Story_Patch` |
+| `extra`（额外） | `_Steam_Extra_Patch` |
+| `misc`（其他） | 默认（无关键词匹配时） |
+
+关键词可通过客户端 Steam 补丁页右上角 🔍 编辑，或直接修改 `patch_type_keywords.json`。
+
+### patches.json 格式
+
+```json
+{
+  "patches": [
+    {
+      "app_id": 123456,
+      "file": "想要传达给你的爱恋_Steam_extra_Patch.7z",
+      "patch_dir": "",
+      "target_dir": "",
+      "label": "",
+      "type": "extra",
+      "game_name": "游戏中文名"
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `app_id` | Steam AppID，可自动识别或手动填写 |
+| `file` | 压缩包相对补丁目录的路径 |
+| `patch_dir` | 解压后取哪个子目录的内容（空=自动选） |
+| `target_dir` | 复制到游戏目录的哪个子路径（空=根目录） |
+| `label` | 界面显示名称 |
+| `type` | 补丁类型：`translation` / `voice` / `story` / `extra` / `misc` |
+| `game_name` | Steam 游戏中文名，扫描时自动获取 |
+
+### patch_dir / target_dir 规则
+
+**简单路径**（两者都为空）：压缩包直接解压到游戏根目录。适用于压缩包内部已按游戏目录结构组织的场景。
+
+**复杂路径**（任一非空）：
+1. 解压到临时目录
+2. 定位源目录（`patch_dir`）：从 `临时目录/patch_dir/` 取文件；若为空且临时目录只有一个文件夹则自动选择
+3. 合并到目标目录（`target_dir`）：文件复制到 `游戏目录/target_dir/`
+
+举例：压缩包内结构为 `汉化v2/data/patch.xp3`，配置 `patch_dir="汉化v2"` `target_dir=""` → 文件提取到游戏根目录。
+
+---
+
+## 附录
+
+### 支持的压缩格式
+
+`.zip` `.rar` `.7z` `.tar` `.gz` `.xz` `.apk`
+
+### 支持的平台标识
+
+| 标识 | 平台 |
+|------|------|
+| `[PC]` | Windows |
+| `[KRKR]` | Kirikiri |
+| `[Ty]` | Tyranor |
+| `[ONS]` | ONScripter |
+| `直装_` / `.apk` | 安卓直装 |
+
+### 默认端口
+
+| 端口 | 用途 |
+|------|------|
+| 11451 | 服务端 HTTP/HTTPS API |
 
 ### 相关文档
 
