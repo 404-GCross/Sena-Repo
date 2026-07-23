@@ -100,37 +100,40 @@ jobs:
       - name: Clone 7-Zip-zstd source
         shell: pwsh
         run: |
-          git clone --depth 1 --branch "$env:SEVENZIP_ZSTD_REF" https://github.com/mcmilk/7-Zip-zstd.git "$env:TEMP\7zsrc"
-          if (!(Test-Path "$env:TEMP\7zsrc\CPP\7zip\Bundles\Alone2")) { throw "Alone2 source directory not found" }
-          git -C "$env:TEMP\7zsrc" rev-parse --short HEAD
+          git clone --depth 1 --branch "$env:SEVENZIP_ZSTD_REF" https://github.com/mcmilk/7-Zip-zstd.git "$env:RUNNER_TEMP\7zsrc"
+          if (!(Test-Path "$env:RUNNER_TEMP\7zsrc\CPP\7zip\Bundles\Alone2")) { throw "Alone2 source directory not found" }
+          git -C "$env:RUNNER_TEMP\7zsrc" rev-parse --short HEAD
 
       - name: Build 7zz-zstd for windows x64
         shell: pwsh
         run: |
-          Set-Location "$env:TEMP\7zsrc\CPP\7zip\Bundles\Alone2"
+          $src = "$env:RUNNER_TEMP\7zsrc"
+          $out = "$env:RUNNER_TEMP\7zz-zstd-windows-x64"
+          Set-Location "$src\CPP\7zip\Bundles\Alone2"
           nmake /f makefile
-          $built = Get-ChildItem "$env:TEMP\7zsrc" -Recurse -File -Filter "7zz.exe" |
+          $built = Get-ChildItem "$src" -Recurse -File -Filter "7zz.exe" |
             Sort-Object Length -Descending |
             Select-Object -First 1
           if ($null -eq $built) { throw "7zz.exe build output not found" }
-          New-Item -ItemType Directory -Force "$env:TEMP\7zz-zstd-windows-x64" | Out-Null
-          Copy-Item $built.FullName "$env:TEMP\7zz-zstd-windows-x64\7zz.exe"
-          Copy-Item $built.FullName "$env:TEMP\7zz-zstd-windows-x64\7z.exe"
-          if (Test-Path "$env:TEMP\7zsrc\DOC\License.txt") {
-            Copy-Item "$env:TEMP\7zsrc\DOC\License.txt" "$env:TEMP\7zz-zstd-windows-x64\License.txt"
+          New-Item -ItemType Directory -Force "$out" | Out-Null
+          Copy-Item $built.FullName "$out\7zz.exe"
+          Copy-Item $built.FullName "$out\7z.exe"
+          if (Test-Path "$src\DOC\License.txt") {
+            Copy-Item "$src\DOC\License.txt" "$out\License.txt"
           } else {
-            Set-Content "$env:TEMP\7zz-zstd-windows-x64\License.txt" "See https://github.com/mcmilk/7-Zip-zstd for license details."
+            Set-Content "$out\License.txt" "See https://github.com/mcmilk/7-Zip-zstd for license details."
           }
-          Set-Content "$env:TEMP\7zz-zstd-windows-x64\NOTICE.txt" "Built from mcmilk/7-Zip-zstd ref $env:SEVENZIP_ZSTD_REF`nSource: https://github.com/mcmilk/7-Zip-zstd"
-          Get-FileHash "$env:TEMP\7zz-zstd-windows-x64\7zz.exe" -Algorithm SHA256 |
+          Set-Content "$out\NOTICE.txt" "Built from mcmilk/7-Zip-zstd ref $env:SEVENZIP_ZSTD_REF`nSource: https://github.com/mcmilk/7-Zip-zstd"
+          Get-FileHash "$out\7zz.exe" -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLower())  7zz.exe" } |
-            Set-Content "$env:TEMP\7zz-zstd-windows-x64\7zz.sha256"
-          Get-FileHash "$env:TEMP\7zz-zstd-windows-x64\7z.exe" -Algorithm SHA256 |
+            Set-Content "$out\7zz.sha256"
+          Get-FileHash "$out\7z.exe" -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLower())  7z.exe" } |
-            Set-Content "$env:TEMP\7zz-zstd-windows-x64\7z.sha256"
+            Set-Content "$out\7z.sha256"
+          Get-ChildItem "$out" | Format-Table Name,Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: 7zz-zstd-windows-x64
-          path: ${{ runner.temp }}\7zz-zstd-windows-x64\*
+          path: ${{ runner.temp }}/7zz-zstd-windows-x64/*
