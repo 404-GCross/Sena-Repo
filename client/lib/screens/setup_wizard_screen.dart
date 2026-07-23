@@ -43,12 +43,30 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useSteam = true;
   bool _useYmgal = true;
   final _vndbCtrl = TextEditingController();
+  final Map<String, String> _batchFieldSources = {
+    "title": "auto",
+    "cover": "auto",
+    "background": "auto",
+    "description": "auto",
+    "release_date": "auto",
+    "developer": "auto",
+    "length_minutes": "auto",
+  };
 
   static const _titles = [
     "\u521b\u5efa\u7ba1\u7406\u5458",
     "\u76ee\u5f55\u4e0e\u626b\u63cf",
     "\u522e\u524a\u6e90",
   ];
+  static const _batchFieldLabels = {
+    "title": "\u540d\u79f0",
+    "cover": "\u5c01\u9762",
+    "background": "\u80cc\u666f\u56fe",
+    "description": "\u7b80\u4ecb",
+    "release_date": "\u53d1\u552e\u65e5",
+    "developer": "\u5f00\u53d1\u5546",
+    "length_minutes": "\u5e73\u5747\u6e38\u620f\u65f6\u957f",
+  };
 
   @override
   void dispose() {
@@ -143,6 +161,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "auto_scan": _autoScan,
           "scan_interval": _scanInterval,
           "scan_structure": _structure,
+          "vndb_token": _vndbCtrl.text.trim(),
+          "batch_field_sources": _encodedBatchFieldSources(),
         }),
       );
       if (resp.statusCode != 200) {
@@ -179,14 +199,16 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     await prefs.setString("scan_structure", _structure);
     await prefs.setBool("auto_scan", _autoScan);
     if (_autoScan) await prefs.setInt("scan_interval", _scanInterval);
+  }
 
-    if (_vndbCtrl.text.trim().isNotEmpty) {
-      await http.put(
-        Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"vndb_token": _vndbCtrl.text.trim()}),
-      );
+  Map<String, List<String>> _encodedBatchFieldSources() {
+    final result = <String, List<String>>{};
+    for (final entry in _batchFieldSources.entries) {
+      if (entry.value != "auto") {
+        result[entry.key] = [entry.value];
+      }
     }
+    return result;
   }
 
   @override
@@ -519,6 +541,33 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       controller: _vndbCtrl,
       decoration: const InputDecoration(
         labelText: "VNDB Token\uff08\u53ef\u9009\uff09",
+      ),
+    ),
+    const SizedBox(height: 16),
+    const Text(
+      "\u6279\u91cf\u81ea\u52a8\u522e\u524a\u5b57\u6bb5\u6765\u6e90",
+      style: TextStyle(fontWeight: FontWeight.bold),
+    ),
+    const SizedBox(height: 8),
+    ..._batchFieldLabels.entries.map(
+      (entry) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: DropdownButtonFormField<String>(
+          value: _batchFieldSources[entry.key] ?? "auto",
+          decoration: InputDecoration(labelText: entry.value),
+          items: const [
+            DropdownMenuItem(
+              value: "auto",
+              child: Text("\u8ddf\u968f\u522e\u524a\u6e90\u987a\u5e8f"),
+            ),
+            DropdownMenuItem(value: "vndb_kana", child: Text("VNDB Kana v2")),
+            DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
+            DropdownMenuItem(value: "steam", child: Text("Steam")),
+            DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
+          ],
+          onChanged: (v) =>
+              setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
+        ),
       ),
     ),
   ];

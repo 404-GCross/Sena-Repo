@@ -8,18 +8,19 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
+from models.game import Game, GameTag, GameVersion
 from models.user import User
 from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
-from services.importer import import_from_root
+from services.importer import cleanup_empty_companies, import_from_root
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,36 @@ async def refresh_all_roots(
     _load_scan_settings(config)
     _bg_scan(config, [r.id for r in roots], update_last=True)
     return {"message": "扫描已在后台启动", "roots": len(roots)}
+
+
+@router.post("/clear-and-refresh")
+async def clear_and_refresh_roots(
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Clear imported game library records, then re-scan all root directories."""
+    if _scan_lock.locked():
+        raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
+
+    count_result = await session.execute(select(func.count()).select_from(Game))
+    cleared_games = int(count_result.scalar_one() or 0)
+    await session.execute(delete(GameTag))
+    await session.execute(delete(GameVersion))
+    await session.execute(delete(Game))
+    await cleanup_empty_companies(session)
+    await session.commit()
+
+    result = await session.execute(select(RootDirectory))
+    roots = result.scalars().all()
+    config = load_config()
+    from api.settings import _load_scan_settings
+    _load_scan_settings(config)
+    _bg_scan(config, [r.id for r in roots], update_last=True)
+    return {
+        "message": "游戏库已清空，重新扫描已在后台启动",
+        "cleared_games": cleared_games,
+        "roots": len(roots),
+    }
 
 
 @router.post("/{root_id}/refresh")

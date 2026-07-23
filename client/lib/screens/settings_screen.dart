@@ -911,6 +911,24 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "steam": true,
     "ymgal": true,
   };
+  final Map<String, String> _batchFieldSources = {
+    "title": "auto",
+    "cover": "auto",
+    "background": "auto",
+    "description": "auto",
+    "release_date": "auto",
+    "developer": "auto",
+    "length_minutes": "auto",
+  };
+  static const _batchFieldLabels = {
+    "title": "名称",
+    "cover": "封面",
+    "background": "背景图",
+    "description": "简介",
+    "release_date": "发售日",
+    "developer": "开发商",
+    "length_minutes": "平均游戏时长",
+  };
   final _keys = {
     "vndb_token": TextEditingController(),
     "proxy": TextEditingController(),
@@ -1145,6 +1163,58 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
     _loadRoots();
     if (mounted) _toast(context, "扫描已触发");
+  }
+
+  Future<void> _clearAndRescan() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("清空游戏库并重新扫描？"),
+        content: const Text(
+          "此操作会清除数据库中已扫描出的游戏条目、版本、分类关联和刮削数据，然后重新扫描所有游戏库目录。\n\n"
+          "不会删除本地文件、网盘文件、游戏库目录设置或 Steam 补丁库设置。",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("清空并重扫"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/roots/clear-and-refresh"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception(_responseMessage(resp));
+      }
+      await _loadRoots();
+      if (mounted) _toast(context, "游戏库已清空，重新扫描已触发");
+    } catch (e) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("操作失败"),
+          content: Text("$e"),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("确定"),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Future<void> _checkActiveJob() async {
@@ -1401,36 +1471,63 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               // ── Actions ──
               _sectionHeader("操作", Icons.play_arrow_outlined),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: _scanNow,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text("开始扫描"),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 620;
+                  final width = narrow
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - 24) / 3;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      SizedBox(
+                        width: width,
+                        child: FilledButton.tonalIcon(
+                          onPressed: _scanNow,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text("开始扫描"),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _scrapeNow,
-                      icon: const Icon(Icons.image_search, size: 18),
-                      label: const Text("批量刮削"),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                      SizedBox(
+                        width: width,
+                        child: OutlinedButton.icon(
+                          onPressed: _scrapeNow,
+                          icon: const Icon(Icons.image_search, size: 18),
+                          label: const Text("批量刮削"),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                      SizedBox(
+                        width: width,
+                        child: OutlinedButton.icon(
+                          onPressed: _clearAndRescan,
+                          icon: const Icon(Icons.delete_sweep, size: 18),
+                          label: const Text("清空并重扫"),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
 
               // ── Scrape job progress ──
@@ -1640,6 +1737,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               _srcCard("Steam", "steam", "免认证"),
               _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
               const SizedBox(height: 16),
+              _batchFieldSourceSettings(),
+              const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -1714,6 +1813,62 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ],
           ),
   );
+
+  Widget _batchFieldSourceSettings() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "批量自动刮削字段来源",
+            style: AppText.bodySmall.copyWith(
+              fontWeight: FontWeight.w600,
+              color: subTextColor(context),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "只影响批量和自动刮削。选择“跟随刮削源顺序”的字段会保持原有填充逻辑。",
+            style: AppText.label.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 12),
+          ..._batchFieldLabels.entries.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: DropdownButtonFormField<String>(
+                value: _batchFieldSources[entry.key] ?? "auto",
+                decoration: InputDecoration(
+                  labelText: entry.value,
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: const [
+                  DropdownMenuItem(value: "auto", child: Text("跟随刮削源顺序")),
+                  DropdownMenuItem(
+                    value: "vndb_kana",
+                    child: Text("VNDB Kana v2"),
+                  ),
+                  DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
+                  DropdownMenuItem(value: "steam", child: Text("Steam")),
+                  DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
+                ],
+                onChanged: (v) =>
+                    setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _sectionHeader(String title, IconData icon) => Row(
     children: [
@@ -1821,6 +1976,20 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         for (final k in _keys.keys) {
           _keys[k]?.text = data[k] ?? "";
         }
+        final fieldSources = data["batch_field_sources"];
+        if (fieldSources is Map) {
+          for (final field in _batchFieldSources.keys) {
+            final sources = fieldSources[field];
+            if (sources is List && sources.isNotEmpty) {
+              final source = sources.first.toString();
+              _batchFieldSources[field] = _sources.containsKey(source)
+                  ? source
+                  : "auto";
+            } else {
+              _batchFieldSources[field] = "auto";
+            }
+          }
+        }
       }
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
@@ -1832,10 +2001,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _saveScraperConfig() async {
-    final body = <String, String>{};
+    final body = <String, dynamic>{};
     for (final k in _keys.keys) {
       body[k] = _keys[k]!.text;
     }
+    body["batch_field_sources"] = _encodedBatchFieldSources();
     await http.put(
       Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
       headers: {"Content-Type": "application/json", ...widget.api.headers},
@@ -1846,6 +2016,16 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
     }
     if (mounted) _toast(context, "刮削源配置已保存");
+  }
+
+  Map<String, List<String>> _encodedBatchFieldSources() {
+    final result = <String, List<String>>{};
+    for (final entry in _batchFieldSources.entries) {
+      if (entry.value != "auto") {
+        result[entry.key] = [entry.value];
+      }
+    }
+    return result;
   }
 
   Future<void> _testProxy() async {

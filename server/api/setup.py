@@ -37,6 +37,8 @@ class InitRequest(BaseModel):
     scan_structure: str = "company_game"
     game_libraries: list[dict] = Field(default_factory=list)
     steam_patch_libraries: list[dict] = Field(default_factory=list)
+    vndb_token: str = ""
+    batch_field_sources: dict[str, list[str]] = Field(default_factory=dict)
 
 
 @router.get("/status", response_model=SetupStatus)
@@ -181,6 +183,24 @@ async def initialize_setup(
         logger = logging.getLogger("sena-repo")
         logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
+
+    if body.vndb_token or body.batch_field_sources:
+        try:
+            from api.settings import _read_scraper_config, _write_scraper_config
+            from services.scraper.orchestrator import _normalize_field_sources
+
+            scraper_config = _read_scraper_config()
+            if body.vndb_token:
+                config.scrapers.vndb_token = body.vndb_token
+                scraper_config["vndb_token"] = body.vndb_token
+            normalized_sources = _normalize_field_sources(body.batch_field_sources)
+            if normalized_sources:
+                scraper_config["batch_field_sources"] = normalized_sources
+            _write_scraper_config(scraper_config)
+        except Exception as e:
+            logger = logging.getLogger("sena-repo")
+            logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
 
     await session.commit()
 
