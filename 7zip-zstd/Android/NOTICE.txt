@@ -1,0 +1,2 @@
+Built from mcmilk/7-Zip-zstd ref v26.02-v1.5.7-R2
+Source: https://github.com/mcmilk/7-Zip-zstd
