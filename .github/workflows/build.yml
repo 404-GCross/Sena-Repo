@@ -118,7 +118,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
-          Copy-Item "../7zip-zstd/Windows/7z.exe" assets/binaries/7z.exe
+          Copy-Item "../7zip-zstd/Windows/7zz.exe" assets/binaries/7z.exe
           if (Test-Path "../7zip-zstd/Windows/7z.dll") { Copy-Item "../7zip-zstd/Windows/7z.dll" assets/binaries/7z.dll }
           if (Test-Path "../7zip-zstd/Windows/License.txt") { Copy-Item "../7zip-zstd/Windows/License.txt" assets/binaries/LICENSE-7z.txt }
           if (Test-Path "../7zip-zstd/Windows/readme.txt") { Copy-Item "../7zip-zstd/Windows/readme.txt" assets/binaries/README-7z.txt }
@@ -252,11 +252,7 @@ jobs:
       - name: Copy 7z binary (Linux)
         run: |
           mkdir -p assets/binaries
-          if [ -f ../7zip-zstd/Linux/7zz ]; then
-            cp ../7zip-zstd/Linux/7zz assets/binaries/7zz
-          else
-            tar -xf ../7zip-zstd/Linux/7z2601-linux-x64.tar.xz -C assets/binaries 7zz
-          fi
+          cp ../7zip-zstd/Linux/7zz assets/binaries/7zz
           cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
           chmod +x assets/binaries/7zz
 
