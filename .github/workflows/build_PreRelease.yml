@@ -409,30 +409,7 @@ jobs:
           CUSTOM_NOTES_EOF
           sed -i 's/^          //' custom_notes.md
 
-          git fetch --tags --force --prune
-
-          PREV_TAG=""
-          while IFS= read -r candidate; do
-            if git rev-parse "$candidate^{commit}" >/dev/null 2>&1 && git merge-base --is-ancestor "$candidate" "$GITHUB_SHA"; then
-              PREV_TAG="$candidate"
-              break
-            fi
-          done < <(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq ".[] | select(.prerelease == true and .tag_name != \"${TAG}\") | .tag_name")
-
-          if [ -n "$PREV_TAG" ]; then
-            RANGE="$PREV_TAG..$GITHUB_SHA"
-            printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
-          else
-            RANGE="$GITHUB_SHA"
-            printf '## Changes (%s)\n\n' "$TAG" > release_notes_auto.md
-          fi
-          NOTES=$(git log --no-merges --format='- %s (%h)' "$RANGE")
-          if [ -n "$NOTES" ]; then
-            printf '%s\n' "$NOTES" >> release_notes_auto.md
-          else
-            printf '%s\n' '- Build artifacts updated.' >> release_notes_auto.md
-          fi
-          printf '\n## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' >> release_notes_auto.md
+          printf '## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' > release_notes_auto.md
 
           printf '> [!CAUTION]\n>\n> **Pre-Release 测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n' > release_notes.md
           case "$MODE" in
