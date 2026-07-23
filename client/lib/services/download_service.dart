@@ -1201,6 +1201,7 @@ class DownloadService with WidgetsBindingObserver {
 
       // Stream to file
       int received = t.receivedBytes;
+      final downloadStartedAt = DateTime.now();
       final speedLimitEnabled = await downloadSpeedLimitKbps > 0;
       var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
       var lastStateSave = DateTime.now();
@@ -1245,9 +1246,9 @@ class DownloadService with WidgetsBindingObserver {
           lastStateSave = now;
           _saveTasks();
         }
-        // Throttle notification updates to ~1 per second
+        // Android notification updates cross the platform channel; keep them sparse.
         final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
-        if (notifyElapsed >= 1000) {
+        if (notifyElapsed >= 2000) {
           t._lastNotifyTime = now;
           NotificationService().showDownloadProgress(
             id: t.gameId,
@@ -1279,6 +1280,14 @@ class DownloadService with WidgetsBindingObserver {
       }
       // Sync counter
       if (t.receivedBytes != fileSize) t.receivedBytes = fileSize;
+      final elapsedMs = DateTime.now()
+          .difference(downloadStartedAt)
+          .inMilliseconds
+          .clamp(1, 1 << 31);
+      final avgSpeed = (fileSize * 1000 / elapsedMs).round();
+      LoggerService().info(
+        "download completed: bytes=$fileSize elapsedMs=$elapsedMs avgSpeed=$avgSpeed",
+      );
     } finally {
       // Ensure data is flushed to disk before returning
       try {

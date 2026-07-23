@@ -11,13 +11,15 @@ class NotificationService {
 
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  final Set<int> _progressUpdatesInFlight = <int>{};
 
   Future<void> init() async {
     if (!Platform.isAndroid) return;
     if (_initialized) return;
 
-    const androidSettings =
-        AndroidInitializationSettings("@mipmap/ic_launcher");
+    const androidSettings = AndroidInitializationSettings(
+      "@mipmap/ic_launcher",
+    );
     await _plugin.initialize(
       const InitializationSettings(android: androidSettings),
     );
@@ -28,8 +30,10 @@ class NotificationService {
   /// Show rationale dialog first, then system permission dialog.
   Future<bool> requestPermission() async {
     if (!Platform.isAndroid) return true;
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return true;
     final granted = await android.requestNotificationsPermission();
     return granted ?? false;
@@ -45,34 +49,45 @@ class NotificationService {
     required int totalBytes,
   }) async {
     if (!Platform.isAndroid || !_initialized) return id;
+    if (_progressUpdatesInFlight.contains(id)) return id;
 
     final indeterminate = totalBytes <= 0;
-    final maxProgress = totalBytes > 0 ? totalBytes : 100;
-    final currentProgress = totalBytes > 0 ? receivedBytes : 0;
+    const maxProgress = 1000;
+    final progressRatio = progress.isFinite
+        ? progress.clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final currentProgress = totalBytes > 0
+        ? (progressRatio * maxProgress).round().clamp(0, maxProgress).toInt()
+        : 0;
 
-    await _plugin.show(
-      id,
-      "正在下载: $gameName",
-      totalBytes > 0
-          ? "${(progress * 100).toStringAsFixed(0)}% · ${_fmtSize(receivedBytes)} / ${_fmtSize(totalBytes)}"
-          : "下载中...",
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          "download_progress",
-          "下载进度",
-          channelDescription: "游戏下载进度通知",
-          importance: Importance.low,
-          priority: Priority.low,
-          onlyAlertOnce: true,
-          showProgress: true,
-          indeterminate: indeterminate,
-          maxProgress: maxProgress,
-          progress: currentProgress,
-          ongoing: true,
-          autoCancel: false,
+    _progressUpdatesInFlight.add(id);
+    try {
+      await _plugin.show(
+        id,
+        "正在下载: $gameName",
+        totalBytes > 0
+            ? "${(progressRatio * 100).toStringAsFixed(0)}% · ${_fmtSize(receivedBytes)} / ${_fmtSize(totalBytes)}"
+            : "下载中...",
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            "download_progress",
+            "下载进度",
+            channelDescription: "游戏下载进度通知",
+            importance: Importance.low,
+            priority: Priority.low,
+            onlyAlertOnce: true,
+            showProgress: true,
+            indeterminate: indeterminate,
+            maxProgress: maxProgress,
+            progress: currentProgress,
+            ongoing: true,
+            autoCancel: false,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _progressUpdatesInFlight.remove(id);
+    }
     return id;
   }
 
