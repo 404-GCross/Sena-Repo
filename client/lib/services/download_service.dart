@@ -7,6 +7,7 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io";
+import "dart:typed_data";
 
 import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
@@ -1205,6 +1206,20 @@ class DownloadService with WidgetsBindingObserver {
       final speedLimitEnabled = await downloadSpeedLimitKbps > 0;
       var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
       var lastStateSave = DateTime.now();
+      var lastTraceLog = DateTime.now();
+      var lastTraceBytes = received;
+      var traceChunks = 0;
+      var traceSmallChunks = 0;
+      final uiEmitIntervalMs = Platform.isAndroid ? 500 : 250;
+      final stateSaveIntervalMs = Platform.isAndroid ? 5000 : 2000;
+      const notificationIntervalMs = 5000;
+      const writeBufferThreshold = 1024 * 1024;
+      final writeBuffer = BytesBuilder(copy: false);
+      void flushWriteBuffer() {
+        if (writeBuffer.length == 0) return;
+        sink?.add(writeBuffer.takeBytes());
+      }
+
       sink = dest.openWrite(
         mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write,
       );
@@ -1225,9 +1240,14 @@ class DownloadService with WidgetsBindingObserver {
         if (speedLimitEnabled) {
           await _throttleDownload(chunk.length);
         }
-        sink.add(chunk);
+        writeBuffer.add(chunk);
+        if (writeBuffer.length >= writeBufferThreshold) {
+          flushWriteBuffer();
+        }
         received += chunk.length;
         t.receivedBytes = received;
+        traceChunks += 1;
+        if (chunk.length < 32 * 1024) traceSmallChunks += 1;
         // Calculate speed every ~1 second
         final now = DateTime.now();
         final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
@@ -1238,17 +1258,18 @@ class DownloadService with WidgetsBindingObserver {
           t._lastSpeedTime = now;
         }
         t.progress = t.totalBytes > 0 ? received / t.totalBytes : 0.0;
-        if (now.difference(lastUiEmit).inMilliseconds >= 250) {
+        if (now.difference(lastUiEmit).inMilliseconds >= uiEmitIntervalMs) {
           lastUiEmit = now;
           _emit(save: false);
         }
-        if (now.difference(lastStateSave).inSeconds >= 2) {
+        if (now.difference(lastStateSave).inMilliseconds >=
+            stateSaveIntervalMs) {
           lastStateSave = now;
           _saveTasks();
         }
         // Android notification updates cross the platform channel; keep them sparse.
         final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
-        if (notifyElapsed >= 2000) {
+        if (notifyElapsed >= notificationIntervalMs) {
           t._lastNotifyTime = now;
           NotificationService().showDownloadProgress(
             id: t.gameId,
@@ -1258,8 +1279,24 @@ class DownloadService with WidgetsBindingObserver {
             totalBytes: t.totalBytes,
           );
         }
+        final traceElapsed = now.difference(lastTraceLog).inMilliseconds;
+        if (traceElapsed >= 10000) {
+          final windowBytes = received - lastTraceBytes;
+          final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
+          LoggerService().info(
+            "download trace: platform=${Platform.operatingSystem} "
+            "received=$received total=${t.totalBytes} "
+            "windowSpeed=$windowSpeed chunks=$traceChunks "
+            "smallChunks=$traceSmallChunks buffered=${writeBuffer.length}",
+          );
+          lastTraceLog = now;
+          lastTraceBytes = received;
+          traceChunks = 0;
+          traceSmallChunks = 0;
+        }
       }
       // Tell UI we're done downloading before slow disk flush
+      flushWriteBuffer();
       t.progress = 1.0;
       _emit();
       await sink.flush();
@@ -1330,6 +1367,7 @@ class DownloadService with WidgetsBindingObserver {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
       req.headers["Accept"] = "*/*";
+      req.headers["Accept-Encoding"] = "identity";
       req.headers["Connection"] = "keep-alive";
 
       final sameOrigin =
