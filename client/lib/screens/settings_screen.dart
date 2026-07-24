@@ -840,7 +840,7 @@ class _OpenListSourceDialogState extends State<_OpenListSourceDialog> {
               TextField(
                 controller: _usernameCtrl,
                 decoration: const InputDecoration(
-                  labelText: "\u7528\u6237\u540d",
+                  labelText: "用户名（留空则使用访客模式）",
                 ),
               ),
               const SizedBox(height: 12),
@@ -848,8 +848,8 @@ class _OpenListSourceDialogState extends State<_OpenListSourceDialog> {
                 controller: _passwordCtrl,
                 decoration: InputDecoration(
                   labelText: widget.initial == null
-                      ? "\u5bc6\u7801"
-                      : "\u5bc6\u7801\uff08\u7559\u7a7a\u5219\u4fdd\u6301\u4e0d\u53d8\uff09",
+                      ? "密码"
+                      : "密码（留空则保持不变）",
                 ),
                 obscureText: true,
               ),
@@ -867,7 +867,7 @@ class _OpenListSourceDialogState extends State<_OpenListSourceDialog> {
             final name = _nameCtrl.text.trim();
             final baseUrl = _baseUrlCtrl.text.trim();
             final username = _usernameCtrl.text.trim();
-            if (baseUrl.isEmpty || username.isEmpty) return;
+            if (baseUrl.isEmpty) return;
             final payload = <String, dynamic>{
               "name": name.isEmpty ? "OpenList" : name,
               "type": "openlist",

@@ -819,13 +819,13 @@ class _SetupOpenListSourceDialogState
               TextField(
                 controller: _usernameCtrl,
                 decoration: const InputDecoration(
-                  labelText: "\u7528\u6237\u540d",
+                  labelText: "用户名（留空则使用访客模式）",
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _passwordCtrl,
-                decoration: const InputDecoration(labelText: "\u5bc6\u7801"),
+                decoration: const InputDecoration(labelText: "密码"),
                 obscureText: true,
               ),
             ],
@@ -841,7 +841,7 @@ class _SetupOpenListSourceDialogState
           onPressed: () {
             final baseUrl = _baseUrlCtrl.text.trim();
             final username = _usernameCtrl.text.trim();
-            if (baseUrl.isEmpty || username.isEmpty) return;
+            if (baseUrl.isEmpty) return;
             Navigator.pop(context, {
               "source_name": _nameCtrl.text.trim().isEmpty
                   ? "OpenList"

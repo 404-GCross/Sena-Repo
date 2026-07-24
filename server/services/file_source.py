@@ -103,6 +103,11 @@ class OpenListFileSource:
         self.password = source.password or ""
         self._token: str | None = None
 
+    @property
+    def _is_guest(self) -> bool:
+        """True when no credentials are configured — use OpenList guest access."""
+        return not self.username
+
     def _url(self, endpoint: str) -> str:
         return urljoin(self.base_url + "/", endpoint.lstrip("/"))
 
@@ -150,6 +155,10 @@ class OpenListFileSource:
         return data
 
     def _headers(self) -> dict[str, str]:
+        # Guest mode: send no Authorization header so OpenList falls back to its
+        # built-in guest user (empty token → guest in OpenList middleware).
+        if self._is_guest:
+            return {}
         return {"Authorization": self._token or self._login()}
 
     def _post(self, endpoint: str, body: dict, retry: bool = True) -> dict:
@@ -158,7 +167,8 @@ class OpenListFileSource:
                 resp = client.post(self._url(endpoint), json=body, headers=self._headers())
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"OpenList request failed: {exc}") from exc
-        if resp.status_code in {401, 403} and retry:
+        # Only retry auth for authenticated sessions, not guest (no token to refresh).
+        if resp.status_code in {401, 403} and retry and not self._is_guest:
             self._token = None
             return self._post(endpoint, body, retry=False)
         if resp.status_code >= 400:
@@ -167,7 +177,7 @@ class OpenListFileSource:
             data = resp.json()
         except ValueError as exc:
             raise HTTPException(status_code=502, detail="OpenList returned invalid JSON") from exc
-        if data.get("code") in (401, 403) and retry:
+        if data.get("code") in (401, 403) and retry and not self._is_guest:
             self._token = None
             return self._post(endpoint, body, retry=False)
         if data.get("code") not in (None, 200):
