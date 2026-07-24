@@ -10,6 +10,7 @@ import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/game_provider.dart";
+import "../services/api_client.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 
@@ -113,6 +114,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           // Update saved username
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString("username", data["username"] ?? newName);
+          // If password was changed the server issues a new token; persist it
+          final newToken = data["new_token"]?.toString();
+          if (newToken != null && newToken.isNotEmpty) {
+            await ApiClient.persistSessionInfo(
+              accessToken: newToken,
+              username: data["username"]?.toString() ?? newName,
+            );
+          }
           _msg = "个人信息更新成功";
           _currentPassCtrl.clear();
           _newPassCtrl.clear();

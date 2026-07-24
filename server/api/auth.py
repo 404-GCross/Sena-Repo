@@ -408,6 +408,7 @@ async def update_profile(
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
+        user.token = secrets.token_hex(32)  # invalidate all existing sessions
 
     if body.username and body.username != user.username:
         existing = await session.execute(
@@ -418,7 +419,10 @@ async def update_profile(
         user.username = body.username
 
     await session.commit()
-    return {"message": "更新成功", "username": user.username}
+    response: dict = {"message": "更新成功", "username": user.username}
+    if body.new_password:
+        response["new_token"] = user.token
+    return response
 
 
 @router.post("/profile/{user_id}/avatar")
