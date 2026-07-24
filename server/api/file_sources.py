@@ -61,8 +61,8 @@ async def create_source(
 ):
     if body.type != "openlist":
         raise HTTPException(status_code=400, detail="Only OpenList sources can be saved here")
-    if not body.base_url or not body.username:
-        raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+    if not body.base_url:
+        raise HTTPException(status_code=400, detail="OpenList URL is required")
     source = FileSource(
         name=body.name,
         type="openlist",
@@ -91,8 +91,8 @@ async def update_source(
         raise HTTPException(status_code=404, detail="File source not found")
     if body.type != "openlist":
         raise HTTPException(status_code=400, detail="Only OpenList sources can be saved here")
-    if not body.base_url or not body.username:
-        raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+    if not body.base_url:
+        raise HTTPException(status_code=400, detail="OpenList URL is required")
 
     source.name = body.name
     source.type = "openlist"

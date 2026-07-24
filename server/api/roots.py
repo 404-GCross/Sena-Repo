@@ -77,8 +77,8 @@ async def add_root(
             if source is None:
                 raise HTTPException(status_code=404, detail="OpenList source not found")
         else:
-            if not body.base_url or not body.username:
-                raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+            if not body.base_url:
+                raise HTTPException(status_code=400, detail="OpenList URL is required")
             source = FileSource(
                 name=source_name or body.base_url,
                 type="openlist",
@@ -149,7 +149,7 @@ async def update_root(
             if source is None:
                 raise HTTPException(status_code=404, detail="OpenList source not found")
         else:
-            if not body.base_url or not body.username:
+            if not body.base_url:
                 raise HTTPException(status_code=400, detail="OpenList source must be selected first")
             source = FileSource(
                 name=source_name or body.base_url,

@@ -90,8 +90,8 @@ async def initialize_setup(
             if source is None:
                 base_url = normalize_base_url(item.get("base_url"))
                 username = item.get("username") or ""
-                if not base_url or not username:
-                    raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+                if not base_url:
+                    raise HTTPException(status_code=400, detail="OpenList URL is required")
                 cache_key = (base_url, username)
                 source = source_cache.get(cache_key)
                 if source is None:
