@@ -115,7 +115,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         username=body.username,
         password_hash=pw_hash,
         salt=salt,
-        is_admin=is_first,  # registration never grants admin; use admin panel to promote
+        is_admin=is_first or body.is_admin,
         status="active" if is_first else "pending",
         token=secrets.token_hex(32),
     )
@@ -408,7 +408,6 @@ async def update_profile(
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
-        user.token = secrets.token_hex(32)  # invalidate old sessions
 
     if body.username and body.username != user.username:
         existing = await session.execute(

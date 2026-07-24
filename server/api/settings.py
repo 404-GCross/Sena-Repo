@@ -235,7 +235,7 @@ async def list_ignored(session: AsyncSession = Depends(get_session), user: User 
 async def restore_from_ignore(
     ignore_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ):
     """Restore a game from the ignore list (un-delete it)."""
     result = await session.execute(
