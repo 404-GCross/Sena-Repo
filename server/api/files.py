@@ -31,6 +31,8 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(get_cur
     config.covers_path.mkdir(parents=True, exist_ok=True)
 
     content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件过大，最大 10MB")
     dest.write_bytes(content)
     return {"filename": name, "url": f"/api/files/covers/{name}"}
 
