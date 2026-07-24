@@ -138,35 +138,36 @@ async def scrape_apply(
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    if cover_url:
-        _validate_public_url(cover_url)
-        config = load_config()
-        client_kwargs = {"timeout": httpx.Timeout(30.0)}
-        if config.proxy:
-            client_kwargs["proxy"] = config.proxy
+    config = load_config()
+    client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    if cover_url or hero_url:
         async with httpx.AsyncClient(**client_kwargs) as c:
-            try:
-                resp = await c.get(cover_url)
-                resp.raise_for_status()
-                cover_path = config.covers_path / f"{game_id}_{source}.jpg"
-                config.covers_path.mkdir(parents=True, exist_ok=True)
-                cover_path.write_bytes(resp.content)
-                game.cover_path = str(cover_path)
-            except Exception as e:
-                logger.warning(f"Cover download failed: {e}")
-        # Download hero/landscape banner to backgrounds folder
-        if hero_url:
-            _validate_public_url(hero_url)
-            try:
-                resp = await c.get(hero_url)
-                resp.raise_for_status()
-                bg_dir = config.backgrounds_path
-                bg_dir.mkdir(parents=True, exist_ok=True)
-                bg_path = bg_dir / f"{game_id}_hero.jpg"
-                bg_path.write_bytes(resp.content)
-                game.bg_path = str(bg_path)
-            except Exception as e:
-                logger.warning(f"Hero download failed: {e}")
+            if cover_url:
+                _validate_public_url(cover_url)
+                try:
+                    resp = await c.get(cover_url)
+                    resp.raise_for_status()
+                    cover_path = config.covers_path / f"{game_id}_{source}.jpg"
+                    config.covers_path.mkdir(parents=True, exist_ok=True)
+                    cover_path.write_bytes(resp.content)
+                    game.cover_path = str(cover_path)
+                except Exception as e:
+                    logger.warning(f"Cover download failed: {e}")
+            # Download hero/landscape banner to backgrounds folder
+            if hero_url:
+                _validate_public_url(hero_url)
+                try:
+                    resp = await c.get(hero_url)
+                    resp.raise_for_status()
+                    bg_dir = config.backgrounds_path
+                    bg_dir.mkdir(parents=True, exist_ok=True)
+                    bg_path = bg_dir / f"{game_id}_hero.jpg"
+                    bg_path.write_bytes(resp.content)
+                    game.bg_path = str(bg_path)
+                except Exception as e:
+                    logger.warning(f"Hero download failed: {e}")
 
     if developer:
         game.developer = developer
@@ -535,7 +536,10 @@ async def update_game_background(
         config = load_config()
         bg_dir = config.backgrounds_path
         bg_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".jpg" if ".jpg" in bg_url.lower() or ".jpeg" in bg_url.lower() else ".png"
+        from urllib.parse import urlparse
+        _bg_url_path = urlparse(bg_url).path.lower()
+        _ext_map = {".webp": ".webp", ".gif": ".gif", ".png": ".png", ".jpeg": ".jpg", ".jpg": ".jpg"}
+        ext = next((v for k, v in _ext_map.items() if _bg_url_path.endswith(k)), ".jpg")
         bg_path = bg_dir / f"{game_id}_bg{ext}"
 
         client_kwargs = {"timeout": httpx.Timeout(30.0)}
