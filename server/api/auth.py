@@ -62,7 +62,6 @@ class LoginResponse(BaseModel):
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=2, max_length=128)
     password: str = Field(min_length=4, max_length=128)
-    is_admin: bool = False
 
 
 class ApproveRequest(BaseModel):
@@ -115,7 +114,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         username=body.username,
         password_hash=pw_hash,
         salt=salt,
-        is_admin=is_first or body.is_admin,
+        is_admin=is_first,  # only the very first user is auto-promoted
         status="active" if is_first else "pending",
         token=secrets.token_hex(32),
     )
@@ -130,7 +129,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
             session.add(Notification(
                 type="approval_request",
                 title=f"新用户注册: {body.username}",
-                body=f"用户 {body.username} 申请{'管理员' if body.is_admin else '普通用户'}账户，等待审批",
+                body=f"用户 {body.username} 申请普通用户账户，等待审批",
                 target_user_id=user.id,
             ))
 
