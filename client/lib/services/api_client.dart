@@ -15,6 +15,7 @@ String? _accessToken;
 /// Cached user info from the last login.
 String? _cachedUsername;
 bool? _cachedIsAdmin;
+String? _cachedRole;
 
 /// Legacy accessor — maintained for backward compatibility with download_service.
 String? get globalToken => _accessToken;
@@ -39,6 +40,7 @@ class ApiClient {
   String? get accessToken => _accessToken;
   String? get cachedUsername => _cachedUsername;
   bool? get cachedIsAdmin => _cachedIsAdmin;
+  String? get cachedRole => _cachedRole;
 
   Map<String, String> get headers {
     if (_accessToken != null && _accessToken!.isNotEmpty) {
@@ -54,6 +56,7 @@ class ApiClient {
     _accessToken = await SecureStore.getString("auth_token");
     _cachedUsername = prefs.getString("username");
     _cachedIsAdmin = prefs.getBool("is_admin");
+    _cachedRole = prefs.getString("role");
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       print("[ApiClient] Token restored from secure storage");
     } else {
@@ -65,6 +68,7 @@ class ApiClient {
     String? accessToken,
     String? username,
     bool? isAdmin,
+    String? role,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     if (accessToken != null && accessToken.isNotEmpty) {
@@ -78,12 +82,17 @@ class ApiClient {
       await prefs.setBool("is_admin", isAdmin);
       _cachedIsAdmin = isAdmin;
     }
+    if (role != null) {
+      await prefs.setString("role", role);
+      _cachedRole = role;
+    }
   }
 
   static Future<void> persistSessionInfo({
     String? accessToken,
     String? username,
     bool? isAdmin,
+    String? role,
   }) async {
     if (accessToken != null && accessToken.isNotEmpty) {
       _accessToken = accessToken;
@@ -92,6 +101,7 @@ class ApiClient {
       accessToken: accessToken,
       username: username,
       isAdmin: isAdmin,
+      role: role,
     );
   }
 
@@ -99,10 +109,12 @@ class ApiClient {
     _accessToken = null;
     _cachedUsername = null;
     _cachedIsAdmin = null;
+    _cachedRole = null;
     final prefs = await SharedPreferences.getInstance();
     await SecureStore.delete("auth_token");
     await prefs.remove("username");
     await prefs.remove("is_admin");
+    await prefs.remove("role");
   }
 
   Future<void> connect(
@@ -237,6 +249,7 @@ class ApiClient {
         if (_accessToken != null && _accessToken!.isNotEmpty) {
           var username = data["username"]?.toString();
           var isAdmin = data["is_admin"] == true;
+          var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
           try {
             final meResp = await _client
                 .get(
@@ -248,14 +261,17 @@ class ApiClient {
               final me = jsonDecode(meResp.body) as Map<String, dynamic>;
               username = me["username"]?.toString() ?? username;
               isAdmin = me["is_admin"] == true;
+              role = me["role"]?.toString() ?? role;
               data["username"] = username;
               data["is_admin"] = isAdmin;
+              data["role"] = role;
             }
           } catch (_) {}
           await _persistTokens(
             accessToken: _accessToken,
             username: username,
             isAdmin: isAdmin,
+            role: role,
           );
         }
         return data;

@@ -45,7 +45,7 @@ class InitRequest(BaseModel):
 async def setup_status(session: AsyncSession = Depends(get_session)):
     """Check if server needs initial setup."""
     # Check for any admin user
-    users = await session.execute(select(User).where(User.is_admin == True))
+    users = await session.execute(select(User).where(User.role == "owner"))
     has_admin = users.scalar_one_or_none() is not None
 
     # Check for any root directories
@@ -72,7 +72,7 @@ async def initialize_setup(
 
     # Create admin user
     pw_hash, salt = hash_password(body.admin_password)
-    user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, is_admin=True)
+    user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="owner", is_admin=True)
     session.add(user)
 
     source_cache: dict[tuple[str, str], FileSource] = {}

@@ -99,6 +99,22 @@ async def create_tables():
             await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_path VARCHAR(1024)")
 
 
+
+        # ── users.role migration (v2) ──────────────────────────────────────
+        user_cols = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(users)")}
+        if "role" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'user'"
+            )
+            # promote existing admins
+            await conn.exec_driver_sql("UPDATE users SET role = 'admin' WHERE is_admin = 1")
+            # first admin becomes owner
+            await conn.exec_driver_sql(
+                "UPDATE users SET role = 'owner' WHERE id = "
+                "(SELECT MIN(id) FROM users WHERE is_admin = 1)"
+            )
+
+
 async def get_engine():
     if _engine is None:
         raise RuntimeError("Database not initialized.")
