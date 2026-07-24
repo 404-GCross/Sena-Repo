@@ -54,7 +54,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   };
 
   static const _titles = [
-    "\u521b\u5efa\u7ba1\u7406\u5458",
+    "\u521b\u5efa\u670d\u4e3b\u8d26\u6237",
     "\u76ee\u5f55\u4e0e\u626b\u63cf",
     "\u522e\u524a\u6e90",
   ];
