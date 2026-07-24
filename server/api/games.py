@@ -51,6 +51,7 @@ async def list_games(
     has_cover: bool | None = Query(default=None),
     sort: str = Query(default="imported"),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """List games with optional filters and sorting.
 
@@ -119,6 +120,7 @@ async def search_games(
     platform: str | None = Query(default=None),
     root_id: int | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Search games by name, folder path, or tag."""
     query = (
@@ -166,6 +168,7 @@ async def search_games(
 async def get_game(
     game_id: int,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     """Get a single game with full details including versions and tags."""
     result = await session.execute(
