@@ -4,6 +4,7 @@ import "package:flutter/material.dart";
 import "package:cached_network_image/cached_network_image.dart";
 
 import "../models/game.dart";
+import "../services/api_client.dart";
 import "../utils/theme_utils.dart";
 
 class GameList extends StatelessWidget {
@@ -120,6 +121,7 @@ class _GameListTileState extends State<_GameListTile> {
                     ? CachedNetworkImage(
                         key: ValueKey(game.coverPath),
                         imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
+                        httpHeaders: mediaAuthHeaders,
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => _placeholder(cs),
                         placeholder: (_, __) => _placeholder(cs),

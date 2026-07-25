@@ -97,6 +97,15 @@ async def create_tables():
             await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_name VARCHAR(255)")
         if "source_path" not in root_columns:
             await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_path VARCHAR(1024)")
+        await conn.exec_driver_sql(
+            """
+            UPDATE root_directories
+            SET source_path = substr(path, length('openlist://') + instr(substr(path, length('openlist://') + 1), '/'))
+            WHERE source_type = 'openlist'
+              AND (source_path IS NULL OR source_path = '')
+              AND path LIKE 'openlist://%/%'
+            """
+        )
 
 
 

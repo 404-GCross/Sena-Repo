@@ -14,6 +14,7 @@ import "package:path_provider/path_provider.dart";
 import "../models/game.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
+import "../services/api_client.dart";
 import "../services/scrape_service.dart";
 
 class GameEditScreen extends StatefulWidget {
@@ -1045,6 +1046,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                     ? Image.network(
                                         "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
                                         key: ValueKey("cover_$_coverVersion"),
+                                        headers: mediaAuthHeaders,
                                         fit: BoxFit.cover,
                                         errorBuilder: (_, __, ___) =>
                                             _coverPlaceholder(),
@@ -1511,6 +1513,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       aspectRatio: 16 / 9,
       child: Image.network(
         url,
+        headers: url.contains("/api/files/") ? mediaAuthHeaders : null,
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => Container(
           color: placeholderBg(context),
@@ -2341,6 +2344,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                             key: ValueKey(
                                               "cover_$_coverVersion",
                                             ),
+                                            headers: mediaAuthHeaders,
                                             width: 90,
                                             height: 120,
                                             fit: BoxFit.cover,
@@ -2493,6 +2497,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                                 _bgUrl.text.startsWith("http")
                                                     ? _bgUrl.text
                                                     : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
+                                                headers: _bgUrl.text.startsWith("http") ? null : mediaAuthHeaders,
                                                 width: 180,
                                                 height: 90,
                                                 fit: BoxFit.cover,

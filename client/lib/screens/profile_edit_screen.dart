@@ -212,11 +212,28 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           backgroundColor: Theme.of(
                             context,
                           ).colorScheme.primaryContainer,
-                          backgroundImage: hasAvatar && _avatarUrl != null
-                              ? NetworkImage(_avatarUrl!)
-                              : null,
-                          child: hasAvatar
-                              ? null
+                          child: hasAvatar && _avatarUrl != null
+                              ? ClipOval(
+                                  child: Image.network(
+                                    _avatarUrl!,
+                                    headers: mediaAuthHeaders,
+                                    width: 104,
+                                    height: 104,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Text(
+                                      _userCtrl.text.isNotEmpty
+                                          ? _userCtrl.text[0].toUpperCase()
+                                          : "?",
+                                      style: TextStyle(
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.bold,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                )
                               : Text(
                                   _userCtrl.text.isNotEmpty
                                       ? _userCtrl.text[0].toUpperCase()

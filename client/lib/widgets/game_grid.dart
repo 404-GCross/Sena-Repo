@@ -5,6 +5,7 @@ import "package:cached_network_image/cached_network_image.dart";
 import "package:provider/provider.dart";
 
 import "../models/game.dart";
+import "../services/api_client.dart";
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 
@@ -144,6 +145,7 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                     CachedNetworkImage(
                       key: ValueKey(game.coverPath),
                       imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
+                      httpHeaders: mediaAuthHeaders,
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => _placeholder(),
                       placeholder: (_, __) => _placeholder(),

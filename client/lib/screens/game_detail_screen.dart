@@ -197,6 +197,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                             aspectRatio: 16 / 9,
                             child: Image.network(
                               "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
+                              headers: mediaAuthHeaders,
                               width: double.infinity,
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) =>
@@ -318,6 +319,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                     child: hasCover
                                         ? Image.network(
                                             "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
+                                            headers: mediaAuthHeaders,
                                             fit: BoxFit.cover,
                                             errorBuilder: (_, __, ___) =>
                                                 _coverPlaceholder(),
@@ -356,6 +358,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                         borderRadius: BorderRadius.circular(14),
                                         child: Image.network(
                                           "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
+                                          headers: mediaAuthHeaders,
                                           fit: BoxFit.cover,
                                           errorBuilder: (_, __, ___) =>
                                               _coverPlaceholder(),
@@ -1624,9 +1627,21 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     String? coverPath;
     try {
       final api = context.read<GameProvider>().api;
-      final base = api.baseUrl;
-      final coverUrl = "$base/api/files/covers${_task.gameId}";
-      coverPath = await ShortcutService.downloadCover(coverUrl, task.gameName);
+      final resp = await http.get(
+        Uri.parse("${api.baseUrl}/api/games/${task.gameId}"),
+        headers: api.headers,
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final cover = data["cover_path"]?.toString() ?? "";
+        if (cover.isNotEmpty) {
+          final name = cover.split(RegExp(r'[/\\]')).last;
+          coverPath = await ShortcutService.downloadCover(
+            "${api.baseUrl}/api/files/covers/$name",
+            task.gameName,
+          );
+        }
+      }
     } catch (_) {}
     try {
       await ShortcutService.createShortcut(

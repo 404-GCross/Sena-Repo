@@ -339,8 +339,7 @@ async def update_game(
         raise HTTPException(status_code=404, detail="Game not found")
 
     for field, value in body.model_dump(exclude_unset=True).items():
-        if value is not None:
-            setattr(game, field, value)
+        setattr(game, field, value)
     game.updated_at = datetime.utcnow()
     await session.commit()
     return {"message": "更新成功"}

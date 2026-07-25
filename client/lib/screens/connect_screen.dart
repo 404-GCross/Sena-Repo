@@ -1037,14 +1037,18 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   // Login
                   if (userCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) { setD(() => loginError = "请输入用户名和密码"); return; }
                   setD(() { loading = true; loginError = ""; });
-                  final data = await api!.login(userCtrl.text.trim(), passCtrl.text);
-                  if (data != null) {
-                    Navigator.pop(ctx);
-                    final uname = data["username"]?.toString() ?? userCtrl.text.trim();
-                    await ProfileService().saveCurrentAsProfile(uname);
-                    await _goHome(games: context.read<GameProvider>());
-                  } else {
-                    setD(() { loginError = "登录失败"; loading = false; });
+                  try {
+                    final data = await api!.login(userCtrl.text.trim(), passCtrl.text);
+                    if (data != null) {
+                      Navigator.pop(ctx);
+                      final uname = data["username"]?.toString() ?? userCtrl.text.trim();
+                      await ProfileService().saveCurrentAsProfile(uname);
+                      await _goHome(games: context.read<GameProvider>());
+                    } else {
+                      setD(() { loginError = "登录失败"; loading = false; });
+                    }
+                  } catch (e) {
+                    setD(() { loginError = "登录失败: $e"; loading = false; });
                   }
                 }
               },

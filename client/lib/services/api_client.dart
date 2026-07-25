@@ -2,6 +2,7 @@
 
 import "dart:convert";
 import "dart:io";
+import "dart:async";
 
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -20,6 +21,11 @@ String? _cachedRole;
 /// Legacy accessor — maintained for backward compatibility with download_service.
 String? get globalToken => _accessToken;
 
+Map<String, String>? get mediaAuthHeaders {
+  if (_accessToken == null || _accessToken!.isEmpty) return null;
+  return {"Authorization": "Bearer $_accessToken"};
+}
+
 /// Hostname of the configured server — only bypasses TLS for this host.
 String? trustedServerHost;
 
@@ -27,7 +33,7 @@ class AuthException implements Exception {
   final String message;
   AuthException(this.message);
   @override
-  String toString() => "AuthException: $message";
+  String toString() => message;
 }
 
 class ApiClient {
@@ -236,13 +242,13 @@ class ApiClient {
 
   // --- Auth ---
 
-  Future<Map<String, dynamic>?> login(String username, String password) async {
+  Future<Map<String, dynamic>> login(String username, String password) async {
     try {
       final resp = await _client.post(
         Uri.parse("$baseUrl/api/auth/login"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"username": username, "password": password}),
-      );
+      ).timeout(const Duration(seconds: 10));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         _accessToken = data["token"]?.toString();
@@ -276,8 +282,22 @@ class ApiClient {
         }
         return data;
       }
-    } catch (_) {}
-    return null;
+      try {
+        final body = jsonDecode(resp.body);
+        if (body is Map && body["detail"] != null) {
+          throw AuthException(body["detail"].toString());
+        }
+      } catch (e) {
+        if (e is AuthException) rethrow;
+      }
+      throw AuthException("登录失败 (HTTP ${resp.statusCode})");
+    } on SocketException catch (e) {
+      throw AuthException("无法连接服务器: ${e.message}");
+    } on TimeoutException {
+      throw AuthException("连接服务器超时");
+    } on FormatException {
+      throw AuthException("服务器返回格式错误");
+    }
   }
 
   Future<bool> logout() async {

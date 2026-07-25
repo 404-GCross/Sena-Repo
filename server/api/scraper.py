@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import ipaddress
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from datetime import datetime
 
 import httpx
@@ -63,6 +63,21 @@ def _validate_public_url(url: str) -> None:
         ip = ipaddress.ip_address(ip_str)
         if ip.is_loopback or ip.is_private or ip.is_link_local:
             raise HTTPException(status_code=400, detail="不允许使用内网地址")
+
+
+async def _safe_get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """Fetch a public URL and re-check every redirect target."""
+    current = url
+    for _ in range(6):
+        _validate_public_url(current)
+        resp = await client.get(current, follow_redirects=False, **kwargs)
+        if resp.status_code not in {301, 302, 303, 307, 308}:
+            return resp
+        location = resp.headers.get("location")
+        if not location:
+            return resp
+        current = urljoin(current, location)
+    raise HTTPException(status_code=400, detail="URL 重定向次数过多")
 
 
 class BatchScrapeRequest(BaseModel):
@@ -145,9 +160,8 @@ async def scrape_apply(
     if cover_url or hero_url:
         async with httpx.AsyncClient(**client_kwargs) as c:
             if cover_url:
-                _validate_public_url(cover_url)
                 try:
-                    resp = await c.get(cover_url)
+                    resp = await _safe_get(c, cover_url)
                     resp.raise_for_status()
                     cover_path = config.covers_path / f"{game_id}_{source}.jpg"
                     config.covers_path.mkdir(parents=True, exist_ok=True)
@@ -157,9 +171,8 @@ async def scrape_apply(
                     logger.warning(f"Cover download failed: {e}")
             # Download hero/landscape banner to backgrounds folder
             if hero_url:
-                _validate_public_url(hero_url)
                 try:
-                    resp = await c.get(hero_url)
+                    resp = await _safe_get(c, hero_url)
                     resp.raise_for_status()
                     bg_dir = config.backgrounds_path
                     bg_dir.mkdir(parents=True, exist_ok=True)
@@ -243,8 +256,7 @@ async def scrape_game_cover(
                         ext = ".jpg"
                         cover_path = covers_dir / f"{game_id}_{scraper.source_name}{ext}"
                         try:
-                            _validate_public_url(result.cover_url)
-                            resp = await client.get(result.cover_url, timeout=30.0)
+                            resp = await _safe_get(client, result.cover_url, timeout=30.0)
                             resp.raise_for_status()
                             covers_dir.mkdir(parents=True, exist_ok=True)
                             cover_path.write_bytes(resp.content)
@@ -255,10 +267,9 @@ async def scrape_game_cover(
                     # Download hero/landscape banner
                     if result.hero_url and not game.bg_path:
                         try:
-                            _validate_public_url(result.hero_url)
                             bg_dir = config.backgrounds_path
                             bg_dir.mkdir(parents=True, exist_ok=True)
-                            resp = await client.get(result.hero_url, timeout=30.0)
+                            resp = await _safe_get(client, result.hero_url, timeout=30.0)
                             resp.raise_for_status()
                             bg_path = bg_dir / f"{game_id}_hero.jpg"
                             bg_path.write_bytes(resp.content)
@@ -420,7 +431,6 @@ async def update_game_cover(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if cover_url:
-        _validate_public_url(cover_url)
         config = load_config()
         covers_dir = config.covers_path
         covers_dir.mkdir(parents=True, exist_ok=True)
@@ -432,7 +442,7 @@ async def update_game_cover(
             client_kwargs["proxy"] = config.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
             try:
-                resp = await client.get(cover_url)
+                resp = await _safe_get(client, cover_url)
                 resp.raise_for_status()
                 cover_path.write_bytes(resp.content)
                 game.cover_path = str(cover_path)
@@ -532,7 +542,6 @@ async def update_game_background(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if bg_url:
-        _validate_public_url(bg_url)
         config = load_config()
         bg_dir = config.backgrounds_path
         bg_dir.mkdir(parents=True, exist_ok=True)
@@ -547,7 +556,7 @@ async def update_game_background(
             client_kwargs["proxy"] = config.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
             try:
-                resp = await client.get(bg_url)
+                resp = await _safe_get(client, bg_url)
                 resp.raise_for_status()
                 bg_path.write_bytes(resp.content)
                 game.bg_path = str(bg_path)

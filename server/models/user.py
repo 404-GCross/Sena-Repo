@@ -1,13 +1,18 @@
 """User model - owner/admin/user roles."""
+
 from __future__ import annotations
+
 import hashlib
 from datetime import datetime
+
 import bcrypt
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
+
 from database import Base
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """Hash a password with bcrypt (preferred) or SHA-256 (legacy)."""
     if salt is None:
         h = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         return h, "bcrypt"
@@ -16,6 +21,7 @@ def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
 
 
 def verify_password(password: str, salt: str, stored_hash: str) -> bool:
+    """Verify password, supporting both bcrypt and legacy SHA-256."""
     if salt == "bcrypt":
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
     return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == stored_hash
@@ -23,6 +29,7 @@ def verify_password(password: str, salt: str, stored_hash: str) -> bool:
 
 class User(Base):
     __tablename__ = "users"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(128), nullable=False, unique=True)
     password_hash = Column(String(256), nullable=False)
@@ -37,6 +44,7 @@ class User(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     type = Column(String(32), nullable=False)
     title = Column(String(256), nullable=False)

@@ -10,6 +10,7 @@ import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/logger_service.dart";
+import "api_client.dart";
 import "vdf_parser.dart"; // only for gridAppId CRC32 calculation
 
 class SteamIntegrationResult {
@@ -89,7 +90,10 @@ class SteamIntegrationService {
     final portraitFile = File("${gridDir.path}$s${gridAppId}p.jpg");
     final landscapeFile = File("${gridDir.path}$s$gridAppId.jpg");
     try {
-      final resp = await http.get(Uri.parse(coverUrl)).timeout(const Duration(seconds: 30));
+      final resp = await http.get(
+        Uri.parse(coverUrl),
+        headers: coverUrl.contains("/api/files/") ? mediaAuthHeaders : null,
+      ).timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200) return false;
       if (resp.bodyBytes.length < 1024) return false;
       await portraitFile.writeAsBytes(resp.bodyBytes);
@@ -106,7 +110,10 @@ class SteamIntegrationService {
     final s = Platform.pathSeparator;
     final landscapeFile = File("${gridDir.path}$s$gridAppId.jpg");
     try {
-      final resp = await http.get(Uri.parse(heroUrl)).timeout(const Duration(seconds: 30));
+      final resp = await http.get(
+        Uri.parse(heroUrl),
+        headers: heroUrl.contains("/api/files/") ? mediaAuthHeaders : null,
+      ).timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200) return false;
       if (resp.bodyBytes.length < 1024) return false;
       await landscapeFile.writeAsBytes(resp.bodyBytes);

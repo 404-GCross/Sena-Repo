@@ -8,7 +8,7 @@ import json
 import socket
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from sqlalchemy import select
@@ -117,11 +117,22 @@ async def _download_cover(
     dest_path: Path,
 ) -> bool:
     """Download a cover image to the specified path."""
-    if not _is_public_http_url(url):
-        logger.warning(f"Skipping non-public image URL: {url}")
-        return False
     try:
-        resp = await client.get(url, timeout=30.0)
+        current = url
+        for _ in range(6):
+            if not _is_public_http_url(current):
+                logger.warning(f"Skipping non-public image URL: {current}")
+                return False
+            resp = await client.get(current, timeout=30.0, follow_redirects=False)
+            if resp.status_code not in {301, 302, 303, 307, 308}:
+                break
+            location = resp.headers.get("location")
+            if not location:
+                break
+            current = urljoin(current, location)
+        else:
+            logger.warning(f"Too many image redirects: {url}")
+            return False
         resp.raise_for_status()
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with open(dest_path, "wb") as f:

@@ -8,10 +8,9 @@ from pathlib import Path
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pathlib import Path
 from fastapi.responses import FileResponse
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from config import load_config
 from models.user import User
 
@@ -19,7 +18,7 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+async def upload_file(file: UploadFile = File(...), user: User = Depends(require_admin)):
     """Upload an image file. Returns the filename for use in cover/bg URLs."""
     ext = Path(file.filename or "image.jpg").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -39,7 +38,7 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
 @router.get("/covers/{filename:path}")
-async def serve_cover(filename: str):
+async def serve_cover(filename: str, user: User = Depends(get_current_user)):
     """Serve a cover image file. Accepts both full path and filename only."""
     # Extract just the filename in case a full path was passed
     name = Path(filename).name
@@ -61,7 +60,7 @@ async def serve_cover(filename: str):
 
 
 @router.get("/backgrounds/{filename:path}")
-async def serve_background(filename: str):
+async def serve_background(filename: str, user: User = Depends(get_current_user)):
     """Serve a background image file. Accepts both full path and filename only."""
     name = Path(filename).name
     ext = Path(name).suffix.lower()
@@ -82,7 +81,7 @@ async def serve_background(filename: str):
 
 
 @router.get("/avatars/{filename:path}")
-async def serve_avatar(filename: str):
+async def serve_avatar(filename: str, user: User = Depends(get_current_user)):
     """Serve a user avatar image file."""
     name = Path(filename).name
     ext = Path(name).suffix.lower()

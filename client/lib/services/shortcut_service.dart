@@ -7,6 +7,8 @@ import "package:http/http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
+import "api_client.dart";
+
 class ShortcutService {
   /// Find a likely game executable in [dir], limited to [gameDir] if provided.
   static String? findExecutable(String dir, {String? gameName}) {
@@ -90,7 +92,10 @@ class ShortcutService {
       final dest = File("${iconsDir.path}/${_safeName(gameName)}$ext");
       if (await dest.exists()) return dest.path; // Already cached
 
-      final resp = await http.get(Uri.parse(coverUrl));
+      final resp = await http.get(
+        Uri.parse(coverUrl),
+        headers: coverUrl.contains("/api/files/") ? mediaAuthHeaders : null,
+      );
       if (resp.statusCode == 200) {
         await dest.writeAsBytes(resp.bodyBytes);
         // On Windows, try to convert to .ico using PowerShell

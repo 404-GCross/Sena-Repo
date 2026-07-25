@@ -20,6 +20,8 @@ async def _auto_scan_task(config, logger):
     while True:
         await asyncio.sleep(300)  # check every 5 minutes
         try:
+            from api.settings import _load_scan_settings
+            _load_scan_settings(config)
             if not getattr(config, "_auto_scan", False):
                 continue
             # Check if enough time has passed since last scan

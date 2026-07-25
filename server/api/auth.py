@@ -90,9 +90,10 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
         raise HTTPException(status_code=403, detail="账户等待管理员审批中")
     if user.status == "rejected":
         raise HTTPException(status_code=403, detail="账户已被拒绝")
-    if user.token is None:
-        user.token = secrets.token_hex(32)
-        await session.commit()
+    if user.salt != "bcrypt":
+        user.password_hash, user.salt = hash_password(body.password)
+    user.token = secrets.token_hex(32)
+    await session.commit()
     return LoginResponse(token=user.token, is_admin=user.role in ("owner", "admin"),
                          role=user.role, username=user.username)
 
@@ -374,10 +375,13 @@ async def update_profile(user_id: int, body: ProfileUpdate,
     if current.id != user.id and current.role not in ("owner", "admin"):
         raise HTTPException(status_code=403, detail="只能修改自己的资料")
     if body.new_password:
-        if not body.current_password:
-            raise HTTPException(status_code=400, detail="需要当前密码")
-        if not verify_password(body.current_password, user.salt, user.password_hash):
-            raise HTTPException(status_code=403, detail="当前密码错误")
+        if current.id == user.id:
+            if not body.current_password:
+                raise HTTPException(status_code=400, detail="需要当前密码")
+            if not verify_password(body.current_password, user.salt, user.password_hash):
+                raise HTTPException(status_code=403, detail="当前密码错误")
+        elif current.role not in ("owner", "admin"):
+            raise HTTPException(status_code=403, detail="无权修改他人密码")
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt

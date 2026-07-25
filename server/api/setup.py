@@ -14,7 +14,7 @@ from database import get_session
 from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
-from services.file_source import canonical_source_path, normalize_base_url, normalize_remote_path
+from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -105,6 +105,9 @@ async def initialize_setup(
                     session.add(source)
                     await session.flush()
                     source_cache[cache_key] = source
+            adapter = adapter_from_source(source, "openlist")
+            if not await asyncio.to_thread(adapter.exists, path):
+                raise HTTPException(status_code=404, detail=f"OpenList 路径不存在: {path}")
             return source_type, source.id, source.name, path
         return "local", None, item.get("source_name"), path
 

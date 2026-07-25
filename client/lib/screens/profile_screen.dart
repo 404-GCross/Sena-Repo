@@ -141,19 +141,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: CircleAvatar(
               radius: 44,
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              backgroundImage: _avatarUrl != null
-                  ? NetworkImage(_avatarUrl!)
-                  : null,
-              child: _avatarUrl == null
-                  ? Text(
+              child: _avatarUrl != null
+                  ? ClipOval(
+                      child: Image.network(
+                        _avatarUrl!,
+                        headers: mediaAuthHeaders,
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Text(
+                          _username.isNotEmpty ? _username[0].toUpperCase() : "S",
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Text(
                       _username.isNotEmpty ? _username[0].toUpperCase() : "S",
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
                         color: Theme.of(context).colorScheme.primary,
                       ),
-                    )
-                  : null,
+                    ),
             ),
           ),
         ),
