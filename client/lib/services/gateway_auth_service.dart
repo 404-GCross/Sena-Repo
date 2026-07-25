@@ -1,4 +1,4 @@
-import "dart:convert";
+﻿import "dart:convert";
 
 import "package:http/http.dart" as http;
 import "package:url_launcher/url_launcher.dart";
@@ -38,7 +38,7 @@ class GatewayAuthService {
         ..followRedirects = false
         ..headers.addAll(headers ?? const {});
       final streamed = await client.send(request).timeout(timeout);
-      return http.Response.fromStream(streamed);
+      return await http.Response.fromStream(streamed);
     } finally {
       client.close();
     }
@@ -57,7 +57,7 @@ class GatewayAuthService {
         ..headers.addAll({"Content-Type": "application/json", ...?headers})
         ..body = jsonEncode(body);
       final streamed = await client.send(request).timeout(timeout);
-      return http.Response.fromStream(streamed);
+      return await http.Response.fromStream(streamed);
     } finally {
       client.close();
     }
@@ -154,3 +154,4 @@ class GatewayAuthService {
         value.contains("#/login");
   }
 }
+
