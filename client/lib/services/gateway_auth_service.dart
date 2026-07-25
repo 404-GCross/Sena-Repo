@@ -25,7 +25,7 @@ class GatewayAuthRequiredException implements Exception {
 }
 
 class GatewayAuthService {
-  static const protectedMessage = "该服务端受 fn-knock 保护，请认证后尝试重新登录";
+  static const protectedMessage = "该服务端受网关保护，请认证后尝试重新登录";
 
   static Future<http.Response> getNoRedirect(
     Uri uri, {
