@@ -34,6 +34,9 @@ _VALID_FIELD_MAP = {
     "cover": "cover",
     "cover_url": "cover",
     "background": "background",
+    "background_url": "background",
+    "bg": "background",
+    "bg_url": "background",
     "hero": "background",
     "hero_url": "background",
     "description": "description",
@@ -222,7 +225,8 @@ async def scrape_single_game(
                 result = await scraper.search_best(query, company_hint)
                 if result:
                     await handle_result(scraper, result)
-                    break  # Found for this candidate, try next candidate for remaining scrapers
+                    if not collect_only:
+                        break  # Found for this candidate, try next candidate for remaining scrapers
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} error for '{query}': {e}")
 
@@ -509,6 +513,10 @@ async def run_batch_scrape(
     )
     scrapers = _build_scrapers(config)
     if sources:
+        source_set = set(sources)
+        for source_list in field_sources.values():
+            source_set.update(source_list)
+        sources = list(source_set)
         scrapers = [s for s in scrapers if s.source_name in sources]
     covers_dir = config.covers_path
     completed = 0

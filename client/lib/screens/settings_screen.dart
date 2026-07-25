@@ -545,7 +545,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              "选择刮削来源（一次只能选一种）",
+              "选择主要刮削来源；字段规则需要的来源会自动参与",
               style: AppText.bodySmall.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 12),
@@ -1250,12 +1250,26 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       builder: (ctx) => _BatchScrapeDialog(),
     );
     if (result == null || !mounted) return;
+    final body = Map<String, dynamic>.from(result);
+    final fieldSources = _encodedBatchFieldSources();
+    if (fieldSources.isNotEmpty) {
+      body["field_sources"] = fieldSources;
+      final sources = <String>{
+        ...((body["sources"] as List?) ?? const [])
+            .map((e) => e.toString())
+            .where((source) => _sources.containsKey(source)),
+      };
+      for (final sourceList in fieldSources.values) {
+        sources.addAll(sourceList.where((source) => _sources.containsKey(source)));
+      }
+      if (sources.isNotEmpty) body["sources"] = sources.toList();
+    }
     setState(() => _scraping = true);
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
         headers: {"Content-Type": "application/json", ...widget.api.headers},
-        body: jsonEncode(result),
+        body: jsonEncode(body),
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
