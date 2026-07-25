@@ -6,6 +6,7 @@ import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
+import "../services/gateway_auth_service.dart";
 import "../services/logger_service.dart";
 
 class SettingsProvider extends ChangeNotifier {
@@ -14,6 +15,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _useHttps = false;
   bool _isLoading = false;
   String? _errorMessage;
+  GatewayAuthChallenge? _gatewayAuthChallenge;
   double _coverSize = Platform.isAndroid ? 160.0 : 200.0;
 
   String get serverHost => _serverHost;
@@ -21,6 +23,7 @@ class SettingsProvider extends ChangeNotifier {
   bool get useHttps => _useHttps;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  GatewayAuthChallenge? get gatewayAuthChallenge => _gatewayAuthChallenge;
   double get coverSize => _coverSize;
 
   Future<void> loadSettings() async {
@@ -28,7 +31,9 @@ class SettingsProvider extends ChangeNotifier {
     _serverHost = prefs.getString("server_host") ?? "";
     _serverPort = prefs.getInt("server_port") ?? 11451;
     _useHttps = prefs.getBool("use_https") ?? false;
-    _coverSize = (prefs.getDouble("cover_size") ?? _coverSize).clamp(100.0, 300.0).toDouble();
+    _coverSize = (prefs.getDouble("cover_size") ?? _coverSize)
+        .clamp(100.0, 300.0)
+        .toDouble();
     notifyListeners();
   }
 
@@ -44,14 +49,24 @@ class SettingsProvider extends ChangeNotifier {
   Future<bool> connect(String host, int port, {bool useHttps = false}) async {
     _isLoading = true;
     _errorMessage = null;
+    _gatewayAuthChallenge = null;
     notifyListeners();
 
     LoggerService().info("正在连接 $host:$port (${useHttps ? "HTTPS" : "HTTP"})");
     try {
       final scheme = useHttps ? "https" : "http";
       final uri = Uri.parse("$scheme://$host:$port/api/health");
-      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
-      if (resp.statusCode != 200) {
+      final resp = await GatewayAuthService.getNoRedirect(uri);
+      final challenge = GatewayAuthService.detect(uri, resp);
+      if (challenge != null) {
+        _gatewayAuthChallenge = challenge;
+        _errorMessage = GatewayAuthService.protectedMessage;
+        _isLoading = false;
+        notifyListeners();
+        LoggerService().warn("连接被 fn-knock 保护 $host:$port");
+        return false;
+      }
+      if (!GatewayAuthService.isValidSenaHealth(resp)) {
         _errorMessage = "服务器返回错误: ${resp.statusCode}";
         _isLoading = false;
         notifyListeners();

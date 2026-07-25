@@ -1,4 +1,4 @@
-﻿/// Full-screen flow for adding a new server and logging in.
+/// Full-screen flow for adding a new server and logging in.
 
 import "dart:convert";
 import "package:flutter/material.dart";
@@ -9,7 +9,9 @@ import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
+import "../services/gateway_auth_service.dart";
 import "../services/profile_service.dart";
+import "../widgets/gateway_auth_dialog.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
 
@@ -33,7 +35,7 @@ class _AddServerScreenState extends State<AddServerScreen> {
   bool _isLoggingIn = false;
   String? _error;
   String? _loginError;
-  int _step = 0;  // 0 = connect, 1 = login
+  int _step = 0; // 0 = connect, 1 = login
   ApiClient? _api;
 
   @override
@@ -49,13 +51,29 @@ class _AddServerScreenState extends State<AddServerScreen> {
   Future<void> _connect() async {
     final host = _hostCtrl.text.trim();
     final port = int.tryParse(_portCtrl.text.trim()) ?? 11451;
-    if (host.isEmpty) { setState(() => _error = "请输入服务器地址"); return; }
-    setState(() { _connecting = true; _error = null; });
+    if (host.isEmpty) {
+      setState(() => _error = "请输入服务器地址");
+      return;
+    }
+    setState(() {
+      _connecting = true;
+      _error = null;
+    });
 
     final settings = context.read<SettingsProvider>();
     final ok = await settings.connect(host, port, useHttps: _useHttps);
     if (!ok) {
-      if (mounted) setState(() { _connecting = false; _error = settings.errorMessage ?? "连接失败"; });
+      final challenge = settings.gatewayAuthChallenge;
+      if (mounted) {
+        setState(() {
+          _connecting = false;
+          _error = settings.errorMessage ?? "连接失败";
+        });
+      }
+      if (challenge != null && mounted) {
+        final retry = await showGatewayAuthDialog(context, challenge);
+        if (retry && mounted) await _connect();
+      }
       return;
     }
 
@@ -86,14 +104,22 @@ class _AddServerScreenState extends State<AddServerScreen> {
       if (!mounted) return;
     }
 
-    if (mounted) setState(() { _connecting = false; _step = 1; });
+    if (mounted)
+      setState(() {
+        _connecting = false;
+        _step = 1;
+      });
   }
 
   Future<void> _login() async {
     if (_userCtrl.text.trim().isEmpty || _passCtrl.text.isEmpty) {
-      setState(() => _loginError = "请输入用户名和密码"); return;
+      setState(() => _loginError = "请输入用户名和密码");
+      return;
     }
-    setState(() { _isLoggingIn = true; _loginError = null; });
+    setState(() {
+      _isLoggingIn = true;
+      _loginError = null;
+    });
 
     try {
       final data = await _api!.login(_userCtrl.text.trim(), _passCtrl.text);
@@ -104,6 +130,13 @@ class _AddServerScreenState extends State<AddServerScreen> {
       } else {
         setState(() => _loginError = "登录失败，请检查用户名和密码");
       }
+    } on GatewayAuthRequiredException catch (e) {
+      if (mounted) {
+        setState(() => _isLoggingIn = false);
+        final retry = await showGatewayAuthDialog(context, e.challenge);
+        if (retry && mounted) await _login();
+      }
+      return;
     } catch (e) {
       setState(() => _loginError = "登录失败: $e");
     }
@@ -111,16 +144,32 @@ class _AddServerScreenState extends State<AddServerScreen> {
   }
 
   Future<void> _register() async {
-    if (_userCtrl.text.trim().isEmpty) { setState(() => _loginError = "请输入用户名"); return; }
-    if (_passCtrl.text.length < 4) { setState(() => _loginError = "密码至少4位"); return; }
-    if (_passCtrl.text != _passConfirmCtrl.text) { setState(() => _loginError = "两次密码不一致"); return; }
-    setState(() { _isLoggingIn = true; _loginError = null; });
+    if (_userCtrl.text.trim().isEmpty) {
+      setState(() => _loginError = "请输入用户名");
+      return;
+    }
+    if (_passCtrl.text.length < 4) {
+      setState(() => _loginError = "密码至少4位");
+      return;
+    }
+    if (_passCtrl.text != _passConfirmCtrl.text) {
+      setState(() => _loginError = "两次密码不一致");
+      return;
+    }
+    setState(() {
+      _isLoggingIn = true;
+      _loginError = null;
+    });
 
     try {
       final resp = await http.post(
         Uri.parse("${_api!.baseUrl}/api/auth/register"),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"username": _userCtrl.text.trim(), "password": _passCtrl.text, "is_admin": false}),
+        body: jsonEncode({
+          "username": _userCtrl.text.trim(),
+          "password": _passCtrl.text,
+          "is_admin": false,
+        }),
       );
       final body = jsonDecode(resp.body);
       if (resp.statusCode == 200) {
@@ -134,7 +183,8 @@ class _AddServerScreenState extends State<AddServerScreen> {
         }
         setState(() {
           _showRegister = false;
-          _loginError = "注册成功！${body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录"}";
+          _loginError =
+              "注册成功！${body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录"}";
         });
       } else {
         setState(() => _loginError = body["detail"] ?? "注册失败");
@@ -149,7 +199,11 @@ class _AddServerScreenState extends State<AddServerScreen> {
     if (!mounted) return;
     final games = context.read<GameProvider>();
     final settings = context.read<SettingsProvider>();
-    games.connect(settings.serverHost, settings.serverPort, useHttps: settings.useHttps);
+    games.connect(
+      settings.serverHost,
+      settings.serverPort,
+      useHttps: settings.useHttps,
+    );
     try {
       await games.loadGames();
     } catch (e) {
@@ -177,89 +231,168 @@ class _AddServerScreenState extends State<AddServerScreen> {
           padding: const EdgeInsets.all(24),
           child: SizedBox(
             width: 420,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              // App icon
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.asset("assets/icon.png", width: 64, height: 64, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Icon(Icons.dns, size: 56,
-                      color: Theme.of(context).colorScheme.primary)),
-              ),
-              const SizedBox(height: 24),
-
-              // Step 0: Connection form
-              if (_step == 0) ...[
-                TextField(controller: _hostCtrl, autofocus: true,
-                    decoration: const InputDecoration(labelText: "服务器地址", prefixIcon: Icon(Icons.computer))),
-                const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                    child: TextField(controller: _portCtrl,
-                        decoration: const InputDecoration(labelText: "端口", prefixIcon: Icon(Icons.settings_ethernet)),
-                        keyboardType: TextInputType.number),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    height: 56,
-                    child: FilledButton.tonal(
-                      onPressed: _connecting ? null : _connect,
-                      style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24)),
-                      child: _connecting
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Text("连接"),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // App icon
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.asset(
+                    "assets/icon.png",
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(
+                      Icons.dns,
+                      size: 56,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
-                ]),
-                const SizedBox(height: 4),
-                Row(children: [
-                  SizedBox(height: 32, child: Switch(value: _useHttps, onChanged: (v) => setState(() => _useHttps = v))),
-                  Text("HTTPS", style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                ]),
-                if (_error != null)
-                  Padding(padding: const EdgeInsets.only(top: 8),
-                      child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13))),
-              ],
+                ),
+                const SizedBox(height: 24),
 
-              // Step 1: Login/Register form
-              if (_step == 1) ...[
-                TextField(controller: _userCtrl, autofocus: true,
-                    decoration: const InputDecoration(labelText: "用户名", prefixIcon: Icon(Icons.person))),
-                const SizedBox(height: 12),
-                TextField(controller: _passCtrl,
-                    decoration: const InputDecoration(labelText: "密码", prefixIcon: Icon(Icons.lock)),
-                    obscureText: true),
-                if (_showRegister) ...[
+                // Step 0: Connection form
+                if (_step == 0) ...[
+                  TextField(
+                    controller: _hostCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: "服务器地址",
+                      prefixIcon: Icon(Icons.computer),
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  TextField(controller: _passConfirmCtrl,
-                      decoration: const InputDecoration(labelText: "确认密码", prefixIcon: Icon(Icons.lock)),
-                      obscureText: true),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _portCtrl,
+                          decoration: const InputDecoration(
+                            labelText: "端口",
+                            prefixIcon: Icon(Icons.settings_ethernet),
+                          ),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        height: 56,
+                        child: FilledButton.tonal(
+                          onPressed: _connecting ? null : _connect,
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                          ),
+                          child: _connecting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text("连接"),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      SizedBox(
+                        height: 32,
+                        child: Switch(
+                          value: _useHttps,
+                          onChanged: (v) => setState(() => _useHttps = v),
+                        ),
+                      ),
+                      Text(
+                        "HTTPS",
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red, fontSize: 13),
+                      ),
+                    ),
                 ],
 
-                if (_loginError != null)
-                  Padding(padding: const EdgeInsets.only(top: 8),
-                      child: Text(_loginError!,
-                          style: TextStyle(
-                            color: _loginError!.contains("成功") ? Colors.green : Colors.red,
-                            fontSize: 13,
-                          ))),
-
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _isLoggingIn ? null : (_showRegister ? _register : _login),
-                    child: _isLoggingIn
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text(_showRegister ? "注册" : "登录"),
+                // Step 1: Login/Register form
+                if (_step == 1) ...[
+                  TextField(
+                    controller: _userCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: "用户名",
+                      prefixIcon: Icon(Icons.person),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => setState(() { _showRegister = !_showRegister; _loginError = null; }),
-                  child: Text(_showRegister ? "已有账户？登录" : "没有账户？注册"),
-                ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _passCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "密码",
+                      prefixIcon: Icon(Icons.lock),
+                    ),
+                    obscureText: true,
+                  ),
+                  if (_showRegister) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _passConfirmCtrl,
+                      decoration: const InputDecoration(
+                        labelText: "确认密码",
+                        prefixIcon: Icon(Icons.lock),
+                      ),
+                      obscureText: true,
+                    ),
+                  ],
+
+                  if (_loginError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _loginError!,
+                        style: TextStyle(
+                          color: _loginError!.contains("成功")
+                              ? Colors.green
+                              : Colors.red,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _isLoggingIn
+                          ? null
+                          : (_showRegister ? _register : _login),
+                      child: _isLoggingIn
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(_showRegister ? "注册" : "登录"),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _showRegister = !_showRegister;
+                      _loginError = null;
+                    }),
+                    child: Text(_showRegister ? "已有账户？登录" : "没有账户？注册"),
+                  ),
+                ],
               ],
-            ]),
+            ),
           ),
         ),
       ),
