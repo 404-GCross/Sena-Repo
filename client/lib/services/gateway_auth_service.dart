@@ -88,7 +88,11 @@ class GatewayAuthService {
         (contentType.contains("text/html") &&
             (lowerBody.contains("reauth") || lowerBody.contains("#/login")));
 
-    if (!hasReauthHeader && !redirectLooksLikeKnock && !bodyLooksLikeKnock) {
+    // /api/health never redirects on its own ¡ª any 3xx means a gateway intercepted.
+    final isGatewayRedirect =
+        response.statusCode >= 300 && response.statusCode < 400;
+
+    if (!hasReauthHeader && !redirectLooksLikeKnock && !bodyLooksLikeKnock && !isGatewayRedirect) {
       return null;
     }
 
