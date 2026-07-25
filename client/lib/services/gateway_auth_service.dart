@@ -1,4 +1,4 @@
-ï»¿import "dart:convert";
+import "dart:convert";
 
 import "package:http/http.dart" as http;
 import "package:url_launcher/url_launcher.dart";
@@ -25,7 +25,7 @@ class GatewayAuthRequiredException implements Exception {
 }
 
 class GatewayAuthService {
-  static const protectedMessage = "è¯¥æœåŠ¡ç«¯å— fn-knock ä¿æŠ¤ï¼Œè¯·è®¤è¯åå°è¯•é‡æ–°ç™»å½•";
+  static const protectedMessage = "¸Ã·şÎñ¶ËÊÜ fn-knock ±£»¤£¬ÇëÈÏÖ¤ºó³¢ÊÔÖØĞÂµÇÂ¼";
 
   static Future<http.Response> getNoRedirect(
     Uri uri, {
@@ -81,13 +81,14 @@ class GatewayAuthService {
     final redirectLooksLikeKnock =
         redirectUri != null &&
         _looksLikeKnockAuth(redirectUri.toString().toLowerCase());
-    final htmlLooksLikeKnock =
-        contentType.contains("text/html") &&
-        (lowerBody.contains("fn-knock") ||
-            lowerBody.contains("reauth") ||
-            lowerBody.contains("#/login"));
+    // "fn-knock" is unique enough to match in any content-type.
+    // Keep the text/html guard only for generic strings like "reauth".
+    final bodyLooksLikeKnock =
+        lowerBody.contains("fn-knock") ||
+        (contentType.contains("text/html") &&
+            (lowerBody.contains("reauth") || lowerBody.contains("#/login")));
 
-    if (!hasReauthHeader && !redirectLooksLikeKnock && !htmlLooksLikeKnock) {
+    if (!hasReauthHeader && !redirectLooksLikeKnock && !bodyLooksLikeKnock) {
       return null;
     }
 
