@@ -38,6 +38,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)   # synced with role for compat
     status = Column(String(16), default="active")   # active, pending, rejected
     token = Column(String(64), nullable=True, unique=True)
+    token_expires_at = Column(DateTime, nullable=True)
     avatar_path = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

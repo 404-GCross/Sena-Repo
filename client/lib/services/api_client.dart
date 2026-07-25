@@ -134,11 +134,37 @@ class ApiClient {
   }
 
   /// Execute an HTTP request.
+  bool _isRetryableStatus(int statusCode) =>
+      statusCode == 408 || statusCode == 429 || statusCode >= 500;
+
+  bool _isRetryableError(Object error) =>
+      error is SocketException ||
+      error is TimeoutException ||
+      error is http.ClientException;
+
   Future<http.Response> _execute(
     Future<http.Response> Function() request, {
     bool allowRetry = true,
   }) async {
-    return await request();
+    const maxAttempts = 2;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        final response = await request();
+        if (!allowRetry ||
+            attempt == maxAttempts - 1 ||
+            !_isRetryableStatus(response.statusCode)) {
+          return response;
+        }
+      } catch (error) {
+        if (!allowRetry ||
+            attempt == maxAttempts - 1 ||
+            !_isRetryableError(error)) {
+          rethrow;
+        }
+      }
+      await Future.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+    }
+    throw StateError("HTTP retry loop exited unexpectedly");
   }
 
   // --- Games ---

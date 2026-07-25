@@ -10,10 +10,30 @@ from pathlib import Path
 import yaml
 
 
+def _parse_csv_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values = value.split(",")
+    else:
+        values = value
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _parse_positive_int(value, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
 @dataclass
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 11451
+    allowed_origins: list[str] = field(default_factory=list)
+    token_expire_days: int = 30
 
 
 @dataclass
@@ -100,6 +120,10 @@ def load_config(config_path: str | None = None) -> Config:
 
         if "server" in data:
             config.server = ServerConfig(**data["server"])
+            config.server.allowed_origins = _parse_csv_list(config.server.allowed_origins)
+            config.server.token_expire_days = _parse_positive_int(
+                config.server.token_expire_days, 30
+            )
         if "games_path" in data:
             config.games_path = data["games_path"]
         if "data_path" in data:
@@ -126,6 +150,12 @@ def load_config(config_path: str | None = None) -> Config:
         config.server.host = os.environ["SENA_HOST"]
     if os.environ.get("SENA_PORT"):
         config.server.port = int(os.environ["SENA_PORT"])
+    if os.environ.get("SENA_ALLOWED_ORIGINS"):
+        config.server.allowed_origins = _parse_csv_list(os.environ["SENA_ALLOWED_ORIGINS"])
+    if os.environ.get("SENA_TOKEN_EXPIRE_DAYS"):
+        config.server.token_expire_days = _parse_positive_int(
+            os.environ["SENA_TOKEN_EXPIRE_DAYS"], config.server.token_expire_days
+        )
     if os.environ.get("SENA_PROXY"):
         config.proxy = os.environ["SENA_PROXY"]
 

@@ -94,6 +94,8 @@ async def lifespan(app: FastAPI):
 
 import os as _os
 
+_config = load_config()
+
 app = FastAPI(
     title="Sena Repo",
     description="GalGame Private Library Manager API",
@@ -101,10 +103,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow all origins for LAN/home server use
+# CORS is disabled for browsers unless explicit origins are configured.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_config.server.allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

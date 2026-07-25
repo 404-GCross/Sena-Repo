@@ -122,6 +122,10 @@ async def create_tables():
                 "UPDATE users SET role = 'owner' WHERE id = "
                 "(SELECT MIN(id) FROM users WHERE is_admin = 1)"
             )
+        if "token_expires_at" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN token_expires_at DATETIME"
+            )
 
 
 async def get_engine():

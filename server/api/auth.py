@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 import secrets
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import load_config
 from database import get_session
 from models.user import User, Notification, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _token_expires_at() -> datetime:
+    days = max(1, load_config().server.token_expire_days)
+    return datetime.utcnow() + timedelta(days=days)
+
+
+def _issue_token(user: User) -> None:
+    user.token = secrets.token_hex(32)
+    user.token_expires_at = _token_expires_at()
 
 
 # ── Auth dependencies ───────────────────────────────────────────────────────
@@ -29,6 +41,15 @@ async def get_current_user(
         select(User).where(User.token == token, User.status == "active"))
     user = result.scalar_one_or_none()
     if user is None:
+        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+    now = datetime.utcnow()
+    if user.token_expires_at is None:
+        user.token_expires_at = _token_expires_at()
+        await session.commit()
+    elif user.token_expires_at <= now:
+        user.token = None
+        user.token_expires_at = None
+        await session.commit()
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
     return user
 
@@ -92,7 +113,7 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
         raise HTTPException(status_code=403, detail="账户已被拒绝")
     if user.salt != "bcrypt":
         user.password_hash, user.salt = hash_password(body.password)
-    user.token = secrets.token_hex(32)
+    _issue_token(user)
     await session.commit()
     return LoginResponse(token=user.token, is_admin=user.role in ("owner", "admin"),
                          role=user.role, username=user.username)
@@ -111,8 +132,8 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         username=body.username, password_hash=pw_hash, salt=salt,
         role=role, is_admin=is_first,
         status="active" if is_first else "pending",
-        token=secrets.token_hex(32),
     )
+    _issue_token(user)
     session.add(user)
     await session.flush()
     if not is_first:
@@ -165,8 +186,8 @@ async def admin_create_user(body: CreateUserRequest,
     pw_hash, salt = hash_password(body.password)
     role = body.role if body.role in ("admin", "user") else "user"
     user = User(username=body.username, password_hash=pw_hash, salt=salt,
-                role=role, is_admin=role == "admin", status="active",
-                token=secrets.token_hex(32))
+                role=role, is_admin=role == "admin", status="active")
+    _issue_token(user)
     session.add(user)
     await session.commit()
     return {"message": "创建成功", "user_id": user.id}
@@ -185,7 +206,9 @@ async def approve_user(body: ApproveRequest,
     user.status = "active" if body.approve else "rejected"
     if body.approve:
         if user.token is None:
-            user.token = secrets.token_hex(32)
+            _issue_token(user)
+        else:
+            user.token_expires_at = _token_expires_at()
         session.add(Notification(
             type="approved", title="账户已通过审批",
             body="你的账户申请已通过", target_user_id=user.id,
@@ -385,7 +408,7 @@ async def update_profile(user_id: int, body: ProfileUpdate,
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
-        user.token = secrets.token_hex(32)
+        _issue_token(user)
     if body.username and body.username != user.username:
         existing = await session.execute(select(User).where(User.username == body.username))
         if existing.scalar_one_or_none():
