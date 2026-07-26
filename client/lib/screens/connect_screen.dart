@@ -14,10 +14,8 @@ import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
-import "../services/gateway_auth_service.dart";
 import "../services/profile_service.dart";
 import "../services/notification_service.dart";
-import "../widgets/gateway_auth_dialog.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
 import "add_server_screen.dart";
@@ -78,9 +76,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final idx = await ps.getActiveIndex();
     if (!mounted) return;
     String? autoLoginError;
-    GatewayAuthChallenge? autoGatewayChallenge;
-    UserProfile? autoGatewayProfile;
-    var autoGatewayIndex = -1;
 
     if (profiles.isNotEmpty && idx >= 0 && idx < profiles.length) {
       final profile = profiles[idx];
@@ -102,17 +97,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
           final meUri = Uri.parse(
             "${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me",
           );
-          final resp = await GatewayAuthService.getNoRedirect(
-            meUri,
-            headers: {"Authorization": "Bearer $effectiveToken"},
-          );
-          final challenge = GatewayAuthService.detect(meUri, resp);
-          if (challenge != null) {
-            autoGatewayChallenge = challenge;
-            autoGatewayProfile = profile;
-            autoGatewayIndex = idx;
-            autoLoginError = GatewayAuthService.protectedMessage;
-          } else if (resp.statusCode == 200) {
+          final resp = await http
+              .get(meUri, headers: {"Authorization": "Bearer $effectiveToken"})
+              .timeout(const Duration(seconds: 5));
+          if (resp.statusCode == 200) {
             await _syncProfileFromMeResponse(profile, idx, resp.body);
             final settings = context.read<SettingsProvider>();
             final games = context.read<GameProvider>();
@@ -122,12 +110,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
               useHttps: profile.useHttps,
             );
             if (!connected) {
-              final connectChallenge = settings.gatewayAuthChallenge;
-              if (connectChallenge != null) {
-                autoGatewayChallenge = connectChallenge;
-                autoGatewayProfile = profile;
-                autoGatewayIndex = idx;
-              }
               autoLoginError = settings.errorMessage ?? "自动登录失败：无法连接服务器";
             } else {
               games.connect(
@@ -162,12 +144,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
         _loading = false;
         _error = autoLoginError;
       });
-    if (autoGatewayChallenge != null && autoGatewayProfile != null && mounted) {
-      final retry = await showGatewayAuthDialog(context, autoGatewayChallenge);
-      if (retry && mounted) {
-        await _connectToProfile(autoGatewayProfile, autoGatewayIndex);
-      }
-    }
     if (profiles.isEmpty && mounted) {
       await Navigator.push(
         context,
@@ -221,13 +197,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       );
       if (cancelled) return;
       if (!success) {
-        final challenge = settings.gatewayAuthChallenge;
         hideLoading();
-        if (challenge != null && mounted) {
-          final retry = await showGatewayAuthDialog(context, challenge);
-          if (retry && mounted) await _connectToProfile(profile, index);
-          return;
-        }
         if (mounted) {
           _showToast(settings.errorMessage ?? "连接服务器失败");
           setState(() => _error = settings.errorMessage ?? "连接服务器失败");
@@ -263,20 +233,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final meUri = Uri.parse(
         "${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me",
       );
-      final meResp = await GatewayAuthService.getNoRedirect(
-        meUri,
-        headers: {"Authorization": "Bearer ${profile.authToken}"},
-      );
+      final meResp = await http
+          .get(
+            meUri,
+            headers: {"Authorization": "Bearer ${profile.authToken}"},
+          )
+          .timeout(const Duration(seconds: 5));
       if (cancelled) return;
-      final meChallenge = GatewayAuthService.detect(meUri, meResp);
-      if (meChallenge != null) {
-        hideLoading();
-        if (mounted) {
-          final retry = await showGatewayAuthDialog(context, meChallenge);
-          if (retry && mounted) await _connectToProfile(profile, index);
-        }
-        return;
-      }
       if (meResp.statusCode == 401) {
         if (await setupApi.checkSetupNeeded()) {
           if (cancelled) return;
@@ -555,14 +518,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 final data = await api.login(profile.username, passCtrl.text);
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx, data);
-              } on GatewayAuthRequiredException catch (e) {
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                if (!mounted) return;
-                final retry = await showGatewayAuthDialog(context, e.challenge);
-                if (retry && mounted) {
-                  await _showReAuthDialog(profile, index, games);
-                }
               } catch (e) {
                 _toast("连接失败: $e");
                 if (!ctx.mounted) return;
@@ -656,16 +611,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
           _showAddServer = true;
         });
     } else {
-      final challenge = settings.gatewayAuthChallenge;
       if (mounted) {
         setState(() {
           _connecting = false;
           if (settings.errorMessage != null) _error = settings.errorMessage;
         });
-      }
-      if (challenge != null && mounted) {
-        final retry = await showGatewayAuthDialog(context, challenge);
-        if (retry && mounted) await _connectNewServer();
       }
     }
   }
@@ -694,13 +644,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
       } else {
         setState(() => _loginError = "登录失败");
       }
-    } on GatewayAuthRequiredException catch (e) {
-      if (mounted) {
-        setState(() => _isLoggingIn = false);
-        final retry = await showGatewayAuthDialog(context, e.challenge);
-        if (retry && mounted) await _login();
-      }
-      return;
     } catch (e) {
       setState(() => _loginError = "登录失败: $e");
     }

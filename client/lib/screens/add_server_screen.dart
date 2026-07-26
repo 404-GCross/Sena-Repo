@@ -9,9 +9,7 @@ import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/api_client.dart";
-import "../services/gateway_auth_service.dart";
 import "../services/profile_service.dart";
-import "../widgets/gateway_auth_dialog.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
 
@@ -63,16 +61,11 @@ class _AddServerScreenState extends State<AddServerScreen> {
     final settings = context.read<SettingsProvider>();
     final ok = await settings.connect(host, port, useHttps: _useHttps);
     if (!ok) {
-      final challenge = settings.gatewayAuthChallenge;
       if (mounted) {
         setState(() {
           _connecting = false;
           _error = settings.errorMessage ?? "连接失败";
         });
-      }
-      if (challenge != null && mounted) {
-        final retry = await showGatewayAuthDialog(context, challenge);
-        if (retry && mounted) await _connect();
       }
       return;
     }
@@ -130,13 +123,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
       } else {
         setState(() => _loginError = "登录失败，请检查用户名和密码");
       }
-    } on GatewayAuthRequiredException catch (e) {
-      if (mounted) {
-        setState(() => _isLoggingIn = false);
-        final retry = await showGatewayAuthDialog(context, e.challenge);
-        if (retry && mounted) await _login();
-      }
-      return;
     } catch (e) {
       setState(() => _loginError = "登录失败: $e");
     }

@@ -8,7 +8,6 @@ import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
-import "gateway_auth_service.dart";
 import "secure_store.dart";
 
 /// Global access token — always accessible, survives Provider rebuilds.
@@ -271,15 +270,13 @@ class ApiClient {
 
   Future<Map<String, dynamic>> login(String username, String password) async {
     try {
-      final loginUri = Uri.parse("$baseUrl/api/auth/login");
-      final resp = await GatewayAuthService.postJsonNoRedirect(
-        loginUri,
-        body: {"username": username, "password": password},
-      );
-      final challenge = GatewayAuthService.detect(loginUri, resp);
-      if (challenge != null) {
-        throw GatewayAuthRequiredException(challenge);
-      }
+      final resp = await _client
+          .post(
+            Uri.parse("$baseUrl/api/auth/login"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({"username": username, "password": password}),
+          )
+          .timeout(const Duration(seconds: 10));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         _accessToken = data["token"]?.toString();
