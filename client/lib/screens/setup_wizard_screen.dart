@@ -34,7 +34,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   ];
   final List<Map<String, dynamic>> _openListSources = [];
 
-  String _structure = "company_game";
+  int _scanDepth = 2;
   bool _autoScan = false;
   int _scanInterval = 24;
 
@@ -89,9 +89,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   void _prev() => setState(() {
-    _step--;
-    _error = null;
-  });
+        _step--;
+        _error = null;
+      });
 
   Future<void> _addDirectory(
     List<Map<String, dynamic>> target,
@@ -160,7 +160,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "steam_patch_libraries": _patchLibraries,
           "auto_scan": _autoScan,
           "scan_interval": _scanInterval,
-          "scan_structure": _structure,
+          "scan_structure": _structureFromDepth(_scanDepth),
+          "scan_depth": _scanDepth,
           "vndb_token": _vndbCtrl.text.trim(),
           "batch_field_sources": _encodedBatchFieldSources(),
         }),
@@ -196,9 +197,24 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     await prefs.setBool("scrape_src_bangumi", _useBangumi);
     await prefs.setBool("scrape_src_steam", _useSteam);
     await prefs.setBool("scrape_src_ymgal", _useYmgal);
-    await prefs.setString("scan_structure", _structure);
+    await prefs.setString("scan_structure", _structureFromDepth(_scanDepth));
+    await prefs.setInt("scan_depth", _scanDepth);
     await prefs.setBool("auto_scan", _autoScan);
     if (_autoScan) await prefs.setInt("scan_interval", _scanInterval);
+  }
+
+  String _structureFromDepth(int depth) {
+    if (depth <= 0) return "flat";
+    if (depth == 1) return "game_only";
+    return "company_game";
+  }
+
+  String _scanDepthLabel(int depth) {
+    if (depth <= 0) return "根目录 -> 压缩包";
+    if (depth == 1) return "根目录 -> 游戏 -> 压缩包";
+    if (depth == 2) return "根目录 -> 会社 -> 游戏 -> 压缩包";
+    if (depth == 3) return "根目录 -> 分类 -> 会社 -> 游戏 -> 压缩包";
+    return "根目录 -> ... -> 分类 -> 会社 -> 游戏 -> 压缩包";
   }
 
   Map<String, List<String>> _encodedBatchFieldSources() {
@@ -306,90 +322,108 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   List<Widget> _buildAdminStep() => [
-    TextField(
-      controller: _userCtrl,
-      decoration: const InputDecoration(
-        labelText: "\u7528\u6237\u540d",
-        prefixIcon: Icon(Icons.person),
-      ),
-    ),
-    const SizedBox(height: 12),
-    TextField(
-      controller: _passCtrl,
-      decoration: const InputDecoration(
-        labelText: "\u5bc6\u7801",
-        prefixIcon: Icon(Icons.lock),
-      ),
-      obscureText: true,
-    ),
-    const SizedBox(height: 12),
-    TextField(
-      controller: _passConfirmCtrl,
-      decoration: const InputDecoration(
-        labelText: "\u786e\u8ba4\u5bc6\u7801",
-        prefixIcon: Icon(Icons.lock),
-      ),
-      obscureText: true,
-    ),
-  ];
+        TextField(
+          controller: _userCtrl,
+          decoration: const InputDecoration(
+            labelText: "\u7528\u6237\u540d",
+            prefixIcon: Icon(Icons.person),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _passCtrl,
+          decoration: const InputDecoration(
+            labelText: "\u5bc6\u7801",
+            prefixIcon: Icon(Icons.lock),
+          ),
+          obscureText: true,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _passConfirmCtrl,
+          decoration: const InputDecoration(
+            labelText: "\u786e\u8ba4\u5bc6\u7801",
+            prefixIcon: Icon(Icons.lock),
+          ),
+          obscureText: true,
+        ),
+      ];
 
   List<Widget> _buildDirectoryStep() => [
-    _openListSourceSection(),
-    const SizedBox(height: 16),
-    _librarySection(
-      "\u6e38\u620f\u5e93",
-      _gameLibraries,
-      () => _addDirectory(_gameLibraries, "\u6e38\u620f\u5e93"),
-      (index) => _editDirectory(_gameLibraries, index, "\u6e38\u620f\u5e93"),
-    ),
-    const SizedBox(height: 16),
-    _librarySection(
-      "Steam \u8865\u4e01\u5e93",
-      _patchLibraries,
-      () => _addDirectory(_patchLibraries, "Steam \u8865\u4e01\u5e93"),
-      (index) =>
-          _editDirectory(_patchLibraries, index, "Steam \u8865\u4e01\u5e93"),
-    ),
-    const SizedBox(height: 16),
-    const Text(
-      "\u626b\u63cf\u9009\u9879",
-      style: TextStyle(fontWeight: FontWeight.bold),
-    ),
-    const SizedBox(height: 8),
-    DropdownButtonFormField<String>(
-      value: _structure,
-      decoration: const InputDecoration(labelText: "\u76ee\u5f55\u7ed3\u6784"),
-      items: const [
-        DropdownMenuItem(
-          value: "company_game",
-          child: Text("\u4f1a\u793e / \u6e38\u620f"),
+        _openListSourceSection(),
+        const SizedBox(height: 16),
+        _librarySection(
+          "\u6e38\u620f\u5e93",
+          _gameLibraries,
+          () => _addDirectory(_gameLibraries, "\u6e38\u620f\u5e93"),
+          (index) =>
+              _editDirectory(_gameLibraries, index, "\u6e38\u620f\u5e93"),
         ),
-        DropdownMenuItem(value: "game_only", child: Text("\u4ec5\u6e38\u620f")),
-        DropdownMenuItem(value: "flat", child: Text("\u6241\u5e73")),
-      ],
-      onChanged: (v) => setState(() => _structure = v ?? "company_game"),
-    ),
-    SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      title: const Text("\u81ea\u52a8\u626b\u63cf"),
-      subtitle: Text(
-        _autoScan ? "\u6bcf $_scanInterval \u5c0f\u65f6" : "\u5173\u95ed",
-      ),
-      value: _autoScan,
-      onChanged: (v) => setState(() => _autoScan = v),
-    ),
-    if (_autoScan)
-      TextField(
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(
-          labelText: "\u626b\u63cf\u95f4\u9694\uff08\u5c0f\u65f6\uff09",
+        const SizedBox(height: 16),
+        _librarySection(
+          "Steam \u8865\u4e01\u5e93",
+          _patchLibraries,
+          () => _addDirectory(_patchLibraries, "Steam \u8865\u4e01\u5e93"),
+          (index) => _editDirectory(
+              _patchLibraries, index, "Steam \u8865\u4e01\u5e93"),
         ),
-        onChanged: (v) {
-          final n = int.tryParse(v);
-          if (n != null && n > 0) setState(() => _scanInterval = n);
-        },
-      ),
-  ];
+        const SizedBox(height: 16),
+        const Text(
+          "\u626b\u63cf\u9009\u9879",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text("游戏目录层级"),
+          subtitle: Text(_scanDepthLabel(_scanDepth)),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: "减少层级",
+                icon: const Icon(Icons.remove_circle_outline),
+                onPressed:
+                    _scanDepth <= 0 ? null : () => setState(() => _scanDepth--),
+              ),
+              SizedBox(
+                width: 28,
+                child: Text(
+                  "$_scanDepth",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                tooltip: "增加层级",
+                icon: const Icon(Icons.add_circle_outline),
+                onPressed:
+                    _scanDepth >= 8 ? null : () => setState(() => _scanDepth++),
+              ),
+            ],
+          ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text("\u81ea\u52a8\u626b\u63cf"),
+          subtitle: Text(
+            _autoScan ? "\u6bcf $_scanInterval \u5c0f\u65f6" : "\u5173\u95ed",
+          ),
+          value: _autoScan,
+          onChanged: (v) => setState(() => _autoScan = v),
+        ),
+        if (_autoScan)
+          TextField(
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: "\u626b\u63cf\u95f4\u9694\uff08\u5c0f\u65f6\uff09",
+            ),
+            onChanged: (v) {
+              final n = int.tryParse(v);
+              if (n != null && n > 0) setState(() => _scanInterval = n);
+            },
+          ),
+      ];
 
   Widget _librarySection(
     String title,
@@ -422,42 +456,43 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           )
         else
           ...items.asMap().entries.map(
-            (entry) => ListTile(
-              dense: true,
-              leading: Icon(
-                entry.value["source_type"] == "openlist"
-                    ? Icons.cloud_outlined
-                    : Icons.folder_outlined,
-              ),
-              title: Text(
-                entry.value["source_type"] == "openlist"
-                    ? "OpenList \u6e90"
-                    : "\u672c\u5730\u6587\u4ef6\u6e90",
-              ),
-              subtitle: Text(
-                entry.value["source_type"] == "openlist"
-                    ? "${entry.value["source_name"] ?? "OpenList"} - ${entry.value["path"] ?? ""}"
-                    : entry.value["path"]?.toString() ?? "",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Wrap(
-                spacing: 4,
-                children: [
-                  IconButton(
-                    tooltip: "\u7f16\u8f91",
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () => onEdit(entry.key),
+                (entry) => ListTile(
+                  dense: true,
+                  leading: Icon(
+                    entry.value["source_type"] == "openlist"
+                        ? Icons.cloud_outlined
+                        : Icons.folder_outlined,
                   ),
-                  IconButton(
-                    tooltip: "\u5220\u9664",
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => setState(() => items.removeAt(entry.key)),
+                  title: Text(
+                    entry.value["source_type"] == "openlist"
+                        ? "OpenList \u6e90"
+                        : "\u672c\u5730\u6587\u4ef6\u6e90",
                   ),
-                ],
+                  subtitle: Text(
+                    entry.value["source_type"] == "openlist"
+                        ? "${entry.value["source_name"] ?? "OpenList"} - ${entry.value["path"] ?? ""}"
+                        : entry.value["path"]?.toString() ?? "",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      IconButton(
+                        tooltip: "\u7f16\u8f91",
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () => onEdit(entry.key),
+                      ),
+                      IconButton(
+                        tooltip: "\u5220\u9664",
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () =>
+                            setState(() => items.removeAt(entry.key)),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
       ],
     );
   }
@@ -488,89 +523,92 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           )
         else
           ..._openListSources.asMap().entries.map(
-            (entry) => ListTile(
-              dense: true,
-              leading: const Icon(Icons.cloud_outlined),
-              title: Text(
-                entry.value["source_name"]?.toString().isNotEmpty == true
-                    ? entry.value["source_name"].toString()
-                    : "OpenList",
-              ),
-              subtitle: Text(
-                entry.value["base_url"]?.toString() ?? "",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Wrap(
-                spacing: 4,
-                children: [
-                  IconButton(
-                    tooltip: "\u7f16\u8f91",
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () => _editOpenListSource(entry.key),
+                (entry) => ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.cloud_outlined),
+                  title: Text(
+                    entry.value["source_name"]?.toString().isNotEmpty == true
+                        ? entry.value["source_name"].toString()
+                        : "OpenList",
                   ),
-                  IconButton(
-                    tooltip: "\u5220\u9664",
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () =>
-                        setState(() => _openListSources.removeAt(entry.key)),
+                  subtitle: Text(
+                    entry.value["base_url"]?.toString() ?? "",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ],
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      IconButton(
+                        tooltip: "\u7f16\u8f91",
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () => _editOpenListSource(entry.key),
+                      ),
+                      IconButton(
+                        tooltip: "\u5220\u9664",
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () => setState(
+                            () => _openListSources.removeAt(entry.key)),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
       ],
     );
   }
 
   List<Widget> _buildScraperStep() => [
-    _scraperSwitch(
-      "VNDB Kana v2",
-      _useVndbKana,
-      (v) => setState(() => _useVndbKana = v),
-    ),
-    _scraperSwitch(
-      "Bangumi",
-      _useBangumi,
-      (v) => setState(() => _useBangumi = v),
-    ),
-    _scraperSwitch("Steam", _useSteam, (v) => setState(() => _useSteam = v)),
-    _scraperSwitch("YMGal", _useYmgal, (v) => setState(() => _useYmgal = v)),
-    const SizedBox(height: 12),
-    TextField(
-      controller: _vndbCtrl,
-      decoration: const InputDecoration(
-        labelText: "VNDB Token\uff08\u53ef\u9009\uff09",
-      ),
-    ),
-    const SizedBox(height: 16),
-    const Text(
-      "\u6279\u91cf\u81ea\u52a8\u522e\u524a\u5b57\u6bb5\u6765\u6e90",
-      style: TextStyle(fontWeight: FontWeight.bold),
-    ),
-    const SizedBox(height: 8),
-    ..._batchFieldLabels.entries.map(
-      (entry) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: DropdownButtonFormField<String>(
-          value: _batchFieldSources[entry.key] ?? "auto",
-          decoration: InputDecoration(labelText: entry.value),
-          items: const [
-            DropdownMenuItem(
-              value: "auto",
-              child: Text("\u8ddf\u968f\u522e\u524a\u6e90\u987a\u5e8f"),
-            ),
-            DropdownMenuItem(value: "vndb_kana", child: Text("VNDB Kana v2")),
-            DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
-            DropdownMenuItem(value: "steam", child: Text("Steam")),
-            DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
-          ],
-          onChanged: (v) =>
-              setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
+        _scraperSwitch(
+          "VNDB Kana v2",
+          _useVndbKana,
+          (v) => setState(() => _useVndbKana = v),
         ),
-      ),
-    ),
-  ];
+        _scraperSwitch(
+          "Bangumi",
+          _useBangumi,
+          (v) => setState(() => _useBangumi = v),
+        ),
+        _scraperSwitch(
+            "Steam", _useSteam, (v) => setState(() => _useSteam = v)),
+        _scraperSwitch(
+            "YMGal", _useYmgal, (v) => setState(() => _useYmgal = v)),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _vndbCtrl,
+          decoration: const InputDecoration(
+            labelText: "VNDB Token\uff08\u53ef\u9009\uff09",
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          "\u6279\u91cf\u81ea\u52a8\u522e\u524a\u5b57\u6bb5\u6765\u6e90",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        ..._batchFieldLabels.entries.map(
+          (entry) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: DropdownButtonFormField<String>(
+              value: _batchFieldSources[entry.key] ?? "auto",
+              decoration: InputDecoration(labelText: entry.value),
+              items: const [
+                DropdownMenuItem(
+                  value: "auto",
+                  child: Text("\u8ddf\u968f\u522e\u524a\u6e90\u987a\u5e8f"),
+                ),
+                DropdownMenuItem(
+                    value: "vndb_kana", child: Text("VNDB Kana v2")),
+                DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
+                DropdownMenuItem(value: "steam", child: Text("Steam")),
+                DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
+              ],
+              onChanged: (v) =>
+                  setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
+            ),
+          ),
+        ),
+      ];
 
   Widget _scraperSwitch(
     String title,
@@ -633,8 +671,7 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedSourceIndex =
-        _sourceIndex != null &&
+    final selectedSourceIndex = _sourceIndex != null &&
             _sourceIndex! >= 0 &&
             _sourceIndex! < widget.openListSources.length
         ? _sourceIndex
@@ -710,9 +747,8 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
                   labelText: _sourceType == "openlist"
                       ? "\u8fdc\u7a0b\u76ee\u5f55"
                       : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55",
-                  hintText: _sourceType == "openlist"
-                      ? "/Games"
-                      : "/data/games",
+                  hintText:
+                      _sourceType == "openlist" ? "/Games" : "/data/games",
                 ),
               ),
             ],

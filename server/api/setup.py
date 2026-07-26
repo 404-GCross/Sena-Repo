@@ -15,6 +15,7 @@ from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
+from services.scanner import normalize_game_depth, structure_from_depth
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -35,6 +36,7 @@ class InitRequest(BaseModel):
     auto_scan: bool = False
     scan_interval: int = Field(default=24, ge=1)
     scan_structure: str = "company_game"
+    scan_depth: int | None = Field(default=None, ge=0, le=8)
     game_libraries: list[dict] = Field(default_factory=list)
     steam_patch_libraries: list[dict] = Field(default_factory=list)
     vndb_token: str = ""
@@ -174,11 +176,8 @@ async def initialize_setup(
         config.steam_dir = body.steam_dir
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
-    config._scan_structure = (
-        body.scan_structure
-        if body.scan_structure in {"company_game", "game_only", "flat"}
-        else "company_game"
-    )
+    config._scan_depth = normalize_game_depth(body.scan_structure, body.scan_depth)
+    config._scan_structure = structure_from_depth(config._scan_depth)
     try:
         from api.settings import _save_scan_settings
         _save_scan_settings(config)

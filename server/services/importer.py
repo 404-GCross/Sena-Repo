@@ -17,7 +17,7 @@ from models.root_directory import RootDirectory
 from models.tag import Tag
 from services.cleaner import clean_filename, normalize_company_name, _clean_name
 from services.file_source import adapter_from_source, canonical_source_path
-from services.scanner import scan_root, scan_source, get_ignore_paths
+from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
 
 logger = logging.getLogger(__name__)
 
@@ -51,18 +51,20 @@ async def import_from_root(
 
     # Scan the filesystem/source in a thread pool so slow/remote storage doesn't block the event loop
     scan_structure = getattr(config, "_scan_structure", "company_game")
+    scan_depth = normalize_game_depth(scan_structure, getattr(config, "_scan_depth", None))
     logger.info(
-        "Scanning root id=%s type=%s path=%s structure=%s",
+        "Scanning root id=%s type=%s path=%s structure=%s depth=%s",
         root.id,
         source_type,
         source_path,
         scan_structure,
+        scan_depth,
     )
     if source_type == "local":
-        scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure)
+        scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure, scan_depth)
     else:
         adapter = adapter_from_source(source_model, source_type)
-        scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure)
+        scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure, scan_depth)
 
     discovered_games = sum(len(company.games) for company in scan_result.companies)
     discovered_archives = sum(

@@ -1,20 +1,22 @@
-"""Directory scanner — walks root directories to find companies, games, and archives."""
+"""Directory scanner: discovers companies, games, and archives."""
 
 from __future__ import annotations
 
-import os
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.ignore_list import IgnoreList
+from services.file_source import FileEntry, FileSourceAdapter
 from utils.file_utils import is_archive
-from services.file_source import FileSourceAdapter
 
 logger = logging.getLogger(__name__)
+
+MAX_GAME_DEPTH = 8
 
 
 @dataclass
@@ -50,149 +52,93 @@ async def get_ignore_paths(session: AsyncSession) -> set[str]:
     return {row[0] for row in result.fetchall()}
 
 
+def normalize_game_depth(
+    structure: str = "company_game",
+    game_depth: int | None = None,
+) -> int:
+    """Resolve new game_depth while keeping old scan_structure values working."""
+    if game_depth is None:
+        return {"flat": 0, "game_only": 1}.get(structure, 2)
+    try:
+        depth = int(game_depth)
+    except (TypeError, ValueError):
+        return {"flat": 0, "game_only": 1}.get(structure, 2)
+    return max(0, min(depth, MAX_GAME_DEPTH))
+
+
+def structure_from_depth(game_depth: int) -> str:
+    if game_depth <= 0:
+        return "flat"
+    if game_depth == 1:
+        return "game_only"
+    return "company_game"
+
+
 def scan_root(
     root_path: str,
     ignore_paths: set[str] | None = None,
     structure: str = "company_game",
+    game_depth: int | None = None,
 ) -> ScanResult:
-    """Walk a root directory and discover the 3-level structure.
+    """Walk a local root and discover games by directory depth.
 
-    Level 1 → Company folders
-    Level 2 → Game folders
-    Level 3 → Archive files
-
-    Args:
-        root_path: Absolute path to the root directory.
-        ignore_paths: Set of paths to skip (from ignore list).
-        structure: Directory layout. One of company_game, game_only, flat.
-
-    Returns:
-        ScanResult with the discovered structure.
+    game_depth:
+      0 = flat archives under root
+      1 = root/game/archive
+      2 = root/company/game/archive
+      3+ = root/.../company/game/archive
     """
-    if ignore_paths is None:
-        ignore_paths = set()
-
+    ignore_paths = ignore_paths or set()
     result = ScanResult(root_path=root_path)
     root = Path(root_path)
+    depth = normalize_game_depth(structure, game_depth)
 
     if not root.is_dir():
         return result
 
-    if structure == "game_only":
-        company = CompanyFolder(name=root.name, path=str(root))
-
-        for entry in sorted(root.iterdir()):
-            entry_path = str(entry)
-            if entry_path in ignore_paths:
-                continue
-
-            if entry.is_file() and is_archive(entry.name):
-                game = GameFolder(name=entry.stem, path=entry_path)
-                game.archives.append(
-                    ArchiveFile(
-                        filename=entry.name,
-                        filepath=entry_path,
-                        file_size=entry.stat().st_size,
-                    )
+    if depth == 0:
+        company = CompanyFolder(name=root.name or str(root), path=str(root))
+        for archive in _local_archives_recursive(root, ignore_paths):
+            company.games.append(
+                GameFolder(
+                    name=Path(archive.filename).stem,
+                    path=archive.filepath,
+                    archives=[archive],
                 )
-                company.games.append(game)
-                continue
-
-            if not entry.is_dir():
-                continue
-
-            game = GameFolder(name=entry.name, path=entry_path)
-            for file_entry in sorted(entry.rglob("*")):
-                file_path = str(file_entry)
-                if file_path in ignore_paths:
-                    continue
-                if file_entry.is_file() and is_archive(file_entry.name):
-                    game.archives.append(
-                        ArchiveFile(
-                            filename=file_entry.name,
-                            filepath=file_path,
-                            file_size=file_entry.stat().st_size,
-                        )
-                    )
-            if game.archives:
-                company.games.append(game)
-
+            )
         if company.games:
             result.companies.append(company)
         return result
 
-    if structure == "flat":
-        company = CompanyFolder(name=root.name, path=str(root))
-        for file_entry in sorted(root.rglob("*")):
+    companies: dict[str, CompanyFolder] = {}
+
+    for game_dir in _local_dirs_at_depth(root, depth, ignore_paths):
+        archives = _local_archives_recursive(game_dir, ignore_paths)
+        if archives:
+            company = _local_company_for_game(root, game_dir, depth, companies)
+            company.games.append(
+                GameFolder(name=game_dir.name, path=str(game_dir), archives=archives)
+            )
+
+    # Backward compatibility: archives directly under the parent level still
+    # become individual games, as the old company_game scanner allowed.
+    for parent_dir in _local_dirs_at_depth(root, max(0, depth - 1), ignore_paths):
+        for file_entry in sorted(parent_dir.iterdir(), key=lambda p: p.name.lower()):
             file_path = str(file_entry)
             if file_path in ignore_paths:
                 continue
-            if file_entry.is_file() and is_archive(file_entry.name):
-                game = GameFolder(name=file_entry.stem, path=file_path)
-                game.archives.append(
-                    ArchiveFile(
-                        filename=file_entry.name,
-                        filepath=file_path,
-                        file_size=file_entry.stat().st_size,
-                    )
+            if not file_entry.is_file() or not is_archive(file_entry.name):
+                continue
+            company = _local_company_for_archive_parent(root, parent_dir, depth, companies)
+            company.games.append(
+                GameFolder(
+                    name=file_entry.stem,
+                    path=file_path,
+                    archives=[_archive_from_local(file_entry)],
                 )
-                company.games.append(game)
-        if company.games:
-            result.companies.append(company)
-        return result
+            )
 
-    # Level 1: Company folders
-    for company_entry in sorted(root.iterdir()):
-        if not company_entry.is_dir():
-            continue
-
-        company = CompanyFolder(name=company_entry.name, path=str(company_entry))
-
-        # Archives directly in company folder → each becomes its own game
-        for file_entry in sorted(company_entry.iterdir()):
-            if file_entry.is_file() and is_archive(file_entry.name):
-                # Use file path as virtual folder path for uniqueness
-                game_path_str = str(file_entry)
-                if game_path_str not in ignore_paths:
-                    game = GameFolder(name=file_entry.stem, path=game_path_str)
-                    game.archives.append(
-                        ArchiveFile(
-                            filename=file_entry.name,
-                            filepath=str(file_entry),
-                            file_size=file_entry.stat().st_size,
-                        )
-                    )
-                    company.games.append(game)
-
-        # Level 2: Game folders
-        for game_entry in sorted(company_entry.iterdir()):
-            if not game_entry.is_dir():
-                continue
-
-            game_path_str = str(game_entry)
-            if game_path_str in ignore_paths:
-                continue
-
-            game = GameFolder(name=game_entry.name, path=game_path_str)
-
-            # Level 3+: Archive files (recursive, find them anywhere inside game folder)
-            for file_entry in sorted(game_entry.rglob("*")):
-                if file_entry.is_file() and is_archive(file_entry.name):
-                    game.archives.append(
-                        ArchiveFile(
-                            filename=file_entry.name,
-                            filepath=str(file_entry),
-                            file_size=file_entry.stat().st_size,
-                        )
-                    )
-
-            # Only include games that have at least one archive
-            if game.archives:
-                company.games.append(game)
-
-        if company.games:
-            result.companies.append(company)
-
+    result.companies.extend(companies.values())
     return result
 
 
@@ -201,14 +147,14 @@ def scan_source(
     root_path: str,
     ignore_paths: set[str] | None = None,
     structure: str = "company_game",
+    game_depth: int | None = None,
 ) -> ScanResult:
     """Scan a generic file source and return the same structure as scan_root."""
-    if ignore_paths is None:
-        ignore_paths = set()
-
+    ignore_paths = ignore_paths or set()
     result = ScanResult(root_path=root_path)
+    depth = normalize_game_depth(structure, game_depth)
 
-    def children(path: str) -> list:
+    def children(path: str) -> list[FileEntry]:
         try:
             return source.list(path)
         except Exception as exc:
@@ -230,49 +176,174 @@ def scan_source(
         found.sort(key=lambda a: a.filepath.lower())
         return found
 
-    root_entries = children(root_path)
-
-    if structure == "game_only":
-        company = CompanyFolder(name=Path(root_path).name or root_path.strip("/") or "OpenList", path=root_path)
-        for entry in root_entries:
-            if entry.path in ignore_paths:
-                continue
-            if not entry.is_dir and is_archive(entry.name):
-                company.games.append(
-                    GameFolder(entry.name.rsplit(".", 1)[0], entry.path, [ArchiveFile(entry.name, entry.path, entry.size)])
-                )
-            elif entry.is_dir:
-                archives = archives_recursive(entry.path)
-                if archives:
-                    company.games.append(GameFolder(entry.name, entry.path, archives))
-        if company.games:
-            result.companies.append(company)
-        return result
-
-    if structure == "flat":
-        company = CompanyFolder(name=Path(root_path).name or root_path.strip("/") or "OpenList", path=root_path)
+    if depth == 0:
+        company = CompanyFolder(name=_source_basename(root_path), path=root_path)
         for archive in archives_recursive(root_path):
-            company.games.append(GameFolder(archive.filename.rsplit(".", 1)[0], archive.filepath, [archive]))
+            company.games.append(
+                GameFolder(
+                    name=archive.filename.rsplit(".", 1)[0],
+                    path=archive.filepath,
+                    archives=[archive],
+                )
+            )
         if company.games:
             result.companies.append(company)
         return result
 
-    for company_entry in root_entries:
-        if not company_entry.is_dir:
+    companies: dict[str, CompanyFolder] = {}
+
+    for game_entry in _source_dirs_at_depth(root_path, depth, children):
+        if game_entry.path in ignore_paths:
             continue
-        company = CompanyFolder(name=company_entry.name, path=company_entry.path)
-        for entry in children(company_entry.path):
+        archives = archives_recursive(game_entry.path)
+        if archives:
+            company = _source_company_for_game(root_path, game_entry.path, depth, companies)
+            company.games.append(GameFolder(game_entry.name, game_entry.path, archives))
+
+    for parent_entry in _source_dirs_at_depth(root_path, max(0, depth - 1), children):
+        for entry in children(parent_entry.path):
             if entry.path in ignore_paths:
                 continue
-            if not entry.is_dir and is_archive(entry.name):
-                company.games.append(
-                    GameFolder(entry.name.rsplit(".", 1)[0], entry.path, [ArchiveFile(entry.name, entry.path, entry.size)])
+            if entry.is_dir or not is_archive(entry.name):
+                continue
+            company = _source_company_for_archive_parent(root_path, parent_entry.path, depth, companies)
+            company.games.append(
+                GameFolder(
+                    name=entry.name.rsplit(".", 1)[0],
+                    path=entry.path,
+                    archives=[ArchiveFile(entry.name, entry.path, entry.size)],
                 )
-            elif entry.is_dir:
-                archives = archives_recursive(entry.path)
-                if archives:
-                    company.games.append(GameFolder(entry.name, entry.path, archives))
-        if company.games:
-            result.companies.append(company)
+            )
 
+    result.companies.extend(companies.values())
     return result
+
+
+def _archive_from_local(path: Path) -> ArchiveFile:
+    return ArchiveFile(path.name, str(path), path.stat().st_size)
+
+
+def _local_archives_recursive(path: Path, ignore_paths: set[str]) -> list[ArchiveFile]:
+    archives: list[ArchiveFile] = []
+    for file_entry in sorted(path.rglob("*"), key=lambda p: str(p).lower()):
+        file_path = str(file_entry)
+        if file_path in ignore_paths:
+            continue
+        if file_entry.is_file() and is_archive(file_entry.name):
+            archives.append(_archive_from_local(file_entry))
+    return archives
+
+
+def _local_dirs_at_depth(root: Path, depth: int, ignore_paths: set[str]) -> list[Path]:
+    if depth == 0:
+        return [root]
+    current = [root]
+    for _ in range(depth):
+        next_dirs: list[Path] = []
+        for directory in current:
+            try:
+                entries = sorted(directory.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                continue
+            for entry in entries:
+                if str(entry) in ignore_paths:
+                    continue
+                if entry.is_dir():
+                    next_dirs.append(entry)
+        current = next_dirs
+        if not current:
+            break
+    return current
+
+
+def _local_company_for_game(
+    root: Path,
+    game_dir: Path,
+    depth: int,
+    companies: dict[str, CompanyFolder],
+) -> CompanyFolder:
+    if depth <= 1:
+        path = str(root)
+        name = root.name or str(root)
+    else:
+        path = str(game_dir.parent)
+        name = game_dir.parent.name
+    return companies.setdefault(path, CompanyFolder(name=name, path=path))
+
+
+def _local_company_for_archive_parent(
+    root: Path,
+    parent_dir: Path,
+    depth: int,
+    companies: dict[str, CompanyFolder],
+) -> CompanyFolder:
+    if depth <= 1:
+        path = str(root)
+        name = root.name or str(root)
+    else:
+        path = str(parent_dir)
+        name = parent_dir.name
+    return companies.setdefault(path, CompanyFolder(name=name, path=path))
+
+
+def _source_basename(path: str) -> str:
+    clean = path.rstrip("/")
+    if not clean:
+        return "OpenList"
+    return PurePosixPath(clean).name or clean.strip("/") or "OpenList"
+
+
+def _source_parent_path(path: str) -> str:
+    clean = path.rstrip("/")
+    if not clean or clean == "/":
+        return "/"
+    parent = clean.rsplit("/", 1)[0]
+    return parent or "/"
+
+
+def _source_dirs_at_depth(
+    root_path: str,
+    depth: int,
+    children: Callable[[str], list[FileEntry]],
+) -> list[FileEntry]:
+    if depth == 0:
+        return [FileEntry(name=_source_basename(root_path), path=root_path, is_dir=True)]
+    current = [FileEntry(name=_source_basename(root_path), path=root_path, is_dir=True)]
+    for _ in range(depth):
+        next_dirs: list[FileEntry] = []
+        for directory in current:
+            next_dirs.extend(entry for entry in children(directory.path) if entry.is_dir)
+        current = next_dirs
+        if not current:
+            break
+    return current
+
+
+def _source_company_for_game(
+    root_path: str,
+    game_path: str,
+    depth: int,
+    companies: dict[str, CompanyFolder],
+) -> CompanyFolder:
+    if depth <= 1:
+        path = root_path
+        name = _source_basename(root_path)
+    else:
+        path = _source_parent_path(game_path)
+        name = _source_basename(path)
+    return companies.setdefault(path, CompanyFolder(name=name, path=path))
+
+
+def _source_company_for_archive_parent(
+    root_path: str,
+    parent_path: str,
+    depth: int,
+    companies: dict[str, CompanyFolder],
+) -> CompanyFolder:
+    if depth <= 1:
+        path = root_path
+        name = _source_basename(root_path)
+    else:
+        path = parent_path
+        name = _source_basename(parent_path)
+    return companies.setdefault(path, CompanyFolder(name=name, path=path))

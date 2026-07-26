@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -19,6 +17,7 @@ from database import get_session
 from models.game import Game
 from models.ignore_list import IgnoreList
 from schemas.common import MessageResponse
+from services.scanner import normalize_game_depth, structure_from_depth
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -28,13 +27,15 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class ScanSettings(BaseModel):
     auto_scan: bool = False
     scan_interval: int = Field(default=24, ge=1)  # hours
-    scan_structure: Literal["company_game", "game_only", "flat"] = "company_game"
+    scan_structure: str = "company_game"
+    scan_depth: int | None = Field(default=None, ge=0, le=8)
 
 
 class ScanSettingsOut(BaseModel):
     auto_scan: bool
     scan_interval: int
     scan_structure: str
+    scan_depth: int
     last_auto_scan: float = 0
 
 
@@ -51,7 +52,9 @@ def _load_scan_settings(config):
             config._auto_scan = data.get("auto_scan", False)
             config._scan_interval = max(1, int(data.get("scan_interval", 24)))
             structure = data.get("scan_structure", "company_game")
-            config._scan_structure = structure if structure in {"company_game", "game_only", "flat"} else "company_game"
+            depth = normalize_game_depth(structure, data.get("scan_depth"))
+            config._scan_depth = depth
+            config._scan_structure = structure_from_depth(depth)
             config._last_auto_scan = float(data.get("last_auto_scan", 0) or 0)
         except Exception:
             pass
@@ -64,7 +67,8 @@ def _save_scan_settings(config):
     path.write_text(json.dumps({
         "auto_scan": getattr(config, "_auto_scan", False),
         "scan_interval": getattr(config, "_scan_interval", 24),
-        "scan_structure": getattr(config, "_scan_structure", "company_game"),
+        "scan_structure": structure_from_depth(getattr(config, "_scan_depth", 2)),
+        "scan_depth": getattr(config, "_scan_depth", 2),
         "last_auto_scan": getattr(config, "_last_auto_scan", 0),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -81,7 +85,8 @@ async def get_scan_settings(user: User = Depends(get_current_user)):
     return ScanSettingsOut(
         auto_scan=getattr(config, "_auto_scan", False),
         scan_interval=getattr(config, "_scan_interval", 24),
-        scan_structure=getattr(config, "_scan_structure", "company_game"),
+        scan_structure=structure_from_depth(getattr(config, "_scan_depth", 2)),
+        scan_depth=getattr(config, "_scan_depth", 2),
         last_auto_scan=getattr(config, "_last_auto_scan", 0),
     )
 
@@ -91,7 +96,8 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
     config = load_config()
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
-    config._scan_structure = body.scan_structure
+    config._scan_depth = normalize_game_depth(body.scan_structure, body.scan_depth)
+    config._scan_structure = structure_from_depth(config._scan_depth)
     try:
         _save_scan_settings(config)  # persist to disk
     except Exception as e:
