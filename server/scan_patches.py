@@ -157,6 +157,7 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
             archives.append({
                 "app_id": app_id,
                 "file": rel,
+                "size": f.stat().st_size,
                 "patch_dir": "",
                 "target_dir": "",
                 "label": label,
@@ -194,6 +195,7 @@ def scan_patches_source(source, root_path: str, source_type: str = "local", sour
                 "source_id": source_id,
                 "source_path": entry.path,
                 "display_file": rel,
+                "size": entry.size,
                 "patch_dir": "",
                 "target_dir": "",
                 "label": label,
@@ -232,6 +234,11 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
                     old["type"] = s["type"]
             if not old.get("game_name") and s.get("game_name"):
                 old["game_name"] = s["game_name"]
+            if s.get("size") and not old.get("size"):
+                old["size"] = s["size"]
+            for key in ("source_type", "source_id", "source_path", "display_file"):
+                if s.get(key) is not None:
+                    old[key] = s[key]
             merged.append(old)
         else:
             merged.append(s)

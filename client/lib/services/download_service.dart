@@ -449,10 +449,12 @@ class DownloadService with WidgetsBindingObserver {
 
       if ((patchDir == null || patchDir.isEmpty) &&
           (targetDir == null || targetDir.isEmpty)) {
-        LoggerService().info("patch extract: $exe x -y -o$destDir ${tmp.path}");
+        LoggerService().info(
+          "patch extract: $exe x -y -p- -o$destDir ${tmp.path}",
+        );
         await _runTool(
           exe,
-          ["x", "-y", "-o$destDir", tmp.path],
+          ["x", "-y", "-p-", "-o$destDir", tmp.path],
           timeout: 1800,
           injectionAppId: appId,
           onProgress: (p) {
@@ -472,12 +474,12 @@ class DownloadService with WidgetsBindingObserver {
         final tmpExtract =
             "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
         LoggerService().info(
-          "patch extract: $exe x -y -o$tmpExtract ${tmp.path}",
+          "patch extract: $exe x -y -p- -o$tmpExtract ${tmp.path}",
         );
         await Directory(tmpExtract).create(recursive: true);
         await _runTool(
           exe,
-          ["x", "-y", "-o$tmpExtract", tmp.path],
+          ["x", "-y", "-p-", "-o$tmpExtract", tmp.path],
           timeout: 1800,
           injectionAppId: appId,
           onProgress: (p) {
@@ -739,7 +741,10 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<int?> _get7zaVersion(String path) async {
     try {
-      final r = await Process.run(path, []);
+      final r = await Process.run(
+        path,
+        [],
+      ).timeout(const Duration(seconds: 3));
       final m = RegExp(r'(\d+)\.(\d+)').firstMatch("${r.stdout}${r.stderr}");
       if (m != null) {
         return int.parse(m.group(1)!) * 100 + int.parse(m.group(2)!);
@@ -809,6 +814,15 @@ class DownloadService with WidgetsBindingObserver {
         if (await dest.exists()) ok = true;
       } catch (_) {}
 
+      if (!ok && Platform.isLinux) {
+        final systemExe = await _findSystemSevenZip();
+        if (systemExe != null) {
+          LoggerService().info("Using system 7-Zip: $systemExe");
+          _sevenZipPath = systemExe;
+          return _sevenZipPath!;
+        }
+      }
+
       // Download fallback
       if (!ok && onSetupNeeded != null && !_userSkippedSetup) {
         if (!await onSetupNeeded!()) {
@@ -825,6 +839,14 @@ class DownloadService with WidgetsBindingObserver {
 
     _sevenZipPath = dest.path;
     return _sevenZipPath!;
+  }
+
+  Future<String?> _findSystemSevenZip() async {
+    for (final name in ["7zz", "7z"]) {
+      final version = await _get7zaVersion(name);
+      if (version != null && version >= _min7zaVersion) return name;
+    }
+    return null;
   }
 
   Future<void> _downloadBinary(File dest, String dir) async {
@@ -1448,13 +1470,15 @@ class DownloadService with WidgetsBindingObserver {
         try {
           await _runTool(
             exe,
-            ["t", filePath],
+            ["t", "-y", "-p-", filePath],
             onProgress: onProgress,
             timeout: 300,
           );
         } catch (_) {}
       }
-      debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
+      debugPrint(
+        "[SenaRepo] _extract: exe=$exe args=${_redactToolArgs(args)}",
+      );
       await _runTool(
         exe,
         args,
@@ -1610,6 +1634,12 @@ class DownloadService with WidgetsBindingObserver {
     return targetResolved;
   }
 
+  List<String> _redactToolArgs(List<String> args) {
+    return args
+        .map((arg) => arg.startsWith("-p") && arg != "-p-" ? "-p***" : arg)
+        .toList();
+  }
+
   Future<void> _runTool(
     String exe,
     List<String> args, {
@@ -1624,16 +1654,19 @@ class DownloadService with WidgetsBindingObserver {
     }
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
+    try {
+      await proc.stdin.close();
+    } catch (_) {}
     // Also track in patch injection state for cross-instance cancellation
     if (injectionAppId != null) {
       _patchInjections[injectionAppId]?.extractProcess = proc;
     }
 
-    // 7z outputs progress (e.g. " 45%") to stderr, not stdout.
-    // Parse stderr for both progress and error messages.
+    // 7z usually writes progress to stderr, but some builds use stdout.
     final stderrChunks = <int>[];
-    final stderrSub = proc.stderr.listen((d) {
-      if (stderrChunks.length < 8192) stderrChunks.addAll(d);
+    final stdoutChunks = <int>[];
+    void handleOutput(List<int> d, List<int> chunks) {
+      if (chunks.length < 8192) chunks.addAll(d.take(8192 - chunks.length));
       if (onProgress != null) {
         final s = String.fromCharCodes(d);
         final m = RegExp(r'\s+(\d+)%').firstMatch(s);
@@ -1641,9 +1674,14 @@ class DownloadService with WidgetsBindingObserver {
           onProgress(int.parse(m.group(1)!) / 100.0);
         }
       }
+    }
+
+    final stderrSub = proc.stderr.listen((d) {
+      handleOutput(d, stderrChunks);
     });
-    // Drain stdout (file listing, not useful for progress)
-    final stdoutSub = proc.stdout.listen((_) {});
+    final stdoutSub = proc.stdout.listen((d) {
+      handleOutput(d, stdoutChunks);
+    });
 
     // Wait with timeout
     int exitCode = -1;
@@ -1674,7 +1712,10 @@ class DownloadService with WidgetsBindingObserver {
       _patchInjections[injectionAppId]?.extractProcess = null;
 
     if (exitCode != 0) {
-      final err = String.fromCharCodes(stderrChunks).trim();
+      final err = [
+        String.fromCharCodes(stderrChunks).trim(),
+        String.fromCharCodes(stdoutChunks).trim(),
+      ].where((s) => s.isNotEmpty).join("\n");
       throw Exception(err.isNotEmpty ? err : "exit code $exitCode");
     }
   }

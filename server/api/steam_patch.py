@@ -202,6 +202,20 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
         return []
 
 
+def _patches_index_needs_autoscan(json_path: Path) -> bool:
+    if not json_path.is_file():
+        return True
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return False
+    for patch in data.get("patches", []):
+        if patch.get("source_type") == "openlist" and not patch.get("size"):
+            return True
+    return False
+
+
 # Patch-type keyword matching
 
 _KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
@@ -362,9 +376,9 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
 
-    # Auto-scan if no patches.json
+    # Auto-scan if no patches.json, or if an older OpenList index lacks file sizes.
     json_path = patches_dir / "patches.json"
-    if not json_path.is_file():
+    if _patches_index_needs_autoscan(json_path):
         try:
             from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
             scanned = []
