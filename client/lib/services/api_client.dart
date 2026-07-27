@@ -8,6 +8,7 @@ import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
+import "api_response_utils.dart";
 import "secure_store.dart";
 
 /// Global access token — always accessible, survives Provider rebuilds.
@@ -259,8 +260,8 @@ class ApiClient {
         allowRetry: false,
       );
       if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        return data["needs_setup"] == true;
+        final data = tryDecodeJsonMap(resp.body);
+        return data != null && data["needs_setup"] == true;
       }
     } catch (_) {}
     return false;
@@ -278,53 +279,79 @@ class ApiClient {
           )
           .timeout(const Duration(seconds: 10));
       if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _accessToken = data["token"]?.toString();
-        if (_accessToken != null && _accessToken!.isNotEmpty) {
-          var username = data["username"]?.toString();
-          var isAdmin = data["is_admin"] == true;
-          var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
-          try {
-            final meResp = await _client
-                .get(
-                  Uri.parse("$baseUrl/api/auth/profile/me"),
-                  headers: {"Authorization": "Bearer $_accessToken"},
-                )
-                .timeout(const Duration(seconds: 5));
-            if (meResp.statusCode == 200) {
-              final me = jsonDecode(meResp.body) as Map<String, dynamic>;
-              username = me["username"]?.toString() ?? username;
-              isAdmin = me["is_admin"] == true;
-              role = me["role"]?.toString() ?? role;
-              data["username"] = username;
-              data["is_admin"] = isAdmin;
-              data["role"] = role;
-            }
-          } catch (_) {}
-          await _persistTokens(
-            accessToken: _accessToken,
-            username: username,
-            isAdmin: isAdmin,
-            role: role,
+        final data = tryDecodeJsonMap(resp.body);
+        if (data == null) {
+          throw AuthException(
+            describeUnexpectedApiResponse(
+              resp,
+              expected: "登录",
+              endpointPath: "/api/auth/login",
+            ),
           );
         }
+
+        _accessToken = data["token"]?.toString();
+        if (_accessToken == null || _accessToken!.isEmpty) {
+          throw AuthException(
+            "服务器返回 200，但登录响应缺少 token，域名可能没有把 /api/auth/login 转发到服务端",
+          );
+        }
+
+        var username = data["username"]?.toString();
+        var isAdmin = data["is_admin"] == true;
+        var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
+        try {
+          final meResp = await _client
+              .get(
+                Uri.parse("$baseUrl/api/auth/profile/me"),
+                headers: {"Authorization": "Bearer $_accessToken"},
+              )
+              .timeout(const Duration(seconds: 5));
+          if (meResp.statusCode == 200) {
+            final me = tryDecodeJsonMap(meResp.body);
+            if (me == null || me["id"] == null) {
+              throw AuthException(
+                describeUnexpectedApiResponse(
+                  meResp,
+                  expected: "用户资料",
+                  endpointPath: "/api/auth/profile/me",
+                ),
+              );
+            }
+            username = me["username"]?.toString() ?? username;
+            isAdmin = me["is_admin"] == true;
+            role = me["role"]?.toString() ?? role;
+            data["username"] = username;
+            data["is_admin"] = isAdmin;
+            data["role"] = role;
+          }
+        } on AuthException {
+          rethrow;
+        } catch (_) {}
+        await _persistTokens(
+          accessToken: _accessToken,
+          username: username,
+          isAdmin: isAdmin,
+          role: role,
+        );
         return data;
       }
-      try {
-        final body = jsonDecode(resp.body);
-        if (body is Map && body["detail"] != null) {
-          throw AuthException(body["detail"].toString());
-        }
-      } catch (e) {
-        if (e is AuthException) rethrow;
+
+      final body = tryDecodeJsonMap(resp.body);
+      if (body != null && body["detail"] != null) {
+        throw AuthException(body["detail"].toString());
       }
-      throw AuthException("登录失败 (HTTP ${resp.statusCode})");
+      throw AuthException(
+        describeUnexpectedApiResponse(
+          resp,
+          expected: "登录",
+          endpointPath: "/api/auth/login",
+        ),
+      );
     } on SocketException catch (e) {
       throw AuthException("无法连接服务器: ${e.message}");
     } on TimeoutException {
       throw AuthException("连接服务器超时");
-    } on FormatException {
-      throw AuthException("服务器返回格式错误");
     }
   }
 

@@ -1,12 +1,12 @@
 /// Manages client settings: server connection, preferences.
 
-import "dart:convert";
 import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
+import "../services/api_response_utils.dart";
 import "../services/logger_service.dart";
 
 class SettingsProvider extends ChangeNotifier {
@@ -54,8 +54,12 @@ class SettingsProvider extends ChangeNotifier {
       final scheme = useHttps ? "https" : "http";
       final uri = Uri.parse("$scheme://$host:$port/api/health");
       final resp = await _getHealthNoRedirect(uri);
-      if (!_isValidSenaHealth(resp)) {
-        _errorMessage = _healthErrorMessage(resp);
+      if (!isValidSenaHealthResponse(resp)) {
+        _errorMessage = describeUnexpectedApiResponse(
+          resp,
+          expected: "Sena 健康检查",
+          endpointPath: "/api/health",
+        );
         _isLoading = false;
         notifyListeners();
         LoggerService().warn("连接失败 $host:$port: $_errorMessage");
@@ -102,36 +106,4 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
-  bool _isValidSenaHealth(http.Response response) {
-    if (response.statusCode != 200) return false;
-    try {
-      final data = jsonDecode(response.body);
-      return data is Map && data["status"] == "ok";
-    } catch (_) {
-      return false;
-    }
-  }
-
-  String _healthErrorMessage(http.Response response) {
-    if (response.statusCode >= 300 && response.statusCode < 400) {
-      final location = response.headers["location"];
-      return location == null || location.isEmpty
-          ? "服务器返回重定向 ${response.statusCode}，未到达 Sena 服务端"
-          : "服务器返回重定向 ${response.statusCode}：$location";
-    }
-    if (response.statusCode != 200) {
-      return "服务器返回错误: ${response.statusCode}";
-    }
-
-    final contentType = response.headers["content-type"] ?? "";
-    final body = response.body.trim();
-    final preview = body.length > 80 ? "${body.substring(0, 80)}..." : body;
-    if (body.isEmpty) {
-      return "服务器返回 200，但健康检查响应为空";
-    }
-    if (!contentType.toLowerCase().contains("json")) {
-      return "服务器返回 200，但内容不是 Sena API JSON：$preview";
-    }
-    return "服务器返回 200，但不是 Sena 健康检查响应：$preview";
-  }
 }

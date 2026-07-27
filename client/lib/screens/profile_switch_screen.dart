@@ -1,16 +1,17 @@
 /// Profile switch / management screen.
 
+import "dart:convert";
+
 import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
-
-import "../services/profile_service.dart";
-import "connect_screen.dart";
-import "../providers/game_provider.dart";
-import "../utils/theme_utils.dart";
 import "package:provider/provider.dart";
-import "package:http/http.dart" as http;
-import "dart:convert";
+
+import "../providers/game_provider.dart";
+import "../services/api_response_utils.dart";
+import "../services/profile_service.dart";
+import "../utils/theme_utils.dart";
+import "connect_screen.dart";
 
 class ProfileSwitchScreen extends StatefulWidget {
   const ProfileSwitchScreen({super.key});
@@ -122,12 +123,32 @@ class _ProfileSwitchScreenState extends State<ProfileSwitchScreen> {
                 body: jsonEncode({"username": userCtrl.text.trim(), "password": passCtrl.text}),
               );
               if (resp.statusCode != 200) {
-                final err = jsonDecode(resp.body);
+                final err = tryDecodeJsonMap(resp.body);
+                final detail = err == null ? null : err["detail"]?.toString();
                 if (ctx.mounted) Navigator.pop(ctx);
-                _toast("登录失败: ${err["detail"]}", title: "错误");
+                _toast(
+                  "登录失败: ${detail ?? describeUnexpectedApiResponse(
+                    resp,
+                    expected: "登录",
+                    endpointPath: "/api/auth/login",
+                  )}",
+                  title: "错误",
+                );
                 return;
               }
-              final data = jsonDecode(resp.body);
+              final data = tryDecodeJsonMap(resp.body);
+              if (data == null || data["token"] == null) {
+                if (ctx.mounted) Navigator.pop(ctx);
+                _toast(
+                  describeUnexpectedApiResponse(
+                    resp,
+                    expected: "登录",
+                    endpointPath: "/api/auth/login",
+                  ),
+                  title: "错误",
+                );
+                return;
+              }
               final profile = UserProfile(
                 name: nameCtrl.text.trim(),
                 host: hostCtrl.text.trim(),

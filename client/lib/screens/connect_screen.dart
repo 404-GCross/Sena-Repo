@@ -12,6 +12,7 @@ import "package:file_picker/file_picker.dart";
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
+import "../services/api_response_utils.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
@@ -101,35 +102,49 @@ class _ConnectScreenState extends State<ConnectScreen> {
               .get(meUri, headers: {"Authorization": "Bearer $effectiveToken"})
               .timeout(const Duration(seconds: 5));
           if (resp.statusCode == 200) {
-            await _syncProfileFromMeResponse(profile, idx, resp.body);
-            final settings = context.read<SettingsProvider>();
-            final games = context.read<GameProvider>();
-            final connected = await settings.connect(
-              profile.host,
-              profile.port,
-              useHttps: profile.useHttps,
-            );
-            if (!connected) {
-              autoLoginError = settings.errorMessage ?? "自动登录失败：无法连接服务器";
+            final profileData = tryDecodeJsonMap(resp.body);
+            if (profileData == null || profileData["id"] == null) {
+              autoLoginError =
+                  "自动登录失败：${describeUnexpectedApiResponse(
+                    resp,
+                    expected: "用户资料",
+                    endpointPath: "/api/auth/profile/me",
+                  )}";
             } else {
-              games.connect(
+              await _syncProfileFromMeResponse(profile, idx, resp.body);
+              final settings = context.read<SettingsProvider>();
+              final games = context.read<GameProvider>();
+              final connected = await settings.connect(
                 profile.host,
                 profile.port,
                 useHttps: profile.useHttps,
               );
-              await games.loadGames();
-              if (mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+              if (!connected) {
+                autoLoginError = settings.errorMessage ?? "自动登录失败：无法连接服务器";
+              } else {
+                games.connect(
+                  profile.host,
+                  profile.port,
+                  useHttps: profile.useHttps,
                 );
+                await games.loadGames();
+                if (mounted) {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  );
+                }
+                return;
               }
-              return;
             }
           } else {
             autoLoginError = resp.statusCode == 401
                 ? "自动登录失败：登录已失效，请重新登录"
-                : "自动登录失败：服务器返回 ${resp.statusCode}";
+                : "自动登录失败：${describeUnexpectedApiResponse(
+                    resp,
+                    expected: "用户资料",
+                    endpointPath: "/api/auth/profile/me",
+                  )}";
           }
         } catch (e) {
           autoLoginError = "自动登录失败: $e";
@@ -255,7 +270,28 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (meResp.statusCode != 200) {
         hideLoading();
         if (mounted)
-          setState(() => _error = "连接失败: 服务器返回 ${meResp.statusCode}");
+          setState(
+            () => _error =
+                "连接失败: ${describeUnexpectedApiResponse(
+                  meResp,
+                  expected: "用户资料",
+                  endpointPath: "/api/auth/profile/me",
+                )}",
+          );
+        return;
+      }
+      final profileData = tryDecodeJsonMap(meResp.body);
+      if (profileData == null || profileData["id"] == null) {
+        hideLoading();
+        if (mounted)
+          setState(
+            () => _error =
+                "连接失败: ${describeUnexpectedApiResponse(
+                  meResp,
+                  expected: "用户资料",
+                  endpointPath: "/api/auth/profile/me",
+                )}",
+          );
         return;
       }
       await _syncProfileFromMeResponse(profile, index, meResp.body);
@@ -437,7 +473,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
     int index,
     String body,
   ) async {
-    final data = jsonDecode(body) as Map<String, dynamic>;
+    final data = tryDecodeJsonMap(body);
+    if (data == null) {
+      throw const FormatException("用户资料响应不是 JSON");
+    }
     profile.username = data["username"]?.toString() ?? profile.username;
     profile.isAdmin = data["is_admin"] == true;
 
@@ -678,7 +717,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
           "is_admin": false,
         }),
       );
-      final body = jsonDecode(resp.body);
+      final body = tryDecodeJsonMap(resp.body);
+      if (body == null) {
+        setState(
+          () => _loginError = describeUnexpectedApiResponse(
+            resp,
+            expected: "注册",
+            endpointPath: "/api/auth/register",
+          ),
+        );
+        return;
+      }
       if (resp.statusCode == 200) {
         if (body["auto_approved"] == true) {
           final data = await _newApi!.login(
@@ -697,7 +746,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
               (body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录");
         });
       } else {
-        setState(() => _loginError = body["detail"] ?? "注册失败");
+        setState(() => _loginError = body["detail"]?.toString() ?? "注册失败");
       }
     } catch (e) {
       setState(() => _loginError = "连接失败: $e");
@@ -866,15 +915,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       }),
                     );
                     if (resp.statusCode == 200) {
-                      final data = jsonDecode(resp.body);
-                      newProfile.authToken = data["token"]?.toString() ?? "";
-                      newProfile.username =
-                          data["username"]?.toString() ?? userCtrl.text.trim();
-                      newProfile.isAdmin = data["is_admin"] == true;
-                      // newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
-                      profiles[idx] = newProfile;
-                      await ps.saveProfiles(profiles);
-                      await ps.applyProfile(newProfile);
+                      final data = tryDecodeJsonMap(resp.body);
+                      if (data != null && data["token"] != null) {
+                        newProfile.authToken =
+                            data["token"]?.toString() ?? "";
+                        newProfile.username =
+                            data["username"]?.toString() ??
+                                userCtrl.text.trim();
+                        newProfile.isAdmin = data["is_admin"] == true;
+                        // newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
+                        profiles[idx] = newProfile;
+                        await ps.saveProfiles(profiles);
+                        await ps.applyProfile(newProfile);
+                      }
                     }
                   } catch (_) {}
                 }
@@ -1496,7 +1549,18 @@ class _ConnectScreenState extends State<ConnectScreen> {
                               "is_admin": false,
                             }),
                           );
-                          final body = jsonDecode(resp.body);
+                          final body = tryDecodeJsonMap(resp.body);
+                          if (body == null) {
+                            setD(() {
+                              loading = false;
+                              loginError = describeUnexpectedApiResponse(
+                                resp,
+                                expected: "注册",
+                                endpointPath: "/api/auth/register",
+                              );
+                            });
+                            return;
+                          }
                           if (resp.statusCode == 200) {
                             if (body["auto_approved"] == true) {
                               final data = await api!.login(
@@ -1523,7 +1587,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           } else {
                             setD(() {
                               loading = false;
-                              loginError = body["detail"] ?? "注册失败";
+                              loginError =
+                                  body["detail"]?.toString() ?? "注册失败";
                             });
                           }
                         } catch (e) {
