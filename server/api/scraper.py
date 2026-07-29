@@ -341,6 +341,24 @@ async def start_batch_scrape(
             loop.run_until_complete(_work())
         except Exception as e:
             logger.error(f"Batch scrape job {job.id} failed: {e}", exc_info=True)
+            error_message = str(e)
+
+            async def _mark_failed():
+                async with database._session_factory() as bg_session:
+                    result = await bg_session.execute(
+                        select(ScrapeJob).where(ScrapeJob.id == job.id)
+                    )
+                    failed_job = result.scalar_one_or_none()
+                    if failed_job is not None:
+                        failed_job.status = JobStatus.FAILED
+                        failed_job.current_game = None
+                        failed_job.log = f"批量刮削失败: {error_message}"
+                        await bg_session.commit()
+
+            try:
+                loop.run_until_complete(_mark_failed())
+            except Exception:
+                logger.exception("Failed to mark batch scrape job as failed")
         finally:
             loop.close()
 

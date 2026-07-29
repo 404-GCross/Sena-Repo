@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import ipaddress
 import json
 import socket
@@ -26,6 +27,9 @@ from .steam import SteamScraper
 from .ymgal import YmgalScraper
 
 logger = logging.getLogger(__name__)
+
+_SCRAPER_SEARCH_TIMEOUT = 45
+_GAME_SCRAPE_TIMEOUT = 300
 
 _VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "ymgal"}
 _VALID_FIELD_MAP = {
@@ -173,6 +177,26 @@ async def scrape_single_game(
                 result, scraper.source_name, game, client, covers_dir, session, config, mode
             )
 
+    async def search_best(
+        scraper: BaseScraper,
+        query: str,
+        context: str,
+    ) -> ScraperResult | None:
+        try:
+            return await asyncio.wait_for(
+                scraper.search_best(query, company_hint),
+                timeout=_SCRAPER_SEARCH_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Scraper %s timed out after %ss for %s '%s'",
+                scraper.source_name,
+                _SCRAPER_SEARCH_TIMEOUT,
+                context,
+                query,
+            )
+            return None
+
     # ── Build search candidates (best → worst) ──
     candidates: list[str] = []
     raw_name = game.name
@@ -198,7 +222,7 @@ async def scrape_single_game(
             if scraper.source_name not in {"vndb_kana", "vndb"}:
                 continue
             try:
-                result = await scraper.search_best(game.vndb_id, company_hint)
+                result = await search_best(scraper, game.vndb_id, "VNDB ID")
                 if result:
                     await handle_result(scraper, result)
             except Exception as e:
@@ -210,7 +234,7 @@ async def scrape_single_game(
             if scraper.source_name != "bangumi":
                 continue
             try:
-                result = await scraper.search_best(game.bangumi_id, company_hint)
+                result = await search_best(scraper, game.bangumi_id, "Bangumi ID")
                 if result:
                     await handle_result(scraper, result)
             except Exception as e:
@@ -222,7 +246,7 @@ async def scrape_single_game(
             if scraper.source_name in results:
                 continue
             try:
-                result = await scraper.search_best(query, company_hint)
+                result = await search_best(scraper, query, "query")
                 if result:
                     await handle_result(scraper, result)
                     if not collect_only:
@@ -527,34 +551,59 @@ async def run_batch_scrape(
         client_kwargs["proxy"] = config.proxy
     async with httpx.AsyncClient(**client_kwargs) as client:
         for i, game in enumerate(games):
+            await session.refresh(job)
+            if job.status == JobStatus.FAILED:
+                job.current_game = None
+                job.log = (job.log or "") + " 已停止。"
+                await session.commit()
+                break
+
             job.current_game = game.name
             job.completed_games = i
             await session.commit()
 
             try:
-                results = await scrape_single_game(
-                    game,
-                    scrapers,
-                    client,
-                    covers_dir,
-                    session,
-                    config,
-                    mode=mode,
-                    field_sources=field_sources,
+                results = await asyncio.wait_for(
+                    scrape_single_game(
+                        game,
+                        scrapers,
+                        client,
+                        covers_dir,
+                        session,
+                        config,
+                        mode=mode,
+                        field_sources=field_sources,
+                    ),
+                    timeout=_GAME_SCRAPE_TIMEOUT,
                 )
                 if any(results.values()):
                     completed += 1
                 else:
                     failed += 1
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Failed to scrape game %s: timed out after %ss",
+                    game.name,
+                    _GAME_SCRAPE_TIMEOUT,
+                )
+                await session.rollback()
+                job = await session.merge(job)
+                failed += 1
             except Exception as e:
                 logger.error(f"Failed to scrape game {game.name}: {e}")
+                await session.rollback()
+                job = await session.merge(job)
                 failed += 1
 
-    job.status = JobStatus.COMPLETED
+    await session.refresh(job)
+    if job.status != JobStatus.FAILED:
+        job.status = JobStatus.COMPLETED
+        job.log = f"Completed: {completed}, Failed: {failed}"
+    else:
+        job.log = (job.log or "") + f" 停止前完成: {completed}, 失败: {failed}"
     job.completed_games = completed
     job.failed_games = failed
     job.current_game = None
-    job.log = f"Completed: {completed}, Failed: {failed}"
     await session.commit()
 
     # Clean up scrapers
