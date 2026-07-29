@@ -22,6 +22,11 @@ on:
         required: false
         default: ''
         type: string
+      rolling_dev_latest:
+        description: '发布为固定 dev-latest 测试版'
+        required: false
+        default: false
+        type: boolean
 
 
 permissions:
@@ -378,7 +383,9 @@ jobs:
           V="${{ inputs.version }}"
           if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - name: Validate release tag
+        if: ${{ inputs.rolling_dev_latest != true }}
         working-directory: .
         run: |
           TAG="v${{ steps.version.outputs.version }}"
@@ -393,19 +400,79 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Prepare release files
+        working-directory: .
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          rm -rf release
+          mkdir -p release
+
+          require_one() {
+            local label="$1"
+            local pattern="$2"
+            local matches=()
+            mapfile -d '' matches < <(find dist -type f -name "$pattern" -print0)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one ${label} artifact matching ${pattern}, found ${#matches[@]}."
+              find dist -type f | sort
+              exit 1
+            fi
+            if [ ! -s "${matches[0]}" ]; then
+              echo "::error::Artifact ${matches[0]} is empty."
+              exit 1
+            fi
+            cp "${matches[0]}" release/
+          }
+
+          require_one "Android APK" "Sena-Repo_Android_v${VERSION}.apk"
+          require_one "Windows portable zip" "Sena-Repo_Windows_v${VERSION}.zip"
+          require_one "Windows installer" "Sena-Repo_Windows_v${VERSION}_Setup.exe"
+          require_one "Linux AppImage" "Sena-Repo_Linux_v${VERSION}-x86_64.AppImage"
+          require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
+          require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
+
+          find release -maxdepth 1 -type f -printf '%f\n' | sort
       - name: Generate pre-release notes
         working-directory: .
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MODE="${{ inputs.notes_mode }}"
-          TAG="v${{ steps.version.outputs.version }}"
+          if [ "${{ inputs.rolling_dev_latest }}" = "true" ]; then
+            TAG="dev-latest"
+          else
+            TAG="v${{ steps.version.outputs.version }}"
+          fi
+          BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           cat > custom_notes.md <<'CUSTOM_NOTES_EOF'
           ${{ inputs.custom_notes }}
           CUSTOM_NOTES_EOF
           sed -i 's/^          //' custom_notes.md
 
-          printf '## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' > release_notes_auto.md
+          cat > release_notes_auto.md <<EOF
+          ## 版本信息
+
+          - 版本号: \`${{ steps.version.outputs.version }}\`
+          - 发布标签: \`${TAG}\`
+          - 提交: [\`${{ steps.version.outputs.commit }}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          - 构建时间: ${BUILD_TIME}
+          EOF
+          sed -i 's/^          //' release_notes_auto.md
+
+          cat > release_notes_download.md <<'EOF'
+          ## 下载说明
+
+          | 文件 | 平台/用途 | 说明 |
+          |------|-----------|------|
+          | `Sena-Repo_Android_*.apk` | Android | Android 客户端安装包 |
+          | `Sena-Repo_Windows_*_Setup.exe` | Windows | Windows 安装版 |
+          | `Sena-Repo_Windows_*.zip` | Windows | Windows 便携版，解压即用 |
+          | `Sena-Repo_Linux_*.AppImage` | Linux | Linux AppImage 客户端 |
+          | `Sena-Repo_Server_amd64_*.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |
+          | `Sena-Repo_Server_arm64_*.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |
+          EOF
+          sed -i 's/^          //' release_notes_download.md
 
           printf '> [!CAUTION]\n>\n> **Pre-Release 测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n' > release_notes.md
           case "$MODE" in
@@ -427,14 +494,28 @@ jobs:
               cat release_notes_auto.md >> release_notes.md
               ;;
           esac
+          printf '\n' >> release_notes.md
+          cat release_notes_download.md >> release_notes.md
+      - name: Replace rolling pre-release
+        if: ${{ inputs.rolling_dev_latest == true }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete dev-latest --yes || true
+          git push origin :refs/tags/dev-latest || true
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -f dev-latest
+          git push -f origin dev-latest
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: ${{ inputs.rolling_dev_latest && 'dev-latest' || format('v{0}', steps.version.outputs.version) }}
+          name: ${{ inputs.rolling_dev_latest && format('开发版 - v{0} ({1})', steps.version.outputs.version, steps.version.outputs.commit) || format('v{0}', steps.version.outputs.version) }}
           prerelease: true
           body_path: release_notes.md
-          files: dist/**/*
+          files: release/*
           make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

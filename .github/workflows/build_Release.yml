@@ -394,6 +394,39 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Prepare release files
+        working-directory: .
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          rm -rf release
+          mkdir -p release
+
+          require_one() {
+            local label="$1"
+            local pattern="$2"
+            local matches=()
+            mapfile -d '' matches < <(find dist -type f -name "$pattern" -print0)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one ${label} artifact matching ${pattern}, found ${#matches[@]}."
+              find dist -type f | sort
+              exit 1
+            fi
+            if [ ! -s "${matches[0]}" ]; then
+              echo "::error::Artifact ${matches[0]} is empty."
+              exit 1
+            fi
+            cp "${matches[0]}" release/
+          }
+
+          require_one "Android APK" "Sena-Repo_Android_v${VERSION}.apk"
+          require_one "Windows portable zip" "Sena-Repo_Windows_v${VERSION}.zip"
+          require_one "Windows installer" "Sena-Repo_Windows_v${VERSION}_Setup.exe"
+          require_one "Linux AppImage" "Sena-Repo_Linux_v${VERSION}-x86_64.AppImage"
+          require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_v${VERSION}.tar.gz"
+          require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_v${VERSION}.tar.gz"
+
+          find release -maxdepth 1 -type f -printf '%f\n' | sort
       - name: Generate release notes
         working-directory: .
         env:
@@ -418,18 +451,79 @@ jobs:
 
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..$GITHUB_SHA"
-            printf '## Changes (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
+            printf '## 更新内容 (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
           else
             RANGE="$GITHUB_SHA"
-            printf '## Changes (%s)\n\n' "$TAG" > release_notes_auto.md
+            printf '## 更新内容 (%s)\n\n' "$TAG" > release_notes_auto.md
           fi
-          NOTES=$(git log --no-merges --format='- %s (%h)' "$RANGE")
-          if [ -n "$NOTES" ]; then
-            printf '%s\n' "$NOTES" >> release_notes_auto.md
-          else
-            printf '%s\n' '- Build artifacts updated.' >> release_notes_auto.md
+
+          CATEGORIES_DIR="$(mktemp -d)"
+          : > "$CATEGORIES_DIR/features.md"
+          : > "$CATEGORIES_DIR/fixes.md"
+          : > "$CATEGORIES_DIR/optimizations.md"
+          : > "$CATEGORIES_DIR/docs.md"
+          : > "$CATEGORIES_DIR/build.md"
+          : > "$CATEGORIES_DIR/others.md"
+
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            lower="$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')"
+            case "$lower" in
+              feat:*|feat\(*|feature:*|feature\(*|新增*|*新增*)
+                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/features.md"
+                ;;
+              fix:*|fix\(*|bugfix:*|bugfix\(*|修复*|*修复*)
+                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/fixes.md"
+                ;;
+              perf:*|perf\(*|refactor:*|refactor\(*|optimize:*|optimize\(*|style:*|style\(*|优化*|调整*|改进*|*优化*|*调整*|*改进*)
+                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/optimizations.md"
+                ;;
+              docs:*|docs\(*|doc:*|doc\(*|文档*|*文档*)
+                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/docs.md"
+                ;;
+              build:*|build\(*|ci:*|ci\(*|chore:*|chore\(*|构建*|发布*|*构建*|*发布*)
+                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/build.md"
+                ;;
+              *)
+                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/others.md"
+                ;;
+            esac
+          done < <(git log --no-merges --format='%s (%h)' "$RANGE")
+
+          append_section() {
+            local title="$1"
+            local file="$2"
+            if [ -s "$file" ]; then
+              printf '### %s\n\n' "$title" >> release_notes_auto.md
+              cat "$file" >> release_notes_auto.md
+              printf '\n' >> release_notes_auto.md
+            fi
+          }
+
+          append_section "新增" "$CATEGORIES_DIR/features.md"
+          append_section "修复" "$CATEGORIES_DIR/fixes.md"
+          append_section "优化" "$CATEGORIES_DIR/optimizations.md"
+          append_section "文档" "$CATEGORIES_DIR/docs.md"
+          append_section "构建" "$CATEGORIES_DIR/build.md"
+          append_section "其他" "$CATEGORIES_DIR/others.md"
+
+          if ! grep -q '^- ' "$CATEGORIES_DIR"/*.md; then
+            printf -- '- Build artifacts updated.\n\n' >> release_notes_auto.md
           fi
-          printf '\n## Artifacts\n- Android APK\n- Windows installer and portable zip\n- Linux AppImage\n- Server Docker images and offline image archives\n' >> release_notes_auto.md
+
+          cat > release_notes_download.md <<'EOF'
+          ## 下载说明
+
+          | 文件 | 平台/用途 | 说明 |
+          |------|-----------|------|
+          | `Sena-Repo_Android_*.apk` | Android | Android 客户端安装包 |
+          | `Sena-Repo_Windows_*_Setup.exe` | Windows | Windows 安装版 |
+          | `Sena-Repo_Windows_*.zip` | Windows | Windows 便携版，解压即用 |
+          | `Sena-Repo_Linux_*.AppImage` | Linux | Linux AppImage 客户端 |
+          | `Sena-Repo_Server_amd64_*.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |
+          | `Sena-Repo_Server_arm64_*.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |
+          EOF
+          sed -i 's/^          //' release_notes_download.md
 
           case "$MODE" in
             custom)
@@ -452,6 +546,8 @@ jobs:
               fi
               ;;
           esac
+          printf '\n' >> release_notes.md
+          cat release_notes_download.md >> release_notes.md
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -459,7 +555,7 @@ jobs:
           name: v${{ steps.version.outputs.version }}
           prerelease: false
           body_path: release_notes.md
-          files: dist/**/*
+          files: release/*
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
