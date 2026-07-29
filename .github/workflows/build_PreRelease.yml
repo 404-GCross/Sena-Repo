@@ -22,11 +22,6 @@ on:
         required: false
         default: ''
         type: string
-      rolling_dev_latest:
-        description: '发布为固定 dev-latest 测试版'
-        required: false
-        default: false
-        type: boolean
 
 
 permissions:
@@ -384,18 +379,6 @@ jobs:
           if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-      - name: Validate release tag
-        if: ${{ inputs.rolling_dev_latest != true }}
-        working-directory: .
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG_SHA=$(git rev-list -n 1 "$TAG")
-            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
-              echo "::error::Tag $TAG already exists at $TAG_SHA, but this run is $GITHUB_SHA. Use a new version or move/delete the old tag."
-              exit 1
-            fi
-          fi
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -439,11 +422,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MODE="${{ inputs.notes_mode }}"
-          if [ "${{ inputs.rolling_dev_latest }}" = "true" ]; then
-            TAG="dev-latest"
-          else
-            TAG="v${{ steps.version.outputs.version }}"
-          fi
+          TAG="dev-release"
           BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           cat > custom_notes.md <<'CUSTOM_NOTES_EOF'
           ${{ inputs.custom_notes }}
@@ -496,23 +475,22 @@ jobs:
           esac
           printf '\n' >> release_notes.md
           cat release_notes_download.md >> release_notes.md
-      - name: Replace rolling pre-release
-        if: ${{ inputs.rolling_dev_latest == true }}
+      - name: Replace dev pre-release
         working-directory: .
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete dev-latest --yes || true
-          git push origin :refs/tags/dev-latest || true
+          gh release delete dev-release --yes || true
+          git push origin :refs/tags/dev-release || true
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -f dev-latest
-          git push -f origin dev-latest
+          git tag -f dev-release
+          git push -f origin dev-release
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.rolling_dev_latest && 'dev-latest' || format('v{0}', steps.version.outputs.version) }}
-          name: ${{ inputs.rolling_dev_latest && format('开发版 - v{0} ({1})', steps.version.outputs.version, steps.version.outputs.commit) || format('v{0}', steps.version.outputs.version) }}
+          tag_name: dev-release
+          name: 开发版 - v${{ steps.version.outputs.version }} (${{ steps.version.outputs.commit }})
           prerelease: true
           body_path: release_notes.md
           files: release/*
