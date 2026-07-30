@@ -346,6 +346,9 @@ jobs:
   # ── Docker Server Image ──────────────────────────
   build-server:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: .
@@ -372,6 +375,32 @@ jobs:
         run: |
           docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --load
           docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to registries (multi-arch)
+        if: github.event_name != 'pull_request'
+        run: |
+          DOCKERHUB_NAMESPACE=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/404-gcross/sena-repo:pre-release \
+            -t ghcr.io/404-gcross/sena-repo:${VERSION} \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:pre-release \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${VERSION} \
+            server/ --build-arg SENA_VERSION=${VERSION} --push
 
       - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4
