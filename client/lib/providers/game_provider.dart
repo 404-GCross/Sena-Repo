@@ -46,6 +46,8 @@ class GameProvider extends ChangeNotifier {
       list.sort((a, b) => (a.companyName ?? "").toLowerCase().compareTo((b.companyName ?? "").toLowerCase()));
     } else if (_sortBy == "developer") {
       list.sort((a, b) => (a.developer ?? "").toLowerCase().compareTo((b.developer ?? "").toLowerCase()));
+    } else if (_sortBy == "developer_desc") {
+      list.sort((a, b) => (b.developer ?? "").toLowerCase().compareTo((a.developer ?? "").toLowerCase()));
     }
     return list;
   }

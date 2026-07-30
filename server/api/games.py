@@ -56,7 +56,7 @@ async def list_games(
     """List games with optional filters and sorting.
 
     Filters: tag, platform, root_id, developer, has_cover
-    Sort options: imported (default), name, name_desc, company, developer
+    Sort options: imported (default), name, name_desc, company, developer, developer_desc
     """
     query = (
         select(Game)
@@ -97,6 +97,8 @@ async def list_games(
         query = query.outerjoin(Game.company).order_by(Company.name.asc().nulls_last(), Game.name.asc())
     elif sort == "developer":
         query = query.order_by(Game.developer.asc().nulls_last(), Game.name.asc())
+    elif sort == "developer_desc":
+        query = query.order_by(Game.developer.desc().nulls_last(), Game.name.asc())
     elif sort == "name":
         query = query.order_by(Game.name.asc(), Game.imported_at.desc())
     elif sort == "name_desc":

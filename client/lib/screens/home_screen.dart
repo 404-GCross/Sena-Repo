@@ -231,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _sortItem("name", "名称 A → Z", Icons.sort_by_alpha, gameProvider.sortBy == "name"),
                     _sortItem("name_desc", "名称 Z → A", Icons.text_rotation_none, gameProvider.sortBy == "name_desc"),
                     _sortItem("developer", "会社 A → Z", Icons.business, gameProvider.sortBy == "developer"),
+                    _sortItem("developer_desc", "会社 Z → A", Icons.business, gameProvider.sortBy == "developer_desc"),
                   ],
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
@@ -539,6 +540,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case "name": return "名称 A-Z";
       case "name_desc": return "名称 Z-A";
       case "developer": return "会社 A-Z";
+      case "developer_desc": return "会社 Z-A";
       default: return "排序";
     }
   }
