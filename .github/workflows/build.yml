@@ -1,4 +1,4 @@
-name: Build Sena Repo Client
+name: Build and Publish Dev Pre-Release
 
 permissions:
   contents: read
@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [main, master, dev]
   workflow_dispatch:
+
+concurrency:
+  group: dev-pre-release-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: client
@@ -23,11 +28,11 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          V="test"
+          V="dev"
           echo "VERSION=$V" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
-      - name: Sync test version into source
+      - name: Sync dev version into source
         run: |
           sed -i "s/versionName = \".*\"/versionName = \"${PACKAGE_VERSION}\"/" android/app/build.gradle.kts
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
@@ -97,11 +102,11 @@ jobs:
       - name: Resolve version
         shell: pwsh
         run: |
-          $V = "test"
+          $V = "dev"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "PACKAGE_VERSION=0.0.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Sync test version into source
+      - name: Sync dev version into source
         shell: pwsh
         run: |
           $ver = $env:VERSION
@@ -226,11 +231,11 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="test"
+          V="dev"
           echo "VERSION=$V" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
-      - name: Sync test version into source
+      - name: Sync dev version into source
         run: |
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
           sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
@@ -349,7 +354,7 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="test"
+          V="dev"
           echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
@@ -379,3 +384,113 @@ jobs:
         with:
           name: Sena-Repo_Server_arm64
           path: Sena-Repo_Server_arm64_*.tar.gz
+
+  # ── Publish Dev Pre-Release ─────────────────────
+  publish-dev-pre-release:
+    if: github.event_name != 'pull_request'
+    needs: [build-android, build-windows, build-linux, build-server]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: meta
+        working-directory: .
+        run: |
+          echo "version=dev" >> "$GITHUB_OUTPUT"
+          echo "tag=dev-release" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release files
+        working-directory: .
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          rm -rf release
+          mkdir -p release
+
+          require_one() {
+            local label="$1"
+            local pattern="$2"
+            local matches=()
+            mapfile -d '' matches < <(find dist -type f -name "$pattern" -print0)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one ${label} artifact matching ${pattern}, found ${#matches[@]}."
+              find dist -type f | sort
+              exit 1
+            fi
+            if [ ! -s "${matches[0]}" ]; then
+              echo "::error::Artifact ${matches[0]} is empty."
+              exit 1
+            fi
+            cp "${matches[0]}" release/
+          }
+
+          require_one "Android APK" "Sena-Repo_Android_${VERSION}.apk"
+          require_one "Windows portable zip" "Sena-Repo_Windows_${VERSION}.zip"
+          require_one "Windows installer" "Sena-Repo_Windows_${VERSION}_Setup.exe"
+          require_one "Linux AppImage" "Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
+          require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
+          require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
+
+          find release -maxdepth 1 -type f -printf '%f\n' | sort
+
+      - name: Generate pre-release notes
+        working-directory: .
+        run: |
+          BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          {
+            printf '> [!CAUTION]\n'
+            printf '>\n'
+            printf '> **Pre-Release 自动测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n'
+            printf '## 版本信息\n\n'
+            printf -- '- 版本号: `dev`\n'
+            printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
+            printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
+            printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
+            printf '## 最近提交\n\n'
+            git log --no-merges --pretty=format:'- %s (%h)' -n 5
+            printf '\n\n'
+            printf '## 下载说明\n\n'
+            printf '| 文件 | 平台/用途 | 说明 |\n'
+            printf '|------|-----------|------|\n'
+            printf '| `Sena-Repo_Android_*.apk` | Android | Android 客户端安装包 |\n'
+            printf '| `Sena-Repo_Windows_*_Setup.exe` | Windows | Windows 安装版 |\n'
+            printf '| `Sena-Repo_Windows_*.zip` | Windows | Windows 便携版，解压即用 |\n'
+            printf '| `Sena-Repo_Linux_*.AppImage` | Linux | Linux AppImage 客户端 |\n'
+            printf '| `Sena-Repo_Server_amd64_*.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n'
+            printf '| `Sena-Repo_Server_arm64_*.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n'
+          } > release_notes.md
+
+      - name: Replace dev pre-release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ steps.meta.outputs.tag }}" --yes || true
+          git push origin ":refs/tags/${{ steps.meta.outputs.tag }}" || true
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -f "${{ steps.meta.outputs.tag }}"
+          git push -f origin "${{ steps.meta.outputs.tag }}"
+
+      - name: Create Pre-Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: 开发版 - dev (${{ steps.meta.outputs.commit }})
+          prerelease: true
+          body_path: release_notes.md
+          files: release/*
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
