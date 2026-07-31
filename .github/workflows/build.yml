@@ -485,7 +485,10 @@ jobs:
             printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
             printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
             printf '## 最近提交\n\n'
-            git log --no-merges --pretty=format:'- %s (%h)' -n 5
+            while IFS=$'\t' read -r sha subject; do
+              [ -n "$sha" ] || continue
+              printf -- '- [**%s**](https://github.com/%s/commit/%s)\n' "$subject" "${GITHUB_REPOSITORY}" "$sha"
+            done < <(git log --no-merges --format='%H%x09%s' -n 5)
             printf '\n\n'
             printf '## 下载说明\n\n'
             printf '| 文件 | 平台/用途 | 说明 |\n'

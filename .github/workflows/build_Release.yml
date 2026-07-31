@@ -465,30 +465,31 @@ jobs:
           : > "$CATEGORIES_DIR/build.md"
           : > "$CATEGORIES_DIR/others.md"
 
-          while IFS= read -r line; do
-            [ -n "$line" ] || continue
-            lower="$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')"
+          while IFS=$'\t' read -r sha subject; do
+            [ -n "$sha" ] || continue
+            lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
+            line="- [**${subject}**](https://github.com/${GITHUB_REPOSITORY}/commit/${sha})"
             case "$lower" in
               feat:*|feat\(*|feature:*|feature\(*|新增*|*新增*)
-                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/features.md"
+                printf '%s\n' "$line" >> "$CATEGORIES_DIR/features.md"
                 ;;
               fix:*|fix\(*|bugfix:*|bugfix\(*|修复*|*修复*)
-                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/fixes.md"
+                printf '%s\n' "$line" >> "$CATEGORIES_DIR/fixes.md"
                 ;;
               perf:*|perf\(*|refactor:*|refactor\(*|optimize:*|optimize\(*|style:*|style\(*|优化*|调整*|改进*|*优化*|*调整*|*改进*)
-                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/optimizations.md"
+                printf '%s\n' "$line" >> "$CATEGORIES_DIR/optimizations.md"
                 ;;
               docs:*|docs\(*|doc:*|doc\(*|文档*|*文档*)
-                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/docs.md"
+                printf '%s\n' "$line" >> "$CATEGORIES_DIR/docs.md"
                 ;;
               build:*|build\(*|ci:*|ci\(*|chore:*|chore\(*|构建*|发布*|*构建*|*发布*)
-                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/build.md"
+                printf '%s\n' "$line" >> "$CATEGORIES_DIR/build.md"
                 ;;
               *)
-                printf -- '- %s\n' "$line" >> "$CATEGORIES_DIR/others.md"
+                printf '%s\n' "$line" >> "$CATEGORIES_DIR/others.md"
                 ;;
             esac
-          done < <(git log --no-merges --format='%s (%h)' "$RANGE")
+          done < <(git log --no-merges --format='%H%x09%s' "$RANGE")
 
           append_section() {
             local title="$1"
