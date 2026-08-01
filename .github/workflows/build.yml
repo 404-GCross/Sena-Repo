@@ -29,13 +29,15 @@ jobs:
         id: ver
         run: |
           V="dev"
+          DISPLAY_VERSION="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "DISPLAY_VERSION=$DISPLAY_VERSION" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
       - name: Sync dev version into source
         run: |
           sed -i "s/versionName = \".*\"/versionName = \"${PACKAGE_VERSION}\"/" android/app/build.gradle.kts
-          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${DISPLAY_VERSION}\"/" lib/utils/version.dart
           sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: actions/setup-java@v4
@@ -103,16 +105,18 @@ jobs:
         shell: pwsh
         run: |
           $V = "dev"
+          $DisplayVersion = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "DISPLAY_VERSION=$DisplayVersion" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "PACKAGE_VERSION=0.0.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Sync dev version into source
         shell: pwsh
         run: |
-          $ver = $env:VERSION
+          $displayVer = $env:DISPLAY_VERSION
           $pkgVer = $env:PACKAGE_VERSION
           (Get-Content pubspec.yaml) -replace '^version: .+', "version: $pkgVer" | Set-Content pubspec.yaml
-          (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$ver""" | Set-Content lib\utils\version.dart
+          (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$displayVer""" | Set-Content lib\utils\version.dart
 
       - uses: subosito/flutter-action@v2
         with:
@@ -232,12 +236,14 @@ jobs:
       - name: Resolve version
         run: |
           V="dev"
+          DISPLAY_VERSION="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "DISPLAY_VERSION=$DISPLAY_VERSION" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
       - name: Sync dev version into source
         run: |
-          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${DISPLAY_VERSION}\"/" lib/utils/version.dart
           sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
@@ -431,6 +437,7 @@ jobs:
           echo "version=dev" >> "$GITHUB_OUTPUT"
           echo "tag=dev-release" >> "$GITHUB_OUTPUT"
           echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "display_version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -480,7 +487,7 @@ jobs:
             printf '>\n'
             printf '> **Pre-Release 自动测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n'
             printf '## 版本信息\n\n'
-            printf -- '- 版本号: `dev`\n'
+            printf -- '- 版本号: `%s`\n' "${{ steps.meta.outputs.display_version }}"
             printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
             printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
             printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
@@ -517,7 +524,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: 开发版 - dev (${{ steps.meta.outputs.commit }})
+          name: 开发版 - ${{ steps.meta.outputs.display_version }}
           prerelease: true
           body_path: release_notes.md
           files: release/*
