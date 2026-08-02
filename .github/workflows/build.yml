@@ -28,16 +28,14 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          V="dev"
-          DISPLAY_VERSION="dev-${GITHUB_SHA::7}"
+          V="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
-          echo "DISPLAY_VERSION=$DISPLAY_VERSION" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
       - name: Sync dev version into source
         run: |
           sed -i "s/versionName = \".*\"/versionName = \"${PACKAGE_VERSION}\"/" android/app/build.gradle.kts
-          sed -i "s/const appVersion = \".*\"/const appVersion = \"${DISPLAY_VERSION}\"/" lib/utils/version.dart
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
           sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: actions/setup-java@v4
@@ -104,19 +102,17 @@ jobs:
       - name: Resolve version
         shell: pwsh
         run: |
-          $V = "dev"
-          $DisplayVersion = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
+          $V = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "DISPLAY_VERSION=$DisplayVersion" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "PACKAGE_VERSION=0.0.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Sync dev version into source
         shell: pwsh
         run: |
-          $displayVer = $env:DISPLAY_VERSION
+          $ver = $env:VERSION
           $pkgVer = $env:PACKAGE_VERSION
           (Get-Content pubspec.yaml) -replace '^version: .+', "version: $pkgVer" | Set-Content pubspec.yaml
-          (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$displayVer""" | Set-Content lib\utils\version.dart
+          (Get-Content lib\utils\version.dart) -replace 'const appVersion = ".*"', "const appVersion = ""$ver""" | Set-Content lib\utils\version.dart
 
       - uses: subosito/flutter-action@v2
         with:
@@ -235,15 +231,13 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="dev"
-          DISPLAY_VERSION="dev-${GITHUB_SHA::7}"
+          V="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
-          echo "DISPLAY_VERSION=$DISPLAY_VERSION" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
       - name: Sync dev version into source
         run: |
-          sed -i "s/const appVersion = \".*\"/const appVersion = \"${DISPLAY_VERSION}\"/" lib/utils/version.dart
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
           sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
@@ -363,8 +357,9 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="dev"
+          V="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "DOCKER_TAG=dev" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -402,8 +397,8 @@ jobs:
         run: |
           DOCKERHUB_NAMESPACE=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/404-gcross/sena-repo:${VERSION} \
-            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${VERSION} \
+            -t ghcr.io/404-gcross/sena-repo:${DOCKER_TAG} \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${DOCKER_TAG} \
             server/ --build-arg SENA_VERSION=${VERSION} --push
 
       - name: Upload Server Image (AMD64)
@@ -434,10 +429,9 @@ jobs:
         id: meta
         working-directory: .
         run: |
-          echo "version=dev" >> "$GITHUB_OUTPUT"
+          echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "tag=dev-release" >> "$GITHUB_OUTPUT"
           echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "display_version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -481,13 +475,14 @@ jobs:
       - name: Generate pre-release notes
         working-directory: .
         run: |
+          VERSION="${{ steps.meta.outputs.version }}"
           BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           {
             printf '> [!CAUTION]\n'
             printf '>\n'
             printf '> **Pre-Release 自动测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n'
             printf '## 版本信息\n\n'
-            printf -- '- 版本号: `%s`\n' "${{ steps.meta.outputs.display_version }}"
+            printf -- '- 版本号: `%s`\n' "${{ steps.meta.outputs.version }}"
             printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
             printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
             printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
@@ -500,12 +495,12 @@ jobs:
             printf '## 下载说明\n\n'
             printf '| 文件 | 平台/用途 | 说明 |\n'
             printf '|------|-----------|------|\n'
-            printf '| `Sena-Repo_Android_*.apk` | Android | Android 客户端安装包 |\n'
-            printf '| `Sena-Repo_Windows_*_Setup.exe` | Windows | Windows 安装版 |\n'
-            printf '| `Sena-Repo_Windows_*.zip` | Windows | Windows 便携版，解压即用 |\n'
-            printf '| `Sena-Repo_Linux_*.AppImage` | Linux | Linux AppImage 客户端 |\n'
-            printf '| `Sena-Repo_Server_amd64_*.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n'
-            printf '| `Sena-Repo_Server_arm64_*.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n'
+            printf '| `Sena-Repo_Android_%s.apk` | Android | Android 客户端安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Windows_%s_Setup.exe` | Windows | Windows 安装版 |\n' "$VERSION"
+            printf '| `Sena-Repo_Windows_%s.zip` | Windows | Windows 便携版，解压即用 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s-x86_64.AppImage` | Linux | Linux AppImage 客户端 |\n' "$VERSION"
+            printf '| `Sena-Repo_Server_amd64_%s.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
+            printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
           } > release_notes.md
 
       - name: Replace dev pre-release
@@ -524,7 +519,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: 开发版 - ${{ steps.meta.outputs.display_version }}
+          name: 开发版 - ${{ steps.meta.outputs.version }}
           prerelease: true
           body_path: release_notes.md
           files: release/*
