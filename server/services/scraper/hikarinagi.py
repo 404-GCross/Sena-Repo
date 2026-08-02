@@ -100,6 +100,8 @@ class HikarinagiScraper(BaseScraper):
                     continue
                 raise
             payload = resp.json()
+            if not isinstance(payload, dict):
+                return {}
             if payload.get("success") is False:
                 request_id = payload.get("request_id")
                 message = payload.get("message") or payload.get("error") or "Hikarinagi API 调用失败"
@@ -285,8 +287,15 @@ def _best_cover(covers: list) -> str:
     candidates = [cover for cover in covers if isinstance(cover, dict) and _media_url(cover)]
     if not candidates:
         return ""
-    best = max(candidates, key=lambda cover: int(cover.get("votes") or 0))
+    best = max(candidates, key=_cover_votes)
     return _media_url(best)
+
+
+def _cover_votes(cover: dict) -> int:
+    try:
+        return int(cover.get("votes") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _normalize_date(value: str) -> str:
