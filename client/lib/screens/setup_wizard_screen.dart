@@ -42,7 +42,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _useVndbKana = true;
   bool _useSteam = true;
   bool _useYmgal = true;
+  bool _useHikarinagi = false;
   final _vndbCtrl = TextEditingController();
+  final _hikarinagiClientIdCtrl = TextEditingController();
+  final _hikarinagiClientSecretCtrl = TextEditingController();
+  final _hikarinagiScopeCtrl = TextEditingController(text: "catalog:read");
   final Map<String, String> _batchFieldSources = {
     "title": "auto",
     "cover": "auto",
@@ -74,6 +78,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     _passCtrl.dispose();
     _passConfirmCtrl.dispose();
     _vndbCtrl.dispose();
+    _hikarinagiClientIdCtrl.dispose();
+    _hikarinagiClientSecretCtrl.dispose();
+    _hikarinagiScopeCtrl.dispose();
     super.dispose();
   }
 
@@ -163,6 +170,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "scan_structure": _structureFromDepth(_scanDepth),
           "scan_depth": _scanDepth,
           "vndb_token": _vndbCtrl.text.trim(),
+          "hikarinagi_client_id": _hikarinagiClientIdCtrl.text.trim(),
+          "hikarinagi_client_secret": _hikarinagiClientSecretCtrl.text.trim(),
+          "hikarinagi_scope": _hikarinagiScopeCtrl.text.trim().isEmpty
+              ? "catalog:read"
+              : _hikarinagiScopeCtrl.text.trim(),
           "batch_field_sources": _encodedBatchFieldSources(),
         }),
       );
@@ -197,6 +209,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     await prefs.setBool("scrape_src_bangumi", _useBangumi);
     await prefs.setBool("scrape_src_steam", _useSteam);
     await prefs.setBool("scrape_src_ymgal", _useYmgal);
+    await prefs.setBool("scrape_src_hikarinagi", _useHikarinagi);
     await prefs.setString("scan_structure", _structureFromDepth(_scanDepth));
     await prefs.setInt("scan_depth", _scanDepth);
     await prefs.setBool("auto_scan", _autoScan);
@@ -573,11 +586,36 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             "Steam", _useSteam, (v) => setState(() => _useSteam = v)),
         _scraperSwitch(
             "YMGal", _useYmgal, (v) => setState(() => _useYmgal = v)),
+        _scraperSwitch("Hikarinagi", _useHikarinagi,
+            (v) => setState(() => _useHikarinagi = v)),
         const SizedBox(height: 12),
         TextField(
           controller: _vndbCtrl,
           decoration: const InputDecoration(
             labelText: "VNDB Token\uff08\u53ef\u9009\uff09",
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _hikarinagiClientIdCtrl,
+          decoration: const InputDecoration(
+            labelText: "Hikarinagi Client ID（可选）",
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _hikarinagiClientSecretCtrl,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: "Hikarinagi Client Secret（可选）",
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _hikarinagiScopeCtrl,
+          decoration: const InputDecoration(
+            labelText: "Hikarinagi Scope",
+            hintText: "catalog:read",
           ),
         ),
         const SizedBox(height: 16),
@@ -602,6 +640,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
                 DropdownMenuItem(value: "steam", child: Text("Steam")),
                 DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
+                DropdownMenuItem(value: "hikarinagi", child: Text("Hikarinagi")),
               ],
               onChanged: (v) =>
                   setState(() => _batchFieldSources[entry.key] = v ?? "auto"),

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 
 import yaml
@@ -28,6 +29,13 @@ def _parse_positive_int(value, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _dataclass_kwargs(cls, data: dict | None) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    valid_fields = {item.name for item in dataclass_fields(cls)}
+    return {key: value for key, value in data.items() if key in valid_fields}
+
+
 @dataclass
 class ServerConfig:
     host: str = "0.0.0.0"
@@ -49,6 +57,9 @@ class ScraperConfig:
     vndb_token: str = ""
     ymgal_client_id: str = "ymgal"
     ymgal_client_secret: str = "luna0327"
+    hikarinagi_client_id: str = ""
+    hikarinagi_client_secret: str = ""
+    hikarinagi_scope: str = "catalog:read"
 
 
 @dataclass
@@ -97,10 +108,41 @@ def _parse_args() -> argparse.Namespace:
 _cached_config: Config | None = None
 
 
+def _apply_persisted_scraper_config(config: Config) -> None:
+    path = Path(config.data_path) / "scraper_config.json"
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    fields = {
+        "bangumi_token": ("scrapers", "SENA_BANGUMI_TOKEN"),
+        "vndb_token": ("scrapers", "SENA_VNDB_TOKEN"),
+        "ymgal_client_id": ("scrapers", "SENA_YMGAL_CLIENT_ID"),
+        "ymgal_client_secret": ("scrapers", "SENA_YMGAL_CLIENT_SECRET"),
+        "hikarinagi_client_id": ("scrapers", "SENA_HIKARINAGI_CLIENT_ID"),
+        "hikarinagi_client_secret": ("scrapers", "SENA_HIKARINAGI_CLIENT_SECRET"),
+        "hikarinagi_scope": ("scrapers", "SENA_HIKARINAGI_SCOPE"),
+        "proxy": ("config", "SENA_PROXY"),
+    }
+    for key, (target, env_name) in fields.items():
+        if os.environ.get(env_name):
+            continue
+        value = data.get(key)
+        if not isinstance(value, str) or "****" in value:
+            continue
+        if target == "scrapers":
+            setattr(config.scrapers, key, value)
+        else:
+            setattr(config, key, value)
+
+
 def load_config(config_path: str | None = None) -> Config:
     """Load configuration from YAML file, env vars, and CLI args.
 
-    Priority: CLI args > env vars > YAML file > defaults
+    Priority: CLI args and env vars > persisted scraper settings > YAML file > defaults
 
     Returns a singleton — subsequent calls return the same instance,
     so dynamic attributes (e.g. auto_scan) set via API are visible everywhere.
@@ -119,7 +161,9 @@ def load_config(config_path: str | None = None) -> Config:
             data = yaml.safe_load(f) or {}
 
         if "server" in data:
-            config.server = ServerConfig(**data["server"])
+            config.server = ServerConfig(
+                **_dataclass_kwargs(ServerConfig, data["server"])
+            )
             config.server.allowed_origins = _parse_csv_list(config.server.allowed_origins)
             config.server.token_expire_days = _parse_positive_int(
                 config.server.token_expire_days, 30
@@ -134,10 +178,14 @@ def load_config(config_path: str | None = None) -> Config:
             config.steam_dir = data["steam_dir"]
         if "custom_regex" in data:
             config.custom_regex = [
-                CustomRegex(**r) for r in data["custom_regex"] if r.get("pattern")
+                CustomRegex(**_dataclass_kwargs(CustomRegex, r))
+                for r in data["custom_regex"]
+                if isinstance(r, dict) and r.get("pattern")
             ]
         if "scrapers" in data:
-            config.scrapers = ScraperConfig(**data["scrapers"])
+            config.scrapers = ScraperConfig(
+                **_dataclass_kwargs(ScraperConfig, data["scrapers"])
+            )
 
     # 2. Env var overrides
     if os.environ.get("SENA_GAMES_PATH"):
@@ -168,6 +216,12 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.ymgal_client_id = os.environ["SENA_YMGAL_CLIENT_ID"]
     if os.environ.get("SENA_YMGAL_CLIENT_SECRET"):
         config.scrapers.ymgal_client_secret = os.environ["SENA_YMGAL_CLIENT_SECRET"]
+    if os.environ.get("SENA_HIKARINAGI_CLIENT_ID"):
+        config.scrapers.hikarinagi_client_id = os.environ["SENA_HIKARINAGI_CLIENT_ID"]
+    if os.environ.get("SENA_HIKARINAGI_CLIENT_SECRET"):
+        config.scrapers.hikarinagi_client_secret = os.environ["SENA_HIKARINAGI_CLIENT_SECRET"]
+    if os.environ.get("SENA_HIKARINAGI_SCOPE"):
+        config.scrapers.hikarinagi_scope = os.environ["SENA_HIKARINAGI_SCOPE"]
 
     # 3. CLI arg overrides
     if args.host:
@@ -178,6 +232,8 @@ def load_config(config_path: str | None = None) -> Config:
         config.games_path = args.games_path
     if args.data_path:
         config.data_path = args.data_path
+
+    _apply_persisted_scraper_config(config)
 
     _cached_config = config
     return config

@@ -1,0 +1,318 @@
+"""Hikarinagi scraper — OAuth2 client_credentials public catalog API."""
+
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime
+
+import httpx
+
+from .base import BaseScraper, ScraperResult, clean_title
+
+logger = logging.getLogger(__name__)
+
+HIKARINAGI_BASE = "https://www.hikarinagi.org"
+HIKARINAGI_TOKEN_URL = "https://id.hikarinagi.org/oidc/token"
+
+
+class HikarinagiScraper(BaseScraper):
+    """Scrape Hikarinagi Galgame metadata."""
+
+    source_name = "hikarinagi"
+    max_retries = 2
+    retry_delay = 1.2
+    throttle_interval = 1.1
+
+    def __init__(
+        self,
+        proxy: str = "",
+        client: httpx.AsyncClient | None = None,
+        client_id: str = "",
+        client_secret: str = "",
+        scope: str = "catalog:read",
+    ):
+        super().__init__(proxy=proxy, client=client)
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._scope = scope or "catalog:read"
+        self._token = ""
+        self._token_expires = 0.0
+
+    async def _ensure_token(self, client: httpx.AsyncClient) -> str:
+        if not self._client_id or not self._client_secret:
+            raise RuntimeError("Hikarinagi client_id/client_secret 未配置")
+
+        now = time.monotonic()
+        if self._token and now < self._token_expires:
+            return self._token
+
+        resp = await self._request_with_retry(
+            client,
+            "POST",
+            HIKARINAGI_TOKEN_URL,
+            data={
+                "grant_type": "client_credentials",
+                "scope": self._scope,
+            },
+            auth=httpx.BasicAuth(self._client_id, self._client_secret),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        data = resp.json()
+        token = data.get("access_token", "")
+        if not token:
+            raise RuntimeError("Hikarinagi Token 响应为空")
+        expires_in = int(data.get("expires_in") or 3600)
+        self._token = token
+        refresh_before = 60 if expires_in > 60 else 0
+        self._token_expires = now + max(0, expires_in - refresh_before)
+        return token
+
+    async def _api_get(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        params: dict | list[tuple[str, str]] | None = None,
+    ) -> dict:
+        token = await self._ensure_token(client)
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
+        }
+        for attempt in range(2):
+            try:
+                resp = await self._request_with_retry(
+                    client,
+                    "GET",
+                    f"{HIKARINAGI_BASE}{path}",
+                    params=params,
+                    headers=headers,
+                )
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403) and attempt == 0:
+                    self._token = ""
+                    token = await self._ensure_token(client)
+                    headers["Authorization"] = f"Bearer {token}"
+                    continue
+                raise
+            payload = resp.json()
+            if payload.get("success") is False:
+                request_id = payload.get("request_id")
+                message = payload.get("message") or payload.get("error") or "Hikarinagi API 调用失败"
+                if request_id:
+                    message = f"{message} (request_id: {request_id})"
+                raise RuntimeError(str(message))
+            data = payload.get("data")
+            return data if isinstance(data, dict) else {}
+        return {}
+
+    async def search(
+        self,
+        name: str,
+        company_hint: str | None = None,
+    ) -> list[ScraperResult]:
+        keyword = clean_title(name)
+        if not keyword:
+            return []
+
+        client_kwargs = {"timeout": httpx.Timeout(15.0)}
+        if self.proxy:
+            client_kwargs["proxy"] = self.proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            try:
+                normalized_id = _normalize_hikarinagi_id(keyword)
+                if normalized_id:
+                    detail = await self._get_detail(client, normalized_id)
+                    return [detail] if detail else []
+
+                hits = await self._search_hits(client, keyword, page_size=5)
+                results: list[ScraperResult] = []
+                for hit in hits:
+                    fallback = self._parse_hit(hit)
+                    if not fallback:
+                        continue
+                    try:
+                        detail = await self._get_detail(client, fallback.source_id, fallback)
+                    except Exception as e:
+                        logger.debug(
+                            "Hikarinagi detail failed for '%s': %s",
+                            fallback.source_id,
+                            e,
+                        )
+                        detail = fallback
+                    if detail:
+                        results.append(detail)
+                return results
+            except Exception as e:
+                logger.warning("Hikarinagi search failed for '%s': %s", name, e)
+                return []
+
+    async def search_best(
+        self,
+        name: str,
+        company_hint: str | None = None,
+    ) -> ScraperResult | None:
+        keyword = clean_title(name)
+        if not keyword:
+            return None
+
+        client_kwargs = {"timeout": httpx.Timeout(15.0)}
+        if self.proxy:
+            client_kwargs["proxy"] = self.proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            try:
+                normalized_id = _normalize_hikarinagi_id(keyword)
+                if normalized_id:
+                    return await self._get_detail(client, normalized_id)
+
+                hits = await self._search_hits(client, keyword, page_size=5)
+                if not hits:
+                    return None
+                fallback = self._parse_hit(hits[0])
+                if not fallback:
+                    return None
+                return await self._get_detail(client, fallback.source_id, fallback)
+            except Exception as e:
+                logger.warning("Hikarinagi search_best failed for '%s': %s", name, e)
+                return None
+
+    async def _search_hits(
+        self,
+        client: httpx.AsyncClient,
+        keyword: str,
+        page_size: int,
+    ) -> list[dict]:
+        data = await self._api_get(
+            client,
+            "/api/v3/open/search",
+            params=[
+                ("q", keyword),
+                ("types", "galgame"),
+                ("page", "1"),
+                ("page_size", str(page_size)),
+            ],
+        )
+        items = data.get("items")
+        if not isinstance(items, list):
+            return []
+        return [item for item in items if isinstance(item, dict) and item.get("type") == "galgame"]
+
+    async def _get_detail(
+        self,
+        client: httpx.AsyncClient,
+        game_id: str,
+        fallback: ScraperResult | None = None,
+    ) -> ScraperResult | None:
+        normalized_id = _normalize_hikarinagi_id(game_id)
+        if not normalized_id:
+            return fallback
+        data = await self._api_get(client, f"/api/v3/open/galgames/{normalized_id}")
+        if not data:
+            return fallback
+        return self._parse_detail(data, fallback)
+
+    def _parse_hit(self, item: dict) -> ScraperResult | None:
+        source_id = str(item.get("id") or "").strip()
+        if not source_id:
+            return None
+        return ScraperResult(
+            title=(item.get("title") or item.get("subtitle") or "").strip(),
+            developer=(item.get("developer") or "").strip(),
+            cover_url=_media_url(item.get("cover")),
+            source_id=source_id,
+            source_name=self.source_name,
+        )
+
+    def _parse_detail(self, item: dict, fallback: ScraperResult | None) -> ScraperResult:
+        title = (
+            item.get("trans_title")
+            or item.get("origin_title")
+            or (fallback.title if fallback else "")
+            or ""
+        )
+        description = (
+            item.get("trans_intro")
+            or item.get("origin_intro")
+            or (fallback.description if fallback else "")
+            or ""
+        )
+        covers = item.get("covers") if isinstance(item.get("covers"), list) else []
+        images = item.get("images") if isinstance(item.get("images"), list) else []
+        cover_url = _best_cover(covers) or (fallback.cover_url if fallback else "")
+        screenshots = [_media_url(img) for img in images]
+        screenshots = [url for url in screenshots if url]
+        hero_url = screenshots[0] if screenshots else ""
+
+        return ScraperResult(
+            title=title.strip(),
+            developer=_developer_from_detail(item) or (fallback.developer if fallback else ""),
+            description=description.strip()[:2000],
+            release_date=_normalize_date(
+                item.get("release_date") or (fallback.release_date if fallback else "") or ""
+            ),
+            cover_url=cover_url,
+            hero_url=hero_url,
+            screenshot_urls=screenshots,
+            source_id=str(item.get("id") or (fallback.source_id if fallback else "") or "").strip(),
+            source_name=self.source_name,
+        )
+
+
+def _normalize_hikarinagi_id(value: str) -> str:
+    text = str(value or "").strip()
+    try:
+        parsed = int(text)
+    except ValueError:
+        return ""
+    return str(parsed) if parsed > 0 else ""
+
+
+def _media_url(value) -> str:
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        return str(value.get("url") or value.get("image") or "").strip()
+    return ""
+
+
+def _best_cover(covers: list) -> str:
+    candidates = [cover for cover in covers if isinstance(cover, dict) and _media_url(cover)]
+    if not candidates:
+        return ""
+    best = max(candidates, key=lambda cover: int(cover.get("votes") or 0))
+    return _media_url(best)
+
+
+def _normalize_date(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return text
+
+
+def _developer_from_detail(item: dict) -> str:
+    for key in ("developer", "producer", "brand", "developers", "producers", "brands", "companies"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, list):
+            names = []
+            for entry in value:
+                if isinstance(entry, str) and entry.strip():
+                    names.append(entry.strip())
+                elif isinstance(entry, dict):
+                    name = entry.get("trans_name") or entry.get("name") or entry.get("title")
+                    if name:
+                        names.append(str(name).strip())
+            if names:
+                return ", ".join(names[:3])
+    return ""

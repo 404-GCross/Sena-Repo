@@ -520,6 +520,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
     "bangumi": "Bangumi",
     "steam": "Steam",
     "ymgal": "月幕GalGame",
+    "hikarinagi": "Hikarinagi",
   };
   static const _modeLabels = {
     "missing": "仅填充缺失",
@@ -908,6 +909,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "bangumi": true,
     "steam": true,
     "ymgal": true,
+    "hikarinagi": false,
   };
   final Map<String, String> _batchFieldSources = {
     "title": "auto",
@@ -929,6 +931,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   };
   final _keys = {
     "vndb_token": TextEditingController(),
+    "hikarinagi_client_id": TextEditingController(),
+    "hikarinagi_client_secret": TextEditingController(),
+    "hikarinagi_scope": TextEditingController(text: "catalog:read"),
     "proxy": TextEditingController(),
   };
 
@@ -1794,6 +1799,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
                   _srcCard("Steam", "steam", "免认证"),
                   _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
+                  _srcCard("Hikarinagi", "hikarinagi", "需 OAuth Client ID/Secret，Galgame 元数据"),
+                  const SizedBox(height: 12),
+                  _hikarinagiCredentialSettings(),
                   const SizedBox(height: 16),
                   _batchFieldSourceSettings(),
                   const SizedBox(height: 16),
@@ -1873,6 +1881,62 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               ),
       );
 
+  Widget _hikarinagiCredentialSettings() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Hikarinagi OAuth",
+            style: AppText.bodySmall.copyWith(
+              fontWeight: FontWeight.w600,
+              color: subTextColor(context),
+            ),
+          ),
+          Text(
+            "Public API 需要 client_credentials，密钥保存在服务端配置中",
+            style: AppText.label.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["hikarinagi_client_id"],
+            decoration: InputDecoration(
+              labelText: "Client ID",
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["hikarinagi_client_secret"],
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: "Client Secret",
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["hikarinagi_scope"],
+            decoration: InputDecoration(
+              labelText: "Scope",
+              hintText: "catalog:read",
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _batchFieldSourceSettings() {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1918,6 +1982,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
                   DropdownMenuItem(value: "steam", child: Text("Steam")),
                   DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
+                  DropdownMenuItem(value: "hikarinagi", child: Text("Hikarinagi")),
                 ],
                 onChanged: (v) =>
                     setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
@@ -2033,7 +2098,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         for (final k in _keys.keys) {
-          _keys[k]?.text = data[k] ?? "";
+          final value = data[k]?.toString() ?? "";
+          _keys[k]?.text = k == "hikarinagi_scope" && value.trim().isEmpty
+              ? "catalog:read"
+              : value;
         }
         final fieldSources = data["batch_field_sources"];
         if (fieldSources is Map) {
@@ -2061,7 +2129,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _saveScraperConfig() async {
     final body = <String, dynamic>{};
     for (final k in _keys.keys) {
-      body[k] = _keys[k]!.text;
+      final value = _keys[k]!.text.trim();
+      body[k] = k == "hikarinagi_scope" && value.isEmpty
+          ? "catalog:read"
+          : value;
     }
     body["batch_field_sources"] = _encodedBatchFieldSources();
     await http.put(

@@ -6,6 +6,7 @@ import "dart:io" show File, Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
@@ -420,9 +421,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
+    const allSrc = ["vndb_kana", "bangumi", "steam", "ymgal", "hikarinagi"];
+    final prefs = await SharedPreferences.getInstance();
+    final defaultSources = allSrc
+        .where(
+          (source) =>
+              prefs.getBool("scrape_src_$source") ?? (source != "hikarinagi"),
+        )
+        .toSet();
+    if (defaultSources.isEmpty) defaultSources.add("vndb_kana");
+
     final result = await showDialog<Map<String, dynamic>>(context: context, builder: (ctx) {
-      const allSrc = ["vndb_kana", "bangumi", "steam", "ymgal"];
-      final sel = Set<String>.from(allSrc);
+      final sel = Set<String>.from(defaultSources);
       String mode = "missing";
       return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
         title: const Text("批量刮削"),
@@ -471,8 +481,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _srcLabel(String s) => switch (s) {
-    "vndb_kana" => "VNDB Kana v2", "bangumi" => "Bangumi", "steam" => "Steam",
-    "ymgal" => "月幕 GalGame", _ => s,
+    "vndb_kana" => "VNDB Kana v2",
+    "bangumi" => "Bangumi",
+    "steam" => "Steam",
+    "ymgal" => "月幕 GalGame",
+    "hikarinagi" => "Hikarinagi",
+    _ => s,
   };
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {

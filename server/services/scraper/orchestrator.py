@@ -25,13 +25,14 @@ from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
 from .ymgal import YmgalScraper
+from .hikarinagi import HikarinagiScraper
 
 logger = logging.getLogger(__name__)
 
 _SCRAPER_SEARCH_TIMEOUT = 45
 _GAME_SCRAPE_TIMEOUT = 300
 
-_VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "ymgal"}
+_VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "ymgal", "hikarinagi"}
 _VALID_FIELD_MAP = {
     "title": "title",
     "name": "title",
@@ -113,6 +114,12 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
         SteamScraper(proxy=config.proxy),
         YmgalScraper(proxy=config.proxy, client_id=s.ymgal_client_id, client_secret=s.ymgal_client_secret),
+        HikarinagiScraper(
+            proxy=config.proxy,
+            client_id=s.hikarinagi_client_id,
+            client_secret=s.hikarinagi_client_secret,
+            scope=s.hikarinagi_scope,
+        ),
     ]
 
     return scrapers

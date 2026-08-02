@@ -40,6 +40,9 @@ class InitRequest(BaseModel):
     game_libraries: list[dict] = Field(default_factory=list)
     steam_patch_libraries: list[dict] = Field(default_factory=list)
     vndb_token: str = ""
+    hikarinagi_client_id: str = ""
+    hikarinagi_client_secret: str = ""
+    hikarinagi_scope: str = "catalog:read"
     batch_field_sources: dict[str, list[str]] = Field(default_factory=dict)
 
 
@@ -186,15 +189,33 @@ async def initialize_setup(
         logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
 
-    if body.vndb_token or body.batch_field_sources:
+    vndb_token = body.vndb_token.strip()
+    hikarinagi_client_id = body.hikarinagi_client_id.strip()
+    hikarinagi_client_secret = body.hikarinagi_client_secret.strip()
+    hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:read"
+    if (
+        vndb_token
+        or hikarinagi_client_id
+        or hikarinagi_client_secret
+        or body.batch_field_sources
+    ):
         try:
             from api.settings import _read_scraper_config, _write_scraper_config
             from services.scraper.orchestrator import _normalize_field_sources
 
             scraper_config = _read_scraper_config()
-            if body.vndb_token:
-                config.scrapers.vndb_token = body.vndb_token
-                scraper_config["vndb_token"] = body.vndb_token
+            if vndb_token:
+                config.scrapers.vndb_token = vndb_token
+                scraper_config["vndb_token"] = vndb_token
+            if hikarinagi_client_id:
+                config.scrapers.hikarinagi_client_id = hikarinagi_client_id
+                scraper_config["hikarinagi_client_id"] = hikarinagi_client_id
+            if hikarinagi_client_secret:
+                config.scrapers.hikarinagi_client_secret = hikarinagi_client_secret
+                scraper_config["hikarinagi_client_secret"] = hikarinagi_client_secret
+            if hikarinagi_client_id or hikarinagi_client_secret:
+                config.scrapers.hikarinagi_scope = hikarinagi_scope
+                scraper_config["hikarinagi_scope"] = hikarinagi_scope
             normalized_sources = _normalize_field_sources(body.batch_field_sources)
             if normalized_sources:
                 scraper_config["batch_field_sources"] = normalized_sources

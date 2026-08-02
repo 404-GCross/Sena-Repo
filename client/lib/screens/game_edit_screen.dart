@@ -48,6 +48,29 @@ class _GameEditScreenState extends State<GameEditScreen> {
   Map<String, String> get _authHeaders =>
       context.read<GameProvider>().api.headers;
 
+  Future<List<Map<String, dynamic>>> _searchMetadataSource(
+    String source,
+    String query,
+  ) async {
+    if (source != "hikarinagi") {
+      return ScrapeService.search(source, query);
+    }
+
+    final uri = Uri.parse("$_baseUrl/api/scrape/search").replace(
+      queryParameters: {"q": query, "source": source},
+    );
+    final resp = await http.get(uri, headers: _authHeaders);
+    if (resp.statusCode != 200) {
+      throw Exception("Hikarinagi 搜索失败 (${resp.statusCode})");
+    }
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final results = (data["results"] as List?) ?? const [];
+    return results
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1784,6 +1807,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "bangumi": "Bangumi",
       "steam": "Steam",
       "ymgal": "月幕GalGame",
+      "hikarinagi": "Hikarinagi",
     };
     final src = await showDialog<String>(
       context: context,
@@ -1835,7 +1859,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           autofocus: true,
                           decoration: _dec(
                             labelText: "名称/ID",
-                            hintText: "游戏名 或 VNDB/Steam/Bangumi ID",
+                            hintText: "游戏名 或 VNDB/Steam/Bangumi/Hikarinagi ID",
                           ),
                           onSubmitted: (v) async {
                             setD(() {
@@ -1844,7 +1868,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                               error = "";
                             });
                             try {
-                              results = await ScrapeService.search(src, v);
+                              results = await _searchMetadataSource(src, v);
                             } catch (e) {
                               error = "$e";
                             }
@@ -1862,10 +1886,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             error = "";
                           });
                           try {
-                            results = await ScrapeService.search(
-                              src,
-                              ctrl.text,
-                            );
+                            results = await _searchMetadataSource(src, ctrl.text);
                           } catch (e) {
                             error = "$e";
                           }

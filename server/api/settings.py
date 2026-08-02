@@ -112,6 +112,9 @@ class ScraperConfigOut(BaseModel):
     vndb_token: str = ""
     ymgal_client_id: str = ""
     ymgal_client_secret: str = ""
+    hikarinagi_client_id: str = ""
+    hikarinagi_client_secret: str = ""
+    hikarinagi_scope: str = "catalog:read"
     proxy: str = ""
     batch_field_sources: dict[str, list[str]] = Field(default_factory=dict)
 
@@ -121,6 +124,9 @@ class ScraperConfigUpdate(BaseModel):
     vndb_token: str | None = None
     ymgal_client_id: str | None = None
     ymgal_client_secret: str | None = None
+    hikarinagi_client_id: str | None = None
+    hikarinagi_client_secret: str | None = None
+    hikarinagi_scope: str | None = None
     proxy: str | None = None
     batch_field_sources: dict[str, list[str]] | None = None
 
@@ -143,6 +149,9 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         vndb_token=_mask(s.vndb_token),
         ymgal_client_id=_mask(s.ymgal_client_id),
         ymgal_client_secret=_mask(s.ymgal_client_secret),
+        hikarinagi_client_id=_mask(s.hikarinagi_client_id),
+        hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
+        hikarinagi_scope=s.hikarinagi_scope,
         proxy=_mask(config.proxy),
         batch_field_sources=data.get("batch_field_sources") or {},
     )
@@ -182,11 +191,28 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     config = load_config()
     data = _read_scraper_config()
 
-    for key in ("bangumi_token", "vndb_token",
-                 "ymgal_client_id", "ymgal_client_secret", "proxy"):
+    for key in (
+        "bangumi_token",
+        "vndb_token",
+        "ymgal_client_id",
+        "ymgal_client_secret",
+        "hikarinagi_client_id",
+        "hikarinagi_client_secret",
+        "hikarinagi_scope",
+        "proxy",
+    ):
         val = getattr(body, key, None)
         if val is not None:
-            setattr(config.scrapers, key, val) if key != "proxy" else setattr(config, "proxy", val)
+            if isinstance(val, str) and "****" in val:
+                continue
+            if isinstance(val, str):
+                val = val.strip()
+            if key == "hikarinagi_scope" and not val:
+                val = "catalog:read"
+            if key != "proxy":
+                setattr(config.scrapers, key, val)
+            else:
+                setattr(config, "proxy", val)
             data[key] = val
     if body.batch_field_sources is not None:
         data["batch_field_sources"] = body.batch_field_sources
