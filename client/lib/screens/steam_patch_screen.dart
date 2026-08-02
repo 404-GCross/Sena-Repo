@@ -33,6 +33,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   // Server tab
   List<Map<String, dynamic>> _serverPatches = [];
   bool _serverLoading = false;
+  bool _serverLoaded = false;
   bool _rescraping = false;
   String? _serverStatus;
 
@@ -101,11 +102,23 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       final api = context.read<GameProvider>().api;
       final data = await SteamService.listPatches(api);
       final patches = (data["patches"] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final needsScan = data["needs_scan"] == true;
       if (!mounted) return;
-      setState(() { _serverPatches = patches; _serverLoading = false; _serverStatus = "共 ${patches.length} 个补丁索引"; });
+      setState(() {
+        _serverPatches = patches;
+        _serverLoading = false;
+        _serverLoaded = true;
+        if (patches.isEmpty && needsScan) {
+          _serverStatus = "未建立补丁索引，点击“扫描补丁”生成";
+        } else if (needsScan) {
+          _serverStatus = "共 ${patches.length} 个补丁索引，建议手动扫描刷新大小信息";
+        } else {
+          _serverStatus = "共 ${patches.length} 个补丁索引";
+        }
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _serverLoading = false; _serverStatus = "加载失败: $e"; });
+      setState(() { _serverLoading = false; _serverLoaded = false; _serverStatus = "加载失败: $e"; });
     }
   }
 
@@ -292,7 +305,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         borderRadius: BorderRadius.circular(8),
         onTap: () {
           setState(() => _tabIndex = index);
-          if (index == 1 && _serverPatches.isEmpty && !_serverLoading) _loadServerPatches();
+          if (index == 1 && !_serverLoaded && !_serverLoading) _loadServerPatches();
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),

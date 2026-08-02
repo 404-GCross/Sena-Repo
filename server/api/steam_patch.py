@@ -372,34 +372,11 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
 
 @router.get("/patches")
 async def list_patches(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
-    """List all patches. Auto-scans if no patches.json. Matches by game name if no app_id."""
+    """List indexed patches. Scanning is explicit via /scan-patches."""
     patches_dir = _get_patches_dir()
     patches_dir.mkdir(parents=True, exist_ok=True)
-
-    # Auto-scan if no patches.json, or if an older OpenList index lacks file sizes.
     json_path = patches_dir / "patches.json"
-    if _patches_index_needs_autoscan(json_path):
-        try:
-            from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
-            scanned = []
-            roots = await _patch_roots(session)
-            for root in roots:
-                if root.source_type == "openlist":
-                    result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
-                    source = result.scalar_one_or_none()
-                    adapter = adapter_from_source(source, "openlist")
-                    scanned.extend(await asyncio.to_thread(scan_patches_source, adapter, root.path, "openlist", root.source_id))
-                else:
-                    scanned.extend(await asyncio.to_thread(scan_patches_dir, Path(root.path)))
-            if scanned:
-                existing = load_existing(json_path)
-                existing_list = existing.get("patches", []) if existing else []
-                merged_patches = merge(existing_list, scanned)
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
+    needs_scan = _patches_index_needs_autoscan(json_path)
     patches = _load_all_patches(patches_dir)
 
     # Match patches without app_id to games in DB by name
@@ -425,7 +402,12 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
         except Exception:
             pass
 
-    return {"patches": patches, "count": len(patches), "source": "patches.json"}
+    return {
+        "patches": patches,
+        "count": len(patches),
+        "source": "patches.json",
+        "needs_scan": needs_scan,
+    }
 
 
 @router.get("/patches/{app_id}/download")
