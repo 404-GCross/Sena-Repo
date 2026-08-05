@@ -503,13 +503,9 @@ jobs:
             printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
           } > release_notes.md
 
-      - name: Replace dev pre-release
+      - name: Move dev pre-release tag
         working-directory: .
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "${{ steps.meta.outputs.tag }}" --yes || true
-          git push origin ":refs/tags/${{ steps.meta.outputs.tag }}" || true
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git tag -f "${{ steps.meta.outputs.tag }}"
