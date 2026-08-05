@@ -548,28 +548,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
-  Widget _miniBtn(IconData icon, String label, VoidCallback? onTap) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.primary.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon,
-                  size: 15, color: onTap == null ? cs.outline : cs.primary),
-              const SizedBox(width: 5),
-              Text(label,
-                  style: AppText.bodySmall.copyWith(
-                      fontWeight: FontWeight.w500, color: cs.primary)),
-            ])),
-      ),
-    );
-  }
-
   Widget _buildStatusBar() {
     final available = _availablePatches.length;
     final color = available > 0 ? Colors.green : Colors.grey;
