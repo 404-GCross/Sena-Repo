@@ -20,6 +20,7 @@ import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
 import "../widgets/empty_state.dart";
 import "../utils/theme_utils.dart";
+import "../widgets/app_shell.dart";
 
 class DownloadManagerScreen extends StatefulWidget {
   const DownloadManagerScreen({super.key});
@@ -50,19 +51,89 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final activeCount = _tasks
+        .where((t) =>
+            t.status == "pending" ||
+            t.status == "downloading" ||
+            t.status == "extracting" ||
+            t.status == "paused")
+        .length;
+    final failedCount = _tasks.where((t) => t.status == "failed").length;
+    final doneCount = _tasks.where((t) => t.status == "done").length;
     return Scaffold(
-      appBar: AppBar(title: const Text("下载管理")),
       body: Column(
         children: [
-          // ── Task list ──
+          const AppPageHeader(
+            leading: Icon(Icons.download_outlined, size: 26),
+            title: "下载管理",
+            subtitle: "查看下载、解压、失败重试和安装后操作",
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final cardWidth = constraints.maxWidth >= 720
+                    ? (constraints.maxWidth - 24) / 4
+                    : (constraints.maxWidth - 12) / 2;
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    SizedBox(
+                      width: cardWidth,
+                      child: AppMetricCard(
+                        label: "全部任务",
+                        value: "${_tasks.length}",
+                        icon: Icons.queue,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    SizedBox(
+                      width: cardWidth,
+                      child: AppMetricCard(
+                        label: "进行中",
+                        value: "$activeCount",
+                        icon: Icons.sync,
+                        color: Colors.blue,
+                      ),
+                    ),
+                    SizedBox(
+                      width: cardWidth,
+                      child: AppMetricCard(
+                        label: "失败",
+                        value: "$failedCount",
+                        icon: Icons.error_outline,
+                        color: failedCount > 0 ? Colors.red : Colors.grey,
+                      ),
+                    ),
+                    SizedBox(
+                      width: cardWidth,
+                      child: AppMetricCard(
+                        label: "已完成",
+                        value: "$doneCount",
+                        icon: Icons.check_circle_outline,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
           Expanded(
-            child: _tasks.isEmpty
-                ? EmptyState(icon: Icons.download_outlined, title: "暂无下载任务")
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _tasks.length,
-                    itemBuilder: (_, i) => _taskCard(_tasks[i]),
-                  ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: AppSurface(
+                padding: EdgeInsets.zero,
+                child: _tasks.isEmpty
+                    ? EmptyState(icon: Icons.download_outlined, title: "暂无下载任务")
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(14),
+                        itemCount: _tasks.length,
+                        itemBuilder: (_, i) => _taskCard(_tasks[i]),
+                      ),
+              ),
+            ),
           ),
         ],
       ),
@@ -70,14 +141,9 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
   }
 
   Widget _taskCard(DownloadTask t) {
-    return Container(
+    return AppSurface(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cardBg(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cardBorder(context)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -272,12 +338,12 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                   t.status == "extracting"
                       ? "解压中..."
                       : t.totalBytes > 0
-                      ? "${(t.progress * 100).toStringAsFixed(0)}% · ${_fmtSize(t.receivedBytes)} / ${_fmtSize(t.totalBytes)}"
-                      : t.receivedBytes > 0
-                      ? "已下载 ${_fmtSize(t.receivedBytes)}"
-                      : t.headersReceived
-                      ? "已连接，等待数据..."
-                      : "正在连接...",
+                          ? "${(t.progress * 100).toStringAsFixed(0)}% · ${_fmtSize(t.receivedBytes)} / ${_fmtSize(t.totalBytes)}"
+                          : t.receivedBytes > 0
+                              ? "已下载 ${_fmtSize(t.receivedBytes)}"
+                              : t.headersReceived
+                                  ? "已连接，等待数据..."
+                                  : "正在连接...",
                   style: AppText.caption.copyWith(color: hintColor(context)),
                 ),
                 if (t.status == "downloading")
@@ -333,9 +399,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
                       t.outputPath!,
                       gameName: t.gameName,
                     );
-                    final exeCount = exes.length > 1
-                        ? " (${exes.length}个)"
-                        : "";
+                    final exeCount =
+                        exes.length > 1 ? " (${exes.length}个)" : "";
                     return Wrap(
                       spacing: 6,
                       runSpacing: 6,
@@ -465,10 +530,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
           if (coverUrl.isEmpty &&
               g["cover_path"] != null &&
               g["cover_path"].toString().isNotEmpty) {
-            final name = g["cover_path"]
-                .toString()
-                .split(RegExp(r'[/\\]'))
-                .last;
+            final name =
+                g["cover_path"].toString().split(RegExp(r'[/\\]')).last;
             coverUrl = "${api.baseUrl}/api/files/covers/$name";
           }
           if (heroUrl.isEmpty &&

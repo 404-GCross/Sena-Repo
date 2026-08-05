@@ -18,6 +18,7 @@ import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
+import "../widgets/app_shell.dart";
 import "download_manager_screen.dart";
 import "game_edit_screen.dart";
 
@@ -467,9 +468,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                             height: 1.7,
                                             color:
                                                 game.description?.isNotEmpty ==
-                                                    true
-                                                ? null
-                                                : Colors.grey[500],
+                                                        true
+                                                    ? null
+                                                    : Colors.grey[500],
                                           ),
                                         ),
                                       ),
@@ -483,11 +484,11 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           children: game.tags
                                               .map(
                                                 (t) => Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 12,
-                                                        vertical: 6,
-                                                      ),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 6,
+                                                  ),
                                                   decoration: BoxDecoration(
                                                     color: Theme.of(context)
                                                         .colorScheme
@@ -497,8 +498,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                                         ),
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                          16,
-                                                        ),
+                                                      16,
+                                                    ),
                                                     border: Border.all(
                                                       color: Theme.of(context)
                                                           .colorScheme
@@ -561,20 +562,22 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                         _hintCard("暂无版本信息")
                                       else
                                         _fieldCard(
-                                          children: game.versions.asMap().entries.map((
+                                          children: game.versions
+                                              .asMap()
+                                              .entries
+                                              .map((
                                             e,
                                           ) {
                                             final v = e.value;
-                                            final isLast =
-                                                e.key ==
+                                            final isLast = e.key ==
                                                 game.versions.length - 1;
                                             return Column(
                                               children: [
                                                 Padding(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        vertical: 10,
-                                                      ),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    vertical: 10,
+                                                  ),
                                                   child: Row(
                                                     children: [
                                                       Icon(
@@ -591,41 +594,42 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                                           v.filename,
                                                           style:
                                                               const TextStyle(
-                                                                fontSize: 14,
-                                                              ),
+                                                            fontSize: 14,
+                                                          ),
                                                         ),
                                                       ),
                                                       const SizedBox(width: 12),
                                                       Container(
                                                         padding:
-                                                            const EdgeInsets.symmetric(
-                                                              horizontal: 10,
-                                                              vertical: 4,
-                                                            ),
-                                                        decoration: BoxDecoration(
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                          horizontal: 10,
+                                                          vertical: 4,
+                                                        ),
+                                                        decoration:
+                                                            BoxDecoration(
                                                           borderRadius:
-                                                              BorderRadius.circular(
-                                                                12,
-                                                              ),
-                                                          color:
-                                                              _platformColor(
-                                                                v.platform,
-                                                              ).withValues(
-                                                                alpha: 0.15,
-                                                              ),
+                                                              BorderRadius
+                                                                  .circular(
+                                                            12,
+                                                          ),
+                                                          color: _platformColor(
+                                                            v.platform,
+                                                          ).withValues(
+                                                            alpha: 0.15,
+                                                          ),
                                                         ),
                                                         child: Text(
                                                           v.platform,
                                                           style: AppText.label
                                                               .copyWith(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                                color:
-                                                                    _platformColor(
-                                                                      v.platform,
-                                                                    ),
-                                                              ),
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                            color:
+                                                                _platformColor(
+                                                              v.platform,
+                                                            ),
+                                                          ),
                                                         ),
                                                       ),
                                                       const SizedBox(width: 10),
@@ -633,10 +637,10 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                                         _formatSize(v.fileSize),
                                                         style: AppText.label
                                                             .copyWith(
-                                                              color: hintColor(
-                                                                context,
-                                                              ),
-                                                            ),
+                                                          color: hintColor(
+                                                            context,
+                                                          ),
+                                                        ),
                                                       ),
                                                     ],
                                                   ),
@@ -673,8 +677,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                       height: 1.7,
                                       color:
                                           game.description?.isNotEmpty == true
-                                          ? null
-                                          : Colors.grey[500],
+                                              ? null
+                                              : Colors.grey[500],
                                     ),
                                   ),
                                 ),
@@ -749,7 +753,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                   _hintCard("暂无版本信息")
                                 else
                                   _fieldCard(
-                                    children: game.versions.asMap().entries.map((
+                                    children:
+                                        game.versions.asMap().entries.map((
                                       e,
                                     ) {
                                       final v = e.value;
@@ -780,30 +785,30 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                                 ),
                                                 const SizedBox(width: 12),
                                                 Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 10,
-                                                        vertical: 4,
-                                                      ),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
                                                   decoration: BoxDecoration(
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                          12,
-                                                        ),
+                                                      12,
+                                                    ),
                                                     color: _platformColor(
                                                       v.platform,
                                                     ).withValues(alpha: 0.15),
                                                   ),
                                                   child: Text(
                                                     v.platform,
-                                                    style: AppText.label
-                                                        .copyWith(
-                                                          fontWeight:
-                                                              FontWeight.w500,
-                                                          color: _platformColor(
-                                                            v.platform,
-                                                          ),
-                                                        ),
+                                                    style:
+                                                        AppText.label.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: _platformColor(
+                                                        v.platform,
+                                                      ),
+                                                    ),
                                                   ),
                                                 ),
                                                 const SizedBox(width: 10),
@@ -835,53 +840,45 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   }
 
   Widget _section(String t, [IconData? icon]) => Padding(
-    padding: const EdgeInsets.only(bottom: 8, top: 4),
-    child: Row(
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: 18, color: sectionIconColor(context)),
-          const SizedBox(width: 6),
-        ],
-        Text(
-          t,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: sectionTextColor(context),
-          ),
+        padding: const EdgeInsets.only(bottom: 8, top: 4),
+        child: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: sectionIconColor(context)),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              t,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: sectionTextColor(context),
+              ),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
-  Widget _fieldCard({required List<Widget> children}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Column(children: children),
-  );
+  Widget _fieldCard({required List<Widget> children}) => AppSurface(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        radius: AppRadius.md,
+        child: Column(children: children),
+      );
 
-  Widget _hintCard(String text) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Row(
-      children: [
-        Icon(Icons.info_outline, size: 18, color: hintColor(context)),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+  Widget _hintCard(String text) => AppSurface(
+        padding: const EdgeInsets.all(16),
+        radius: AppRadius.md,
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   Color _platformColor(String platform) {
     switch (platform.toLowerCase()) {
@@ -941,14 +938,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: active
-              ? Colors.green.withValues(alpha: 0.15)
-              : cardBg(context),
+          color:
+              active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: active
-                ? Colors.green.withValues(alpha: 0.35)
-                : Colors.white24,
+            color:
+                active ? Colors.green.withValues(alpha: 0.35) : Colors.white24,
           ),
         ),
         child: Row(
@@ -977,24 +972,24 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   }
 
   Widget _coverPlaceholder() => Container(
-    decoration: BoxDecoration(
-      color: Theme.of(context).brightness == Brightness.dark
-          ? Colors.grey[850]
-          : Colors.grey[200],
-      borderRadius: BorderRadius.circular(12),
-    ),
-    width: 200,
-    height: 280,
-    child: Center(
-      child: Icon(
-        Icons.image,
-        size: 64,
-        color: Theme.of(context).brightness == Brightness.dark
-            ? Colors.grey[700]
-            : Colors.grey[400],
-      ),
-    ),
-  );
+        decoration: BoxDecoration(
+          color: Theme.of(context).brightness == Brightness.dark
+              ? Colors.grey[850]
+              : Colors.grey[200],
+          borderRadius: BorderRadius.circular(12),
+        ),
+        width: 200,
+        height: 280,
+        child: Center(
+          child: Icon(
+            Icons.image,
+            size: 64,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.grey[700]
+                : Colors.grey[400],
+          ),
+        ),
+      );
 
   String _formatPlaytime(GameDetail game) {
     final minutes = game.lengthMinutes;
@@ -1540,10 +1535,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
           if (coverUrl.isEmpty &&
               g["cover_path"] != null &&
               g["cover_path"].toString().isNotEmpty) {
-            final name = g["cover_path"]
-                .toString()
-                .split(RegExp(r'[/\\]'))
-                .last;
+            final name =
+                g["cover_path"].toString().split(RegExp(r'[/\\]')).last;
             coverUrl = "${api.baseUrl}/api/files/covers/$name";
           }
           if (heroUrl.isEmpty &&
