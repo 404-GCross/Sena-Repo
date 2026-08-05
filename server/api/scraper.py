@@ -84,7 +84,6 @@ class BatchScrapeRequest(BaseModel):
     game_ids: list[int] | None = None
     sources: list[str] | None = None
     mode: str = "missing"  # "missing" | "overwrite" | "images" | "metadata"
-    field_sources: dict[str, list[str]] | None = None
 
 
 class JobStatusOut(BaseModel):
@@ -336,7 +335,6 @@ async def start_batch_scrape(
                         job,
                         sources=body.sources,
                         mode=body.mode,
-                        field_sources=body.field_sources,
                     )
             loop.run_until_complete(_work())
         except Exception as e:

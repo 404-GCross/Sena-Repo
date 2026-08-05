@@ -43,7 +43,6 @@ class InitRequest(BaseModel):
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:read"
-    batch_field_sources: dict[str, list[str]] = Field(default_factory=dict)
 
 
 @router.get("/status", response_model=SetupStatus)
@@ -197,11 +196,9 @@ async def initialize_setup(
         vndb_token
         or hikarinagi_client_id
         or hikarinagi_client_secret
-        or body.batch_field_sources
     ):
         try:
             from api.settings import _read_scraper_config, _write_scraper_config
-            from services.scraper.orchestrator import _normalize_field_sources
 
             scraper_config = _read_scraper_config()
             if vndb_token:
@@ -216,9 +213,6 @@ async def initialize_setup(
             if hikarinagi_client_id or hikarinagi_client_secret:
                 config.scrapers.hikarinagi_scope = hikarinagi_scope
                 scraper_config["hikarinagi_scope"] = hikarinagi_scope
-            normalized_sources = _normalize_field_sources(body.batch_field_sources)
-            if normalized_sources:
-                scraper_config["batch_field_sources"] = normalized_sources
             _write_scraper_config(scraper_config)
         except Exception as e:
             logger = logging.getLogger("sena-repo")

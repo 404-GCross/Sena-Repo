@@ -47,30 +47,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _hikarinagiClientIdCtrl = TextEditingController();
   final _hikarinagiClientSecretCtrl = TextEditingController();
   final _hikarinagiScopeCtrl = TextEditingController(text: "catalog:read");
-  final Map<String, String> _batchFieldSources = {
-    "title": "auto",
-    "cover": "auto",
-    "background": "auto",
-    "description": "auto",
-    "release_date": "auto",
-    "developer": "auto",
-    "length_minutes": "auto",
-  };
 
   static const _titles = [
     "\u521b\u5efa\u670d\u4e3b\u8d26\u6237",
     "\u76ee\u5f55\u4e0e\u626b\u63cf",
     "\u522e\u524a\u6e90",
   ];
-  static const _batchFieldLabels = {
-    "title": "\u540d\u79f0",
-    "cover": "\u5c01\u9762",
-    "background": "\u80cc\u666f\u56fe",
-    "description": "\u7b80\u4ecb",
-    "release_date": "\u53d1\u552e\u65e5",
-    "developer": "\u5f00\u53d1\u5546",
-    "length_minutes": "\u5e73\u5747\u6e38\u620f\u65f6\u957f",
-  };
 
   @override
   void dispose() {
@@ -175,7 +157,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "hikarinagi_scope": _hikarinagiScopeCtrl.text.trim().isEmpty
               ? "catalog:read"
               : _hikarinagiScopeCtrl.text.trim(),
-          "batch_field_sources": _encodedBatchFieldSources(),
         }),
       );
       if (resp.statusCode != 200) {
@@ -228,16 +209,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     if (depth == 2) return "根目录 -> 会社 -> 游戏 -> 压缩包";
     if (depth == 3) return "根目录 -> 分类 -> 会社 -> 游戏 -> 压缩包";
     return "根目录 -> ... -> 分类 -> 会社 -> 游戏 -> 压缩包";
-  }
-
-  Map<String, List<String>> _encodedBatchFieldSources() {
-    final result = <String, List<String>>{};
-    for (final entry in _batchFieldSources.entries) {
-      if (entry.value != "auto") {
-        result[entry.key] = [entry.value];
-      }
-    }
-    return result;
   }
 
   @override
@@ -616,35 +587,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           decoration: const InputDecoration(
             labelText: "Hikarinagi Scope",
             hintText: "catalog:read",
-          ),
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          "\u6279\u91cf\u81ea\u52a8\u522e\u524a\u5b57\u6bb5\u6765\u6e90",
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        ..._batchFieldLabels.entries.map(
-          (entry) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: DropdownButtonFormField<String>(
-              value: _batchFieldSources[entry.key] ?? "auto",
-              decoration: InputDecoration(labelText: entry.value),
-              items: const [
-                DropdownMenuItem(
-                  value: "auto",
-                  child: Text("\u8ddf\u968f\u522e\u524a\u6e90\u987a\u5e8f"),
-                ),
-                DropdownMenuItem(
-                    value: "vndb_kana", child: Text("VNDB Kana v2")),
-                DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
-                DropdownMenuItem(value: "steam", child: Text("Steam")),
-                DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
-                DropdownMenuItem(value: "hikarinagi", child: Text("Hikarinagi")),
-              ],
-              onChanged: (v) =>
-                  setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
-            ),
           ),
         ),
       ];

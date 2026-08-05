@@ -547,7 +547,7 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              "选择主要刮削来源；字段规则需要的来源会自动参与",
+              "选择本次批量刮削使用的来源",
               style: AppText.bodySmall.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 12),
@@ -911,24 +911,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "ymgal": true,
     "hikarinagi": false,
   };
-  final Map<String, String> _batchFieldSources = {
-    "title": "auto",
-    "cover": "auto",
-    "background": "auto",
-    "description": "auto",
-    "release_date": "auto",
-    "developer": "auto",
-    "length_minutes": "auto",
-  };
-  static const _batchFieldLabels = {
-    "title": "名称",
-    "cover": "封面",
-    "background": "背景图",
-    "description": "简介",
-    "release_date": "发售日",
-    "developer": "开发商",
-    "length_minutes": "平均游戏时长",
-  };
   final _keys = {
     "vndb_token": TextEditingController(),
     "hikarinagi_client_id": TextEditingController(),
@@ -1281,20 +1263,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
     if (result == null || !mounted) return;
     final body = Map<String, dynamic>.from(result);
-    final fieldSources = _encodedBatchFieldSources();
-    if (fieldSources.isNotEmpty) {
-      body["field_sources"] = fieldSources;
-      final sources = <String>{
-        ...((body["sources"] as List?) ?? const [])
-            .map((e) => e.toString())
-            .where((source) => _sources.containsKey(source)),
-      };
-      for (final sourceList in fieldSources.values) {
-        sources
-            .addAll(sourceList.where((source) => _sources.containsKey(source)));
-      }
-      if (sources.isNotEmpty) body["sources"] = sources.toList();
-    }
     setState(() => _scraping = true);
     try {
       final resp = await http.post(
@@ -1803,8 +1771,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   const SizedBox(height: 12),
                   _hikarinagiCredentialSettings(),
                   const SizedBox(height: 16),
-                  _batchFieldSourceSettings(),
-                  const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -1937,63 +1903,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
-  Widget _batchFieldSourceSettings() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cardBg(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cardBorder(context)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "批量自动刮削字段来源",
-            style: AppText.bodySmall.copyWith(
-              fontWeight: FontWeight.w600,
-              color: subTextColor(context),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            "只影响批量和自动刮削。选择“跟随刮削源顺序”的字段会保持原有填充逻辑。",
-            style: AppText.label.copyWith(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 12),
-          ..._batchFieldLabels.entries.map(
-            (entry) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: DropdownButtonFormField<String>(
-                value: _batchFieldSources[entry.key] ?? "auto",
-                decoration: InputDecoration(
-                  labelText: entry.value,
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                items: const [
-                  DropdownMenuItem(value: "auto", child: Text("跟随刮削源顺序")),
-                  DropdownMenuItem(
-                    value: "vndb_kana",
-                    child: Text("VNDB Kana v2"),
-                  ),
-                  DropdownMenuItem(value: "bangumi", child: Text("Bangumi")),
-                  DropdownMenuItem(value: "steam", child: Text("Steam")),
-                  DropdownMenuItem(value: "ymgal", child: Text("YMGal")),
-                  DropdownMenuItem(value: "hikarinagi", child: Text("Hikarinagi")),
-                ],
-                onChanged: (v) =>
-                    setState(() => _batchFieldSources[entry.key] = v ?? "auto"),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _sectionHeader(String title, IconData icon) => Row(
         children: [
           Icon(icon, size: 18, color: sectionIconColor(context)),
@@ -2103,19 +2012,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               ? "catalog:read"
               : value;
         }
-        final fieldSources = data["batch_field_sources"];
-        if (fieldSources is Map) {
-          for (final field in _batchFieldSources.keys) {
-            final sources = fieldSources[field];
-            if (sources is List && sources.isNotEmpty) {
-              final source = sources.first.toString();
-              _batchFieldSources[field] =
-                  _sources.containsKey(source) ? source : "auto";
-            } else {
-              _batchFieldSources[field] = "auto";
-            }
-          }
-        }
       }
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
@@ -2134,7 +2030,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           ? "catalog:read"
           : value;
     }
-    body["batch_field_sources"] = _encodedBatchFieldSources();
     await http.put(
       Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
       headers: {"Content-Type": "application/json", ...widget.api.headers},
@@ -2145,16 +2040,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
     }
     if (mounted) _toast(context, "刮削源配置已保存");
-  }
-
-  Map<String, List<String>> _encodedBatchFieldSources() {
-    final result = <String, List<String>>{};
-    for (final entry in _batchFieldSources.entries) {
-      if (entry.value != "auto") {
-        result[entry.key] = [entry.value];
-      }
-    }
-    return result;
   }
 
   Future<void> _testProxy() async {

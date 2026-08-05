@@ -116,7 +116,6 @@ class ScraperConfigOut(BaseModel):
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:read"
     proxy: str = ""
-    batch_field_sources: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class ScraperConfigUpdate(BaseModel):
@@ -128,7 +127,6 @@ class ScraperConfigUpdate(BaseModel):
     hikarinagi_client_secret: str | None = None
     hikarinagi_scope: str | None = None
     proxy: str | None = None
-    batch_field_sources: dict[str, list[str]] | None = None
 
 
 @router.get("/scraper", response_model=ScraperConfigOut)
@@ -137,7 +135,6 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
     from config import load_config
     config = load_config()
     s = config.scrapers
-    data = _read_scraper_config()
 
     def _mask(val: str) -> str:
         if not val:
@@ -153,7 +150,6 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
         hikarinagi_scope=s.hikarinagi_scope,
         proxy=_mask(config.proxy),
-        batch_field_sources=data.get("batch_field_sources") or {},
     )
 
 
@@ -214,9 +210,6 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
             else:
                 setattr(config, "proxy", val)
             data[key] = val
-    if body.batch_field_sources is not None:
-        data["batch_field_sources"] = body.batch_field_sources
-
     _write_scraper_config(data)
     return {"message": "已保存"}
 
