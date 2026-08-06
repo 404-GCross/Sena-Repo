@@ -54,7 +54,7 @@ jobs:
           java-version: "17"
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.29"
+          flutter-version: "3.44.8"
           channel: "stable"
       - name: Setup NDK
         run: |
@@ -103,7 +103,7 @@ jobs:
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.29"
+          flutter-version: "3.44.8"
           channel: "stable"
       - name: Copy 7z binary
         shell: pwsh
@@ -225,7 +225,7 @@ jobs:
           sed -i "s/^version: .*/version: ${VERSION}/" pubspec.yaml
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.29"
+          flutter-version: "3.44.8"
           channel: "stable"
       - name: Install build deps
         run: |
