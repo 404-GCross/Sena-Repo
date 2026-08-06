@@ -511,7 +511,7 @@ jobs:
           git tag -f "${{ steps.meta.outputs.tag }}"
           git push -f origin "${{ steps.meta.outputs.tag }}"
 
-      - name: Clear existing dev pre-release assets
+      - name: Delete existing dev pre-release
         working-directory: .
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -521,21 +521,12 @@ jobs:
 
           release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' 2>/dev/null || true)"
           if [ -z "$release_id" ]; then
-            echo "No existing release for ${TAG}; nothing to clear."
+            echo "No existing release for ${TAG}; nothing to delete."
             exit 0
           fi
 
-          asset_ids="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --paginate --jq '.[].id')"
-          if [ -z "$asset_ids" ]; then
-            echo "Existing release ${TAG} has no assets."
-            exit 0
-          fi
-
-          while IFS= read -r asset_id; do
-            [ -n "$asset_id" ] || continue
-            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
-            echo "Deleted release asset ${asset_id}"
-          done <<< "$asset_ids"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          echo "Deleted existing release object for ${TAG}; tag remains and will be republished."
 
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v2
