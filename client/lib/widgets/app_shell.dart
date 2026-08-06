@@ -107,12 +107,14 @@ class AppPageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+    final effectivePadding =
+        isCompact ? const EdgeInsets.fromLTRB(12, 8, 12, 8) : padding;
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
           width: double.infinity,
-          padding: padding,
           decoration: BoxDecoration(
             color: cs.surface.withValues(alpha: 0.54),
             border: Border(
@@ -121,52 +123,64 @@ class AppPageHeader extends StatelessWidget {
               ),
             ),
           ),
-          child: Row(
-            children: [
-              if (showBack) ...[
-                IconButton.filledTonal(
-                  tooltip: "返回",
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  onPressed: onBack ?? () => Navigator.maybePop(context),
-                ),
-                const SizedBox(width: AppGap.sm),
-              ],
-              if (leading != null) ...[
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: cs.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: Center(child: leading!),
-                ),
-                const SizedBox(width: AppGap.md),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        style: AppText.headline.copyWith(color: cs.onSurface)),
-                    if (subtitle != null && subtitle!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(subtitle!,
-                          style: AppText.bodySmall
-                              .copyWith(color: hintColor(context))),
-                    ],
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: effectivePadding,
+              child: Row(
+                children: [
+                  if (showBack) ...[
+                    IconButton.filledTonal(
+                      tooltip: "返回",
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      onPressed: onBack ?? () => Navigator.maybePop(context),
+                    ),
+                    const SizedBox(width: AppGap.sm),
                   ],
-                ),
+                  if (!isCompact && leading != null) ...[
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      child: Center(child: leading!),
+                    ),
+                    const SizedBox(width: AppGap.md),
+                  ],
+                  if (!isCompact)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title,
+                              style: AppText.headline
+                                  .copyWith(color: cs.onSurface)),
+                          if (subtitle != null && subtitle!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(subtitle!,
+                                style: AppText.bodySmall
+                                    .copyWith(color: hintColor(context))),
+                          ],
+                        ],
+                      ),
+                    )
+                  else
+                    const Spacer(),
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(width: AppGap.sm),
+                    Flexible(
+                      child: Wrap(
+                          spacing: AppGap.sm,
+                          runSpacing: AppGap.sm,
+                          alignment: WrapAlignment.end,
+                          children: actions),
+                    ),
+                  ],
+                ],
               ),
-              if (actions.isNotEmpty) ...[
-                const SizedBox(width: AppGap.md),
-                Wrap(
-                    spacing: AppGap.sm,
-                    runSpacing: AppGap.sm,
-                    alignment: WrapAlignment.end,
-                    children: actions),
-              ],
-            ],
+            ),
           ),
         ),
       ),
