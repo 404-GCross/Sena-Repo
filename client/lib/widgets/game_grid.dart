@@ -39,23 +39,28 @@ class _GameGridState extends State<GameGrid> {
     final coverSize = context.watch<SettingsProvider>().coverSize;
     return GridView.builder(
       controller: widget.controller,
-      padding: const EdgeInsets.all(AppGap.sm),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: coverSize,
-        childAspectRatio: 0.7,
-        crossAxisSpacing: AppGap.md,
-        mainAxisSpacing: AppGap.md,
+        childAspectRatio: 0.68,
+        crossAxisSpacing: AppGap.lg,
+        mainAxisSpacing: AppGap.lg,
       ),
       itemCount: widget.games.length,
       itemBuilder: (context, index) {
         final game = widget.games[index];
         return Stack(key: ValueKey(game.id), children: [
-          _PosterCard(game: game, onTap: () => widget.onTap(game), coverBaseUrl: widget.coverBaseUrl),
+          _PosterCard(
+              game: game,
+              onTap: () => widget.onTap(game),
+              coverBaseUrl: widget.coverBaseUrl),
           if (widget.multiSelect)
             Positioned(
-              top: 8, left: 8,
+              top: 10,
+              left: 10,
               child: Container(
-                width: 24, height: 24,
+                width: 24,
+                height: 24,
                 decoration: BoxDecoration(
                   color: widget.selectedIds.contains(game.id)
                       ? Theme.of(context).colorScheme.primary
@@ -79,13 +84,15 @@ class _PosterCard extends StatefulWidget {
   final VoidCallback onTap;
   final String coverBaseUrl;
 
-  const _PosterCard({required this.game, required this.onTap, this.coverBaseUrl = ""});
+  const _PosterCard(
+      {required this.game, required this.onTap, this.coverBaseUrl = ""});
 
   @override
   State<_PosterCard> createState() => _PosterCardState();
 }
 
-class _PosterCardState extends State<_PosterCard> with SingleTickerProviderStateMixin {
+class _PosterCardState extends State<_PosterCard>
+    with SingleTickerProviderStateMixin {
   bool _hovered = false;
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
@@ -93,8 +100,10 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(duration: const Duration(milliseconds: 200), vsync: this);
-    _scale = Tween<double>(begin: 1.0, end: 1.04).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    _ctrl = AnimationController(
+        duration: const Duration(milliseconds: 200), vsync: this);
+    _scale = Tween<double>(begin: 1.0, end: 1.04)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
   }
 
   @override
@@ -105,7 +114,11 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
 
   void _setHovered(bool v) {
     setState(() => _hovered = v);
-    if (v) { _ctrl.forward(); } else { _ctrl.reverse(); }
+    if (v) {
+      _ctrl.forward();
+    } else {
+      _ctrl.reverse();
+    }
   }
 
   @override
@@ -121,22 +134,28 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
         onTap: widget.onTap,
         child: _ScaleBuilder(
           listenable: _scale,
-          builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+          builder: (_, child) =>
+              Transform.scale(scale: _scale.value, child: child),
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: _hovered
+                    ? cs.primary.withValues(alpha: 0.32)
+                    : cardBorder(context),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: _hovered
                       ? cs.primary.withValues(alpha: 0.25)
-                      : Colors.black.withValues(alpha: 0.12),
-                  blurRadius: _hovered ? 20 : 8,
-                  offset: Offset(0, _hovered ? 8 : 2),
+                      : softShadowColor(context),
+                  blurRadius: _hovered ? 26 : 18,
+                  offset: Offset(0, _hovered ? 12 : 8),
                 ),
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(20),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -144,7 +163,8 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                   if (hasCover)
                     CachedNetworkImage(
                       key: ValueKey(game.coverPath),
-                      imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
+                      imageUrl:
+                          "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
                       httpHeaders: mediaAuthHeaders,
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => _placeholder(),
@@ -155,7 +175,16 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
 
                   // Bottom gradient + metadata
                   Positioned(
-                    left: 0, right: 0, bottom: 0,
+                    top: 10,
+                    left: 10,
+                    child: _badge(game.platformSummary.isNotEmpty
+                        ? game.platformSummary
+                        : "条目"),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
                     child: Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -169,24 +198,29 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
                           stops: const [0.0, 0.55, 1.0],
                         ),
                       ),
-                      padding: const EdgeInsets.fromLTRB(10, 32, 10, 10),
+                      padding: const EdgeInsets.fromLTRB(12, 36, 12, 12),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(game.name,
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                          Text(
+                            game.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: AppText.bodySmall.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white, height: 1.2,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              height: 1.2,
                             ),
                           ),
                           const SizedBox(height: 3),
                           Text(
                             game.developer ?? game.companyName ?? "",
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: AppText.caption.copyWith(
-                              color: Colors.white70, height: 1.2,
+                              color: Colors.white70,
+                              height: 1.2,
                             ),
                           ),
                         ],
@@ -211,18 +245,51 @@ class _PosterCardState extends State<_PosterCard> with SingleTickerProviderState
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [cs.surfaceContainerHighest, cs.surfaceContainerLow],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primary.withValues(alpha: 0.18),
+            cs.tertiary.withValues(alpha: 0.12),
+            cs.surfaceContainerLow,
+          ],
         ),
       ),
       child: Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.videogame_asset_rounded, size: 40, color: cs.onSurface.withValues(alpha: 0.25)),
+          Icon(Icons.videogame_asset_rounded,
+              size: 40, color: cs.onSurface.withValues(alpha: 0.25)),
           const SizedBox(height: 8),
-          Text(widget.game.name, maxLines: 2, overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: AppText.label.copyWith( color: cs.onSurface.withValues(alpha: 0.5))),
+          Text(widget.game.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: AppText.label
+                  .copyWith(color: cs.onSurface.withValues(alpha: 0.5))),
         ]),
+      ),
+    );
+  }
+
+  Widget _badge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        style: AppText.caption.copyWith(
+          color: const Color(0xFF17202A),
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }

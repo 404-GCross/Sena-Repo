@@ -226,82 +226,80 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           padding: const EdgeInsets.all(24),
           child: SizedBox(
             width: 520,
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: List.generate(
-                        3,
-                        (i) => Expanded(
-                          child: Container(
-                            height: 4,
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(2),
-                              color: i <= _step
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.grey[700],
-                            ),
+            child: AppSurface(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: List.generate(
+                      3,
+                      (i) => Expanded(
+                        child: Container(
+                          height: 4,
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(2),
+                            color: i <= _step
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey[700],
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _titles[_step],
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _titles[_step],
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_step == 0) ..._buildAdminStep(),
+                  if (_step == 1) ..._buildDirectoryStep(),
+                  if (_step == 2) ..._buildScraperStep(),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    if (_step == 0) ..._buildAdminStep(),
-                    if (_step == 1) ..._buildDirectoryStep(),
-                    if (_step == 2) ..._buildScraperStep(),
-                    if (_error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      if (_step > 0)
+                        OutlinedButton(
+                          onPressed: _prev,
+                          child: const Text("\u4e0a\u4e00\u6b65"),
                         ),
-                      ),
-                    const SizedBox(height: 24),
-                    Row(
-                      children: [
-                        if (_step > 0)
-                          OutlinedButton(
-                            onPressed: _prev,
-                            child: const Text("\u4e0a\u4e00\u6b65"),
-                          ),
-                        const Spacer(),
-                        if (_step < 2)
-                          FilledButton(
-                            onPressed: _next,
-                            child: const Text("\u4e0b\u4e00\u6b65"),
-                          ),
-                        if (_step == 2)
-                          FilledButton(
-                            onPressed: _loading ? null : _submit,
-                            child: _loading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text("\u5b8c\u6210"),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
+                      const Spacer(),
+                      if (_step < 2)
+                        FilledButton(
+                          onPressed: _next,
+                          child: const Text("\u4e0b\u4e00\u6b65"),
+                        ),
+                      if (_step == 2)
+                        FilledButton(
+                          onPressed: _loading ? null : _submit,
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text("\u5b8c\u6210"),
+                        ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),

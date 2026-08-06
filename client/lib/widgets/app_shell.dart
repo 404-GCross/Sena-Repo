@@ -8,9 +8,9 @@ class AppRadius {
   AppRadius._();
 
   static const double sm = 8;
-  static const double md = 10;
-  static const double lg = 12;
-  static const double xl = 16;
+  static const double md = 12;
+  static const double lg = 16;
+  static const double xl = 20;
 }
 
 class AppMotion {
@@ -48,13 +48,11 @@ class AppSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final bg = color ??
         (isDark
-            ? Theme.of(context)
-                .colorScheme
-                .surfaceContainerHighest
-                .withValues(alpha: 0.56)
-            : Theme.of(context).colorScheme.surface.withValues(alpha: 0.72));
+            ? cs.surfaceContainerHighest.withValues(alpha: 0.62)
+            : cs.surface.withValues(alpha: 0.82));
     final content = Container(
       width: width,
       height: height,
@@ -64,12 +62,12 @@ class AppSurface extends StatelessWidget {
         color: bg,
         borderRadius: BorderRadius.circular(radius),
         border: border ??
-            Border.all(color: cardBorder(context).withValues(alpha: 0.72)),
+            Border.all(color: cardBorder(context).withValues(alpha: 0.86)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.12 : 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            color: softShadowColor(context),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -109,53 +107,68 @@ class AppPageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: cs.surface.withValues(alpha: 0.62),
-        border: Border(
-            bottom:
-                BorderSide(color: cardBorder(context).withValues(alpha: 0.7))),
-      ),
-      child: Row(
-        children: [
-          if (showBack) ...[
-            IconButton(
-              tooltip: "返回",
-              icon: const Icon(Icons.arrow_back_rounded),
-              onPressed: onBack ?? () => Navigator.maybePop(context),
-            ),
-            const SizedBox(width: AppGap.sm),
-          ],
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: AppGap.md),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: AppText.headline.copyWith(color: cs.onSurface)),
-                if (subtitle != null && subtitle!.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(subtitle!,
-                      style: AppText.bodySmall
-                          .copyWith(color: hintColor(context))),
-                ],
-              ],
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          width: double.infinity,
+          padding: padding,
+          decoration: BoxDecoration(
+            color: cs.surface.withValues(alpha: 0.54),
+            border: Border(
+              bottom: BorderSide(
+                color: cardBorder(context).withValues(alpha: 0.72),
+              ),
             ),
           ),
-          if (actions.isNotEmpty) ...[
-            const SizedBox(width: AppGap.md),
-            Wrap(
-                spacing: AppGap.sm,
-                runSpacing: AppGap.sm,
-                alignment: WrapAlignment.end,
-                children: actions),
-          ],
-        ],
+          child: Row(
+            children: [
+              if (showBack) ...[
+                IconButton.filledTonal(
+                  tooltip: "返回",
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: onBack ?? () => Navigator.maybePop(context),
+                ),
+                const SizedBox(width: AppGap.sm),
+              ],
+              if (leading != null) ...[
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Center(child: leading!),
+                ),
+                const SizedBox(width: AppGap.md),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: AppText.headline.copyWith(color: cs.onSurface)),
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(subtitle!,
+                          style: AppText.bodySmall
+                              .copyWith(color: hintColor(context))),
+                    ],
+                  ],
+                ),
+              ),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: AppGap.md),
+                Wrap(
+                    spacing: AppGap.sm,
+                    runSpacing: AppGap.sm,
+                    alignment: WrapAlignment.end,
+                    children: actions),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -266,14 +279,14 @@ class AppActionButton extends StatelessWidget {
     final enabled = onPressed != null && !busy;
     return Material(
       color: filled
-          ? base.withValues(alpha: enabled ? 0.16 : 0.07)
-          : base.withValues(alpha: enabled ? 0.08 : 0.04),
-      borderRadius: BorderRadius.circular(AppRadius.md),
+          ? base.withValues(alpha: enabled ? 0.18 : 0.07)
+          : base.withValues(alpha: enabled ? 0.09 : 0.04),
+      borderRadius: BorderRadius.circular(999),
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(999),
         onTap: enabled ? onPressed : null,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -354,7 +367,7 @@ class AppMetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppSurface(
       padding: const EdgeInsets.all(14),
-      radius: AppRadius.md,
+      radius: AppRadius.lg,
       child: Row(
         children: [
           Container(
@@ -422,21 +435,47 @@ class AppScaffold extends StatelessWidget {
       ),
     );
     return Scaffold(
+      backgroundColor: Colors.transparent,
       floatingActionButton: floatingActionButton,
-      body: Column(
-        children: [
-          AppPageHeader(
-            showBack: showBack,
-            leading: leading,
-            title: title,
-            subtitle: subtitle,
-            actions: actions,
-          ),
-          Expanded(
-            child: scrollable ? SingleChildScrollView(child: body) : body,
-          ),
-        ],
+      body: AppBackdrop(
+        child: Column(
+          children: [
+            AppPageHeader(
+              showBack: showBack,
+              leading: leading,
+              title: title,
+              subtitle: subtitle,
+              actions: actions,
+            ),
+            Expanded(
+              child: scrollable ? SingleChildScrollView(child: body) : body,
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class AppBackdrop extends StatelessWidget {
+  final Widget child;
+
+  const AppBackdrop({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            appBackgroundTop(context),
+            appBackgroundBottom(context),
+          ],
+        ),
+      ),
+      child: child,
     );
   }
 }

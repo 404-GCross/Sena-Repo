@@ -61,82 +61,86 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     final failedCount = _tasks.where((t) => t.status == "failed").length;
     final doneCount = _tasks.where((t) => t.status == "done").length;
     return Scaffold(
-      body: Column(
-        children: [
-          const AppPageHeader(
-            showBack: true,
-            leading: Icon(Icons.download_outlined, size: 26),
-            title: "下载管理",
-            subtitle: "查看下载、解压、失败重试和安装后操作",
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final cardWidth = constraints.maxWidth >= 720
-                    ? (constraints.maxWidth - 24) / 4
-                    : (constraints.maxWidth - 12) / 2;
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    SizedBox(
-                      width: cardWidth,
-                      child: AppMetricCard(
-                        label: "全部任务",
-                        value: "${_tasks.length}",
-                        icon: Icons.queue,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    SizedBox(
-                      width: cardWidth,
-                      child: AppMetricCard(
-                        label: "进行中",
-                        value: "$activeCount",
-                        icon: Icons.sync,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    SizedBox(
-                      width: cardWidth,
-                      child: AppMetricCard(
-                        label: "失败",
-                        value: "$failedCount",
-                        icon: Icons.error_outline,
-                        color: failedCount > 0 ? Colors.red : Colors.grey,
-                      ),
-                    ),
-                    SizedBox(
-                      width: cardWidth,
-                      child: AppMetricCard(
-                        label: "已完成",
-                        value: "$doneCount",
-                        icon: Icons.check_circle_outline,
-                        color: Colors.green,
-                      ),
-                    ),
-                  ],
-                );
-              },
+      backgroundColor: Colors.transparent,
+      body: AppBackdrop(
+        child: Column(
+          children: [
+            const AppPageHeader(
+              showBack: true,
+              leading: Icon(Icons.download_outlined, size: 26),
+              title: "下载管理",
+              subtitle: "查看下载、解压、失败重试和安装后操作",
             ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: AppSurface(
-                padding: EdgeInsets.zero,
-                child: _tasks.isEmpty
-                    ? EmptyState(icon: Icons.download_outlined, title: "暂无下载任务")
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(14),
-                        itemCount: _tasks.length,
-                        itemBuilder: (_, i) => _taskCard(_tasks[i]),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final cardWidth = constraints.maxWidth >= 720
+                      ? (constraints.maxWidth - 24) / 4
+                      : (constraints.maxWidth - 12) / 2;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      SizedBox(
+                        width: cardWidth,
+                        child: AppMetricCard(
+                          label: "全部任务",
+                          value: "${_tasks.length}",
+                          icon: Icons.queue,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: AppMetricCard(
+                          label: "进行中",
+                          value: "$activeCount",
+                          icon: Icons.sync,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: AppMetricCard(
+                          label: "失败",
+                          value: "$failedCount",
+                          icon: Icons.error_outline,
+                          color: failedCount > 0 ? Colors.red : Colors.grey,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: AppMetricCard(
+                          label: "已完成",
+                          value: "$doneCount",
+                          icon: Icons.check_circle_outline,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: AppSurface(
+                  padding: EdgeInsets.zero,
+                  child: _tasks.isEmpty
+                      ? EmptyState(
+                          icon: Icons.download_outlined, title: "暂无下载任务")
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(14),
+                          itemCount: _tasks.length,
+                          itemBuilder: (_, i) => _taskCard(_tasks[i]),
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

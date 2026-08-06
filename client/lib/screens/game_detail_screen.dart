@@ -157,7 +157,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
 
     return AppScaffold(
       title: game.name,
-      subtitle: "游戏详情、资源和启动操作",
+      subtitle: "游戏详情、资源和下载操作",
       leading: const Icon(Icons.videogame_asset_outlined, size: 24),
       scrollable: false,
       padding: EdgeInsets.zero,

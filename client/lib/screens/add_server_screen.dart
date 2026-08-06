@@ -7,7 +7,6 @@ import "package:http/http.dart" as http;
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
-import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 import "../services/api_client.dart";
 import "../services/profile_service.dart";
@@ -220,165 +219,172 @@ class _AddServerScreenState extends State<AddServerScreen> {
           padding: const EdgeInsets.all(24),
           child: SizedBox(
             width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // App icon
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.asset(
-                    "assets/icon.png",
-                    width: 64,
-                    height: 64,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Icon(
-                      Icons.dns,
-                      size: 56,
-                      color: Theme.of(context).colorScheme.primary,
+            child: AppSurface(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // App icon
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.asset(
+                      "assets/icon.png",
+                      width: 64,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(
+                        Icons.dns,
+                        size: 56,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-                // Step 0: Connection form
-                if (_step == 0) ...[
-                  TextField(
-                    controller: _hostCtrl,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: "服务器地址",
-                      prefixIcon: Icon(Icons.computer),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _portCtrl,
-                          decoration: const InputDecoration(
-                            labelText: "端口",
-                            prefixIcon: Icon(Icons.settings_ethernet),
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        height: 56,
-                        child: FilledButton.tonal(
-                          onPressed: _connecting ? null : _connect,
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
-                          ),
-                          child: _connecting
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text("连接"),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      SizedBox(
-                        height: 32,
-                        child: Switch(
-                          value: _useHttps,
-                          onChanged: (v) => setState(() => _useHttps = v),
-                        ),
-                      ),
-                      Text(
-                        "HTTPS",
-                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: Colors.red, fontSize: 13),
+                  // Step 0: Connection form
+                  if (_step == 0) ...[
+                    TextField(
+                      controller: _hostCtrl,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: "服务器地址",
+                        prefixIcon: Icon(Icons.computer),
                       ),
                     ),
-                ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _portCtrl,
+                            decoration: const InputDecoration(
+                              labelText: "端口",
+                              prefixIcon: Icon(Icons.settings_ethernet),
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          height: 56,
+                          child: FilledButton.tonal(
+                            onPressed: _connecting ? null : _connect,
+                            style: FilledButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 24),
+                            ),
+                            child: _connecting
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text("连接"),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        SizedBox(
+                          height: 32,
+                          child: Switch(
+                            value: _useHttps,
+                            onChanged: (v) => setState(() => _useHttps = v),
+                          ),
+                        ),
+                        Text(
+                          "HTTPS",
+                          style:
+                              TextStyle(fontSize: 13, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _error!,
+                          style:
+                              const TextStyle(color: Colors.red, fontSize: 13),
+                        ),
+                      ),
+                  ],
 
-                // Step 1: Login/Register form
-                if (_step == 1) ...[
-                  TextField(
-                    controller: _userCtrl,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: "用户名",
-                      prefixIcon: Icon(Icons.person),
+                  // Step 1: Login/Register form
+                  if (_step == 1) ...[
+                    TextField(
+                      controller: _userCtrl,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: "用户名",
+                        prefixIcon: Icon(Icons.person),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passCtrl,
-                    decoration: const InputDecoration(
-                      labelText: "密码",
-                      prefixIcon: Icon(Icons.lock),
-                    ),
-                    obscureText: true,
-                  ),
-                  if (_showRegister) ...[
                     const SizedBox(height: 12),
                     TextField(
-                      controller: _passConfirmCtrl,
+                      controller: _passCtrl,
                       decoration: const InputDecoration(
-                        labelText: "确认密码",
+                        labelText: "密码",
                         prefixIcon: Icon(Icons.lock),
                       ),
                       obscureText: true,
                     ),
-                  ],
-                  if (_loginError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _loginError!,
-                        style: TextStyle(
-                          color: _loginError!.contains("成功")
-                              ? Colors.green
-                              : Colors.red,
-                          fontSize: 13,
+                    if (_showRegister) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _passConfirmCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "确认密码",
+                          prefixIcon: Icon(Icons.lock),
+                        ),
+                        obscureText: true,
+                      ),
+                    ],
+                    if (_loginError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _loginError!,
+                          style: TextStyle(
+                            color: _loginError!.contains("成功")
+                                ? Colors.green
+                                : Colors.red,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _isLoggingIn
+                            ? null
+                            : (_showRegister ? _register : _login),
+                        child: _isLoggingIn
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Text(_showRegister ? "注册" : "登录"),
+                      ),
                     ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _isLoggingIn
-                          ? null
-                          : (_showRegister ? _register : _login),
-                      child: _isLoggingIn
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(_showRegister ? "注册" : "登录"),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _showRegister = !_showRegister;
+                        _loginError = null;
+                      }),
+                      child: Text(_showRegister ? "已有账户？登录" : "没有账户？注册"),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _showRegister = !_showRegister;
-                      _loginError = null;
-                    }),
-                    child: Text(_showRegister ? "已有账户？登录" : "没有账户？注册"),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

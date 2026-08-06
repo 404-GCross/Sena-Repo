@@ -32,26 +32,37 @@ class GameList extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
-        final columns = w > 1600 ? 3 : w > 1000 ? 2 : 1;
+        final columns = w > 1600
+            ? 3
+            : w > 1000
+                ? 2
+                : 1;
         final colWidth = (w - AppGap.lg) / columns;
 
         return SingleChildScrollView(
           controller: controller,
-          padding: const EdgeInsets.symmetric(horizontal: AppGap.sm),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
           child: Wrap(
-            spacing: AppGap.sm,
-            runSpacing: AppGap.xs,
-            children: games.map((game) => Stack(children: [
-              SizedBox(
-                width: colWidth - (columns > 1 ? AppGap.sm : 0),
-                child: _GameListTile(game: game, onTap: () => onTap(game), coverBaseUrl: coverBaseUrl),
-              ),
-              if (multiSelect)
-                Positioned(
-                  top: 10, left: 6,
-                  child: _selectCircle(selectedIds.contains(game.id), context),
-                ),
-            ])).toList(),
+            spacing: AppGap.md,
+            runSpacing: AppGap.sm,
+            children: games
+                .map((game) => Stack(children: [
+                      SizedBox(
+                        width: colWidth - (columns > 1 ? AppGap.sm : 0),
+                        child: _GameListTile(
+                            game: game,
+                            onTap: () => onTap(game),
+                            coverBaseUrl: coverBaseUrl),
+                      ),
+                      if (multiSelect)
+                        Positioned(
+                          top: 10,
+                          left: 6,
+                          child: _selectCircle(
+                              selectedIds.contains(game.id), context),
+                        ),
+                    ]))
+                .toList(),
           ),
         );
       },
@@ -60,13 +71,17 @@ class GameList extends StatelessWidget {
 
   Widget _selectCircle(bool selected, BuildContext context) {
     return Container(
-      width: 24, height: 24,
+      width: 24,
+      height: 24,
       decoration: BoxDecoration(
-        color: selected ? Theme.of(context).colorScheme.primary : Colors.black54,
+        color:
+            selected ? Theme.of(context).colorScheme.primary : Colors.black54,
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white70, width: 2),
       ),
-      child: selected ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+      child: selected
+          ? const Icon(Icons.check, size: 16, color: Colors.white)
+          : null,
     );
   }
 }
@@ -76,7 +91,8 @@ class _GameListTile extends StatefulWidget {
   final VoidCallback onTap;
   final String coverBaseUrl;
 
-  const _GameListTile({required this.game, required this.onTap, this.coverBaseUrl = ""});
+  const _GameListTile(
+      {required this.game, required this.onTap, this.coverBaseUrl = ""});
 
   @override
   State<_GameListTile> createState() => _GameListTileState();
@@ -100,27 +116,42 @@ class _GameListTileState extends State<_GameListTile> {
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
           margin: EdgeInsets.symmetric(vertical: _hovered ? 3 : 1),
-          padding: const EdgeInsets.symmetric(horizontal: AppGap.md, vertical: 10),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: _hovered ? cs.surfaceContainerHighest.withValues(alpha: 0.6) : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
+            color:
+                _hovered ? cs.surface.withValues(alpha: 0.86) : cardBg(context),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: _hovered ? cs.outline.withValues(alpha: 0.3) : Colors.transparent,
+              color: _hovered
+                  ? cs.primary.withValues(alpha: 0.28)
+                  : cardBorder(context),
             ),
-            boxShadow: _hovered ? [
-              BoxShadow(color: cs.primary.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 2)),
-            ] : null,
+            boxShadow: _hovered
+                ? [
+                    BoxShadow(
+                        color: cs.primary.withValues(alpha: 0.12),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8)),
+                  ]
+                : [
+                    BoxShadow(
+                        color: softShadowColor(context),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6)),
+                  ],
           ),
           child: Row(children: [
             // Cover thumbnail — proper aspect ratio
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               child: SizedBox(
-                width: 64, height: 90,
+                width: 64,
+                height: 90,
                 child: hasCover
                     ? CachedNetworkImage(
                         key: ValueKey(game.coverPath),
-                        imageUrl: "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
+                        imageUrl:
+                            "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
                         httpHeaders: mediaAuthHeaders,
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => _placeholder(cs),
@@ -136,33 +167,61 @@ class _GameListTileState extends State<_GameListTile> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(game.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: AppText.body.copyWith( fontWeight: FontWeight.w600)),
+                  Text(game.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          AppText.body.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 3),
                   Text(game.developer ?? game.companyName ?? "",
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: AppText.bodySmall.copyWith(color: hintColor(context))),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.bodySmall
+                          .copyWith(color: hintColor(context))),
                   if (game.tagNames.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Wrap(
-                      spacing: 4, runSpacing: 2,
-                      children: game.tagNames.take(3).map((t) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: cs.primaryContainer.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(t, style: AppText.caption.copyWith(
-                          color: cs.onPrimaryContainer.withValues(alpha: 0.8),
-                        )),
-                      )).toList(),
+                      spacing: 4,
+                      runSpacing: 2,
+                      children: game.tagNames
+                          .take(3)
+                          .map((t) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.primaryContainer
+                                      .withValues(alpha: 0.5),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(t,
+                                    style: AppText.caption.copyWith(
+                                      color: cs.onPrimaryContainer
+                                          .withValues(alpha: 0.8),
+                                    )),
+                              ))
+                          .toList(),
                     ),
                   ],
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 4,
+                    children: [
+                      _smallPill(
+                        context,
+                        game.platformSummary.isNotEmpty
+                            ? game.platformSummary
+                            : "条目",
+                      ),
+                      if (game.coverPath != null) _smallPill(context, "有封面"),
+                    ],
+                  ),
                 ],
               ),
             ),
             const SizedBox(width: AppGap.sm),
-            Icon(Icons.chevron_right_rounded, color: cs.onSurface.withValues(alpha: 0.3), size: 22),
+            Icon(Icons.chevron_right_rounded,
+                color: cs.onSurface.withValues(alpha: 0.34), size: 24),
           ]),
         ),
       ),
@@ -173,12 +232,33 @@ class _GameListTileState extends State<_GameListTile> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
           colors: [cs.surfaceContainerHighest, cs.surfaceContainerLow],
         ),
       ),
       child: Center(
-        child: Icon(Icons.videogame_asset_rounded, color: cs.onSurface.withValues(alpha: 0.3), size: 28),
+        child: Icon(Icons.videogame_asset_rounded,
+            color: cs.onSurface.withValues(alpha: 0.3), size: 28),
+      ),
+    );
+  }
+
+  Widget _smallPill(BuildContext context, String label) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        label,
+        style: AppText.caption.copyWith(
+          color: cs.primary,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

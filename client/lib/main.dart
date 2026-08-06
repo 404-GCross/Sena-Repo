@@ -320,12 +320,12 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
             ),
             useMaterial3: true,
             visualDensity: VisualDensity.standard,
-            scaffoldBackgroundColor: const Color(0xFFF6F7F9),
+            scaffoldBackgroundColor: const Color(0xFFF4F6F8),
             appBarTheme: const AppBarTheme(
               centerTitle: false,
               elevation: 0,
               scrolledUnderElevation: 0,
-              backgroundColor: Color(0xFFF6F7F9),
+              backgroundColor: Color(0x00F4F6F8),
               foregroundColor: Color(0xFF111827),
               titleTextStyle: TextStyle(
                 color: Color(0xFF111827),
@@ -345,11 +345,15 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
               filled: true,
               fillColor: Colors.white,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(14),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFD8DEE8)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFF3B82F6)),
               ),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -359,7 +363,7 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
             ),
@@ -368,19 +372,22 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
             ),
             iconButtonTheme: IconButtonThemeData(
               style: IconButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
             navigationBarTheme: NavigationBarThemeData(
-              height: 64,
+              height: 68,
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               labelTextStyle: WidgetStateProperty.all(
                 const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
               ),

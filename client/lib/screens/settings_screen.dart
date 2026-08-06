@@ -90,179 +90,184 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
-        children: [
-          const AppPageHeader(
-            showBack: true,
-            leading: Icon(Icons.settings_outlined, size: 26),
-            title: "设置",
-            subtitle: "管理客户端体验、下载、扫描和服务端权限",
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                AppSurface(
-                  padding: const EdgeInsets.all(16),
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      AppStatusPill(
-                        icon: Icons.phone_android_outlined,
-                        label: "客户端 $appVersionLabel",
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      AppStatusPill(
-                        icon: Icons.dns_outlined,
-                        label:
-                            "服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-                        color: _serverVersion.isNotEmpty
-                            ? Colors.green
-                            : Colors.orange,
-                      ),
-                      AppStatusPill(
-                        icon: _isAdmin
-                            ? Icons.admin_panel_settings
-                            : Icons.person_outline,
-                        label: _isAdmin ? "管理员" : "普通用户",
-                        color: _isAdmin ? Colors.purple : Colors.grey,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                _sectionHeader("客户端", Icons.phone_android_outlined),
-                const SizedBox(height: 8),
-                _menuCard([
-                  _menuItem(
-                    Icons.person,
-                    Colors.indigo,
-                    "个人信息",
-                    "修改用户名、密码、头像",
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ProfileEditScreen()),
-                    ),
-                  ),
-                  _menuItem(
-                    Icons.grid_view,
-                    Colors.teal,
-                    "显示",
-                    "封面大小、托盘设置",
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const _DisplayPage()),
-                    ),
-                  ),
-                  _menuItem(
-                    Icons.download_outlined,
-                    Colors.green,
-                    "下载设置",
-                    "目录、并发数、限速",
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const _DownloadSettingsPage(),
-                      ),
-                    ),
-                  ),
-                  _menuItem(
-                    Icons.palette,
-                    Colors.pink,
-                    "美化",
-                    "主题色",
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const BeautifyScreen()),
-                    ),
-                  ),
-                  _menuItem(
-                    Icons.bug_report,
-                    Colors.grey,
-                    "日志",
-                    "查看客户端运行日志",
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LogScreen()),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 24),
-                _sectionHeader("服务端", Icons.dns_outlined),
-                const SizedBox(height: 8),
-                _menuCard([
-                  _menuItem(
-                    Icons.manage_search,
-                    Colors.blue,
-                    "扫描设置",
-                    "根目录、刮削源、扫描选项",
-                    () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => _ScanSettingsPage(api: _api)),
-                    ),
-                  ),
-                  _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户", () {
-                    if (!_isAdmin) {
-                      showDialog(
-                        context: context,
-                        builder: (c) => AlertDialog(
-                          title: const Text("权限不足"),
-                          content: const Text("用户管理仅限管理员使用"),
-                          actions: [
-                            FilledButton(
-                              onPressed: () => Navigator.pop(c),
-                              child: const Text("确定"),
-                            ),
-                          ],
-                        ),
-                      );
-                      return;
-                    }
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => _UserManagePage(api: _api)),
-                    );
-                  }),
-                ]),
-                const SizedBox(height: 32),
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: cardBg(context),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+      backgroundColor: Colors.transparent,
+      body: AppBackdrop(
+        child: Column(
+          children: [
+            const AppPageHeader(
+              showBack: true,
+              leading: Icon(Icons.settings_outlined, size: 26),
+              title: "设置",
+              subtitle: "管理客户端体验、下载、扫描和服务端权限",
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  AppSurface(
+                    padding: const EdgeInsets.all(16),
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
                       children: [
-                        Icon(Icons.info_outline,
-                            size: 16, color: Colors.grey[600]),
-                        const SizedBox(width: 6),
-                        Text(
-                          "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-                          style:
-                              TextStyle(color: Colors.grey[600], fontSize: 13),
+                        AppStatusPill(
+                          icon: Icons.phone_android_outlined,
+                          label: "客户端 $appVersionLabel",
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        AppStatusPill(
+                          icon: Icons.dns_outlined,
+                          label:
+                              "服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
+                          color: _serverVersion.isNotEmpty
+                              ? Colors.green
+                              : Colors.orange,
+                        ),
+                        AppStatusPill(
+                          icon: _isAdmin
+                              ? Icons.admin_panel_settings
+                              : Icons.person_outline,
+                          label: _isAdmin ? "管理员" : "普通用户",
+                          color: _isAdmin ? Colors.purple : Colors.grey,
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-              ],
+                  const SizedBox(height: 18),
+                  _sectionHeader("客户端", Icons.phone_android_outlined),
+                  const SizedBox(height: 8),
+                  _menuCard([
+                    _menuItem(
+                      Icons.person,
+                      Colors.indigo,
+                      "个人信息",
+                      "修改用户名、密码、头像",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const ProfileEditScreen()),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.grid_view,
+                      Colors.teal,
+                      "显示",
+                      "封面大小、托盘设置",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const _DisplayPage()),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.download_outlined,
+                      Colors.green,
+                      "下载设置",
+                      "目录、并发数、限速",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const _DownloadSettingsPage(),
+                        ),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.palette,
+                      Colors.pink,
+                      "美化",
+                      "主题色",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const BeautifyScreen()),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.bug_report,
+                      Colors.grey,
+                      "日志",
+                      "查看客户端运行日志",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LogScreen()),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 24),
+                  _sectionHeader("服务端", Icons.dns_outlined),
+                  const SizedBox(height: 8),
+                  _menuCard([
+                    _menuItem(
+                      Icons.manage_search,
+                      Colors.blue,
+                      "扫描设置",
+                      "根目录、刮削源、扫描选项",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => _ScanSettingsPage(api: _api)),
+                      ),
+                    ),
+                    _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户",
+                        () {
+                      if (!_isAdmin) {
+                        showDialog(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            title: const Text("权限不足"),
+                            content: const Text("用户管理仅限管理员使用"),
+                            actions: [
+                              FilledButton(
+                                onPressed: () => Navigator.pop(c),
+                                child: const Text("确定"),
+                              ),
+                            ],
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => _UserManagePage(api: _api)),
+                      );
+                    }),
+                  ]),
+                  const SizedBox(height: 32),
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: cardBg(context),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.info_outline,
+                              size: 16, color: Colors.grey[600]),
+                          const SizedBox(width: 6),
+                          Text(
+                            "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
+                            style: TextStyle(
+                                color: Colors.grey[600], fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  static Color _dimColor(BuildContext c) => Colors.black54;
-  static Color _boldColor(BuildContext c) => Colors.black87;
+  static Color _dimColor(BuildContext c) => hintColor(c);
+  static Color _boldColor(BuildContext c) => sectionTextColor(c);
 
   Widget _sectionHeader(String title, IconData icon) => Row(
         children: [

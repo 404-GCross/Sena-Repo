@@ -12,11 +12,9 @@ import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/secure_store.dart";
-import "profile_switch_screen.dart";
+import "../widgets/app_shell.dart";
 import "settings_screen.dart";
-import "notification_screen.dart";
 import "connect_screen.dart";
-import "download_manager_screen.dart";
 import "../providers/game_provider.dart";
 
 class ProfileScreen extends StatefulWidget {
@@ -28,7 +26,6 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   String _username = "";
-  String _serverInfo = "";
   String _serverVersion = "";
   String? _avatarPath;
   int _userId = 0;
@@ -84,7 +81,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (mounted) {
       setState(() {
         _username = prefs.getString("username") ?? "Sena Repo";
-        _serverInfo = "服务器: ${settings.serverHost}:${settings.serverPort}";
       });
     }
     // Try loading avatar from server
@@ -112,8 +108,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     _maybeRefresh();
     final settings = context.watch<SettingsProvider>();
-    final hasCover = settings.serverHost.isNotEmpty;
-
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       children: [
@@ -133,8 +127,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 BoxShadow(
                   color: Theme.of(
                     context,
-                  ).colorScheme.primary.withValues(alpha: 0.2),
-                  blurRadius: 20,
+                  ).colorScheme.primary.withValues(alpha: 0.24),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
                 ),
               ],
             ),
@@ -150,7 +145,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         height: 88,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Text(
-                          _username.isNotEmpty ? _username[0].toUpperCase() : "S",
+                          _username.isNotEmpty
+                              ? _username[0].toUpperCase()
+                              : "S",
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
@@ -233,14 +230,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _menuCard(List<Widget> children) => Container(
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Column(children: children),
-  );
+  Widget _menuCard(List<Widget> children) => AppSurface(
+        padding: EdgeInsets.zero,
+        radius: AppRadius.lg,
+        child: Column(children: children),
+      );
 
   Widget _menuItem({
     required IconData icon,
@@ -258,10 +252,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: cardBorder(context),
-                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
               ),
-              child: Icon(icon, size: 22, color: sectionTextColor(context)),
+              child: Icon(icon,
+                  size: 22, color: Theme.of(context).colorScheme.primary),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -285,15 +283,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
+            Icon(Icons.chevron_right, color: hintColor(context), size: 20),
           ],
         ),
       ),
     );
   }
-
-  Widget _menuDivider() =>
-      Divider(height: 1, indent: 68, color: cardBorder(context));
 
   void _showAbout(BuildContext context) {
     final cs = Theme.of(context).colorScheme;

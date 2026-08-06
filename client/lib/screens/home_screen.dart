@@ -15,6 +15,7 @@ import "../providers/theme_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/download_service.dart";
+import "../widgets/app_shell.dart";
 import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
@@ -118,13 +119,13 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // ── Search bar ──
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
           child: SizedBox(
             height: 44,
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: "搜索游戏...",
+                hintText: "搜索游戏、会社、补丁关键词...",
                 hintStyle: TextStyle(color: hintColor(context), fontSize: 14),
                 prefixIcon:
                     Icon(Icons.search, color: hintColor(context), size: 22),
@@ -138,14 +139,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       )
                     : null,
                 filled: true,
-                fillColor: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: 0.06),
+                fillColor: cardBg(context).withValues(alpha: 0.84),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide(
                       color: Theme.of(context)
                           .colorScheme
@@ -153,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           .withValues(alpha: 0.3)),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide(
                       color: Theme.of(context)
                           .colorScheme
@@ -161,7 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           .withValues(alpha: 0.3)),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide(
                       color: Theme.of(context)
                           .colorScheme
@@ -177,12 +175,19 @@ class _HomeScreenState extends State<HomeScreen> {
         // ── Filter/Sort bar ──
         if (!gameProvider.isLoading)
           Container(
-            margin: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            margin: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: cardBg(context),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: cardBorder(context)),
+              boxShadow: [
+                BoxShadow(
+                  color: softShadowColor(context),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -474,8 +479,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _sideBtn(IconData icon, String tooltip, VoidCallback onTap) {
-    return IconButton(
-        icon: Icon(icon, size: 22), onPressed: onTap, tooltip: tooltip);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: IconButton.filledTonal(
+          icon: Icon(icon, size: 21), onPressed: onTap, tooltip: tooltip),
+    );
   }
 
   Widget _navTab(
@@ -487,7 +495,8 @@ class _HomeScreenState extends State<HomeScreen> {
     Widget Function(Color? color)? iconBuilder,
   }) {
     final selected = _currentTab == index;
-    final iconColor = selected ? Theme.of(context).colorScheme.primary : null;
+    final cs = Theme.of(context).colorScheme;
+    final iconColor = selected ? Colors.white : hintColor(context);
     final tabIcon = selected
         ? selectedIconBuilder?.call(iconColor) ??
             Icon(icon, size: 22, color: iconColor)
@@ -502,22 +511,29 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
           width: 56,
           height: 48,
           decoration: BoxDecoration(
-            color: selected
-                ? Theme.of(context).colorScheme.primaryContainer
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            color: selected ? cs.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: cs.primary.withValues(alpha: 0.24),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    )
+                  ]
+                : null,
           ),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             tabIcon,
             Text(label,
                 style: AppText.tabLabel.copyWith(
-                    color: selected
-                        ? Theme.of(context).colorScheme.primary
-                        : null)),
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : hintColor(context))),
           ]),
         ),
       ),
@@ -863,46 +879,50 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _filterChip(
       String label, IconData? icon, bool active, VoidCallback onTap) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: GestureDetector(
         onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: active
-                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
-                : (isDark
-                    ? cardBg(context)
-                    : Colors.black.withValues(alpha: 0.04)),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: active
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                  : (isDark
-                      ? cardBorder(context)
-                      : Colors.black.withValues(alpha: 0.08)),
-            ),
-          ),
+        child: _filterChipShell(
+          active: active,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             if (icon != null) ...[
-              Icon(icon,
-                  size: 14,
-                  color: active
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey[600]),
+              Icon(icon, size: 14),
               const SizedBox(width: 4),
             ],
             Text(label,
                 style: AppText.caption.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: active
-                      ? Theme.of(context).colorScheme.primary
-                      : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                  fontWeight: FontWeight.w700,
                 )),
           ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChipShell({required bool active, required Widget child}) {
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: active
+            ? cs.primary.withValues(alpha: 0.15)
+            : cardBg(context).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color:
+              active ? cs.primary.withValues(alpha: 0.34) : cardBorder(context),
+        ),
+      ),
+      child: IconTheme.merge(
+        data: IconThemeData(
+          color: active ? cs.primary : hintColor(context),
+          size: 16,
+        ),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(color: active ? cs.primary : hintColor(context)),
+          child: child,
         ),
       ),
     );
@@ -923,39 +943,117 @@ class _HomeScreenState extends State<HomeScreen> {
       const ProfileScreen(),
     ];
 
-    return Stack(children: [
-      // Background image (desktop only — covered by opaque widgets on mobile)
-      if (wide &&
-          theme.backgroundUrl != null &&
-          theme.backgroundUrl!.isNotEmpty)
-        Positioned.fill(
-          child: Opacity(
-            opacity: 0.2,
-            child: theme.backgroundUrl!.startsWith("file://")
-                ? Image.file(
-                    File(theme.backgroundUrl!.replaceFirst("file://", "")),
-                    fit: BoxFit.cover)
-                : Image.network(theme.backgroundUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-          ),
-        )
-      else if (theme.bgColor != null)
-        Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
-      Scaffold(
-        appBar: wide
-            ? null
-            : AppBar(
-                title: const Text("Sena Repo", style: TextStyle(fontSize: 18)),
-                centerTitle: true,
-                leading: IconButton(
-                  icon: Badge(
-                    isLabelVisible: _unreadCount > 0,
-                    label: Text("$_unreadCount",
-                        style: const TextStyle(fontSize: 10)),
-                    child: const Icon(Icons.notifications_outlined, size: 22),
+    return AppBackdrop(
+      child: Stack(children: [
+        // Background image (desktop only — covered by opaque widgets on mobile)
+        if (wide &&
+            theme.backgroundUrl != null &&
+            theme.backgroundUrl!.isNotEmpty)
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.2,
+              child: theme.backgroundUrl!.startsWith("file://")
+                  ? Image.file(
+                      File(theme.backgroundUrl!.replaceFirst("file://", "")),
+                      fit: BoxFit.cover)
+                  : Image.network(theme.backgroundUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+            ),
+          )
+        else if (theme.bgColor != null)
+          Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
+        Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: wide
+              ? null
+              : AppBar(
+                  title:
+                      const Text("Sena Repo", style: TextStyle(fontSize: 18)),
+                  centerTitle: true,
+                  leading: IconButton(
+                    icon: Badge(
+                      isLabelVisible: _unreadCount > 0,
+                      label: Text("$_unreadCount",
+                          style: const TextStyle(fontSize: 10)),
+                      child: const Icon(Icons.notifications_outlined, size: 22),
+                    ),
+                    onPressed: () async {
+                      await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => NotificationScreen(
+                                  api: gameProvider.api,
+                                  onChanged: _refreshUnreadCount)));
+                      await _refreshUnreadCount();
+                    },
                   ),
-                  onPressed: () async {
+                  actions: [
+                    IconButton(
+                      icon: Badge(
+                        isLabelVisible: _downloadCount > 0,
+                        label: Text("$_downloadCount",
+                            style: const TextStyle(fontSize: 10)),
+                        child: const Icon(Icons.download_outlined, size: 22),
+                      ),
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const DownloadManagerScreen())),
+                      tooltip: "下载管理",
+                    ),
+                  ],
+                ),
+          body: Row(children: [
+            // ── Left Sidebar (desktop/wide only) ──
+            if (wide) ...[
+              Container(
+                width: 76,
+                decoration: BoxDecoration(
+                  color: cs.surface.withValues(alpha: 0.58),
+                  border: Border(
+                      right: BorderSide(
+                          color: cs.outlineVariant.withValues(alpha: 0.58))),
+                  boxShadow: [
+                    BoxShadow(
+                      color: softShadowColor(context),
+                      blurRadius: 18,
+                      offset: const Offset(8, 0),
+                    ),
+                  ],
+                ),
+                child: Column(children: [
+                  const SizedBox(height: 16),
+                  Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [cs.primary, cs.tertiary],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: cs.primary.withValues(alpha: 0.24),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Text(
+                      "S",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _sideBtn(Icons.notifications_outlined, "通知", () async {
                     await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -963,9 +1061,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 api: gameProvider.api,
                                 onChanged: _refreshUnreadCount)));
                     await _refreshUnreadCount();
-                  },
-                ),
-                actions: [
+                  }),
                   IconButton(
                     icon: Badge(
                       isLabelVisible: _downloadCount > 0,
@@ -979,113 +1075,77 @@ class _HomeScreenState extends State<HomeScreen> {
                             builder: (_) => const DownloadManagerScreen())),
                     tooltip: "下载管理",
                   ),
-                ],
-              ),
-        body: Row(children: [
-          // ── Left Sidebar (desktop/wide only) ──
-          if (wide) ...[
-            Container(
-              width: 76,
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerLow.withValues(alpha: 0.5),
-                border: Border(
-                    right: BorderSide(
-                        color: cs.outlineVariant.withValues(alpha: 0.5))),
-              ),
-              child: Column(children: [
-                const SizedBox(height: 16),
-                _sideBtn(Icons.notifications_outlined, "通知", () async {
-                  await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => NotificationScreen(
-                              api: gameProvider.api,
-                              onChanged: _refreshUnreadCount)));
-                  await _refreshUnreadCount();
-                }),
-                IconButton(
-                  icon: Badge(
-                    isLabelVisible: _downloadCount > 0,
-                    label: Text("$_downloadCount",
-                        style: const TextStyle(fontSize: 10)),
-                    child: const Icon(Icons.download_outlined, size: 22),
-                  ),
-                  onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const DownloadManagerScreen())),
-                  tooltip: "下载管理",
-                ),
-                const Spacer(),
-                _navTab(
-                    Icons.gamepad_rounded, Icons.gamepad_outlined, "游戏库", 0),
-                if (showSteam)
+                  const Spacer(),
                   _navTab(
-                    Icons.extension,
-                    Icons.extension_outlined,
-                    "Steam",
-                    1,
-                    selectedIconBuilder: (color) => FaIcon(
-                      FontAwesomeIcons.steam,
-                      size: 22,
-                      color: color,
+                      Icons.gamepad_rounded, Icons.gamepad_outlined, "游戏库", 0),
+                  if (showSteam)
+                    _navTab(
+                      Icons.extension,
+                      Icons.extension_outlined,
+                      "Steam",
+                      1,
+                      selectedIconBuilder: (color) => FaIcon(
+                        FontAwesomeIcons.steam,
+                        size: 22,
+                        color: color,
+                      ),
+                      iconBuilder: (color) => FaIcon(
+                        FontAwesomeIcons.steam,
+                        size: 22,
+                        color: color,
+                      ),
                     ),
-                    iconBuilder: (color) => FaIcon(
-                      FontAwesomeIcons.steam,
-                      size: 22,
-                      color: color,
-                    ),
+                  _navTab(Icons.person_rounded, Icons.person_outlined, "我的",
+                      showSteam ? 2 : 1),
+                  const Spacer(),
+                ]),
+              ),
+            ],
+            // ── Content ──
+            Expanded(
+              child: Column(children: [
+                if (_scrapeProgress >= 0)
+                  SizedBox(
+                    height: 4,
+                    child: LinearProgressIndicator(
+                        value: _scrapeProgress / 100.0,
+                        backgroundColor: Colors.white10),
                   ),
-                _navTab(Icons.person_rounded, Icons.person_outlined, "我的",
-                    showSteam ? 2 : 1),
-                const Spacer(),
+                Expanded(
+                    child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, animation) => SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0.04, 0),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                        parent: animation, curve: Curves.easeOut)),
+                    child: FadeTransition(opacity: animation, child: child),
+                  ),
+                  child: IndexedStack(index: _currentTab, children: pages),
+                )),
               ]),
             ),
-          ],
-          // ── Content ──
-          Expanded(
-            child: Column(children: [
-              if (_scrapeProgress >= 0)
-                SizedBox(
-                  height: 4,
-                  child: LinearProgressIndicator(
-                      value: _scrapeProgress / 100.0,
-                      backgroundColor: Colors.white10),
+          ]),
+          floatingActionButton: _multiSelect
+              ? null
+              : AnimatedScale(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  scale: _currentTab == 0 ? 1.0 : 0.0,
+                  child: FloatingActionButton.extended(
+                    onPressed: _currentTab == 0
+                        ? () => _addNewGame(context, gameProvider)
+                        : null,
+                    icon: const Icon(Icons.add),
+                    label: const Text("新建条目"),
+                  ),
                 ),
-              Expanded(
-                  child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, animation) => SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0.04, 0),
-                    end: Offset.zero,
-                  ).animate(CurvedAnimation(
-                      parent: animation, curve: Curves.easeOut)),
-                  child: FadeTransition(opacity: animation, child: child),
-                ),
-                child: IndexedStack(index: _currentTab, children: pages),
-              )),
-            ]),
-          ),
-        ]),
-        floatingActionButton: _multiSelect
-            ? null
-            : AnimatedScale(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                scale: _currentTab == 0 ? 1.0 : 0.0,
-                child: FloatingActionButton.extended(
-                  onPressed: _currentTab == 0
-                      ? () => _addNewGame(context, gameProvider)
-                      : null,
-                  icon: const Icon(Icons.add),
-                  label: const Text("新建条目"),
-                ),
-              ),
-        bottomNavigationBar: _buildBottomBar(context, showSteam),
-      ),
-    ]);
+          bottomNavigationBar: _buildBottomBar(context, showSteam),
+        ),
+      ]),
+    );
   }
 }

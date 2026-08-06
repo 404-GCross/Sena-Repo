@@ -1050,89 +1050,92 @@ class _ConnectScreenState extends State<ConnectScreen> {
         ...List.generate(_profiles.length, (i) {
           final p = _profiles[i];
           final isActive = i == _activeIndex;
-          return Container(
+          return AppSurface(
             margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Theme.of(
-                  context,
-                ).colorScheme.outline.withValues(alpha: 0.15),
-              ),
+            padding: EdgeInsets.zero,
+            radius: AppRadius.lg,
+            border: Border.all(
+              color: isActive
+                  ? Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.36)
+                  : cardBorder(context),
             ),
-            child: ListTile(
-              leading: CircleAvatar(
-                radius: 18,
-                backgroundColor: isActive
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: Text(
-                  p.name[0].toUpperCase(),
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isActive
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.grey,
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              child: ListTile(
+                leading: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: isActive
+                      ? Theme.of(context).colorScheme.primaryContainer
+                      : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Text(
+                    p.name[0].toUpperCase(),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: isActive
+                          ? Theme.of(context).colorScheme.primary
+                          : hintColor(context),
+                    ),
                   ),
                 ),
-              ),
-              title: Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      p.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  if (p.isAdmin) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.tertiary.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
+                title: Row(
+                  children: [
+                    Flexible(
                       child: Text(
-                        "Admin",
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Theme.of(context).colorScheme.tertiary,
-                          fontWeight: FontWeight.w600,
+                        p.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    if (p.isAdmin) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.tertiary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          "Admin",
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context).colorScheme.tertiary,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
+                    ],
+                  ],
+                ),
+                subtitle: Text(
+                  "${p.username}@${p.host}:${p.port}",
+                  style: AppText.label.copyWith(color: hintColor(context)),
+                ),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (action) {
+                    if (action == "edit") _editProfile(p);
+                    if (action == "delete") _deleteProfile(i);
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: "edit", child: Text("编辑")),
+                    PopupMenuItem(
+                      value: "delete",
+                      child: Text("删除", style: TextStyle(color: Colors.red)),
                     ),
                   ],
-                ],
-              ),
-              subtitle: Text(
-                "${p.username}@${p.host}:${p.port}",
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              trailing: PopupMenuButton<String>(
-                onSelected: (action) {
-                  if (action == "edit") _editProfile(p);
-                  if (action == "delete") _deleteProfile(i);
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: "edit", child: Text("编辑")),
-                  PopupMenuItem(
-                    value: "delete",
-                    child: Text("删除", style: TextStyle(color: Colors.red)),
-                  ),
-                ],
-              ),
-              onTap: () => _connectToProfile(p, i),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                ),
+                onTap: () => _connectToProfile(p, i),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
               ),
             ),
           );
@@ -1647,33 +1650,39 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Widget _buildAddServerButton() {
     return SizedBox(
       width: double.infinity,
-      child: Card(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddServerScreen()),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.add_circle_outline,
-                  size: 22,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  "添加服务器",
-                  style: TextStyle(
-                    fontSize: 15,
+      child: AppSurface(
+        padding: EdgeInsets.zero,
+        radius: AppRadius.lg,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AddServerScreen()),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.add_circle_outline,
+                    size: 22,
                     color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w500,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  Text(
+                    "添加服务器",
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

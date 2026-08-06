@@ -323,41 +323,44 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(children: [
-        AppPageHeader(
-          leading: FaIcon(
-            FontAwesomeIcons.steam,
-            size: 24,
-            color: Theme.of(context).colorScheme.primary,
+      backgroundColor: Colors.transparent,
+      body: AppBackdrop(
+        child: Column(children: [
+          AppPageHeader(
+            leading: FaIcon(
+              FontAwesomeIcons.steam,
+              size: 24,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: "Steam 补丁管理",
+            subtitle: "本地补丁注入和服务端补丁索引统一管理",
+            actions: [
+              AppSegmentedTabs(
+                selectedIndex: _tabIndex,
+                tabs: const [
+                  AppSegmentedTab(0, Icons.computer, "客户端"),
+                  AppSegmentedTab(1, Icons.dns_outlined, "服务端"),
+                ],
+                onChanged: (index) {
+                  setState(() => _tabIndex = index);
+                  if (index == 1 && !_serverLoaded && !_serverLoading) {
+                    _loadServerPatches();
+                  }
+                },
+              ),
+              AppActionButton(
+                icon: Icons.manage_search,
+                label: "关键词匹配",
+                onPressed: _showKeywordsDialog,
+              ),
+            ],
           ),
-          title: "Steam 补丁管理",
-          subtitle: "本地补丁注入和服务端补丁索引统一管理",
-          actions: [
-            AppSegmentedTabs(
-              selectedIndex: _tabIndex,
-              tabs: const [
-                AppSegmentedTab(0, Icons.computer, "客户端"),
-                AppSegmentedTab(1, Icons.dns_outlined, "服务端"),
-              ],
-              onChanged: (index) {
-                setState(() => _tabIndex = index);
-                if (index == 1 && !_serverLoaded && !_serverLoading) {
-                  _loadServerPatches();
-                }
-              },
-            ),
-            AppActionButton(
-              icon: Icons.manage_search,
-              label: "关键词匹配",
-              onPressed: _showKeywordsDialog,
-            ),
-          ],
-        ),
-        if (_tabIndex == 0)
-          Expanded(child: _buildClientTab())
-        else
-          Expanded(child: _buildServerTab()),
-      ]),
+          if (_tabIndex == 0)
+            Expanded(child: _buildClientTab())
+          else
+            Expanded(child: _buildServerTab()),
+        ]),
+      ),
     );
   }
 
@@ -584,13 +587,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _gameCard(PatchMatch m) {
     final state = _injectState[m.appId];
-    return Container(
+    return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-          color: cardBg(context),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cardBorder(context))),
+      radius: AppRadius.md,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Container(
@@ -743,11 +743,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Widget _simpleCard(PatchMatch m) {
-    return Container(
+    return AppSurface(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-          color: cardBg(context), borderRadius: BorderRadius.circular(8)),
+      radius: AppRadius.sm,
       child: Row(children: [
         Icon(Icons.block, size: 14, color: subTextColor(context)),
         const SizedBox(width: 10),
@@ -963,115 +962,99 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final matched = (p["matched_game"] ?? "").toString();
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
 
-    return Container(
+    return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-          color: cardBg(context),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cardBorder(context)),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 4,
-                offset: const Offset(0, 2))
-          ]),
-      child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                    color: hasAppId
-                        ? Colors.blue.withValues(alpha: 0.1)
-                        : Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10)),
-                child: Icon(hasAppId ? Icons.videogame_asset : Icons.archive,
-                    size: 20,
-                    color: hasAppId ? Colors.blue[400] : Colors.orange[400])),
-            const SizedBox(width: 12),
+      padding: const EdgeInsets.all(14),
+      radius: AppRadius.md,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+                color: hasAppId
+                    ? Colors.blue.withValues(alpha: 0.1)
+                    : Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10)),
+            child: Icon(hasAppId ? Icons.videogame_asset : Icons.archive,
+                size: 20,
+                color: hasAppId ? Colors.blue[400] : Colors.orange[400])),
+        const SizedBox(width: 12),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
             Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Row(children: [
-                    Expanded(
-                        child: Text(
-                            label.isNotEmpty ? label : file.split("/").last,
-                            style: AppText.bodyMedium
-                                .copyWith(fontWeight: FontWeight.w600),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis)),
-                    const SizedBox(width: 4),
-                    _typeBadge(ptype),
-                  ]),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    if (hasAppId) ...[
-                      _appIdChip(appId),
-                      const SizedBox(width: 6)
-                    ] else ...[
-                      Icon(Icons.warning_amber,
-                          size: 12, color: Colors.orange[300]),
-                      const SizedBox(width: 2),
-                      Text("无 AppID",
+                child: Text(label.isNotEmpty ? label : file.split("/").last,
+                    style: AppText.bodyMedium
+                        .copyWith(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis)),
+            const SizedBox(width: 4),
+            _typeBadge(ptype),
+          ]),
+          const SizedBox(height: 4),
+          Row(children: [
+            if (hasAppId) ...[
+              _appIdChip(appId),
+              const SizedBox(width: 6)
+            ] else ...[
+              Icon(Icons.warning_amber, size: 12, color: Colors.orange[300]),
+              const SizedBox(width: 2),
+              Text("无 AppID",
+                  style: AppText.caption.copyWith(color: Colors.orange[300])),
+              const SizedBox(width: 6)
+            ],
+            if (matched.isNotEmpty) ...[
+              Icon(Icons.link, size: 10, color: hintColor(context)),
+              const SizedBox(width: 2),
+              Text(matched,
+                  style: AppText.caption.copyWith(color: hintColor(context))),
+              const SizedBox(width: 4)
+            ],
+            Expanded(
+                child: Text(file,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.caption
+                        .copyWith(color: hintColor(context), fontSize: 10))),
+          ]),
+          if (patchDir.isNotEmpty && targetDir.isNotEmpty)
+            Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(children: [
+                  Icon(Icons.folder_copy, size: 10, color: hintColor(context)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                      child: Text("$patchDir → /$targetDir",
                           style: AppText.caption
-                              .copyWith(color: Colors.orange[300])),
-                      const SizedBox(width: 6)
-                    ],
-                    if (matched.isNotEmpty) ...[
-                      Icon(Icons.link, size: 10, color: hintColor(context)),
-                      const SizedBox(width: 2),
-                      Text(matched,
-                          style: AppText.caption
-                              .copyWith(color: hintColor(context))),
-                      const SizedBox(width: 4)
-                    ],
-                    Expanded(
-                        child: Text(file,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.caption.copyWith(
-                                color: hintColor(context), fontSize: 10))),
-                  ]),
-                  if (patchDir.isNotEmpty && targetDir.isNotEmpty)
-                    Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(children: [
-                          Icon(Icons.folder_copy,
-                              size: 10, color: hintColor(context)),
-                          const SizedBox(width: 4),
-                          Expanded(
-                              child: Text("$patchDir → /$targetDir",
-                                  style: AppText.caption
-                                      .copyWith(color: hintColor(context)))),
-                        ])),
+                              .copyWith(color: hintColor(context)))),
                 ])),
-            const SizedBox(width: 2),
-            IconButton(
-                icon: const Icon(Icons.manage_search, size: 16),
-                tooltip: "重新刮削 AppID",
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.all(6),
-                constraints: const BoxConstraints(),
-                onPressed: () => _rescrapeOne(hasAppId ? appId : file)),
-            IconButton(
-                icon: const Icon(Icons.edit, size: 16),
-                tooltip: "编辑",
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.all(6),
-                constraints: const BoxConstraints(),
-                onPressed: () => _showEditDialog(PatchMatch(
-                    appId: appId,
-                    gameName: label.isNotEmpty ? label : file.split("/").last,
-                    installDir: "",
-                    patchAvailable: true,
-                    patchFilename: file,
-                    patchDir: patchDir,
-                    targetDir: targetDir,
-                    label: label,
-                    type: ptype))),
-          ])),
+        ])),
+        const SizedBox(width: 2),
+        IconButton(
+            icon: const Icon(Icons.manage_search, size: 16),
+            tooltip: "重新刮削 AppID",
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+            onPressed: () => _rescrapeOne(hasAppId ? appId : file)),
+        IconButton(
+            icon: const Icon(Icons.edit, size: 16),
+            tooltip: "编辑",
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+            onPressed: () => _showEditDialog(PatchMatch(
+                appId: appId,
+                gameName: label.isNotEmpty ? label : file.split("/").last,
+                installDir: "",
+                patchAvailable: true,
+                patchFilename: file,
+                patchDir: patchDir,
+                targetDir: targetDir,
+                label: label,
+                type: ptype))),
+      ]),
     );
   }
 
