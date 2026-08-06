@@ -13,6 +13,7 @@ import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
+import "../widgets/app_shell.dart";
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key});
@@ -155,9 +156,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       );
       final resp = await request.send();
       if (resp.statusCode == 200) {
-        final data =
-            jsonDecode(await resp.stream.bytesToString())
-                as Map<String, dynamic>;
+        final data = jsonDecode(await resp.stream.bytesToString())
+            as Map<String, dynamic>;
         // Use "url" (API path) not "avatar_path" (server filesystem path)
         final url = data["url"]?.toString() ?? "";
         setState(() {
@@ -178,12 +178,15 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   Widget build(BuildContext context) {
     final hasAvatar = _avatarPath != null && _avatarPath!.isNotEmpty;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text("个人信息")),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
+    return AppScaffold(
+      title: "个人信息",
+      subtitle: "更新头像、用户名和登录密码",
+      leading: const Icon(Icons.account_circle_outlined, size: 24),
+      scrollable: false,
+      maxWidth: 760,
+      child: _loading
+          ? const AppStateView.loading(title: "正在读取个人信息")
           : ListView(
-              padding: const EdgeInsets.all(20),
               children: [
                 // ── Avatar ──
                 Center(
@@ -404,35 +407,36 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Widget _section(String t) => Padding(
-    padding: const EdgeInsets.only(left: 4, bottom: 4),
-    child: Text(
-      t,
-      style: AppText.bodyMedium.copyWith(
-        fontWeight: FontWeight.w600,
-        color: subTextColor(context),
-      ),
-    ),
-  );
+        padding: const EdgeInsets.only(left: 4, bottom: 4),
+        child: Text(
+          t,
+          style: AppText.bodyMedium.copyWith(
+            fontWeight: FontWeight.w600,
+            color: subTextColor(context),
+          ),
+        ),
+      );
 
   InputDecoration _dec(String hint) => InputDecoration(
-    hintText: hint,
-    hintStyle: AppText.bodyMedium.copyWith(color: Colors.grey[600]),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: BorderSide(color: cardBorder(context)),
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: BorderSide(color: cardBorder(context)),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: BorderSide(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
-      ),
-    ),
-  );
+        hintText: hint,
+        hintStyle: AppText.bodyMedium.copyWith(color: Colors.grey[600]),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: cardBorder(context)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: cardBorder(context)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+          ),
+        ),
+      );
 
   @override
   void dispose() {

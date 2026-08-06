@@ -425,9 +425,13 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text("下载设置")),
-        body: _loading
+  Widget build(BuildContext context) => AppScaffold(
+        title: "下载设置",
+        subtitle: "管理下载目录、快捷方式、并发数和速度限制",
+        leading: const Icon(Icons.download_outlined, size: 24),
+        scrollable: false,
+        padding: EdgeInsets.zero,
+        child: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
                 padding: const EdgeInsets.all(16),
@@ -1506,9 +1510,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text("扫描设置")),
-        body: _loading
+  Widget build(BuildContext context) => AppScaffold(
+        title: "扫描设置",
+        subtitle: "配置游戏库、补丁库、OpenList 和刮削来源",
+        leading: const Icon(Icons.manage_search_outlined, size: 24),
+        scrollable: false,
+        padding: EdgeInsets.zero,
+        child: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
                 padding: const EdgeInsets.all(16),
@@ -2172,9 +2180,13 @@ class _DisplayPageState extends State<_DisplayPage> {
   @override
   Widget build(BuildContext context) {
     final coverSize = context.watch<SettingsProvider>().coverSize;
-    return Scaffold(
-      appBar: AppBar(title: const Text("显示")),
-      body: ListView(
+    return AppScaffold(
+      title: "显示",
+      subtitle: "调整封面尺寸、托盘行为和桌面体验",
+      leading: const Icon(Icons.grid_view_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _sectionTitle("封面大小"),
@@ -2790,17 +2802,25 @@ class _UserManagePageState extends State<_UserManagePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("用户管理")),
+    return AppScaffold(
+      title: "用户管理",
+      subtitle: "管理服务器用户、角色和账号状态",
+      leading: const Icon(Icons.manage_accounts_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
       floatingActionButton: FloatingActionButton.small(
         onPressed: _createUser,
         tooltip: "创建用户",
         child: const Icon(Icons.person_add_outlined),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
+      child: _loading
+          ? const AppStateView.loading(title: "正在读取用户")
           : _users.isEmpty
-              ? const Center(child: Text("暂无用户"))
+              ? const AppStateView(
+                  icon: Icons.people_outline,
+                  title: "暂无用户",
+                  message: "当前服务器还没有可管理的用户",
+                )
               : ListView.separated(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

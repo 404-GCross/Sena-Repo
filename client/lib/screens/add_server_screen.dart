@@ -8,6 +8,7 @@ import "package:http/http.dart" as http;
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
+import "../widgets/app_shell.dart";
 import "../services/api_client.dart";
 import "../services/profile_service.dart";
 import "home_screen.dart";
@@ -208,11 +209,13 @@ class _AddServerScreenState extends State<AddServerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_step == 0 ? "添加服务器" : (_showRegister ? "注册账户" : "登录")),
-      ),
-      body: Center(
+    return AppScaffold(
+      title: _step == 0 ? "添加服务器" : (_showRegister ? "注册账户" : "登录"),
+      subtitle: _step == 0 ? "连接到已有 Sena Repo 服务端" : "完成账号认证后进入客户端",
+      leading: const Icon(Icons.dns_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: SizedBox(
@@ -337,7 +340,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
                       obscureText: true,
                     ),
                   ],
-
                   if (_loginError != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -351,7 +353,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
                         ),
                       ),
                     ),
-
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,

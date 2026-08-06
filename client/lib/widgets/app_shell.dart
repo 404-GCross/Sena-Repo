@@ -7,10 +7,10 @@ import "../utils/theme_utils.dart";
 class AppRadius {
   AppRadius._();
 
-  static const double sm = 10;
-  static const double md = 14;
-  static const double lg = 18;
-  static const double xl = 22;
+  static const double sm = 8;
+  static const double md = 10;
+  static const double lg = 12;
+  static const double xl = 16;
 }
 
 class AppMotion {
@@ -67,9 +67,9 @@ class AppSurface extends StatelessWidget {
             Border.all(color: cardBorder(context).withValues(alpha: 0.72)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: isDark ? 0.12 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -379,6 +379,256 @@ class AppMetricCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class AppScaffold extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget? leading;
+  final List<Widget> actions;
+  final Widget child;
+  final bool showBack;
+  final EdgeInsetsGeometry padding;
+  final bool scrollable;
+  final double maxWidth;
+  final FloatingActionButton? floatingActionButton;
+
+  const AppScaffold({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.actions = const [],
+    required this.child,
+    this.showBack = true,
+    this.padding = const EdgeInsets.all(16),
+    this.scrollable = true,
+    this.maxWidth = 1180,
+    this.floatingActionButton,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Padding(
+          padding: padding,
+          child: child,
+        ),
+      ),
+    );
+    return Scaffold(
+      floatingActionButton: floatingActionButton,
+      body: Column(
+        children: [
+          AppPageHeader(
+            showBack: showBack,
+            leading: leading,
+            title: title,
+            subtitle: subtitle,
+            actions: actions,
+          ),
+          Expanded(
+            child: scrollable ? SingleChildScrollView(child: body) : body,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AppSectionTitle extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+
+  const AppSectionTitle({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: cs.primary.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: Icon(icon, size: 17, color: cs.primary),
+        ),
+        const SizedBox(width: AppGap.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: AppText.section.copyWith(color: cs.onSurface)),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(subtitle!,
+                    style: AppText.caption.copyWith(color: hintColor(context))),
+              ],
+            ],
+          ),
+        ),
+        if (trailing != null) trailing!,
+      ],
+    );
+  }
+}
+
+class AppListTile extends StatelessWidget {
+  final IconData icon;
+  final Color? color;
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  const AppListTile({
+    super.key,
+    required this.icon,
+    this.color,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final base = color ?? cs.primary;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: base.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: Icon(icon, size: 19, color: base),
+              ),
+              const SizedBox(width: AppGap.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: AppText.bodyMedium.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        )),
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(subtitle!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.caption
+                              .copyWith(color: hintColor(context))),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppGap.sm),
+              trailing ??
+                  Icon(Icons.chevron_right_rounded,
+                      size: 20, color: hintColor(context)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AppStateView extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? message;
+  final Widget? action;
+  final bool loading;
+
+  const AppStateView({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.message,
+    this.action,
+    this.loading = false,
+  });
+
+  const AppStateView.loading({
+    super.key,
+    this.title = "加载中",
+    this.message,
+    this.action,
+  })  : icon = Icons.hourglass_empty_rounded,
+        loading = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppGap.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (loading)
+              const SizedBox(
+                width: 30,
+                height: 30,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              )
+            else
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(AppRadius.xl),
+                ),
+                child: Icon(icon, color: cs.primary, size: 28),
+              ),
+            const SizedBox(height: AppGap.lg),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: AppText.title.copyWith(color: cs.onSurface)),
+            if (message != null && message!.isNotEmpty) ...[
+              const SizedBox(height: AppGap.sm),
+              Text(message!,
+                  textAlign: TextAlign.center,
+                  style: AppText.bodySmall.copyWith(color: hintColor(context))),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: AppGap.lg),
+              action!,
+            ],
+          ],
+        ),
       ),
     );
   }

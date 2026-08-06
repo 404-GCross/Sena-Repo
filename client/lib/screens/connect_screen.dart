@@ -17,6 +17,7 @@ import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
 import "../services/notification_service.dart";
+import "../widgets/app_shell.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
 import "add_server_screen.dart";
@@ -98,18 +99,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
           final meUri = Uri.parse(
             "${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me",
           );
-          final resp = await http
-              .get(meUri, headers: {"Authorization": "Bearer $effectiveToken"})
-              .timeout(const Duration(seconds: 5));
+          final resp = await http.get(meUri, headers: {
+            "Authorization": "Bearer $effectiveToken"
+          }).timeout(const Duration(seconds: 5));
           if (resp.statusCode == 200) {
             final profileData = tryDecodeJsonMap(resp.body);
             if (profileData == null || profileData["id"] == null) {
-              autoLoginError =
-                  "自动登录失败：${describeUnexpectedApiResponse(
-                    resp,
-                    expected: "用户资料",
-                    endpointPath: "/api/auth/profile/me",
-                  )}";
+              autoLoginError = "自动登录失败：${describeUnexpectedApiResponse(
+                resp,
+                expected: "用户资料",
+                endpointPath: "/api/auth/profile/me",
+              )}";
             } else {
               await _syncProfileFromMeResponse(profile, idx, resp.body);
               final settings = context.read<SettingsProvider>();
@@ -248,12 +248,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final meUri = Uri.parse(
         "${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me",
       );
-      final meResp = await http
-          .get(
-            meUri,
-            headers: {"Authorization": "Bearer ${profile.authToken}"},
-          )
-          .timeout(const Duration(seconds: 5));
+      final meResp = await http.get(
+        meUri,
+        headers: {"Authorization": "Bearer ${profile.authToken}"},
+      ).timeout(const Duration(seconds: 5));
       if (cancelled) return;
       if (meResp.statusCode == 401) {
         if (await setupApi.checkSetupNeeded()) {
@@ -271,12 +269,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
         hideLoading();
         if (mounted)
           setState(
-            () => _error =
-                "连接失败: ${describeUnexpectedApiResponse(
-                  meResp,
-                  expected: "用户资料",
-                  endpointPath: "/api/auth/profile/me",
-                )}",
+            () => _error = "连接失败: ${describeUnexpectedApiResponse(
+              meResp,
+              expected: "用户资料",
+              endpointPath: "/api/auth/profile/me",
+            )}",
           );
         return;
       }
@@ -285,12 +282,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
         hideLoading();
         if (mounted)
           setState(
-            () => _error =
-                "连接失败: ${describeUnexpectedApiResponse(
-                  meResp,
-                  expected: "用户资料",
-                  endpointPath: "/api/auth/profile/me",
-                )}",
+            () => _error = "连接失败: ${describeUnexpectedApiResponse(
+              meResp,
+              expected: "用户资料",
+              endpointPath: "/api/auth/profile/me",
+            )}",
           );
         return;
       }
@@ -917,11 +913,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     if (resp.statusCode == 200) {
                       final data = tryDecodeJsonMap(resp.body);
                       if (data != null && data["token"] != null) {
-                        newProfile.authToken =
-                            data["token"]?.toString() ?? "";
-                        newProfile.username =
-                            data["username"]?.toString() ??
-                                userCtrl.text.trim();
+                        newProfile.authToken = data["token"]?.toString() ?? "";
+                        newProfile.username = data["username"]?.toString() ??
+                            userCtrl.text.trim();
                         newProfile.isAdmin = data["is_admin"] == true;
                         // newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
                         profiles[idx] = newProfile;
@@ -965,26 +959,30 @@ class _ConnectScreenState extends State<ConnectScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        body: const Center(child: CircularProgressIndicator()),
+      return const AppScaffold(
+        title: "Sena Repo",
+        subtitle: "正在读取本地连接配置",
+        leading: Icon(Icons.dns_outlined, size: 24),
+        showBack: false,
+        child: AppStateView.loading(title: "正在加载"),
       );
     }
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      appBar: AppBar(
-        title: const Text("Sena Repo"),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: "本地设置",
-            onPressed: () => _ensureClientSetup(force: true),
-          ),
-        ],
-      ),
-      body: Center(
+    return AppScaffold(
+      title: "Sena Repo",
+      subtitle: "连接服务器或切换已保存的账号配置",
+      leading: const Icon(Icons.dns_outlined, size: 24),
+      showBack: false,
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      actions: [
+        AppActionButton(
+          icon: Icons.settings_outlined,
+          label: "本地设置",
+          onPressed: () => _ensureClientSetup(force: true),
+        ),
+      ],
+      child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: SizedBox(
@@ -1587,8 +1585,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           } else {
                             setD(() {
                               loading = false;
-                              loginError =
-                                  body["detail"]?.toString() ?? "注册失败";
+                              loginError = body["detail"]?.toString() ?? "注册失败";
                             });
                           }
                         } catch (e) {

@@ -18,7 +18,7 @@ dependencies:
   permission_handler: ^11.3.0
   cached_network_image: ^3.4.0
   flutter_local_notifications: ^18.0.0
-  font_awesome_flutter: ^10.8.0
+  font_awesome_flutter: ^11.0.0
   tray_manager: ^0.5.1
   window_manager:
     git:

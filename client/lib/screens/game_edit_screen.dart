@@ -16,6 +16,7 @@ import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/scrape_service.dart";
+import "../widgets/app_shell.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -820,53 +821,53 @@ class _GameEditScreenState extends State<GameEditScreen> {
   Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
 
   Widget _section(String t, [IconData? icon]) => Padding(
-    padding: const EdgeInsets.only(bottom: 8, top: 4),
-    child: Row(
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: 18, color: sectionIconColor(context)),
-          const SizedBox(width: 6),
-        ],
-        Text(
-          t,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: sectionTextColor(context),
-          ),
+        padding: const EdgeInsets.only(bottom: 8, top: 4),
+        child: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: sectionIconColor(context)),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              t,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: sectionTextColor(context),
+              ),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   Widget _fieldCard({required List<Widget> children}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Column(children: children),
-  );
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: cardBg(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cardBorder(context)),
+        ),
+        child: Column(children: children),
+      );
 
   Widget _hintCard(String text) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Row(
-      children: [
-        Icon(Icons.info_outline, size: 18, color: hintColor(context)),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cardBg(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cardBorder(context)),
         ),
-      ],
-    ),
-  );
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+            ),
+          ],
+        ),
+      );
 
   Color _platformColor(String platform) {
     switch (platform.toLowerCase()) {
@@ -892,59 +893,56 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final hasCover = _coverPath != null && _coverPath!.isNotEmpty;
     final isWide = MediaQuery.of(context).size.width > 600;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("编辑游戏"),
-        actions: [
-          OutlinedButton.icon(
-            icon: const Icon(Icons.cloud_download, size: 16),
-            label: const Text("下载元数据"),
-            onPressed: _downloadMetadata,
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            tooltip: "删除游戏",
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text("确认删除"),
-                  content: Text("确定删除「${widget.game.name}」吗？\n不会删除本地文件。"),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text("取消"),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text("删除"),
-                    ),
-                  ],
-                ),
-              );
-              if (confirmed == true && context.mounted) {
-                await context.read<GameProvider>().deleteGame(widget.game.id);
-                if (context.mounted) Navigator.pop(context, true);
-              }
-            },
-          ),
-          const SizedBox(width: 4),
-          FilledButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.save, size: 16),
-            label: const Text("保存"),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SingleChildScrollView(
+    return AppScaffold(
+      title: "编辑游戏",
+      subtitle: g.name,
+      leading: const Icon(Icons.edit_note_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      maxWidth: 1280,
+      actions: [
+        AppActionButton(
+          icon: Icons.cloud_download_outlined,
+          label: "下载元数据",
+          onPressed: _downloadMetadata,
+        ),
+        AppActionButton(
+          icon: Icons.delete_outline,
+          label: "删除",
+          color: Colors.red,
+          onPressed: () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text("确认删除"),
+                content: Text("确定删除「${widget.game.name}」吗？\n不会删除本地文件。"),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text("取消"),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text("删除"),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed == true && context.mounted) {
+              await context.read<GameProvider>().deleteGame(widget.game.id);
+              if (context.mounted) Navigator.pop(context, true);
+            }
+          },
+        ),
+        AppActionButton(
+          icon: Icons.save_outlined,
+          label: "保存",
+          filled: true,
+          busy: _saving,
+          onPressed: _saving ? null : _save,
+        ),
+      ],
+      child: SingleChildScrollView(
         padding: EdgeInsets.all(isWide ? 28 : 12),
         child: Column(
           children: [
@@ -1035,7 +1033,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 borderRadius: BorderRadius.circular(14),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Theme.of(context).colorScheme.primary
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary
                                         .withValues(alpha: 0.2),
                                     blurRadius: 20,
                                     offset: const Offset(0, 8),
@@ -1066,15 +1066,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                             _coverPlaceholder(),
                                       )
                                     : hasCover
-                                    ? Image.network(
-                                        "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                                        key: ValueKey("cover_$_coverVersion"),
-                                        headers: mediaAuthHeaders,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) =>
-                                            _coverPlaceholder(),
-                                      )
-                                    : _coverPlaceholder(),
+                                        ? Image.network(
+                                            "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
+                                            key: ValueKey(
+                                                "cover_$_coverVersion"),
+                                            headers: mediaAuthHeaders,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                _coverPlaceholder(),
+                                          )
+                                        : _coverPlaceholder(),
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -1135,8 +1136,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                       "VNDB ID",
                                       _vndb,
                                       icon: Icons.tag,
-                                      sourceId:
-                                          g.vndbId != null &&
+                                      sourceId: g.vndbId != null &&
                                               g.vndbId!.isNotEmpty
                                           ? g.vndbId
                                           : null,
@@ -1146,8 +1146,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                       "Steam ID",
                                       _steam,
                                       icon: Icons.tag,
-                                      sourceId:
-                                          g.steamId != null &&
+                                      sourceId: g.steamId != null &&
                                               g.steamId!.isNotEmpty
                                           ? g.steamId
                                           : null,
@@ -1157,8 +1156,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                       "Bangumi ID",
                                       _bgm,
                                       icon: Icons.tag,
-                                      sourceId:
-                                          g.bangumiId != null &&
+                                      sourceId: g.bangumiId != null &&
                                               g.bangumiId!.isNotEmpty
                                           ? g.bangumiId
                                           : null,
@@ -1201,30 +1199,30 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                                   ),
                                                 ),
                                                 Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 10,
-                                                        vertical: 4,
-                                                      ),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
                                                   decoration: BoxDecoration(
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                          12,
-                                                        ),
+                                                      12,
+                                                    ),
                                                     color: _platformColor(
                                                       v.platform,
                                                     ).withValues(alpha: 0.15),
                                                   ),
                                                   child: Text(
                                                     v.platform,
-                                                    style: AppText.label
-                                                        .copyWith(
-                                                          fontWeight:
-                                                              FontWeight.w500,
-                                                          color: _platformColor(
-                                                            v.platform,
-                                                          ),
-                                                        ),
+                                                    style:
+                                                        AppText.label.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: _platformColor(
+                                                        v.platform,
+                                                      ),
+                                                    ),
                                                   ),
                                                 ),
                                                 PopupMenuButton<String>(
@@ -1351,8 +1349,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 icon: Icons.tag,
                                 sourceId:
                                     g.vndbId != null && g.vndbId!.isNotEmpty
-                                    ? g.vndbId
-                                    : null,
+                                        ? g.vndbId
+                                        : null,
                               ),
                               _divider(),
                               _field(
@@ -1361,16 +1359,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                 icon: Icons.tag,
                                 sourceId:
                                     g.steamId != null && g.steamId!.isNotEmpty
-                                    ? g.steamId
-                                    : null,
+                                        ? g.steamId
+                                        : null,
                               ),
                               _divider(),
                               _field(
                                 "Bangumi ID",
                                 _bgm,
                                 icon: Icons.tag,
-                                sourceId:
-                                    g.bangumiId != null &&
+                                sourceId: g.bangumiId != null &&
                                         g.bangumiId!.isNotEmpty
                                     ? g.bangumiId
                                     : null,
@@ -1553,28 +1550,28 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Widget _coverPlaceholder() => Container(
-    decoration: BoxDecoration(
-      color: placeholderBg(context),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    width: 200,
-    height: 280,
-    child: Center(
-      child: Icon(Icons.image, size: 64, color: placeholderIcon(context)),
-    ),
-  );
+        decoration: BoxDecoration(
+          color: placeholderBg(context),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        width: 200,
+        height: 280,
+        child: Center(
+          child: Icon(Icons.image, size: 64, color: placeholderIcon(context)),
+        ),
+      );
 
   Widget _coverPlaceholderSmall() => Container(
-    width: 90,
-    height: 120,
-    decoration: BoxDecoration(
-      color: placeholderBg(context),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Center(
-      child: Icon(Icons.image, size: 32, color: placeholderIcon(context)),
-    ),
-  );
+        width: 90,
+        height: 120,
+        decoration: BoxDecoration(
+          color: placeholderBg(context),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Icon(Icons.image, size: 32, color: placeholderIcon(context)),
+        ),
+      );
 
   Widget _sourceBadge(String label, String? id) {
     final active = id != null && id.isNotEmpty;
@@ -1583,14 +1580,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: active
-              ? Colors.green.withValues(alpha: 0.15)
-              : cardBg(context),
+          color:
+              active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: active
-                ? Colors.green.withValues(alpha: 0.35)
-                : Colors.white24,
+            color:
+                active ? Colors.green.withValues(alpha: 0.35) : Colors.white24,
           ),
         ),
         child: Row(
@@ -1734,8 +1729,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       );
       if (result == null ||
           result.files.isEmpty ||
-          result.files.first.path == null)
-        return;
+          result.files.first.path == null) return;
       final request = http.MultipartRequest(
         "POST",
         Uri.parse("$_baseUrl/api/games/${widget.game.id}/background/upload"),
@@ -1746,9 +1740,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       );
       final streamed = await request.send();
       if (streamed.statusCode == 200) {
-        final data =
-            jsonDecode(await streamed.stream.bytesToString())
-                as Map<String, dynamic>;
+        final data = jsonDecode(await streamed.stream.bytesToString())
+            as Map<String, dynamic>;
         if (data["bg_path"] != null) {
           setState(() {
             _bgUrl.text = data["bg_path"];
@@ -1772,8 +1765,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       );
       if (result == null ||
           result.files.isEmpty ||
-          result.files.first.path == null)
-        return;
+          result.files.first.path == null) return;
       final request = http.MultipartRequest(
         "POST",
         Uri.parse("$_baseUrl/api/games/${widget.game.id}/cover/upload"),
@@ -1784,9 +1776,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       );
       final streamed = await request.send();
       if (streamed.statusCode == 200) {
-        final data =
-            jsonDecode(await streamed.stream.bytesToString())
-                as Map<String, dynamic>;
+        final data = jsonDecode(await streamed.stream.bytesToString())
+            as Map<String, dynamic>;
         if (data["cover_path"] != null) {
           setState(() {
             _coverPath = data["cover_path"];
@@ -1886,7 +1877,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             error = "";
                           });
                           try {
-                            results = await _searchMetadataSource(src, ctrl.text);
+                            results =
+                                await _searchMetadataSource(src, ctrl.text);
                           } catch (e) {
                             error = "$e";
                           }
@@ -1997,7 +1989,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             strokeWidth: 2,
                             value: progress.expectedTotalBytes != null
                                 ? progress.cumulativeBytesLoaded /
-                                      progress.expectedTotalBytes!
+                                    progress.expectedTotalBytes!
                                 : null,
                           ),
                         ),
@@ -2062,7 +2054,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           CircularProgressIndicator(
                             value: progress.expectedTotalBytes != null
                                 ? progress.cumulativeBytesLoaded /
-                                      progress.expectedTotalBytes!
+                                    progress.expectedTotalBytes!
                                 : null,
                           ),
                           const SizedBox(height: 8),
@@ -2402,12 +2394,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                           child: Center(
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              value:
-                                                  progress.expectedTotalBytes !=
+                                              value: progress
+                                                          .expectedTotalBytes !=
                                                       null
-                                                  ? progress.cumulativeBytesLoaded /
-                                                        progress
-                                                            .expectedTotalBytes!
+                                                  ? progress
+                                                          .cumulativeBytesLoaded /
+                                                      progress
+                                                          .expectedTotalBytes!
                                                   : null,
                                             ),
                                           ),
@@ -2518,20 +2511,23 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                                 _bgUrl.text.startsWith("http")
                                                     ? _bgUrl.text
                                                     : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
-                                                headers: _bgUrl.text.startsWith("http") ? null : mediaAuthHeaders,
+                                                headers: _bgUrl.text
+                                                        .startsWith("http")
+                                                    ? null
+                                                    : mediaAuthHeaders,
                                                 width: 180,
                                                 height: 90,
                                                 fit: BoxFit.cover,
                                                 errorBuilder: (_, __, ___) =>
                                                     Container(
-                                                      width: 180,
-                                                      height: 90,
-                                                      color: Colors.grey[800],
-                                                      child: const Icon(
-                                                        Icons.broken_image,
-                                                        color: Colors.grey,
-                                                      ),
-                                                    ),
+                                                  width: 180,
+                                                  height: 90,
+                                                  color: Colors.grey[800],
+                                                  child: const Icon(
+                                                    Icons.broken_image,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
                                               )
                                             : Container(
                                                 width: 180,
@@ -2584,14 +2580,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                                 alpha: 0.15,
                                               ),
                                               child: Center(
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
-                                                  value:
-                                                      progress.expectedTotalBytes !=
+                                                  value: progress
+                                                              .expectedTotalBytes !=
                                                           null
-                                                      ? progress.cumulativeBytesLoaded /
-                                                            progress
-                                                                .expectedTotalBytes!
+                                                      ? progress
+                                                              .cumulativeBytesLoaded /
+                                                          progress
+                                                              .expectedTotalBytes!
                                                       : null,
                                                 ),
                                               ),
@@ -2599,14 +2597,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                           },
                                           errorBuilder: (_, __, ___) =>
                                               Container(
-                                                width: 180,
-                                                height: 90,
-                                                color: Colors.grey[800],
-                                                child: const Icon(
-                                                  Icons.broken_image,
-                                                  color: Colors.grey,
-                                                ),
-                                              ),
+                                            width: 180,
+                                            height: 90,
+                                            color: Colors.grey[800],
+                                            child: const Icon(
+                                              Icons.broken_image,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ],

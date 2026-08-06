@@ -133,43 +133,53 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   @override
   Widget build(BuildContext context) {
     if (_isLoading)
-      return Scaffold(
-        appBar: AppBar(title: const Text("加载中...")),
-        body: const Center(child: CircularProgressIndicator()),
+      return const AppScaffold(
+        title: "加载中",
+        subtitle: "正在读取游戏详情",
+        leading: Icon(Icons.videogame_asset_outlined, size: 24),
+        child: AppStateView.loading(title: "正在加载游戏详情"),
       );
     final game = _game;
     if (game == null)
-      return Scaffold(
-        appBar: AppBar(title: const Text("错误")),
-        body: const Center(child: Text("游戏未找到")),
+      return const AppScaffold(
+        title: "错误",
+        subtitle: "无法打开游戏详情",
+        leading: Icon(Icons.error_outline, size: 24),
+        child: AppStateView(
+          icon: Icons.search_off_outlined,
+          title: "游戏未找到",
+          message: "该条目可能已被删除或服务器暂时无法返回详情",
+        ),
       );
 
     final hasCover = game.coverPath != null && game.coverPath!.isNotEmpty;
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(game.name),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: "编辑",
-            onPressed: () async {
-              final isAdmin = await _refreshIsAdmin();
-              if (!isAdmin) {
-                if (mounted) _showDialog(context, "权限不足", "仅限管理员可操作");
-                return;
-              }
-              final changed = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(builder: (_) => GameEditScreen(game: game)),
-              );
-              if (changed == true) _load();
-            },
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
+    return AppScaffold(
+      title: game.name,
+      subtitle: "游戏详情、资源和启动操作",
+      leading: const Icon(Icons.videogame_asset_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      actions: [
+        AppActionButton(
+          icon: Icons.edit_outlined,
+          label: "编辑",
+          onPressed: () async {
+            final isAdmin = await _refreshIsAdmin();
+            if (!isAdmin) {
+              if (mounted) _showDialog(context, "权限不足", "仅限管理员可操作");
+              return;
+            }
+            final changed = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => GameEditScreen(game: game)),
+            );
+            if (changed == true) _load();
+          },
+        ),
+      ],
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Center(
           child: ConstrainedBox(

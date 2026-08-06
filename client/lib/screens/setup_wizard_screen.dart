@@ -8,6 +8,7 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/api_client.dart";
 import "../utils/theme_utils.dart";
+import "../widgets/app_shell.dart";
 
 class SetupWizardScreen extends StatefulWidget {
   final ApiClient api;
@@ -213,9 +214,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("\u521d\u59cb\u8bbe\u7f6e (${_step + 1}/3)")),
-      body: Center(
+    return AppScaffold(
+      title: "初始化设置 (${_step + 1}/3)",
+      subtitle: _titles[_step],
+      leading: const Icon(Icons.auto_fix_high_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      child: Center(
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.all(24),

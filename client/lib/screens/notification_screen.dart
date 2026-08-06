@@ -7,6 +7,7 @@ import "dart:convert";
 import "../services/api_client.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
+import "../widgets/app_shell.dart";
 
 class NotificationScreen extends StatefulWidget {
   final ApiClient api;
@@ -115,113 +116,137 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("通知"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.done_all),
-            tooltip: "全部已读",
-            onPressed: () async {
-              final resp = await http.post(
-                Uri.parse(
-                  "${widget.api.baseUrl}/api/auth/notifications/read-all",
-                ),
-                headers: await _authHeaders,
-              );
-              if (resp.statusCode != 200) {
-                if (mounted) _showError("操作失败: ${resp.statusCode}");
-                return;
-              }
-              await _load();
-              final onChanged = widget.onChanged;
-              if (onChanged != null) await onChanged();
-            },
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
+    return AppScaffold(
+      title: "通知",
+      subtitle: "处理用户审批和系统消息",
+      leading: const Icon(Icons.notifications_outlined, size: 24),
+      actions: [
+        AppActionButton(
+          icon: Icons.done_all_rounded,
+          label: "全部已读",
+          onPressed: () async {
+            final resp = await http.post(
+              Uri.parse(
+                  "${widget.api.baseUrl}/api/auth/notifications/read-all"),
+              headers: await _authHeaders,
+            );
+            if (resp.statusCode != 200) {
+              if (mounted) _showError("操作失败: ${resp.statusCode}");
+              return;
+            }
+            await _load();
+            final onChanged = widget.onChanged;
+            if (onChanged != null) await onChanged();
+          },
+        ),
+      ],
+      child: _loading
+          ? const AppStateView.loading(title: "正在读取通知")
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Pending Approvals ──
                 if (_pendingUsers.isNotEmpty) ...[
-                  const Text(
-                    "待审批用户",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  const AppSectionTitle(
+                    icon: Icons.how_to_reg_outlined,
+                    title: "待审批用户",
+                    subtitle: "确认新用户是否允许进入当前服务器",
                   ),
-                  const SizedBox(height: 8),
-                  ..._pendingUsers.map(
-                    (u) => Card(
-                      child: ListTile(
-                        title: Text(u["username"] ?? ""),
-                        subtitle: Text(
-                          u["is_admin"] == true ? "申请管理员" : "普通用户",
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(
-                                Icons.check_circle,
-                                color: Colors.green,
-                              ),
-                              onPressed: () => _approve(u["id"] as int, true),
+                  const SizedBox(height: AppGap.md),
+                  AppSurface(
+                    padding: const EdgeInsets.all(6),
+                    child: Column(
+                      children: [
+                        for (final u in _pendingUsers)
+                          AppListTile(
+                            icon: u["is_admin"] == true
+                                ? Icons.admin_panel_settings_outlined
+                                : Icons.person_add_alt_1_outlined,
+                            color: Colors.orange,
+                            title: u["username"]?.toString() ?? "",
+                            subtitle: u["is_admin"] == true ? "申请管理员" : "普通用户",
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.check_circle,
+                                      color: Colors.green),
+                                  tooltip: "通过",
+                                  onPressed: () =>
+                                      _approve(u["id"] as int, true),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.cancel,
+                                      color: Colors.red),
+                                  tooltip: "拒绝",
+                                  onPressed: () =>
+                                      _approve(u["id"] as int, false),
+                                ),
+                              ],
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.cancel, color: Colors.red),
-                              onPressed: () => _approve(u["id"] as int, false),
-                            ),
-                          ],
-                        ),
-                      ),
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  const Divider(),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppGap.xl),
                 ],
-                // ── Notifications ──
-                const Text(
-                  "通知记录",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                const AppSectionTitle(
+                  icon: Icons.inbox_outlined,
+                  title: "通知记录",
+                  subtitle: "最近的服务器消息和审批结果",
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppGap.md),
                 if (_notifications.isEmpty)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Text("暂无通知", style: TextStyle(color: Colors.grey)),
+                  const AppSurface(
+                    padding: EdgeInsets.all(12),
+                    child: AppStateView(
+                      icon: Icons.notifications_none_outlined,
+                      title: "暂无通知",
+                      message: "当前没有新的消息记录",
+                    ),
+                  )
+                else
+                  AppSurface(
+                    padding: const EdgeInsets.all(6),
+                    child: Column(
+                      children: [
+                        for (final n in _notifications)
+                          AppListTile(
+                            icon: _notificationIcon(n["type"]),
+                            color: _notificationColor(n["type"]),
+                            title: n["title"]?.toString() ?? "",
+                            subtitle: n["body"]?.toString() ?? "",
+                            trailing: Text(
+                              _fmtTime(n["created_at"]),
+                              style: AppText.caption
+                                  .copyWith(color: hintColor(context)),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ..._notifications.map(
-                  (n) => ListTile(
-                    leading: Icon(
-                      n["type"] == "approval_request"
-                          ? Icons.person_add
-                          : n["type"] == "approved"
-                          ? Icons.check_circle
-                          : n["type"] == "rejected"
-                          ? Icons.cancel
-                          : Icons.notifications,
-                      color: n["type"] == "approval_request"
-                          ? Colors.orange
-                          : n["type"] == "approved"
-                          ? Colors.green
-                          : Colors.grey,
-                    ),
-                    title: Text(n["title"] ?? ""),
-                    subtitle: Text(n["body"] ?? "", maxLines: 2),
-                    trailing: Text(
-                      _fmtTime(n["created_at"]),
-                      style: AppText.caption.copyWith(color: Colors.grey),
-                    ),
-                  ),
-                ),
               ],
             ),
     );
+  }
+
+  IconData _notificationIcon(dynamic type) {
+    return type == "approval_request"
+        ? Icons.person_add_alt_1_outlined
+        : type == "approved"
+            ? Icons.check_circle_outline
+            : type == "rejected"
+                ? Icons.cancel_outlined
+                : Icons.notifications_outlined;
+  }
+
+  Color _notificationColor(dynamic type) {
+    return type == "approval_request"
+        ? Colors.orange
+        : type == "approved"
+            ? Colors.green
+            : type == "rejected"
+                ? Colors.red
+                : Colors.grey;
   }
 
   String _fmtTime(dynamic ts) {

@@ -9,13 +9,29 @@ def patch_once(text: str, marker: str, anchor: str, insert: str) -> str:
     return text.replace(anchor, insert + anchor, 1)
 
 
+def remove_werror_from_standard_settings(cmake_text: str) -> str:
+    old = "target_compile_options(${TARGET} PRIVATE -Wall -Werror)"
+    new = "target_compile_options(${TARGET} PRIVATE -Wall)"
+    if old not in cmake_text and new not in cmake_text:
+        raise RuntimeError(f"Anchor not found: {old}")
+    return cmake_text.replace(old, new, 1)
+
+
+project_cmake = Path("linux/CMakeLists.txt")
 runner_main = Path("linux/runner/main.cc")
 app_source = Path("linux/runner/my_application.cc")
 
+if not project_cmake.exists():
+    raise RuntimeError(f"Missing generated Linux CMake file: {project_cmake}")
 if not runner_main.exists():
     raise RuntimeError(f"Missing generated Linux runner file: {runner_main}")
 if not app_source.exists():
     raise RuntimeError(f"Missing generated Linux runner file: {app_source}")
+
+cmake_text = project_cmake.read_text(encoding="utf-8")
+project_cmake.write_text(
+    remove_werror_from_standard_settings(cmake_text), encoding="utf-8"
+)
 
 main_text = runner_main.read_text(encoding="utf-8")
 main_marker = "Sena Repo Linux input compatibility"
