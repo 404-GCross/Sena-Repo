@@ -64,6 +64,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       body: Column(
         children: [
           const AppPageHeader(
+            showBack: true,
             leading: Icon(Icons.download_outlined, size: 26),
             title: "下载管理",
             subtitle: "查看下载、解压、失败重试和安装后操作",

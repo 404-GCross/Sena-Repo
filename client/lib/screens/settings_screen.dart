@@ -93,6 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: Column(
         children: [
           const AppPageHeader(
+            showBack: true,
             leading: Icon(Icons.settings_outlined, size: 26),
             title: "设置",
             subtitle: "管理客户端体验、下载、扫描和服务端权限",

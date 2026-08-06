@@ -92,6 +92,8 @@ class AppPageHeader extends StatelessWidget {
   final String? subtitle;
   final List<Widget> actions;
   final EdgeInsetsGeometry padding;
+  final bool showBack;
+  final VoidCallback? onBack;
 
   const AppPageHeader({
     super.key,
@@ -100,6 +102,8 @@ class AppPageHeader extends StatelessWidget {
     this.subtitle,
     this.actions = const [],
     this.padding = const EdgeInsets.fromLTRB(24, 20, 24, 14),
+    this.showBack = false,
+    this.onBack,
   });
 
   @override
@@ -116,6 +120,14 @@ class AppPageHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (showBack) ...[
+            IconButton(
+              tooltip: "返回",
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: onBack ?? () => Navigator.maybePop(context),
+            ),
+            const SizedBox(width: AppGap.sm),
+          ],
           if (leading != null) ...[
             leading!,
             const SizedBox(width: AppGap.md),
