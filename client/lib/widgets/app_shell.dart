@@ -149,25 +149,7 @@ class AppPageHeader extends StatelessWidget {
                     ),
                     const SizedBox(width: AppGap.md),
                   ],
-                  if (!isCompact)
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title,
-                              style: AppText.headline
-                                  .copyWith(color: cs.onSurface)),
-                          if (subtitle != null && subtitle!.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(subtitle!,
-                                style: AppText.bodySmall
-                                    .copyWith(color: hintColor(context))),
-                          ],
-                        ],
-                      ),
-                    )
-                  else
-                    const Spacer(),
+                  const Spacer(),
                   if (actions.isNotEmpty) ...[
                     const SizedBox(width: AppGap.sm),
                     Flexible(
