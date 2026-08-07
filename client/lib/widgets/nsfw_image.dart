@@ -64,9 +64,11 @@ class _NsfwImageState extends State<NsfwImage> {
         (_supportsTimedReveal && _revealed);
     final shouldBlur = widget.isNsfw && blurEnabled && !revealed;
     final content = shouldBlur
-        ? ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: widget.child,
+        ? ClipRect(
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: widget.child,
+            ),
           )
         : widget.child;
 
@@ -82,28 +84,30 @@ class _NsfwImageState extends State<NsfwImage> {
             ? (_) => setState(() => _hovered = false)
             : null,
         child: Stack(
-          fit: StackFit.expand,
+          fit: StackFit.passthrough,
           children: [
             content,
             if (!revealed)
-              ColoredBox(
-                color: Colors.black.withValues(alpha: 0.16),
-                child: Center(
-                  child: _supportsTimedReveal
-                      ? Semantics(
-                          button: true,
-                          label: "临时查看 NSFW 图片",
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: _temporarilyReveal,
-                            child: SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: Center(child: _privacyIcon()),
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  child: Center(
+                    child: _supportsTimedReveal
+                        ? Semantics(
+                            button: true,
+                            label: "临时查看 NSFW 图片",
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _temporarilyReveal,
+                              child: SizedBox(
+                                width: 48,
+                                height: 48,
+                                child: Center(child: _privacyIcon()),
+                              ),
                             ),
-                          ),
-                        )
-                      : IgnorePointer(child: _privacyIcon()),
+                          )
+                        : IgnorePointer(child: _privacyIcon()),
+                  ),
                 ),
               ),
           ],
