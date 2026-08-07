@@ -1988,68 +1988,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
-    // Step 2.5: If multiple screenshots, let user pick hero image (like Playnite)
+    // Step 2.5: If multiple screenshots, let user pick hero image.
     final screenshots =
         (r["screenshots"] as List<dynamic>?)?.cast<String>() ?? [];
     if (screenshots.length > 1) {
-      final pickedHero = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text("选择 ${sources[src]} 背景"),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
-            child: GridView.builder(
-              shrinkWrap: true,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 1.6,
-              ),
-              itemCount: screenshots.length,
-              itemBuilder: (_, i) => GestureDetector(
-                onTap: () => Navigator.pop(ctx, screenshots[i]),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    screenshots[i],
-                    key: ValueKey(screenshots[i]),
-                    fit: BoxFit.cover,
-                    loadingBuilder: (_, child, progress) {
-                      if (progress == null) return child;
-                      return Container(
-                        color: Colors.grey.withValues(alpha: 0.15),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            value: progress.expectedTotalBytes != null
-                                ? progress.cumulativeBytesLoaded /
-                                    progress.expectedTotalBytes!
-                                : null,
-                          ),
-                        ),
-                      );
-                    },
-                    errorBuilder: (_, __, ___) => Container(
-                      color: Colors.grey[800],
-                      child: const Icon(Icons.broken_image, color: Colors.grey),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, screenshots[0]),
-              child: const Text("使用第一张"),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("跳过"),
-            ),
-          ],
-        ),
+      final pickedHero = await _pickHeroImage(
+        screenshots,
+        sourceName: sources[src] ?? src,
       );
       if (pickedHero != null) {
         r["hero_url"] = pickedHero;
@@ -2754,6 +2699,621 @@ class _GameEditScreenState extends State<GameEditScreen> {
       contentPadding: contentPadding,
       hintText: hintText,
       labelText: labelText,
+    );
+  }
+
+  Future<String?> _pickHeroImage(
+    List<String> screenshots, {
+    required String sourceName,
+  }) {
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+    if (isCompact) {
+      return showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => _HeroBackgroundPickerSheet(
+          screenshots: screenshots,
+          sourceName: sourceName,
+        ),
+      );
+    }
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => _HeroBackgroundPickerDialog(
+        screenshots: screenshots,
+        sourceName: sourceName,
+      ),
+    );
+  }
+}
+
+class _HeroBackgroundPickerDialog extends StatefulWidget {
+  final List<String> screenshots;
+  final String sourceName;
+
+  const _HeroBackgroundPickerDialog({
+    required this.screenshots,
+    required this.sourceName,
+  });
+
+  @override
+  State<_HeroBackgroundPickerDialog> createState() =>
+      _HeroBackgroundPickerDialogState();
+}
+
+class _HeroBackgroundPickerDialogState
+    extends State<_HeroBackgroundPickerDialog> {
+  int _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final dialogWidth = size.width > 1008 ? 960.0 : size.width - 48;
+    final dialogHeight = size.height > 728 ? 680.0 : size.height - 48;
+    final selectedUrl = widget.screenshots[_selectedIndex];
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+                  child: Row(
+                    children: [
+                      _HeroPickerIcon(color: cs.primary),
+                      const SizedBox(width: AppGap.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "选择 ${widget.sourceName} 背景",
+                              style: AppText.headline,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "预览裁切效果，再选择要应用的背景。",
+                              style: AppText.bodySmall.copyWith(
+                                color: hintColor(context),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AppStatusPill(
+                        icon: Icons.collections_rounded,
+                        label: "${widget.screenshots.length} 张",
+                        color: Colors.green,
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: _HeroPreviewCard(
+                            url: selectedUrl,
+                            label: "当前预览：背景 ${_selectedIndex + 1}",
+                            fillHeight: true,
+                          ),
+                        ),
+                        const SizedBox(width: AppGap.lg),
+                        SizedBox(
+                          width: 286,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      "候选背景",
+                                      style: AppText.section.copyWith(
+                                        color: cs.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    "点击切换预览",
+                                    style: AppText.caption.copyWith(
+                                      color: hintColor(context),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: AppGap.md),
+                              Expanded(
+                                child: ListView.separated(
+                                  itemCount: widget.screenshots.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: AppGap.sm),
+                                  itemBuilder: (context, index) =>
+                                      _HeroCandidateTile(
+                                    url: widget.screenshots[index],
+                                    label: "背景 ${index + 1}",
+                                    selected: index == _selectedIndex,
+                                    onTap: () =>
+                                        setState(() => _selectedIndex = index),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: AppGap.md),
+                              const _HeroPickerHint(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      AppActionButton(
+                        icon: Icons.close_rounded,
+                        label: "跳过",
+                        color: hintColor(context),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: AppGap.sm),
+                      AppActionButton(
+                        icon: Icons.check_rounded,
+                        label: "应用所选背景",
+                        filled: true,
+                        onPressed: () => Navigator.pop(context, selectedUrl),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroBackgroundPickerSheet extends StatefulWidget {
+  final List<String> screenshots;
+  final String sourceName;
+
+  const _HeroBackgroundPickerSheet({
+    required this.screenshots,
+    required this.sourceName,
+  });
+
+  @override
+  State<_HeroBackgroundPickerSheet> createState() =>
+      _HeroBackgroundPickerSheetState();
+}
+
+class _HeroBackgroundPickerSheetState
+    extends State<_HeroBackgroundPickerSheet> {
+  int _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final sheetHeight = size.height * (size.height < 720 ? 0.88 : 0.78);
+    final selectedUrl = widget.screenshots[_selectedIndex];
+
+    return SafeArea(
+      top: false,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            height: sheetHeight,
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              border: Border(
+                top: BorderSide(color: cardBorder(context)),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: softShadowColor(context),
+                  blurRadius: 30,
+                  offset: const Offset(0, -10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: AppGap.sm),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: cs.outlineVariant,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+                    child: Row(
+                      children: [
+                        _HeroPickerIcon(color: cs.primary),
+                        const SizedBox(width: AppGap.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "选择 ${widget.sourceName} 背景",
+                                style: AppText.title.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                "预览裁切效果，再选择要应用的背景。",
+                                style: AppText.caption.copyWith(
+                                  color: hintColor(context),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        AppStatusPill(
+                          icon: Icons.collections_rounded,
+                          label: "${widget.screenshots.length} 张",
+                          color: Colors.green,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1, color: cardBorder(context)),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _HeroPreviewCard(
+                            url: selectedUrl,
+                            label: "当前预览：背景 ${_selectedIndex + 1}",
+                          ),
+                          const SizedBox(height: AppGap.lg),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  "候选背景",
+                                  style: AppText.section.copyWith(
+                                    color: cs.onSurface,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                "横向滑动查看更多",
+                                style: AppText.caption.copyWith(
+                                  color: hintColor(context),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppGap.md),
+                          SizedBox(
+                            height: 92,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: widget.screenshots.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: AppGap.sm),
+                              itemBuilder: (context, index) =>
+                                  _HeroCandidateTile(
+                                url: widget.screenshots[index],
+                                label: "背景 ${index + 1}",
+                                selected: index == _selectedIndex,
+                                width: 132,
+                                onTap: () =>
+                                    setState(() => _selectedIndex = index),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppGap.md),
+                          const _HeroPickerHint(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Divider(height: 1, color: cardBorder(context)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: AppActionButton(
+                            icon: Icons.close_rounded,
+                            label: "跳过",
+                            color: hintColor(context),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ),
+                        const SizedBox(width: AppGap.sm),
+                        Expanded(
+                          flex: 2,
+                          child: AppActionButton(
+                            icon: Icons.check_rounded,
+                            label: "应用所选背景",
+                            filled: true,
+                            onPressed: () =>
+                                Navigator.pop(context, selectedUrl),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroPickerIcon extends StatelessWidget {
+  final Color color;
+
+  const _HeroPickerIcon({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Icon(Icons.wallpaper_rounded, color: color, size: 21),
+    );
+  }
+}
+
+class _HeroPreviewCard extends StatelessWidget {
+  final String url;
+  final String label;
+  final bool fillHeight;
+
+  const _HeroPreviewCard({
+    required this.url,
+    required this.label,
+    this.fillHeight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final image = ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: _HeroNetworkImage(url: url),
+    );
+    return AppSurface(
+      radius: AppRadius.lg,
+      padding: const EdgeInsets.all(AppGap.sm),
+      color: cardBg(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (fillHeight)
+            Expanded(child: image)
+          else
+            AspectRatio(aspectRatio: 16 / 9, child: image),
+          const SizedBox(height: AppGap.sm),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: AppText.caption.copyWith(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                "16:9 裁切",
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroCandidateTile extends StatelessWidget {
+  final String url;
+  final String label;
+  final bool selected;
+  final double? width;
+  final VoidCallback onTap;
+
+  const _HeroCandidateTile({
+    required this.url,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: selected ? cs.primary.withValues(alpha: 0.12) : cardBg(context),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: AppMotion.fast,
+            curve: AppMotion.curve,
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(
+                color: selected ? cs.primary : cardBorder(context),
+                width: selected ? 1.4 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: SizedBox(
+                    width: 64,
+                    height: 52,
+                    child: _HeroNetworkImage(url: url),
+                  ),
+                ),
+                const SizedBox(width: AppGap.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.bodySmall.copyWith(
+                          color: selected ? cs.primary : cs.onSurface,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        "候选背景",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.caption.copyWith(
+                          color: hintColor(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selected) ...[
+                  const SizedBox(width: AppGap.xs),
+                  Icon(Icons.check_circle_rounded, size: 18, color: cs.primary),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroNetworkImage extends StatelessWidget {
+  final String url;
+
+  const _HeroNetworkImage({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      url,
+      key: ValueKey(url),
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      loadingBuilder: (_, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          color: placeholderBg(context).withValues(alpha: 0.36),
+          child: Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              value: progress.expectedTotalBytes != null
+                  ? progress.cumulativeBytesLoaded /
+                      progress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
+        );
+      },
+      errorBuilder: (_, __, ___) => Container(
+        color: placeholderBg(context),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.broken_image_rounded,
+          color: placeholderIcon(context),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroPickerHint extends StatelessWidget {
+  const _HeroPickerHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurface(
+      radius: AppRadius.md,
+      padding: const EdgeInsets.all(AppGap.md),
+      color: cardBg(context),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.visibility_off_outlined,
+            color: hintColor(context),
+            size: 18,
+          ),
+          const SizedBox(width: AppGap.sm),
+          Expanded(
+            child: Text(
+              "NSFW 条目保存后仍按设置模糊显示。应用后也可以回到编辑页手动上传或输入 URL 替换。",
+              style: AppText.caption.copyWith(
+                color: hintColor(context),
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
