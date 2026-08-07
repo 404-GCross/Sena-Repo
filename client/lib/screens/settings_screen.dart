@@ -374,40 +374,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String subtitle,
     VoidCallback onTap,
   ) {
-    return InkWell(
+    return _SettingsMenuItem(
+      icon: icon,
+      color: color,
+      title: title,
+      subtitle: subtitle,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 20, color: color.withValues(alpha: 0.9)),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+}
+
+class _SettingsMenuItem extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SettingsMenuItem({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  State<_SettingsMenuItem> createState() => _SettingsMenuItemState();
+}
+
+class _SettingsMenuItemState extends State<_SettingsMenuItem> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final active = _pressed || _hovered;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: AppMotion.fast,
+        curve: AppMotion.curve,
+        transform: Matrix4.translationValues(0, _hovered ? -1 : 0, 0),
+        decoration: BoxDecoration(
+          color: active
+              ? cs.primary.withValues(alpha: _pressed ? 0.12 : 0.06)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: _hovered
+                ? cs.primary.withValues(alpha: 0.20)
+                : Colors.transparent,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: InkWell(
+            onTap: widget.onTap,
+            onHighlightChanged: (value) => setState(() => _pressed = value),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              child: Row(
                 children: [
-                  Text(
-                    title,
-                    style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color:
+                          widget.color.withValues(alpha: active ? 0.18 : 0.12),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: Icon(widget.icon,
+                        size: 20, color: widget.color.withValues(alpha: 0.9)),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: AppText.label.copyWith(color: hintColor(context)),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: AppText.body.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: active ? cs.primary : null,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle,
+                          style:
+                              AppText.label.copyWith(color: hintColor(context)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedSlide(
+                    offset: _hovered ? const Offset(0.18, 0) : Offset.zero,
+                    duration: AppMotion.fast,
+                    curve: AppMotion.curve,
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: active ? cs.primary : Colors.grey[600],
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
-          ],
+          ),
         ),
       ),
     );
@@ -1080,6 +1157,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   bool _testingHikarinagi = false;
+  final Set<int> _testingOpenListSources = {};
   // Scraper sources
   final _sources = {
     "vndb_kana": true,
@@ -1262,6 +1340,38 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         context,
         "\u4fdd\u5b58 OpenList \u670d\u52a1\u5668\u5931\u8d25: ${_responseMessage(resp)}",
       );
+    }
+  }
+
+  Future<void> _testOpenListSource(int sourceId) async {
+    if (_testingOpenListSources.contains(sourceId)) return;
+    setState(() => _testingOpenListSources.add(sourceId));
+    final stopwatch = Stopwatch()..start();
+    try {
+      final resp = await http
+          .post(
+            Uri.parse("${widget.api.baseUrl}/api/file-sources/test"),
+            headers: {
+              "Content-Type": "application/json",
+              ...widget.api.headers,
+            },
+            body: jsonEncode({"source_id": sourceId, "path": "/"}),
+          )
+          .timeout(const Duration(seconds: 25));
+      stopwatch.stop();
+      if (!mounted) return;
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        _toast(context, "OpenList 连接正常（${stopwatch.elapsedMilliseconds}ms）");
+      } else {
+        _toast(context, "OpenList 连接失败: ${_responseMessage(resp)}");
+      }
+    } catch (e) {
+      stopwatch.stop();
+      if (mounted) _toast(context, "OpenList 连接失败: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _testingOpenListSources.remove(sourceId));
+      }
     }
   }
 
@@ -1581,53 +1691,75 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             _hintCard("\u6682\u65e0 OpenList \u670d\u52a1\u5668")
           else
             ..._fileSources.where((s) => s["type"] == "openlist").map(
-                  (s) => Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: cardBg(context),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: cardBorder(context)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.cloud_outlined,
-                          size: 20,
-                          color: hintColor(context),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                (s["name"] ?? "OpenList").toString(),
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                              Text(
-                                (s["base_url"] ?? "").toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppText.bodySmall.copyWith(
-                                  color: hintColor(context),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          onPressed: () => _saveOpenListSource(initial: s),
-                          tooltip: "\u7f16\u8f91",
-                        ),
-                      ],
-                    ),
+              (s) {
+                final sourceId = s["id"] as int;
+                final isTesting = _testingOpenListSources.contains(sourceId);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                ),
+                  decoration: BoxDecoration(
+                    color: cardBg(context),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: cardBorder(context)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.cloud_outlined,
+                        size: 20,
+                        color: hintColor(context),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              (s["name"] ?? "OpenList").toString(),
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            Text(
+                              (s["base_url"] ?? "").toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.bodySmall.copyWith(
+                                color: hintColor(context),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                        onPressed: () => _saveOpenListSource(initial: s),
+                        tooltip: "\u7f16\u8f91",
+                      ),
+                      IconButton(
+                        icon: isTesting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.wifi_tethering_outlined,
+                                size: 20,
+                              ),
+                        onPressed: isTesting
+                            ? null
+                            : () => _testOpenListSource(sourceId),
+                        tooltip: "测试连接",
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton.icon(
