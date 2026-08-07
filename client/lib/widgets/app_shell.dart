@@ -137,29 +137,29 @@ class AppPageHeader extends StatelessWidget {
                     ),
                     const SizedBox(width: AppGap.sm),
                   ],
-                  if (!isCompact && leading != null) ...[
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(AppRadius.md),
+                  if (actions.isNotEmpty)
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) =>
+                            SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints:
+                                BoxConstraints(minWidth: constraints.maxWidth),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                for (var i = 0; i < actions.length; i++) ...[
+                                  if (i > 0) const SizedBox(width: AppGap.sm),
+                                  actions[i],
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                      child: Center(child: leading!),
                     ),
-                    const SizedBox(width: AppGap.md),
-                  ],
-                  const Spacer(),
-                  if (actions.isNotEmpty) ...[
-                    const SizedBox(width: AppGap.sm),
-                    Flexible(
-                      child: Wrap(
-                          spacing: AppGap.sm,
-                          runSpacing: AppGap.sm,
-                          alignment: WrapAlignment.end,
-                          children: actions),
-                    ),
-                  ],
                 ],
               ),
             ),
