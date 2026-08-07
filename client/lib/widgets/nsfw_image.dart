@@ -1,7 +1,9 @@
+import "dart:async";
 import "dart:ui";
 
 import "package:flutter/foundation.dart" show defaultTargetPlatform, kIsWeb;
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:provider/provider.dart";
 
 import "../providers/settings_provider.dart";
@@ -20,9 +22,7 @@ class NsfwImage extends StatefulWidget {
 class _NsfwImageState extends State<NsfwImage> {
   bool _hovered = false;
   bool _revealed = false;
-  Offset? _pointerDownPosition;
-  Duration? _pointerDownTime;
-  int? _pointerId;
+  Timer? _revealTimer;
 
   bool get _supportsHoverReveal =>
       !kIsWeb &&
@@ -30,49 +30,38 @@ class _NsfwImageState extends State<NsfwImage> {
           defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.macOS);
 
-  bool get _supportsTapReveal => !_supportsHoverReveal;
+  bool get _supportsTimedReveal => !_supportsHoverReveal;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!context.read<SettingsProvider>().blurNsfwCovers) {
+      _revealTimer?.cancel();
       _revealed = false;
     }
   }
 
-  void _onPointerDown(PointerDownEvent event) {
-    if (!_supportsTapReveal) return;
-    _pointerId = event.pointer;
-    _pointerDownPosition = event.position;
-    _pointerDownTime = event.timeStamp;
+  @override
+  void dispose() {
+    _revealTimer?.cancel();
+    super.dispose();
   }
 
-  void _onPointerUp(PointerUpEvent event) {
-    if (!_supportsTapReveal || event.pointer != _pointerId) return;
-    final position = _pointerDownPosition;
-    final time = _pointerDownTime;
-    _pointerId = null;
-    _pointerDownPosition = null;
-    _pointerDownTime = null;
-    if (position == null || time == null) return;
-
-    final isTap = (event.position - position).distance <= 12 &&
-        event.timeStamp - time <= const Duration(milliseconds: 500);
-    if (isTap && mounted) setState(() => _revealed = !_revealed);
-  }
-
-  void _onPointerCancel(PointerCancelEvent event) {
-    if (event.pointer != _pointerId) return;
-    _pointerId = null;
-    _pointerDownPosition = null;
-    _pointerDownTime = null;
+  void _temporarilyReveal() {
+    if (!_supportsTimedReveal || !mounted) return;
+    _revealTimer?.cancel();
+    HapticFeedback.selectionClick();
+    setState(() => _revealed = true);
+    _revealTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _revealed = false);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final blurEnabled = context.watch<SettingsProvider>().blurNsfwCovers;
-    final revealed =
-        (_supportsHoverReveal && _hovered) || (_supportsTapReveal && _revealed);
+    final revealed = (_supportsHoverReveal && _hovered) ||
+        (_supportsTimedReveal && _revealed);
     final shouldBlur = widget.isNsfw && blurEnabled && !revealed;
     final content = shouldBlur
         ? ImageFiltered(
@@ -83,10 +72,8 @@ class _NsfwImageState extends State<NsfwImage> {
 
     if (!widget.isNsfw || !blurEnabled) return content;
 
-    return Listener(
-      onPointerDown: _onPointerDown,
-      onPointerUp: _onPointerUp,
-      onPointerCancel: _onPointerCancel,
+    return Semantics(
+      label: "NSFW 图片",
       child: MouseRegion(
         onEnter: _supportsHoverReveal
             ? (_) => setState(() => _hovered = true)
@@ -99,28 +86,44 @@ class _NsfwImageState extends State<NsfwImage> {
           children: [
             content,
             if (!revealed)
-              IgnorePointer(
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.16),
-                  child: Center(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.46),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.all(8),
-                        child: Icon(
-                          Icons.visibility_off_outlined,
-                          size: 20,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
+              ColoredBox(
+                color: Colors.black.withValues(alpha: 0.16),
+                child: Center(
+                  child: _supportsTimedReveal
+                      ? Semantics(
+                          button: true,
+                          label: "临时查看 NSFW 图片",
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _temporarilyReveal,
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Center(child: _privacyIcon()),
+                            ),
+                          ),
+                        )
+                      : IgnorePointer(child: _privacyIcon()),
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _privacyIcon() {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.46),
+        shape: BoxShape.circle,
+      ),
+      child: const Padding(
+        padding: EdgeInsets.all(8),
+        child: Icon(
+          Icons.visibility_off_outlined,
+          size: 20,
+          color: Colors.white,
         ),
       ),
     );
