@@ -20,7 +20,6 @@ import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/nsfw_image.dart";
-import "download_manager_screen.dart";
 import "game_edit_screen.dart";
 
 void _showDialog(BuildContext ctx, String title, String msg) {
@@ -162,6 +161,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       leading: const Icon(Icons.videogame_asset_outlined, size: 24),
       scrollable: false,
       padding: EdgeInsets.zero,
+      maxWidth: 1480,
       actions: [
         AppActionButton(
           icon: Icons.edit_outlined,
@@ -184,12 +184,16 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         padding: const EdgeInsets.only(bottom: 32),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
+            constraints: const BoxConstraints(maxWidth: 1420),
             child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final w = constraints.maxWidth;
+                final useDesktopLayout = !Platform.isAndroid ||
+                    MediaQuery.sizeOf(context).shortestSide > 600;
+                if (useDesktopLayout && w >= 720) {
+                  return _buildDesktopDetail(game);
+                }
                 final wide = w > 500;
-                final heroH = wide ? (w > 700 ? 280.0 : 200.0) : 140.0;
                 final coverW = wide ? (w > 700 ? 200.0 : 150.0) : 130.0;
                 final coverH = coverW * 1.4;
                 return Column(
@@ -855,6 +859,604 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopDetail(GameDetail game) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 1000;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: compact ? 60 : 64,
+                    child: _desktopHero(game),
+                  ),
+                  SizedBox(width: compact ? 18 : 28),
+                  Expanded(
+                    flex: compact ? 40 : 36,
+                    child: _desktopIdentity(game, compact: compact),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 30),
+          Divider(height: 1, color: cardBorder(context)),
+          const SizedBox(height: 28),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 1000;
+              final sideWidth = compact ? 260.0 : 340.0;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _desktopMainColumn(game, compact: compact)),
+                  SizedBox(width: compact ? 18 : 28),
+                  Container(
+                    width: 1,
+                    constraints: const BoxConstraints(minHeight: 420),
+                    color: cardBorder(context),
+                  ),
+                  SizedBox(width: compact ? 18 : 28),
+                  SizedBox(
+                    width: sideWidth,
+                    child: _desktopSideColumn(game),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopHero(GameDetail game) {
+    final hasBackground = game.bgPath?.isNotEmpty == true;
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: cardBg(context),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(color: cardBorder(context)),
+          boxShadow: [
+            BoxShadow(
+              color: softShadowColor(context),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: hasBackground
+            ? NsfwImage(
+                isNsfw: game.isNsfw,
+                child: Image.network(
+                  "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
+                  headers: mediaAuthHeaders,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  errorBuilder: (_, __, ___) => _desktopMediaPlaceholder(),
+                ),
+              )
+            : _desktopMediaPlaceholder(),
+      ),
+    );
+  }
+
+  Widget _desktopMediaPlaceholder() {
+    return ColoredBox(
+      color: cardBg(context),
+      child: Center(
+        child: Icon(
+          Icons.panorama_outlined,
+          size: 54,
+          color: hintColor(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _desktopIdentity(GameDetail game, {required bool compact}) {
+    final hasCover = game.coverPath?.isNotEmpty == true;
+    final studio = game.companyName?.isNotEmpty == true
+        ? game.companyName!
+        : game.developer?.isNotEmpty == true
+            ? game.developer!
+            : null;
+    final coverWidth = compact ? 88.0 : 132.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: coverWidth,
+              height: coverWidth * 1.42,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: cardBg(context),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: cardBorder(context)),
+                boxShadow: [
+                  BoxShadow(
+                    color: softShadowColor(context),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: hasCover
+                  ? NsfwImage(
+                      isNsfw: game.isNsfw,
+                      child: Image.network(
+                        "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
+                        headers: mediaAuthHeaders,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _coverPlaceholder(),
+                      ),
+                    )
+                  : _coverPlaceholder(),
+            ),
+            SizedBox(width: compact ? 12 : 18),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      game.name,
+                      style: TextStyle(
+                        fontSize: compact ? 22 : 28,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+                    if (studio != null) ...[
+                      const SizedBox(height: 9),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.business_outlined,
+                            size: 17,
+                            color: subTextColor(context),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              studio,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.bodyMedium.copyWith(
+                                color: subTextColor(context),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (game.vndbId != null ||
+            game.steamId != null ||
+            game.bangumiId != null) ...[
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              _desktopSourceBadge("VNDB", game.vndbId),
+              _desktopSourceBadge("Steam", game.steamId),
+              _desktopSourceBadge("Bangumi", game.bangumiId),
+            ],
+          ),
+        ],
+        const SizedBox(height: 18),
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: cardBorder(context)),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _desktopFact(
+                  "发售日期",
+                  game.releaseDate?.isNotEmpty == true
+                      ? game.releaseDate!
+                      : "—",
+                ),
+              ),
+              SizedBox(
+                height: 54,
+                child: VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: cardBorder(context),
+                ),
+              ),
+              Expanded(
+                child: _desktopFact("平均时长", _formatPlaytime(game)),
+              ),
+              SizedBox(
+                height: 54,
+                child: VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: cardBorder(context),
+                ),
+              ),
+              Expanded(
+                child: _desktopFact("可用版本", "${game.versions.length} 个"),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        SizedBox(
+          height: 44,
+          child: FilledButton.icon(
+            onPressed:
+                game.versions.isEmpty ? null : () => _showDownloadDialog(game),
+            icon: const Icon(Icons.download_outlined, size: 19),
+            label: const Text("下载游戏"),
+            style: FilledButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopFact(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.caption.copyWith(color: hintColor(context)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopSourceBadge(String label, String? id) {
+    final active = id?.isNotEmpty == true;
+    final color = active ? Colors.green.shade700 : hintColor(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: active ? Colors.green.withValues(alpha: 0.09) : cardBg(context),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: active
+              ? Colors.green.withValues(alpha: 0.28)
+              : cardBorder(context),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (active) ...[
+            Icon(Icons.check_circle_outline, size: 14, color: color),
+            const SizedBox(width: 5),
+          ],
+          Text(
+            label,
+            style: AppText.caption.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopMainColumn(GameDetail game, {required bool compact}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _desktopSectionTitle("简介", Icons.subject_outlined),
+        Text(
+          game.description?.isNotEmpty == true ? game.description! : "暂无简介",
+          style: AppText.body.copyWith(
+            height: 1.75,
+            color: game.description?.isNotEmpty == true
+                ? subTextColor(context)
+                : hintColor(context),
+          ),
+        ),
+        if (game.tags.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: game.tags
+                .map(
+                  (tag) => Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: cardBg(context),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: cardBorder(context)),
+                    ),
+                    child: Text(
+                      tag.name,
+                      style: AppText.caption.copyWith(
+                        color: subTextColor(context),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+        const SizedBox(height: 32),
+        _desktopSectionTitle("可下载版本", Icons.folder_outlined),
+        if (game.versions.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Text(
+              "暂无版本信息",
+              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+            ),
+          )
+        else
+          Container(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: cardBorder(context))),
+            ),
+            child: Column(
+              children: game.versions.asMap().entries.map((entry) {
+                final version = entry.value;
+                return _desktopVersionRow(
+                  game,
+                  version,
+                  compact: compact,
+                  isLast: entry.key == game.versions.length - 1,
+                );
+              }).toList(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _desktopVersionRow(
+    GameDetail game,
+    GameVersion version, {
+    required bool compact,
+    required bool isLast,
+  }) {
+    final platformColor = _platformColor(version.platform);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 66),
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : Border(bottom: BorderSide(color: cardBorder(context))),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: platformColor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Icon(
+              Icons.file_present_outlined,
+              size: 18,
+              color: platformColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  version.filename,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      AppText.bodySmall.copyWith(fontWeight: FontWeight.w700),
+                ),
+                if (version.extractPassword?.isNotEmpty == true) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    "已收录解压密码",
+                    style: AppText.caption.copyWith(color: hintColor(context)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: platformColor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              version.platform,
+              style: AppText.caption.copyWith(
+                color: platformColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (!compact) ...[
+            const SizedBox(width: 14),
+            SizedBox(
+              width: 68,
+              child: Text(
+                _formatSize(version.fileSize),
+                textAlign: TextAlign.right,
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+            ),
+          ],
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: "下载此版本",
+            onPressed: () => _startDownload(game, version),
+            icon: const Icon(Icons.download_outlined, size: 20),
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopSideColumn(GameDetail game) {
+    final platforms = game.versions
+        .map((version) => version.platform.trim())
+        .where((platform) => platform.isNotEmpty)
+        .toSet()
+        .join("、");
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _desktopSectionTitle("详细信息", Icons.info_outline),
+        Container(
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: cardBorder(context))),
+          ),
+          child: Column(
+            children: [
+              _desktopInfoRow("开发商", game.developer),
+              _desktopInfoRow("发售日", game.releaseDate),
+              _desktopInfoRow("平均时长", _formatPlaytime(game)),
+              _desktopInfoRow("平台", platforms),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+        _desktopSectionTitle("元数据", Icons.storage_outlined),
+        Container(
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: cardBorder(context))),
+          ),
+          child: Column(
+            children: [
+              _desktopMetadataRow("VNDB", game.vndbId),
+              _desktopMetadataRow("Steam", game.steamId),
+              _desktopMetadataRow("Bangumi", game.bangumiId),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopSectionTitle(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: sectionIconColor(context)),
+          const SizedBox(width: 9),
+          Text(
+            title,
+            style: AppText.section.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopInfoRow(String label, String? value) {
+    final displayValue = value?.isNotEmpty == true ? value! : "—";
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: cardBorder(context))),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              displayValue,
+              style: AppText.bodySmall.copyWith(
+                color: displayValue == "—" ? hintColor(context) : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopMetadataRow(String label, String? value) {
+    final active = value?.isNotEmpty == true;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: cardBorder(context))),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.bodySmall.copyWith(color: subTextColor(context)),
+            ),
+          ),
+          Text(
+            active ? value! : "未关联",
+            style: AppText.bodySmall.copyWith(
+              color: active
+                  ? Theme.of(context).colorScheme.primary
+                  : hintColor(context),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
