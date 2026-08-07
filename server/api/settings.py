@@ -129,6 +129,12 @@ class ScraperConfigUpdate(BaseModel):
     proxy: str | None = None
 
 
+class HikarinagiTestRequest(BaseModel):
+    client_id: str = ""
+    client_secret: str = ""
+    scope: str = "catalog:full"
+
+
 @router.get("/scraper", response_model=ScraperConfigOut)
 async def get_scraper_config(user: User = Depends(get_current_user)):
     """Get current scraper configuration (API keys masked)."""
@@ -212,6 +218,70 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
             data[key] = val
     _write_scraper_config(data)
     return {"message": "已保存"}
+
+
+@router.post("/hikarinagi-test")
+async def test_hikarinagi(
+    body: HikarinagiTestRequest,
+    user: User = Depends(require_admin),
+):
+    """Validate Hikarinagi OAuth credentials and catalog access without saving them."""
+    import time
+    import httpx
+    from services.scraper.hikarinagi import HikarinagiScraper
+
+    config = load_config()
+    configured_id = config.scrapers.hikarinagi_client_id
+    configured_secret = config.scrapers.hikarinagi_client_secret
+    client_id = body.client_id.strip()
+    client_secret = body.client_secret.strip()
+    if not client_id or "****" in client_id:
+        client_id = configured_id
+    if not client_secret or "****" in client_secret:
+        client_secret = configured_secret
+    scope = body.scope.strip() or "catalog:full"
+    if not client_id or not client_secret:
+        return {"ok": False, "error": "请填写 Client ID 和 Client Secret"}
+
+    client_kwargs = {"timeout": httpx.Timeout(15.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    started = time.monotonic()
+    scraper = HikarinagiScraper(
+        proxy=config.proxy,
+        client_id=client_id,
+        client_secret=client_secret,
+        scope=scope,
+    )
+    try:
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            await scraper._ensure_token(client)
+            await scraper._api_get(
+                client,
+                "/api/v3/open/search",
+                params=[
+                    ("q", "test"),
+                    ("types", "galgame"),
+                    ("page", "1"),
+                    ("page_size", "1"),
+                ],
+            )
+        return {
+            "ok": True,
+            "scope": scope,
+            "latency_ms": round((time.monotonic() - started) * 1000),
+        }
+    except httpx.HTTPStatusError as exc:
+        return {
+            "ok": False,
+            "error": f"Hikarinagi 返回 HTTP {exc.response.status_code}，请检查凭据和 Scope",
+        }
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "Hikarinagi 连接超时，请检查网络或代理"}
+    except Exception:
+        return {"ok": False, "error": "Hikarinagi 连接失败，请检查凭据、Scope 和网络"}
+    finally:
+        await scraper.close()
 
 
 @router.post("/proxy-test")

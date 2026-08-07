@@ -1024,6 +1024,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _loading = false;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
+  bool _testingHikarinagi = false;
   // Scraper sources
   final _sources = {
     "vndb_kana": true,
@@ -2042,6 +2043,21 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               }
             },
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _testingHikarinagi ? null : _testHikarinagi,
+              icon: _testingHikarinagi
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.wifi_tethering_outlined, size: 17),
+              label: const Text("测试连接"),
+            ),
+          ),
         ],
       ),
     );
@@ -2201,6 +2217,34 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         );
     } catch (e) {
       if (mounted) _toast(context, "$e");
+    }
+  }
+
+  Future<void> _testHikarinagi() async {
+    setState(() => _testingHikarinagi = true);
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/settings/hikarinagi-test"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({
+          "client_id": _keys["hikarinagi_client_id"]!.text.trim(),
+          "client_secret": _keys["hikarinagi_client_secret"]!.text.trim(),
+          "scope": _keys["hikarinagi_scope"]!.text.trim(),
+        }),
+      );
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        _toast(
+          context,
+          data["ok"] == true
+              ? "Hikarinagi 连接成功: ${data["latency_ms"]}ms"
+              : "Hikarinagi 连接失败: ${data["error"] ?? "未知错误"}",
+        );
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "Hikarinagi 测试失败: $e");
+    } finally {
+      if (mounted) setState(() => _testingHikarinagi = false);
     }
   }
 
