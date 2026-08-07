@@ -35,16 +35,26 @@ class TrayService with TrayListener {
       iconPath = iconFile.path;
     } catch (_) {}
     await trayManager.setIcon(iconPath);
-    await trayManager.setToolTip("Sena Repo");
+    if (Platform.isWindows) {
+      await trayManager.setToolTip("Sena Repo");
+    }
 
     final menu = Menu(items: [
-      MenuItem(key: "show", label: "显示窗口"),
+      MenuItem(key: "show", label: "打开主界面"),
       MenuItem.separator(),
       MenuItem(key: "exit", label: "退出"),
     ]);
     await trayManager.setContextMenu(menu);
 
     _initialized = true;
+  }
+
+  Future<void> _showMainWindow() async {
+    if (await windowManager.isMinimized()) {
+      await windowManager.restore();
+    }
+    await windowManager.show();
+    await windowManager.focus();
   }
 
   Future<Uint8List> _loadTrayIcon() async {
@@ -95,19 +105,21 @@ class TrayService with TrayListener {
 
   @override
   void onTrayIconMouseDown() {
-    windowManager.show();
+    _showMainWindow();
   }
 
   @override
   void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu(bringAppToFront: true);
+    if (Platform.isWindows) {
+      trayManager.popUpContextMenu();
+    }
   }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case "show":
-        windowManager.show();
+        _showMainWindow();
       case "exit":
         _onQuit?.call();
     }
