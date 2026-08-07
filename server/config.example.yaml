@@ -34,4 +34,4 @@ scrapers:
   vndb_token: ""
   hikarinagi_client_id: ""
   hikarinagi_client_secret: ""
-  hikarinagi_scope: "catalog:read"
+  hikarinagi_scope: "catalog:full"

@@ -42,7 +42,7 @@ class InitRequest(BaseModel):
     vndb_token: str = ""
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
-    hikarinagi_scope: str = "catalog:read"
+    hikarinagi_scope: str = "catalog:full"
 
 
 @router.get("/status", response_model=SetupStatus)
@@ -191,7 +191,7 @@ async def initialize_setup(
     vndb_token = body.vndb_token.strip()
     hikarinagi_client_id = body.hikarinagi_client_id.strip()
     hikarinagi_client_secret = body.hikarinagi_client_secret.strip()
-    hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:read"
+    hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:full"
     if (
         vndb_token
         or hikarinagi_client_id

@@ -114,7 +114,7 @@ class ScraperConfigOut(BaseModel):
     ymgal_client_secret: str = ""
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
-    hikarinagi_scope: str = "catalog:read"
+    hikarinagi_scope: str = "catalog:full"
     proxy: str = ""
 
 
@@ -204,7 +204,7 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
             if isinstance(val, str):
                 val = val.strip()
             if key == "hikarinagi_scope" and not val:
-                val = "catalog:read"
+                val = "catalog:full"
             if key != "proxy":
                 setattr(config.scrapers, key, val)
             else:

@@ -1035,7 +1035,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "vndb_token": TextEditingController(),
     "hikarinagi_client_id": TextEditingController(),
     "hikarinagi_client_secret": TextEditingController(),
-    "hikarinagi_scope": TextEditingController(text: "catalog:read"),
+    "hikarinagi_scope": TextEditingController(text: "catalog:full"),
     "proxy": TextEditingController(),
   };
 
@@ -2020,8 +2020,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             controller: _keys["hikarinagi_scope"],
             decoration: InputDecoration(
               labelText: "Scope",
-              hintText: "catalog:read",
-              helperText: "catalog:read 不含 NSFW；需要抓取 NSFW 时使用 catalog:full",
+              hintText: "catalog:full",
+              helperText: "catalog:full 包含 NSFW 与乙女向条目",
               isDense: true,
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2138,7 +2138,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         for (final k in _keys.keys) {
           final value = data[k]?.toString() ?? "";
           _keys[k]?.text = k == "hikarinagi_scope" && value.trim().isEmpty
-              ? "catalog:read"
+              ? "catalog:full"
               : value;
         }
       }
@@ -2156,7 +2156,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     for (final k in _keys.keys) {
       final value = _keys[k]!.text.trim();
       body[k] =
-          k == "hikarinagi_scope" && value.isEmpty ? "catalog:read" : value;
+          k == "hikarinagi_scope" && value.isEmpty ? "catalog:full" : value;
     }
     await http.put(
       Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),

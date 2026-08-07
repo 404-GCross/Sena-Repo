@@ -30,12 +30,12 @@ class HikarinagiScraper(BaseScraper):
         client: httpx.AsyncClient | None = None,
         client_id: str = "",
         client_secret: str = "",
-        scope: str = "catalog:read",
+        scope: str = "catalog:full",
     ):
         super().__init__(proxy=proxy, client=client)
         self._client_id = client_id
         self._client_secret = client_secret
-        self._scope = scope or "catalog:read"
+        self._scope = scope or "catalog:full"
         self._token = ""
         self._token_expires = 0.0
 

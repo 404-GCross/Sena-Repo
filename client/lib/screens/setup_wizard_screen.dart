@@ -47,7 +47,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _vndbCtrl = TextEditingController();
   final _hikarinagiClientIdCtrl = TextEditingController();
   final _hikarinagiClientSecretCtrl = TextEditingController();
-  final _hikarinagiScopeCtrl = TextEditingController(text: "catalog:read");
+  final _hikarinagiScopeCtrl = TextEditingController(text: "catalog:full");
 
   static const _titles = [
     "\u521b\u5efa\u670d\u4e3b\u8d26\u6237",
@@ -156,7 +156,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "hikarinagi_client_id": _hikarinagiClientIdCtrl.text.trim(),
           "hikarinagi_client_secret": _hikarinagiClientSecretCtrl.text.trim(),
           "hikarinagi_scope": _hikarinagiScopeCtrl.text.trim().isEmpty
-              ? "catalog:read"
+              ? "catalog:full"
               : _hikarinagiScopeCtrl.text.trim(),
         }),
       );
@@ -589,7 +589,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           controller: _hikarinagiScopeCtrl,
           decoration: const InputDecoration(
             labelText: "Hikarinagi Scope",
-            hintText: "catalog:read",
+            hintText: "catalog:full",
           ),
         ),
       ];

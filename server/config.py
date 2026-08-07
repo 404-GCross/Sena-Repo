@@ -59,7 +59,7 @@ class ScraperConfig:
     ymgal_client_secret: str = "luna0327"
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
-    hikarinagi_scope: str = "catalog:read"
+    hikarinagi_scope: str = "catalog:full"
 
 
 @dataclass
