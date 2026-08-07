@@ -104,36 +104,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  AppSurface(
-                    padding: const EdgeInsets.all(16),
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        AppStatusPill(
-                          icon: Icons.phone_android_outlined,
-                          label: "客户端 $appVersionLabel",
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        AppStatusPill(
-                          icon: Icons.dns_outlined,
-                          label:
-                              "服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-                          color: _serverVersion.isNotEmpty
-                              ? Colors.green
-                              : Colors.orange,
-                        ),
-                        AppStatusPill(
-                          icon: _isAdmin
-                              ? Icons.admin_panel_settings
-                              : Icons.person_outline,
-                          label: _isAdmin ? "管理员" : "普通用户",
-                          color: _isAdmin ? Colors.purple : Colors.grey,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
                   _sectionHeader("客户端", Icons.phone_android_outlined),
                   const SizedBox(height: 8),
                   _menuCard([
@@ -233,29 +203,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     }),
                   ]),
                   const SizedBox(height: 32),
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: cardBg(context),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.info_outline,
-                              size: 16, color: Colors.grey[600]),
-                          const SizedBox(width: 6),
-                          Text(
-                            "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-                            style: TextStyle(
-                                color: Colors.grey[600], fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  _buildStatusSummary(),
                   const SizedBox(height: 16),
                 ],
               ),
@@ -268,6 +216,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static Color _dimColor(BuildContext c) => hintColor(c);
   static Color _boldColor(BuildContext c) => sectionTextColor(c);
+
+  Widget _buildStatusSummary() {
+    final cs = Theme.of(context).colorScheme;
+    final serverValue =
+        _serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知";
+    final serverColor =
+        _serverVersion.isNotEmpty ? Colors.green : Colors.orange;
+    final roleColor = _isAdmin ? Colors.purple : Colors.grey;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 560) {
+          return AppSurface(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Column(
+              children: [
+                _statusRow(
+                  icon: Icons.phone_android_outlined,
+                  label: "客户端",
+                  value: appVersionLabel,
+                  color: cs.primary,
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                _statusRow(
+                  icon: Icons.dns_outlined,
+                  label: "服务端",
+                  value: serverValue,
+                  color: serverColor,
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                _statusRow(
+                  icon: _isAdmin
+                      ? Icons.admin_panel_settings_outlined
+                      : Icons.person_outline,
+                  label: "权限",
+                  value: _isAdmin ? "管理员" : "普通用户",
+                  color: roleColor,
+                ),
+              ],
+            ),
+          );
+        }
+
+        return AppSurface(
+          padding: const EdgeInsets.all(12),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              AppStatusPill(
+                icon: Icons.phone_android_outlined,
+                label: "客户端 $appVersionLabel",
+                color: cs.primary,
+              ),
+              AppStatusPill(
+                icon: Icons.dns_outlined,
+                label: "服务端 $serverValue",
+                color: serverColor,
+              ),
+              AppStatusPill(
+                icon: _isAdmin
+                    ? Icons.admin_panel_settings_outlined
+                    : Icons.person_outline,
+                label: _isAdmin ? "管理员" : "普通用户",
+                color: roleColor,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _statusRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(icon, size: 17, color: color),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: AppText.bodySmall.copyWith(
+              color: subTextColor(context),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: AppText.bodySmall.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _sectionHeader(String title, IconData icon) => Row(
         children: [
