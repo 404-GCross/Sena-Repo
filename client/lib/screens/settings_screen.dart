@@ -1014,6 +1014,7 @@ class _ScanSettingsPage extends StatefulWidget {
 }
 
 class _ScanSettingsPageState extends State<_ScanSettingsPage> {
+  static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<Map<String, dynamic>> _roots = [];
   List<Map<String, dynamic>> _patchRoots = [];
   List<Map<String, dynamic>> _fileSources = [];
@@ -2016,16 +2017,30 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _keys["hikarinagi_scope"],
+          DropdownButtonFormField<String>(
+            value: _hikarinagiScopes.contains(_keys["hikarinagi_scope"]!.text)
+                ? _keys["hikarinagi_scope"]!.text
+                : "catalog:full",
             decoration: InputDecoration(
               labelText: "Scope",
-              hintText: "catalog:full",
               helperText: "catalog:full 包含 NSFW 与乙女向条目",
               isDense: true,
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
+            items: _hikarinagiScopes
+                .map(
+                  (scope) => DropdownMenuItem<String>(
+                    value: scope,
+                    child: Text(scope),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _keys["hikarinagi_scope"]!.text = value);
+              }
+            },
           ),
         ],
       ),

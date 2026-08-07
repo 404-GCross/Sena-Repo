@@ -19,6 +19,7 @@ class SetupWizardScreen extends StatefulWidget {
 }
 
 class _SetupWizardScreenState extends State<SetupWizardScreen> {
+  static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   int _step = 0;
   bool _loading = false;
   String? _error;
@@ -585,12 +586,27 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
-          controller: _hikarinagiScopeCtrl,
+        DropdownButtonFormField<String>(
+          value: _hikarinagiScopes.contains(_hikarinagiScopeCtrl.text)
+              ? _hikarinagiScopeCtrl.text
+              : "catalog:full",
           decoration: const InputDecoration(
             labelText: "Hikarinagi Scope",
-            hintText: "catalog:full",
+            helperText: "catalog:full 包含 NSFW 与乙女向条目",
           ),
+          items: _hikarinagiScopes
+              .map(
+                (scope) => DropdownMenuItem<String>(
+                  value: scope,
+                  child: Text(scope),
+                ),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _hikarinagiScopeCtrl.text = value);
+            }
+          },
         ),
       ];
 
