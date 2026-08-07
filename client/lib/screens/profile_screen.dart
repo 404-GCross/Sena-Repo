@@ -201,7 +201,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.info_outline,
             title: "关于",
             trailing:
-                "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "..."}",
+                "客户端  $appVersionLabel\n服务端  ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "..."}",
             onTap: () => _showAbout(context),
           ),
         ]),
@@ -307,10 +307,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               "Sena Repo",
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 2),
-            Text(
-              "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-              style: TextStyle(fontSize: 13, color: cs.primary),
+            const SizedBox(height: 8),
+            Column(
+              children: [
+                Text(
+                  "客户端  $appVersionLabel",
+                  style: TextStyle(fontSize: 13, color: cs.primary),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  "服务端  ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
+                  style: TextStyle(fontSize: 13, color: cs.primary),
+                ),
+              ],
             ),
           ],
         ),
