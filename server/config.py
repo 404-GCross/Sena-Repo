@@ -29,6 +29,39 @@ def _parse_positive_int(value, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam", "ymgal"]
+DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam", "ymgal"]
+
+
+def _normalize_source_list(value, default: list[str]) -> list[str]:
+    allowed = set(SCRAPER_SOURCE_ORDER)
+    result: list[str] = []
+    if isinstance(value, list):
+        for source in value:
+            source = str(source).strip()
+            if source in allowed and source not in result:
+                result.append(source)
+        return result
+    return list(default)
+
+
+def normalize_scraper_config(config: "ScraperConfig") -> None:
+    order = _normalize_source_list(
+        config.scraper_order, SCRAPER_SOURCE_ORDER
+    )
+    for source in SCRAPER_SOURCE_ORDER:
+        if source not in order:
+            order.append(source)
+    config.scraper_order = order
+    config.enabled_scrapers = [
+        source
+        for source in _normalize_source_list(
+            config.enabled_scrapers, DEFAULT_ENABLED_SCRAPERS
+        )
+        if source in config.scraper_order
+    ]
+
+
 def _dataclass_kwargs(cls, data: dict | None) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -60,6 +93,10 @@ class ScraperConfig:
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
+    scraper_order: list[str] = field(default_factory=lambda: list(SCRAPER_SOURCE_ORDER))
+    enabled_scrapers: list[str] = field(
+        default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
+    )
 
 
 @dataclass
@@ -137,6 +174,10 @@ def _apply_persisted_scraper_config(config: Config) -> None:
             setattr(config.scrapers, key, value)
         else:
             setattr(config, key, value)
+    if isinstance(data.get("scraper_order"), list):
+        config.scrapers.scraper_order = data["scraper_order"]
+    if isinstance(data.get("enabled_scrapers"), list):
+        config.scrapers.enabled_scrapers = data["enabled_scrapers"]
 
 
 def load_config(config_path: str | None = None) -> Config:
@@ -234,6 +275,7 @@ def load_config(config_path: str | None = None) -> Config:
         config.data_path = args.data_path
 
     _apply_persisted_scraper_config(config)
+    normalize_scraper_config(config.scrapers)
 
     _cached_config = config
     return config

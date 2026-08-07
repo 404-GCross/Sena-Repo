@@ -35,3 +35,15 @@ scrapers:
   hikarinagi_client_id: ""
   hikarinagi_client_secret: ""
   hikarinagi_scope: "catalog:full"
+  scraper_order:
+    - hikarinagi
+    - vndb_kana
+    - bangumi
+    - steam
+    - ymgal
+  enabled_scrapers:
+    - hikarinagi
+    - vndb_kana
+    - bangumi
+    - steam
+    - ymgal

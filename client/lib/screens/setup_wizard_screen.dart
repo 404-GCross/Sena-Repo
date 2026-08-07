@@ -20,6 +20,27 @@ class SetupWizardScreen extends StatefulWidget {
 
 class _SetupWizardScreenState extends State<SetupWizardScreen> {
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
+  static const _scraperLabels = {
+    "hikarinagi": "Hikarinagi",
+    "vndb_kana": "VNDB Kana v2",
+    "bangumi": "Bangumi",
+    "steam": "Steam",
+    "ymgal": "月幕 GalGame",
+  };
+  final List<String> _scraperOrder = [
+    "hikarinagi",
+    "vndb_kana",
+    "bangumi",
+    "steam",
+    "ymgal",
+  ];
+  final Map<String, bool> _scraperEnabled = {
+    "hikarinagi": true,
+    "vndb_kana": true,
+    "bangumi": true,
+    "steam": true,
+    "ymgal": true,
+  };
   int _step = 0;
   bool _loading = false;
   String? _error;
@@ -40,11 +61,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _autoScan = false;
   int _scanInterval = 24;
 
-  bool _useBangumi = true;
-  bool _useVndbKana = true;
-  bool _useSteam = true;
-  bool _useYmgal = true;
-  bool _useHikarinagi = false;
   final _vndbCtrl = TextEditingController();
   final _hikarinagiClientIdCtrl = TextEditingController();
   final _hikarinagiClientSecretCtrl = TextEditingController();
@@ -159,6 +175,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "hikarinagi_scope": _hikarinagiScopeCtrl.text.trim().isEmpty
               ? "catalog:full"
               : _hikarinagiScopeCtrl.text.trim(),
+          "scraper_order": _scraperOrder,
+          "enabled_scrapers": _scraperOrder
+              .where((source) => _scraperEnabled[source] ?? false)
+              .toList(),
         }),
       );
       if (resp.statusCode != 200) {
@@ -188,11 +208,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Future<void> _saveScraperPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool("scrape_src_vndb_kana", _useVndbKana);
-    await prefs.setBool("scrape_src_bangumi", _useBangumi);
-    await prefs.setBool("scrape_src_steam", _useSteam);
-    await prefs.setBool("scrape_src_ymgal", _useYmgal);
-    await prefs.setBool("scrape_src_hikarinagi", _useHikarinagi);
     await prefs.setString("scan_structure", _structureFromDepth(_scanDepth));
     await prefs.setInt("scan_depth", _scanDepth);
     await prefs.setBool("auto_scan", _autoScan);
@@ -547,22 +562,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   List<Widget> _buildScraperStep() => [
-        _scraperSwitch(
-          "VNDB Kana v2",
-          _useVndbKana,
-          (v) => setState(() => _useVndbKana = v),
-        ),
-        _scraperSwitch(
-          "Bangumi",
-          _useBangumi,
-          (v) => setState(() => _useBangumi = v),
-        ),
-        _scraperSwitch(
-            "Steam", _useSteam, (v) => setState(() => _useSteam = v)),
-        _scraperSwitch(
-            "YMGal", _useYmgal, (v) => setState(() => _useYmgal = v)),
-        _scraperSwitch("Hikarinagi", _useHikarinagi,
-            (v) => setState(() => _useHikarinagi = v)),
+        _scraperSourceList(),
         const SizedBox(height: 12),
         TextField(
           controller: _vndbCtrl,
@@ -610,16 +610,31 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         ),
       ];
 
-  Widget _scraperSwitch(
-    String title,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) {
-    return SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(title),
-      value: value,
-      onChanged: onChanged,
+  Widget _scraperSourceList() {
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _scraperOrder.length,
+      onReorderItem: (oldIndex, newIndex) {
+        setState(() {
+          final source = _scraperOrder.removeAt(oldIndex);
+          _scraperOrder.insert(newIndex, source);
+        });
+      },
+      itemBuilder: (context, index) {
+        final source = _scraperOrder[index];
+        return SwitchListTile(
+          key: ValueKey(source),
+          contentPadding: EdgeInsets.zero,
+          secondary: ReorderableDragStartListener(
+            index: index,
+            child: const Icon(Icons.drag_handle),
+          ),
+          title: Text(_scraperLabels[source]!),
+          value: _scraperEnabled[source] ?? false,
+          onChanged: (value) => setState(() => _scraperEnabled[source] = value),
+        );
+      },
     );
   }
 }

@@ -9,7 +9,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import load_config
+from config import (
+    DEFAULT_ENABLED_SCRAPERS,
+    SCRAPER_SOURCE_ORDER,
+    load_config,
+    normalize_scraper_config,
+)
 from database import get_session
 from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
@@ -43,6 +48,12 @@ class InitRequest(BaseModel):
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
+    scraper_order: list[str] = Field(
+        default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
+    )
+    enabled_scrapers: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
+    )
 
 
 @router.get("/status", response_model=SetupStatus)
@@ -192,32 +203,32 @@ async def initialize_setup(
     hikarinagi_client_id = body.hikarinagi_client_id.strip()
     hikarinagi_client_secret = body.hikarinagi_client_secret.strip()
     hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:full"
-    if (
-        vndb_token
-        or hikarinagi_client_id
-        or hikarinagi_client_secret
-    ):
-        try:
-            from api.settings import _read_scraper_config, _write_scraper_config
+    try:
+        from api.settings import _read_scraper_config, _write_scraper_config
 
-            scraper_config = _read_scraper_config()
-            if vndb_token:
-                config.scrapers.vndb_token = vndb_token
-                scraper_config["vndb_token"] = vndb_token
-            if hikarinagi_client_id:
-                config.scrapers.hikarinagi_client_id = hikarinagi_client_id
-                scraper_config["hikarinagi_client_id"] = hikarinagi_client_id
-            if hikarinagi_client_secret:
-                config.scrapers.hikarinagi_client_secret = hikarinagi_client_secret
-                scraper_config["hikarinagi_client_secret"] = hikarinagi_client_secret
-            if hikarinagi_client_id or hikarinagi_client_secret:
-                config.scrapers.hikarinagi_scope = hikarinagi_scope
-                scraper_config["hikarinagi_scope"] = hikarinagi_scope
-            _write_scraper_config(scraper_config)
-        except Exception as e:
-            logger = logging.getLogger("sena-repo")
-            logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
-            raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
+        scraper_config = _read_scraper_config()
+        if vndb_token:
+            config.scrapers.vndb_token = vndb_token
+            scraper_config["vndb_token"] = vndb_token
+        if hikarinagi_client_id:
+            config.scrapers.hikarinagi_client_id = hikarinagi_client_id
+            scraper_config["hikarinagi_client_id"] = hikarinagi_client_id
+        if hikarinagi_client_secret:
+            config.scrapers.hikarinagi_client_secret = hikarinagi_client_secret
+            scraper_config["hikarinagi_client_secret"] = hikarinagi_client_secret
+        if hikarinagi_client_id or hikarinagi_client_secret:
+            config.scrapers.hikarinagi_scope = hikarinagi_scope
+            scraper_config["hikarinagi_scope"] = hikarinagi_scope
+        config.scrapers.scraper_order = body.scraper_order
+        config.scrapers.enabled_scrapers = body.enabled_scrapers
+        normalize_scraper_config(config.scrapers)
+        scraper_config["scraper_order"] = config.scrapers.scraper_order
+        scraper_config["enabled_scrapers"] = config.scrapers.enabled_scrapers
+        _write_scraper_config(scraper_config)
+    except Exception as e:
+        logger = logging.getLogger("sena-repo")
+        logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
 
     await session.commit()
 

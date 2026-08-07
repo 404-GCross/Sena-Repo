@@ -627,12 +627,16 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
 
 // ── Batch scrape config dialog ──
 class _BatchScrapeDialog extends StatefulWidget {
+  final List<String> sources;
+
+  const _BatchScrapeDialog({required this.sources});
+
   @override
   State<_BatchScrapeDialog> createState() => _BatchScrapeDialogState();
 }
 
 class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
-  String _source = "vndb_kana";
+  final Set<String> _selectedSources = {};
   String _mode = "missing";
 
   static const _sourceLabels = {
@@ -650,6 +654,12 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
   };
 
   @override
+  void initState() {
+    super.initState();
+    _selectedSources.addAll(widget.sources);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -662,71 +672,90 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
       ),
       content: SizedBox(
         width: 320,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              "选择本次批量刮削使用的来源",
-              style: AppText.bodySmall.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cardBorder(context)),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                "来源将按服务端优先级执行",
+                style: AppText.bodySmall.copyWith(color: Colors.grey),
               ),
-              child: Column(
-                children: _sourceLabels.entries.map((e) {
-                  return RadioListTile<String>(
-                    title: Text(e.value, style: const TextStyle(fontSize: 14)),
-                    value: e.key,
-                    groupValue: _source,
-                    onChanged: (v) => setState(() => _source = v!),
-                    dense: true,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  );
-                }).toList(),
+              const SizedBox(height: 12),
+              if (widget.sources.isEmpty)
+                const AppStateView(
+                  icon: Icons.power_off_outlined,
+                  title: "没有启用的刮削源",
+                )
+              else
+                Container(
+                  decoration: BoxDecoration(
+                    color: cardBg(context),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: cardBorder(context)),
+                  ),
+                  child: Column(
+                    children: widget.sources.map((source) {
+                      return CheckboxListTile(
+                        controlAffinity: ListTileControlAffinity.trailing,
+                        title: Text(
+                          _sourceLabels[source] ?? source,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        value: _selectedSources.contains(source),
+                        onChanged: (value) => setState(() {
+                          if (value == true) {
+                            _selectedSources.add(source);
+                          } else {
+                            _selectedSources.remove(source);
+                          }
+                        }),
+                        dense: true,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Text("刮削模式",
+                  style: AppText.bodySmall.copyWith(color: Colors.grey)),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: cardBg(context),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cardBorder(context)),
+                ),
+                child: Column(
+                  children: _modeLabels.entries.map((e) {
+                    final descs = {
+                      "missing": "空字段才填，已有数据不覆盖",
+                      "overwrite": "全部刷新，覆盖已有数据",
+                      "images": "只下载封面和横版大图",
+                      "metadata": "只补文本，不下载图片",
+                    };
+                    return RadioListTile<String>(
+                      title:
+                          Text(e.value, style: const TextStyle(fontSize: 14)),
+                      subtitle: Text(
+                        descs[e.key] ?? "",
+                        style: AppText.bodySmall.copyWith(color: Colors.grey),
+                      ),
+                      value: e.key,
+                      groupValue: _mode,
+                      onChanged: (v) => setState(() => _mode = v!),
+                      dense: true,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text("刮削模式", style: AppText.bodySmall.copyWith(color: Colors.grey)),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cardBorder(context)),
-              ),
-              child: Column(
-                children: _modeLabels.entries.map((e) {
-                  final descs = {
-                    "missing": "空字段才填，已有数据不覆盖",
-                    "overwrite": "全部刷新，覆盖已有数据",
-                    "images": "只下载封面和横版大图",
-                    "metadata": "只补文本，不下载图片",
-                  };
-                  return RadioListTile<String>(
-                    title: Text(e.value, style: const TextStyle(fontSize: 14)),
-                    subtitle: Text(
-                      descs[e.key] ?? "",
-                      style: AppText.bodySmall.copyWith(color: Colors.grey),
-                    ),
-                    value: e.key,
-                    groupValue: _mode,
-                    onChanged: (v) => setState(() => _mode = v!),
-                    dense: true,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       actions: [
@@ -735,12 +764,16 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
           child: const Text("取消"),
         ),
         FilledButton.icon(
-          onPressed: () {
-            Navigator.pop(context, {
-              "sources": [_source],
-              "mode": _mode,
-            });
-          },
+          onPressed: _selectedSources.isEmpty
+              ? null
+              : () {
+                  Navigator.pop(context, {
+                    "sources": widget.sources
+                        .where(_selectedSources.contains)
+                        .toList(),
+                    "mode": _mode,
+                  });
+                },
           icon: const Icon(Icons.play_arrow, size: 18),
           label: const Text("开始刮削"),
         ),
@@ -1014,6 +1047,28 @@ class _ScanSettingsPage extends StatefulWidget {
 }
 
 class _ScanSettingsPageState extends State<_ScanSettingsPage> {
+  static const _defaultScraperOrder = [
+    "hikarinagi",
+    "vndb_kana",
+    "bangumi",
+    "steam",
+    "ymgal",
+  ];
+  static const _scraperLabels = {
+    "vndb_kana": "VNDB Kana v2",
+    "bangumi": "Bangumi",
+    "steam": "Steam",
+    "ymgal": "月幕 GalGame",
+    "hikarinagi": "Hikarinagi",
+  };
+  static const _scraperHints = {
+    "vndb_kana": "中文标题、平均游戏时长",
+    "bangumi": "免认证，填 Token 可提高速率",
+    "steam": "免认证，Steam 商店元数据",
+    "ymgal": "中文名称和简介",
+    "hikarinagi": "需要 OAuth Client ID/Secret",
+  };
+  List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<Map<String, dynamic>> _roots = [];
   List<Map<String, dynamic>> _patchRoots = [];
@@ -1031,7 +1086,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "bangumi": true,
     "steam": true,
     "ymgal": true,
-    "hikarinagi": false,
+    "hikarinagi": true,
   };
   final _keys = {
     "vndb_token": TextEditingController(),
@@ -1381,7 +1436,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     // Show batch scrape config dialog
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => _BatchScrapeDialog(),
+      builder: (ctx) => _BatchScrapeDialog(
+        sources:
+            _scraperOrder.where((source) => _sources[source] ?? false).toList(),
+      ),
     );
     if (result == null || !mounted) return;
     final body = Map<String, dynamic>.from(result);
@@ -1889,12 +1947,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   const SizedBox(height: 24),
                   _sectionHeader("刮削源", Icons.image_search),
                   const SizedBox(height: 8),
-                  _srcCard("VNDB Kana v2", "vndb_kana", "免认证，中文标题"),
-                  _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
-                  _srcCard("Steam", "steam", "免认证"),
-                  _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
-                  _srcCard("Hikarinagi", "hikarinagi",
-                      "需 OAuth Client ID/Secret，Galgame 元数据"),
+                  _scraperSourceList(),
                   const SizedBox(height: 12),
                   _hikarinagiCredentialSettings(),
                   const SizedBox(height: 16),
@@ -2172,13 +2225,19 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               ? "catalog:full"
               : value;
         }
+        final serverOrder = data["scraper_order"];
+        if (serverOrder is List) {
+          _scraperOrder = _normalizeScraperOrder(serverOrder);
+        }
+        final enabled = data["enabled_scrapers"];
+        if (enabled is List) {
+          final enabledSet = enabled.map((value) => value.toString()).toSet();
+          for (final source in _sources.keys) {
+            _sources[source] = enabledSet.contains(source);
+          }
+        }
       }
     } catch (_) {}
-    final prefs = await SharedPreferences.getInstance();
-    for (final src in _sources.keys) {
-      final v = prefs.getBool("scrape_src_$src");
-      if (v != null) _sources[src] = v;
-    }
     if (mounted) setState(() {});
   }
 
@@ -2189,16 +2248,20 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       body[k] =
           k == "hikarinagi_scope" && value.isEmpty ? "catalog:full" : value;
     }
-    await http.put(
+    body["scraper_order"] = _scraperOrder;
+    body["enabled_scrapers"] =
+        _scraperOrder.where((source) => _sources[source] ?? false).toList();
+    final resp = await http.put(
       Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
       headers: {"Content-Type": "application/json", ...widget.api.headers},
       body: jsonEncode(body),
     );
-    final prefs = await SharedPreferences.getInstance();
-    for (final src in _sources.keys) {
-      await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
+    if (!mounted) return;
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      _toast(context, "刮削源配置已保存");
+    } else {
+      _toast(context, "刮削源配置保存失败: ${resp.statusCode}");
     }
-    if (mounted) _toast(context, "刮削源配置已保存");
   }
 
   Future<void> _testProxy() async {
@@ -2248,9 +2311,54 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
-  Widget _srcCard(String label, String src, String hint) {
+  List<String> _normalizeScraperOrder(Iterable values) {
+    final result = <String>[];
+    for (final value in values) {
+      final source = value.toString();
+      if (_scraperLabels.containsKey(source) && !result.contains(source)) {
+        result.add(source);
+      }
+    }
+    for (final source in _defaultScraperOrder) {
+      if (!result.contains(source)) result.add(source);
+    }
+    return result;
+  }
+
+  Widget _scraperSourceList() {
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _scraperOrder.length,
+      onReorderItem: (oldIndex, newIndex) {
+        setState(() {
+          final source = _scraperOrder.removeAt(oldIndex);
+          _scraperOrder.insert(newIndex, source);
+        });
+      },
+      itemBuilder: (context, index) {
+        final source = _scraperOrder[index];
+        return _srcCard(
+          key: ValueKey(source),
+          index: index,
+          label: _scraperLabels[source]!,
+          src: source,
+          hint: _scraperHints[source]!,
+        );
+      },
+    );
+  }
+
+  Widget _srcCard({
+    required Key key,
+    required int index,
+    required String label,
+    required String src,
+    required String hint,
+  }) {
     final enabled = _sources[src] ?? false;
     return Container(
+      key: key,
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
         color: cardBg(context),
@@ -2262,6 +2370,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         ),
       ),
       child: SwitchListTile(
+        secondary: ReorderableDragStartListener(
+          index: index,
+          child: Icon(Icons.drag_handle, color: hintColor(context)),
+        ),
         title: Text(label, style: const TextStyle(fontSize: 14)),
         subtitle: Text(
           hint,

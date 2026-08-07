@@ -10,7 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
-from config import load_config
+from config import (
+    DEFAULT_ENABLED_SCRAPERS,
+    SCRAPER_SOURCE_ORDER,
+    load_config,
+    normalize_scraper_config,
+)
 from models.user import User
 
 from database import get_session
@@ -115,6 +120,12 @@ class ScraperConfigOut(BaseModel):
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
+    scraper_order: list[str] = Field(
+        default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
+    )
+    enabled_scrapers: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
+    )
     proxy: str = ""
 
 
@@ -126,6 +137,8 @@ class ScraperConfigUpdate(BaseModel):
     hikarinagi_client_id: str | None = None
     hikarinagi_client_secret: str | None = None
     hikarinagi_scope: str | None = None
+    scraper_order: list[str] | None = None
+    enabled_scrapers: list[str] | None = None
     proxy: str | None = None
 
 
@@ -140,6 +153,7 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
     """Get current scraper configuration (API keys masked)."""
     from config import load_config
     config = load_config()
+    normalize_scraper_config(config.scrapers)
     s = config.scrapers
 
     def _mask(val: str) -> str:
@@ -155,6 +169,8 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         hikarinagi_client_id=_mask(s.hikarinagi_client_id),
         hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
         hikarinagi_scope=s.hikarinagi_scope,
+        scraper_order=s.scraper_order,
+        enabled_scrapers=s.enabled_scrapers,
         proxy=_mask(config.proxy),
     )
 
@@ -201,6 +217,8 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
         "hikarinagi_client_id",
         "hikarinagi_client_secret",
         "hikarinagi_scope",
+        "scraper_order",
+        "enabled_scrapers",
         "proxy",
     ):
         val = getattr(body, key, None)
@@ -211,11 +229,19 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
                 val = val.strip()
             if key == "hikarinagi_scope" and not val:
                 val = "catalog:full"
+            if key in {"scraper_order", "enabled_scrapers"}:
+                if not isinstance(val, list):
+                    continue
+                setattr(config.scrapers, key, val)
+                continue
             if key != "proxy":
                 setattr(config.scrapers, key, val)
             else:
                 setattr(config, "proxy", val)
             data[key] = val
+    normalize_scraper_config(config.scrapers)
+    data["scraper_order"] = config.scrapers.scraper_order
+    data["enabled_scrapers"] = config.scrapers.enabled_scrapers
     _write_scraper_config(data)
     return {"message": "已保存"}
 

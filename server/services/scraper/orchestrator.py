@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from config import Config
+from config import Config, normalize_scraper_config
 from models.game import Game
 from models.scrape_job import JobStatus, ScrapeJob
 
@@ -60,23 +60,34 @@ def _is_public_http_url(url: str) -> bool:
 
 
 def _build_scrapers(config: Config) -> list[BaseScraper]:
-    """Build all available scrapers from config."""
+    """Build enabled scrapers in the configured priority order."""
     s = config.scrapers
-
-    scrapers: list[BaseScraper] = [
-        VndbKanaScraper(proxy=config.proxy),
-        VndbTitlesScraper(proxy=config.proxy),
-        BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
-        SteamScraper(proxy=config.proxy),
-        YmgalScraper(proxy=config.proxy, client_id=s.ymgal_client_id, client_secret=s.ymgal_client_secret),
-        HikarinagiScraper(
+    normalize_scraper_config(s)
+    builders = {
+        "hikarinagi": lambda: HikarinagiScraper(
             proxy=config.proxy,
             client_id=s.hikarinagi_client_id,
             client_secret=s.hikarinagi_client_secret,
             scope=s.hikarinagi_scope,
         ),
-    ]
-
+        "vndb_kana": lambda: VndbKanaScraper(proxy=config.proxy),
+        "bangumi": lambda: BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
+        "steam": lambda: SteamScraper(proxy=config.proxy),
+        "ymgal": lambda: YmgalScraper(
+            proxy=config.proxy,
+            client_id=s.ymgal_client_id,
+            client_secret=s.ymgal_client_secret,
+        ),
+    }
+    scrapers: list[BaseScraper] = []
+    for source in s.scraper_order:
+        if source not in s.enabled_scrapers:
+            continue
+        scraper = builders[source]()
+        scrapers.append(scraper)
+        # Keep the legacy VNDB parser as a fallback within the VNDB slot.
+        if source == "vndb_kana":
+            scrapers.append(VndbTitlesScraper(proxy=config.proxy))
     return scrapers
 
 
@@ -131,9 +142,6 @@ async def scrape_single_game(
 
     async def handle_result(scraper: BaseScraper, result: ScraperResult) -> None:
         results[scraper.source_name] = result
-        await _apply_result(
-            result, scraper.source_name, game, client, covers_dir, session, config, mode
-        )
 
     async def search_best(
         scraper: BaseScraper,
@@ -207,9 +215,20 @@ async def scrape_single_game(
                 result = await search_best(scraper, query, "query")
                 if result:
                     await handle_result(scraper, result)
-                    break  # Found for this candidate, try next candidate for remaining scrapers
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} error for '{query}': {e}")
+
+    ordered_results = [
+        (scraper.source_name, results[scraper.source_name])
+        for scraper in scrapers
+        if scraper.source_name in results
+    ]
+    if mode in {"overwrite", "images"}:
+        ordered_results.reverse()
+    for source_name, result in ordered_results:
+        await _apply_result(
+            result, source_name, game, client, covers_dir, session, config, mode
+        )
 
     await session.commit()
     return results
@@ -363,6 +382,8 @@ async def run_batch_scrape(
     scrapers = _build_scrapers(config)
     if sources:
         source_set = {str(source) for source in sources if str(source) in _VALID_SOURCES}
+        if "vndb_kana" in source_set:
+            source_set.add("vndb")
         scrapers = [s for s in scrapers if s.source_name in source_set]
     covers_dir = config.covers_path
     completed = 0
