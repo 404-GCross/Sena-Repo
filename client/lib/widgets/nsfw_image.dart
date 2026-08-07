@@ -23,6 +23,7 @@ class _NsfwImageState extends State<NsfwImage> {
   bool _hovered = false;
   bool _revealed = false;
   Timer? _revealTimer;
+  Timer? _hoverExitTimer;
 
   bool get _supportsHoverReveal =>
       !kIsWeb &&
@@ -44,7 +45,23 @@ class _NsfwImageState extends State<NsfwImage> {
   @override
   void dispose() {
     _revealTimer?.cancel();
+    _hoverExitTimer?.cancel();
     super.dispose();
+  }
+
+  void _setHovered(bool value) {
+    if (!_supportsHoverReveal || !mounted) return;
+    _hoverExitTimer?.cancel();
+    if (value) {
+      if (!_hovered) setState(() => _hovered = true);
+      return;
+    }
+
+    // Game library cards animate on hover. On Linux this can briefly move the
+    // pointer out of the nested MouseRegion during the scale transition.
+    _hoverExitTimer = Timer(const Duration(milliseconds: 140), () {
+      if (mounted && _hovered) setState(() => _hovered = false);
+    });
   }
 
   void _temporarilyReveal() {
@@ -77,12 +94,8 @@ class _NsfwImageState extends State<NsfwImage> {
     return Semantics(
       label: "NSFW 图片",
       child: MouseRegion(
-        onEnter: _supportsHoverReveal
-            ? (_) => setState(() => _hovered = true)
-            : null,
-        onExit: _supportsHoverReveal
-            ? (_) => setState(() => _hovered = false)
-            : null,
+        onEnter: _supportsHoverReveal ? (_) => _setHovered(true) : null,
+        onExit: _supportsHoverReveal ? (_) => _setHovered(false) : null,
         child: Stack(
           fit: StackFit.passthrough,
           children: [
