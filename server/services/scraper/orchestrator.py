@@ -254,6 +254,10 @@ async def _apply_result(
             logger.debug(f"Hero skipped for game {game.id}: already has bg_path ({game.bg_path})")
 
     # ── Text metadata ──
+    if result.is_nsfw is True and not game.is_nsfw:
+        game.is_nsfw = True
+        session.add(game)
+
     if not images_only:
         if result.developer and (overwrite or not game.developer):
             game.developer = result.developer

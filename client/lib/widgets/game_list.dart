@@ -6,6 +6,7 @@ import "package:cached_network_image/cached_network_image.dart";
 import "../models/game.dart";
 import "../services/api_client.dart";
 import "../utils/theme_utils.dart";
+import "nsfw_image.dart";
 
 class GameList extends StatelessWidget {
   final List<GameSummary> games;
@@ -148,14 +149,17 @@ class _GameListTileState extends State<_GameListTile> {
                 width: 64,
                 height: 90,
                 child: hasCover
-                    ? CachedNetworkImage(
-                        key: ValueKey(game.coverPath),
-                        imageUrl:
-                            "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
-                        httpHeaders: mediaAuthHeaders,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => _placeholder(cs),
-                        placeholder: (_, __) => _placeholder(cs),
+                    ? NsfwImage(
+                        isNsfw: game.isNsfw,
+                        child: CachedNetworkImage(
+                          key: ValueKey(game.coverPath),
+                          imageUrl:
+                              "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
+                          httpHeaders: mediaAuthHeaders,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _placeholder(cs),
+                          placeholder: (_, __) => _placeholder(cs),
+                        ),
                       )
                     : _placeholder(cs),
               ),

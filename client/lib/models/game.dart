@@ -52,6 +52,7 @@ class GameSummary {
   final String? developer;
   final String folderPath;
   final String? coverPath;
+  final bool isNsfw;
   final String platformSummary;
   final List<String> tagNames;
   final String importedAt;
@@ -65,6 +66,7 @@ class GameSummary {
     this.developer,
     required this.folderPath,
     this.coverPath,
+    this.isNsfw = false,
     required this.platformSummary,
     required this.tagNames,
     required this.importedAt,
@@ -80,6 +82,7 @@ class GameSummary {
       developer: json["developer"],
       folderPath: json["folder_path"] ?? "",
       coverPath: json["cover_path"],
+      isNsfw: json["is_nsfw"] == true,
       platformSummary: json["platform_summary"] ?? "",
       tagNames: List<String>.from(json["tag_names"] ?? []),
       importedAt: json["imported_at"] ?? "",
@@ -97,6 +100,7 @@ class GameDetail {
   final String folderPath;
   final String? coverPath;
   final String? bgPath;
+  final bool isNsfw;
   final String? developer;
   final String? description;
   final String? releaseDate;
@@ -119,6 +123,7 @@ class GameDetail {
     required this.folderPath,
     this.coverPath,
     this.bgPath,
+    this.isNsfw = false,
     this.developer,
     this.description,
     this.releaseDate,
@@ -143,6 +148,7 @@ class GameDetail {
       folderPath: json["folder_path"] ?? "",
       coverPath: json["cover_path"],
       bgPath: json["bg_path"],
+      isNsfw: json["is_nsfw"] == true,
       developer: json["developer"],
       description: json["description"],
       releaseDate: json["release_date"],
@@ -154,13 +160,11 @@ class GameDetail {
       isDeleted: json["is_deleted"] ?? false,
       importedAt: json["imported_at"] ?? "",
       updatedAt: json["updated_at"] ?? "",
-      versions:
-          (json["versions"] as List<dynamic>?)
+      versions: (json["versions"] as List<dynamic>?)
               ?.map((v) => GameVersion.fromJson(v as Map<String, dynamic>))
               .toList() ??
           [],
-      tags:
-          (json["tags"] as List<dynamic>?)
+      tags: (json["tags"] as List<dynamic>?)
               ?.map((t) => Tag.fromJson(t as Map<String, dynamic>))
               .toList() ??
           [],

@@ -32,6 +32,7 @@ def _game_to_summary(game: Game) -> GameSummary:
         developer=game.developer,
         folder_path=game.folder_path,
         cover_path=game.cover_path,
+        is_nsfw=bool(game.is_nsfw),
         platform_summary=", ".join(platforms),
         tag_names=tag_names,
         imported_at=game.imported_at,
@@ -195,6 +196,7 @@ async def get_game(
         folder_path=game.folder_path,
         cover_path=game.cover_path,
         bg_path=game.bg_path,
+        is_nsfw=bool(game.is_nsfw),
         developer=game.developer,
         description=game.description,
         release_date=game.release_date,
@@ -320,6 +322,7 @@ class GameUpdate(BaseModel):
     vndb_id: str | None = None
     steam_id: str | None = None
     bangumi_id: str | None = None
+    is_nsfw: bool | None = None
 
 
 class VersionUpdate(BaseModel):

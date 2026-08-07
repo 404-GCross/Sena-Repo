@@ -227,6 +227,7 @@ class HikarinagiScraper(BaseScraper):
             cover_url=_media_url(item.get("cover")),
             source_id=source_id,
             source_name=self.source_name,
+            is_nsfw=bool(item.get("nsfw", False)),
         )
 
     def _parse_detail(self, item: dict, fallback: ScraperResult | None) -> ScraperResult:

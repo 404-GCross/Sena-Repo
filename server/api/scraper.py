@@ -122,6 +122,7 @@ async def search_candidates(
                  "screenshots": r.screenshot_urls,
                  "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
+                 "is_nsfw": r.is_nsfw,
                  "source_id": r.source_id}
                 for r in results
             ],
@@ -143,6 +144,7 @@ async def scrape_apply(
     title: str = "",
     description: str = "",
     release_date: str = "",
+    is_nsfw: bool | None = None,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(require_admin),
 ):
@@ -187,6 +189,8 @@ async def scrape_apply(
         game.description = description[:2000]
     if release_date:
         game.release_date = release_date
+    if is_nsfw is True:
+        game.is_nsfw = True
     sfx = ""
     sf = {"vndb_kana": "vndb_id", "vndb": "vndb_id", "bangumi": "bangumi_id", "steam": "steam_id"}
     sfx = sf.get(source, "")
@@ -248,6 +252,7 @@ async def scrape_game_cover(
                         "title": result.title,
                         "cover_url": result.cover_url,
                         "developer": result.developer,
+                        "is_nsfw": result.is_nsfw,
                     })
 
                     # Download first available cover
@@ -279,6 +284,9 @@ async def scrape_game_cover(
 
                     if result.developer and not game.developer:
                         game.developer = result.developer
+                        session.add(game)
+                    if result.is_nsfw is True and not game.is_nsfw:
+                        game.is_nsfw = True
                         session.add(game)
 
             except Exception as e:

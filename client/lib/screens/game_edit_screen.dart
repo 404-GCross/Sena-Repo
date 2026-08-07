@@ -17,6 +17,7 @@ import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/nsfw_image.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -37,6 +38,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _notes,
       _bgUrl;
   bool _saving = false;
+  bool _isNsfw = false;
   String? _coverPath;
   String? _pendingCoverUrl;
   String? _pendingCoverFilePath;
@@ -78,6 +80,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final g = widget.game;
     _versions = List<GameVersion>.from(g.versions);
     _coverPath = g.coverPath;
+    _isNsfw = g.isNsfw;
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
     _name = TextEditingController(text: g.name);
     _dev = TextEditingController(text: g.developer ?? "");
@@ -121,6 +124,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "vndb_id": _vndb.text.trim(),
         "steam_id": _steam.text.trim(),
         "bangumi_id": _bgm.text.trim(),
+        "is_nsfw": _isNsfw,
       };
       final resp = await http.put(
         Uri.parse("$_baseUrl/api/games/${g.id}"),
@@ -273,6 +277,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _dev.text = (r["developer"] ?? "").toString();
       _desc.text = (r["description"] ?? "").toString();
       _date.text = (r["release_date"] ?? "").toString();
+      if (r["is_nsfw"] == true) _isNsfw = true;
     });
     _showMsg("已填入 $label 数据");
   }
@@ -949,9 +954,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
             // ── Hero banner (landscape) full width ──
             Padding(
               padding: EdgeInsets.fromLTRB(0, 0, 0, 4),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(isWide ? 14 : 0),
-                child: _bgHeroPreview(),
+              child: NsfwImage(
+                isNsfw: _isNsfw,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(isWide ? 14 : 0),
+                  child: _bgHeroPreview(),
+                ),
               ),
             ),
             Center(
@@ -1053,29 +1061,32 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                       .withValues(alpha: 0.5),
                                 ),
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: _pendingCoverFilePath != null
-                                    ? Image.file(
-                                        File(_pendingCoverFilePath!),
-                                        key: ValueKey(
-                                          "pending_cover_$_pendingCoverFilePath",
-                                        ),
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) =>
-                                            _coverPlaceholder(),
-                                      )
-                                    : hasCover
-                                        ? Image.network(
-                                            "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                                            key: ValueKey(
-                                                "cover_$_coverVersion"),
-                                            headers: mediaAuthHeaders,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                                _coverPlaceholder(),
-                                          )
-                                        : _coverPlaceholder(),
+                              child: NsfwImage(
+                                isNsfw: _isNsfw,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: _pendingCoverFilePath != null
+                                      ? Image.file(
+                                          File(_pendingCoverFilePath!),
+                                          key: ValueKey(
+                                            "pending_cover_$_pendingCoverFilePath",
+                                          ),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              _coverPlaceholder(),
+                                        )
+                                      : hasCover
+                                          ? Image.network(
+                                              "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
+                                              key: ValueKey(
+                                                  "cover_$_coverVersion"),
+                                              headers: mediaAuthHeaders,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  _coverPlaceholder(),
+                                            )
+                                          : _coverPlaceholder(),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -1160,6 +1171,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                               g.bangumiId!.isNotEmpty
                                           ? g.bangumiId
                                           : null,
+                                    ),
+                                    _divider(),
+                                    SwitchListTile.adaptive(
+                                      contentPadding: EdgeInsets.zero,
+                                      secondary: const Icon(
+                                        Icons.visibility_off_outlined,
+                                      ),
+                                      title: const Text("NSFW 内容"),
+                                      subtitle: const Text("启用后封面和背景默认模糊"),
+                                      value: _isNsfw,
+                                      onChanged: (value) =>
+                                          setState(() => _isNsfw = value),
                                     ),
                                   ],
                                 ),
@@ -1371,6 +1394,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                         g.bangumiId!.isNotEmpty
                                     ? g.bangumiId
                                     : null,
+                              ),
+                              _divider(),
+                              SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                secondary: const Icon(
+                                  Icons.visibility_off_outlined,
+                                ),
+                                title: const Text("NSFW 内容"),
+                                subtitle: const Text("启用后封面和背景默认模糊"),
+                                value: _isNsfw,
+                                onChanged: (value) =>
+                                    setState(() => _isNsfw = value),
                               ),
                             ],
                           ),
@@ -2674,6 +2709,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
+      if (r["is_nsfw"] == true) _isNsfw = true;
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = r["source_id"].toString();

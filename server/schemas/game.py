@@ -26,6 +26,7 @@ class GameSummary(BaseModel):
     developer: str | None = None
     folder_path: str
     cover_path: str | None = None
+    is_nsfw: bool = False
     platform_summary: str = ""  # e.g. "PC, KRKR"
     tag_names: list[str] = []
     imported_at: datetime
@@ -44,6 +45,7 @@ class GameDetail(BaseModel):
     folder_path: str
     cover_path: str | None = None
     bg_path: str | None = None
+    is_nsfw: bool = False
     developer: str | None = None
     description: str | None = None
     release_date: str | None = None

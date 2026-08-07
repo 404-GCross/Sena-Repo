@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 VNDB_FIELDS = (
     "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
-    "image.url,screenshots.url,description,rating,released,"
+    "image.url,image.sexual,screenshots.url,description,rating,released,"
     "length,length_minutes,"
     "developers.name,tags.name,tags.rating,tags.spoiler"
 )
@@ -168,6 +168,7 @@ class VndbKanaScraper(BaseScraper):
             source_name=self.source_name,
             length=(item.get("length") or 0),
             length_minutes=(item.get("length_minutes") or 0),
+            is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 1.0,
         )
 
     def _pick_title(self, titles: list[dict]) -> str:
@@ -208,7 +209,7 @@ class VndbTitlesScraper(BaseScraper):
         client = await self._get_client()
         results = []
         try:
-            fields = "id,title,image.url,screenshots.url,description,rating,released,developers.name"
+            fields = "id,title,image.url,image.sexual,screenshots.url,description,rating,released,developers.name"
             body = _build_vndb_body(name, fields=fields)
             resp = await self._request_with_retry(
                 client, "POST", self.base_url,
@@ -231,6 +232,7 @@ class VndbTitlesScraper(BaseScraper):
                     screenshot_urls=all_shots,
                     source_id=str(item.get("id", "")),
                     source_name=self.source_name,
+                    is_nsfw=float((image.get("sexual") or 0)) >= 1.0,
                 ))
         except Exception as e:
             logger.warning(f"VNDB failed for '{name}': {e}")

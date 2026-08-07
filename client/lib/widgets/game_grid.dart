@@ -8,6 +8,7 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
+import "nsfw_image.dart";
 
 class GameGrid extends StatefulWidget {
   final List<GameSummary> games;
@@ -161,14 +162,17 @@ class _PosterCardState extends State<_PosterCard>
                 children: [
                   // Cover image
                   if (hasCover)
-                    CachedNetworkImage(
-                      key: ValueKey(game.coverPath),
-                      imageUrl:
-                          "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
-                      httpHeaders: mediaAuthHeaders,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => _placeholder(),
-                      placeholder: (_, __) => _placeholder(),
+                    NsfwImage(
+                      isNsfw: game.isNsfw,
+                      child: CachedNetworkImage(
+                        key: ValueKey(game.coverPath),
+                        imageUrl:
+                            "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
+                        httpHeaders: mediaAuthHeaders,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => _placeholder(),
+                        placeholder: (_, __) => _placeholder(),
+                      ),
                     )
                   else
                     _placeholder(),

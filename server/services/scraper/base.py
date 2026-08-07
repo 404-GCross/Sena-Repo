@@ -48,6 +48,7 @@ class ScraperResult:
     source_name: str = ""
     length: int = 0         # VNDB length category 1-5
     length_minutes: int = 0 # average play time in minutes
+    is_nsfw: bool | None = None  # None means this source does not classify NSFW
 
 
 class BaseScraper(ABC):

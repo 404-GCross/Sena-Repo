@@ -19,6 +19,7 @@ import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/nsfw_image.dart";
 import "download_manager_screen.dart";
 import "game_edit_screen.dart";
 
@@ -206,13 +207,16 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                           borderRadius: BorderRadius.circular(wide ? 14 : 0),
                           child: AspectRatio(
                             aspectRatio: 16 / 9,
-                            child: Image.network(
-                              "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
-                              headers: mediaAuthHeaders,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  const SizedBox.shrink(),
+                            child: NsfwImage(
+                              isNsfw: game.isNsfw,
+                              child: Image.network(
+                                "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
+                                headers: mediaAuthHeaders,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) =>
+                                    const SizedBox.shrink(),
+                              ),
                             ),
                           ),
                         ),
@@ -328,12 +332,15 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(14),
                                     child: hasCover
-                                        ? Image.network(
-                                            "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
-                                            headers: mediaAuthHeaders,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                                _coverPlaceholder(),
+                                        ? NsfwImage(
+                                            isNsfw: game.isNsfw,
+                                            child: Image.network(
+                                              "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
+                                              headers: mediaAuthHeaders,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  _coverPlaceholder(),
+                                            ),
                                           )
                                         : _coverPlaceholder(),
                                   ),
@@ -367,12 +374,15 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                       ),
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(14),
-                                        child: Image.network(
-                                          "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
-                                          headers: mediaAuthHeaders,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              _coverPlaceholder(),
+                                        child: NsfwImage(
+                                          isNsfw: game.isNsfw,
+                                          child: Image.network(
+                                            "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
+                                            headers: mediaAuthHeaders,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                _coverPlaceholder(),
+                                          ),
                                         ),
                                       ),
                                     ),

@@ -2021,6 +2021,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             decoration: InputDecoration(
               labelText: "Scope",
               hintText: "catalog:read",
+              helperText: "catalog:read 不含 NSFW；需要抓取 NSFW 时使用 catalog:full",
               isDense: true,
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2341,6 +2342,27 @@ class _DisplayPageState extends State<_DisplayPage> {
                   ],
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          _sectionTitle("内容保护"),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: cardBg(context),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: cardBorder(context)),
+            ),
+            child: SwitchListTile(
+              secondary: const Icon(Icons.visibility_off_outlined),
+              title: const Text("模糊 NSFW 图片", style: TextStyle(fontSize: 14)),
+              subtitle: Text(
+                "列表和详情页默认保护 NSFW 封面与背景",
+                style: AppText.label.copyWith(color: hintColor(context)),
+              ),
+              value: context.watch<SettingsProvider>().blurNsfwCovers,
+              onChanged: (v) =>
+                  context.read<SettingsProvider>().setBlurNsfwCovers(v),
             ),
           ),
           const SizedBox(height: 24),

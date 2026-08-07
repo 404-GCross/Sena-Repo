@@ -76,6 +76,11 @@ async def create_tables():
         raise RuntimeError("Database not initialized. Call init_database() first.")
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        game_columns = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(games)")}
+        if "is_nsfw" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN is_nsfw BOOLEAN NOT NULL DEFAULT 0"
+            )
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
         if "extract_password" not in version_columns:

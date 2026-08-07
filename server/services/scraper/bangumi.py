@@ -103,4 +103,5 @@ class BangumiScraper(BaseScraper):
             cover_url=cover,
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
+            is_nsfw=bool(item.get("nsfw", False)),
         )

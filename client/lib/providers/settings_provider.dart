@@ -16,6 +16,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   double _coverSize = Platform.isAndroid ? 160.0 : 200.0;
+  bool _blurNsfwCovers = true;
 
   String get serverHost => _serverHost;
   int get serverPort => _serverPort;
@@ -23,6 +24,7 @@ class SettingsProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   double get coverSize => _coverSize;
+  bool get blurNsfwCovers => _blurNsfwCovers;
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -32,7 +34,16 @@ class SettingsProvider extends ChangeNotifier {
     _coverSize = (prefs.getDouble("cover_size") ?? _coverSize)
         .clamp(100.0, 300.0)
         .toDouble();
+    _blurNsfwCovers = prefs.getBool("blur_nsfw_covers") ?? true;
     notifyListeners();
+  }
+
+  Future<void> setBlurNsfwCovers(bool value) async {
+    if (_blurNsfwCovers == value) return;
+    _blurNsfwCovers = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool("blur_nsfw_covers", value);
   }
 
   Future<void> setCoverSize(double value) async {
@@ -105,5 +116,4 @@ class SettingsProvider extends ChangeNotifier {
       client.close();
     }
   }
-
 }
