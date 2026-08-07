@@ -32,6 +32,8 @@ _SCRAPER_SEARCH_TIMEOUT = 45
 _GAME_SCRAPE_TIMEOUT = 300
 
 _VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "ymgal", "hikarinagi"}
+# Average playtime is intentionally sourced from VNDB only.
+_PLAYTIME_SOURCES = {"vndb_kana", "vndb"}
 
 
 def _is_public_http_url(url: str) -> bool:
@@ -268,10 +270,14 @@ async def _apply_result(
         if result.release_date and (overwrite or not game.release_date):
             game.release_date = result.release_date
             session.add(game)
-        if result.length and (overwrite or not game.length):
+        if source_name in _PLAYTIME_SOURCES and result.length and (
+            overwrite or not game.length
+        ):
             game.length = result.length
             session.add(game)
-        if result.length_minutes and (overwrite or not game.length_minutes):
+        if source_name in _PLAYTIME_SOURCES and result.length_minutes and (
+            overwrite or not game.length_minutes
+        ):
             game.length_minutes = result.length_minutes
             session.add(game)
         # Source ID — map scraper to game ID column
