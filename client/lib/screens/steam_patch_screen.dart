@@ -4,6 +4,7 @@ import "dart:async";
 import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
@@ -526,6 +527,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _buildDirRow() {
     final hasDir = _commonDir != null;
+    final label = hasDir ? _commonDir! : "未选择 Steam 库目录";
+    final textStyle = AppText.bodySmall.copyWith(
+      color: hasDir ? null : Colors.grey[500],
+      fontWeight: hasDir ? FontWeight.w500 : null,
+    );
     return AppSurface(
       padding: const EdgeInsets.all(12),
       child: Row(children: [
@@ -541,12 +547,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 size: 22, color: hasDir ? Colors.blue[300] : Colors.grey[500])),
         const SizedBox(width: 12),
         Expanded(
-            child: Text(hasDir ? _commonDir! : "未选择 Steam 库目录",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.bodySmall.copyWith(
-                    color: hasDir ? null : Colors.grey[500],
-                    fontWeight: hasDir ? FontWeight.w500 : null))),
+          child: _HoverPathText(
+            path: label,
+            enabled: hasDir,
+            style: textStyle,
+          ),
+        ),
       ]),
     );
   }
@@ -1301,5 +1307,171 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     if (bytes < 1048576) return "${(bytes / 1024).toStringAsFixed(1)} KB";
     if (bytes < 1073741824) return "${(bytes / 1048576).toStringAsFixed(1)} MB";
     return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
+  }
+}
+
+class _HoverPathText extends StatefulWidget {
+  final String path;
+  final bool enabled;
+  final TextStyle? style;
+
+  const _HoverPathText({
+    required this.path,
+    required this.enabled,
+    this.style,
+  });
+
+  @override
+  State<_HoverPathText> createState() => _HoverPathTextState();
+}
+
+class _HoverPathTextState extends State<_HoverPathText> {
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _entry;
+  Timer? _hideTimer;
+  bool _targetHovered = false;
+  bool _overlayHovered = false;
+
+  @override
+  void didUpdateWidget(covariant _HoverPathText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled || widget.path != oldWidget.path) {
+      _hideOverlay();
+    } else {
+      _entry?.markNeedsBuild();
+    }
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _hideOverlay();
+    super.dispose();
+  }
+
+  void _showOverlay() {
+    if (!widget.enabled || _entry != null) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _entry = OverlayEntry(
+      builder: (overlayContext) => Positioned.fill(
+        child: Stack(
+          children: [
+            CompositedTransformFollower(
+              link: _layerLink,
+              showWhenUnlinked: false,
+              targetAnchor: Alignment.bottomLeft,
+              followerAnchor: Alignment.topLeft,
+              offset: const Offset(0, 8),
+              child: MouseRegion(
+                onEnter: (_) {
+                  _overlayHovered = true;
+                  _hideTimer?.cancel();
+                },
+                onExit: (_) {
+                  _overlayHovered = false;
+                  _scheduleHide();
+                },
+                child: Material(
+                  color: Colors.transparent,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minWidth: 320,
+                      maxWidth: 560,
+                    ),
+                    child: AppSurface(
+                      radius: AppRadius.lg,
+                      padding: const EdgeInsets.all(14),
+                      color: Theme.of(overlayContext)
+                          .colorScheme
+                          .surface
+                          .withValues(alpha: 0.96),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.folder_open_rounded,
+                            size: 18,
+                            color: Theme.of(overlayContext).colorScheme.primary,
+                          ),
+                          const SizedBox(width: AppGap.sm),
+                          Expanded(
+                            child: SelectableText(
+                              widget.path,
+                              style: AppText.bodySmall.copyWith(
+                                color: sectionTextColor(overlayContext),
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: AppGap.sm),
+                          IconButton.filledTonal(
+                            tooltip: "复制路径",
+                            icon: const Icon(Icons.copy_rounded, size: 17),
+                            onPressed: _copyPath,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    overlay.insert(_entry!);
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(milliseconds: 160), () {
+      if (!_targetHovered && !_overlayHovered) {
+        _hideOverlay();
+      }
+    });
+  }
+
+  void _hideOverlay() {
+    _hideTimer?.cancel();
+    _hideTimer = null;
+    _entry?.remove();
+    _entry = null;
+  }
+
+  Future<void> _copyPath() async {
+    await Clipboard.setData(ClipboardData(text: widget.path));
+    _hideOverlay();
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text("路径已复制")),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: MouseRegion(
+        cursor: widget.enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onEnter: (_) {
+          _targetHovered = true;
+          _hideTimer?.cancel();
+          _showOverlay();
+        },
+        onExit: (_) {
+          _targetHovered = false;
+          _scheduleHide();
+        },
+        child: Text(
+          widget.path,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: widget.style,
+        ),
+      ),
+    );
   }
 }
