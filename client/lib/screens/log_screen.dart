@@ -19,6 +19,9 @@ class LogScreen extends StatefulWidget {
 }
 
 class _LogScreenState extends State<LogScreen> {
+  static const int _initialVisibleLimit = 80;
+  static const int _loadMoreStep = 80;
+
   final _searchController = TextEditingController();
   final _logger = LoggerService();
 
@@ -29,6 +32,7 @@ class _LogScreenState extends State<LogScreen> {
   String _module = "全部模块";
   bool _loading = true;
   bool _live = true;
+  int _visibleLimit = _initialVisibleLimit;
   Timer? _liveTimer;
 
   @override
@@ -48,7 +52,9 @@ class _LogScreenState extends State<LogScreen> {
     super.dispose();
   }
 
-  void _onFilterChanged() => setState(() {});
+  void _onFilterChanged() => setState(() {
+        _visibleLimit = _initialVisibleLimit;
+      });
 
   void _startLiveRefresh() {
     _liveTimer?.cancel();
@@ -95,6 +101,7 @@ class _LogScreenState extends State<LogScreen> {
       _loading = false;
       _level = "全部";
       _module = "全部模块";
+      _visibleLimit = _initialVisibleLimit;
       _searchController.clear();
     });
   }
@@ -182,6 +189,10 @@ class _LogScreenState extends State<LogScreen> {
   void _toggleLive(bool value) {
     setState(() => _live = value);
     _startLiveRefresh();
+  }
+
+  void _loadEarlierEntries() {
+    setState(() => _visibleLimit += _loadMoreStep);
   }
 
   void _message(String message) {
@@ -328,7 +339,10 @@ class _LogScreenState extends State<LogScreen> {
           _buildDropdown(
             value: _module,
             items: _modules,
-            onChanged: (value) => setState(() => _module = value!),
+            onChanged: (value) => setState(() {
+              _module = value!;
+              _visibleLimit = _initialVisibleLimit;
+            }),
             icon: Icons.category_outlined,
             width: width >= 760 ? 132 : 150,
           ),
@@ -348,6 +362,7 @@ class _LogScreenState extends State<LogScreen> {
               setState(() {
                 _level = "全部";
                 _module = "全部模块";
+                _visibleLimit = _initialVisibleLimit;
               });
             },
             icon: const Icon(Icons.filter_alt_off_outlined, size: 19),
@@ -386,7 +401,10 @@ class _LogScreenState extends State<LogScreen> {
             (level) => FilterChip(
               label: Text(level),
               selected: _level == level,
-              onSelected: (_) => setState(() => _level = level),
+              onSelected: (_) => setState(() {
+                _level = level;
+                _visibleLimit = _initialVisibleLimit;
+              }),
               visualDensity: VisualDensity.compact,
               showCheckmark: false,
             ),
@@ -486,7 +504,9 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Widget _buildConsole() {
-    final visible = _filteredEntries;
+    final filtered = _filteredEntries;
+    final visible = filtered.take(_visibleLimit).toList(growable: false);
+    final hasMore = filtered.length > visible.length;
     return AppSurface(
       padding: EdgeInsets.zero,
       child: Column(
@@ -495,7 +515,7 @@ class _LogScreenState extends State<LogScreen> {
           _buildConsoleHeader(visible.length),
           const Divider(height: 1),
           Expanded(
-            child: visible.isEmpty
+            child: filtered.isEmpty
                 ? const AppStateView(
                     icon: Icons.search_off_rounded,
                     title: "没有匹配的日志",
@@ -522,11 +542,17 @@ class _LogScreenState extends State<LogScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("显示 ${visible.length} 条记录", style: AppText.caption),
-                TextButton(
-                  onPressed: () => _message("已加载更早记录"),
-                  child: const Text("加载更早记录"),
+                Text(
+                  hasMore
+                      ? "显示 ${visible.length} / ${filtered.length} 条记录"
+                      : "显示 ${visible.length} 条记录",
+                  style: AppText.caption,
                 ),
+                if (hasMore)
+                  TextButton(
+                    onPressed: _loadEarlierEntries,
+                    child: const Text("加载更早记录"),
+                  ),
               ],
             ),
           ),
