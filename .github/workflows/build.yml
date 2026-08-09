@@ -294,7 +294,7 @@ jobs:
 
           # Desktop file + icon
           mkdir -p "$BUNDLE/usr/share/applications"
-          cat > "$BUNDLE/usr/share/applications/sena-repo.desktop" << 'DESKTOP'
+          cat > "$BUNDLE/usr/share/applications/senarepo.sena_repo.desktop" << 'DESKTOP'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -302,6 +302,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
+          StartupWMClass=sena_repo
           DESKTOP
 
       # ── AppImage (universal) ──
@@ -324,7 +325,7 @@ jobs:
           exec "$HERE/sena_repo" "$@"
           APPRUN
           chmod +x "$APPDIR/AppRun"
-          cat > "$APPDIR/sena-repo.desktop" << 'DESKTOP'
+          cat > "$APPDIR/senarepo.sena_repo.desktop" << 'DESKTOP'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -332,6 +333,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Utility;
+          StartupWMClass=sena_repo
           DESKTOP
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
@@ -365,7 +367,7 @@ jobs:
           else
             convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$ICON_DIR/sena-repo.png"
           fi
-          cat > "$DESKTOP_DIR/sena-repo.desktop" << 'DESKTOP'
+          cat > "$DESKTOP_DIR/senarepo.sena_repo.desktop" << 'DESKTOP'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -373,6 +375,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
+          StartupWMClass=sena_repo
           DESKTOP
           DEB_VERSION="0.0.0+${VERSION//-/.}"
           RPM_RELEASE="0.${VERSION//[^A-Za-z0-9_+.]/.}"

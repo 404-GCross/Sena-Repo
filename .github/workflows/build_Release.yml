@@ -275,7 +275,7 @@ jobs:
           fi
           cp "$APPDIR/sena-repo.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
           cp "$APPDIR/sena-repo.png" "$APPDIR/.DirIcon"
-          cat > "$APPDIR/sena-repo.desktop" << 'EOF'
+          cat > "$APPDIR/senarepo.sena_repo.desktop" << 'EOF'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -283,6 +283,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
+          StartupWMClass=sena_repo
           EOF
           cat > "$APPDIR/AppRun" << 'EOF'
           #!/bin/bash
@@ -315,7 +316,7 @@ jobs:
           else
             convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$ICON_DIR/sena-repo.png"
           fi
-          cat > "$DESKTOP_DIR/sena-repo.desktop" << 'EOF'
+          cat > "$DESKTOP_DIR/senarepo.sena_repo.desktop" << 'EOF'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -323,6 +324,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
+          StartupWMClass=sena_repo
           EOF
           DEB_VERSION="${VERSION#v}"
           RPM_VERSION="${DEB_VERSION//[^A-Za-z0-9_.]/.}"
