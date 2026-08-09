@@ -239,7 +239,6 @@ scrapers:
 | VNDB Kana v2 | 可选 Token | 含游戏时长数据 |
 | Bangumi | 可选 Token | 中文元数据丰富 |
 | Steam | 免认证 | 封面、背景、简介 |
-| 月幕 GalGame | 免认证 | Galgame 专用数据库 |
 
 ---
 

@@ -24,8 +24,6 @@ class ScrapeService {
         return _searchBangumi(query, proxy);
       case "steam":
         return _searchSteam(query, proxy);
-      case "ymgal":
-        return _searchYmgal(query, proxy);
       default:
         return [];
     }
@@ -52,9 +50,8 @@ class ScrapeService {
         uri,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "filters": vndbId != null
-              ? ["id", "=", vndbId]
-              : ["search", "=", query],
+          "filters":
+              vndbId != null ? ["id", "=", vndbId] : ["search", "=", query],
           "fields": _vndbFields,
           if (vndbId == null) "sort": "searchrank",
           "results": vndbId != null ? 1 : 5,
@@ -180,8 +177,7 @@ class ScrapeService {
   }
 
   static Map<String, dynamic> _parseBangumiSubject(Map<String, dynamic> item) {
-    final cover =
-        (item["images"] ?? {})["large"] ??
+    final cover = (item["images"] ?? {})["large"] ??
         (item["images"] ?? {})["common"] ??
         "";
     return {
@@ -368,35 +364,5 @@ class ScrapeService {
         "source_id": appid,
       },
     ];
-  }
-  // ── Ymgal (月幕) ──
-
-  static Future<List<Map<String, dynamic>>> _searchYmgal(
-    String query,
-    String? proxy,
-  ) async {
-    final uri = Uri.parse("https://api.ymgal.games/open/archive/search-game");
-    try {
-      final resp = await http.post(
-        uri,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"keyword": query, "limit": 5}),
-      );
-      if (resp.statusCode != 200) return [];
-      final items = jsonDecode(resp.body)["data"] as List? ?? [];
-      return items.map<Map<String, dynamic>>((item) {
-        return {
-          "title": item["title_cn"] ?? item["title"] ?? "",
-          "developer": item["developer"] ?? "",
-          "release_date": item["release_date"] ?? "",
-          "description": item["description"] ?? "",
-          "cover_url": item["cover"] ?? "",
-          "screenshots": <String>[],
-          "source_id": item["id"]?.toString() ?? "",
-        };
-      }).toList();
-    } catch (_) {
-      return [];
-    }
   }
 }

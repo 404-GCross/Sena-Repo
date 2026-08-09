@@ -616,12 +616,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
-    const allSrc = ["vndb_kana", "bangumi", "steam", "ymgal", "hikarinagi"];
+    const allSrc = ["hikarinagi", "vndb_kana", "bangumi", "steam"];
     final prefs = await SharedPreferences.getInstance();
     final defaultSources = allSrc
         .where(
-          (source) =>
-              prefs.getBool("scrape_src_$source") ?? (source != "hikarinagi"),
+          (source) => prefs.getBool("scrape_src_$source") ?? true,
         )
         .toSet();
     if (defaultSources.isEmpty) defaultSources.add("vndb_kana");
@@ -746,7 +745,6 @@ class _HomeScreenState extends State<HomeScreen> {
         "vndb_kana" => "VNDB Kana v2",
         "bangumi" => "Bangumi",
         "steam" => "Steam",
-        "ymgal" => "月幕 GalGame",
         "hikarinagi" => "Hikarinagi",
         _ => s,
       };

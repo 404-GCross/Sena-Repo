@@ -40,10 +40,8 @@ scrapers:
     - vndb_kana
     - bangumi
     - steam
-    - ymgal
   enabled_scrapers:
     - hikarinagi
     - vndb_kana
     - bangumi
     - steam
-    - ymgal

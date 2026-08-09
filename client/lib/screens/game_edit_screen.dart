@@ -91,6 +91,21 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _bgm = TextEditingController(text: g.bangumiId ?? "");
     _bgUrl = TextEditingController(text: g.bgPath ?? "");
     _notes = TextEditingController();
+    for (final controller in [
+      _dev,
+      _desc,
+      _date,
+      _vndb,
+      _steam,
+      _bgm,
+      _bgUrl
+    ]) {
+      controller.addListener(_onMetadataEdited);
+    }
+  }
+
+  void _onMetadataEdited() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _save({bool popOnSave = true}) async {
@@ -874,6 +889,127 @@ class _GameEditScreenState extends State<GameEditScreen> {
         ),
       );
 
+  Widget _editCompletenessCard() {
+    final score = _editCompleteness();
+    final missing = _editMissingLabels();
+    final color = score >= 80
+        ? Colors.green
+        : score >= 55
+            ? Colors.orange
+            : Colors.red;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.fact_check_outlined, size: 20, color: color),
+              const SizedBox(width: AppGap.sm),
+              Expanded(
+                child: Text(
+                  "资料完整度",
+                  style: AppText.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                "$score%",
+                style: AppText.title.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppGap.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: score / 100,
+              minHeight: 7,
+              backgroundColor: cardBorder(context).withValues(alpha: 0.45),
+              color: color,
+            ),
+          ),
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: AppGap.md),
+            Wrap(
+              spacing: AppGap.sm,
+              runSpacing: AppGap.sm,
+              children: missing
+                  .map(
+                    (label) => Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.orange.withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: Text(
+                        label,
+                        style: AppText.caption.copyWith(
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  int _editCompleteness() {
+    final checks = <bool>[
+      _coverPath?.isNotEmpty == true || _pendingCoverFilePath != null,
+      _bgUrl.text.trim().isNotEmpty || _pendingBgFilePath != null,
+      _desc.text.trim().isNotEmpty,
+      _dev.text.trim().isNotEmpty,
+      _date.text.trim().isNotEmpty,
+      _versions.isNotEmpty,
+      _vndb.text.trim().isNotEmpty ||
+          _steam.text.trim().isNotEmpty ||
+          _bgm.text.trim().isNotEmpty,
+    ];
+    return ((checks.where((value) => value).length / checks.length) * 100)
+        .round();
+  }
+
+  List<String> _editMissingLabels() {
+    final missing = <String>[];
+    if (_coverPath?.isNotEmpty != true && _pendingCoverFilePath == null) {
+      missing.add("封面");
+    }
+    if (_bgUrl.text.trim().isEmpty && _pendingBgFilePath == null) {
+      missing.add("背景");
+    }
+    if (_desc.text.trim().isEmpty) missing.add("简介");
+    if (_dev.text.trim().isEmpty) missing.add("开发商");
+    if (_date.text.trim().isEmpty) missing.add("发售日");
+    if (_versions.isEmpty) missing.add("版本");
+    if (_vndb.text.trim().isEmpty &&
+        _steam.text.trim().isEmpty &&
+        _bgm.text.trim().isEmpty) {
+      missing.add("来源ID");
+    }
+    return missing;
+  }
+
   Color _platformColor(String platform) {
     switch (platform.toLowerCase()) {
       case "windows":
@@ -1113,6 +1249,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 20),
+                    _editCompletenessCard(),
                     const SizedBox(height: 24),
 
                     // ── Body: responsive — wide: Row, narrow: Column ──
@@ -1214,11 +1352,33 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                                 ),
                                                 const SizedBox(width: 10),
                                                 Expanded(
-                                                  child: Text(
-                                                    v.filename,
-                                                    style: const TextStyle(
-                                                      fontSize: 14,
-                                                    ),
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        v.filename,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: const TextStyle(
+                                                          fontSize: 14,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        _versionSourceDetail(v),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: AppText.caption
+                                                            .copyWith(
+                                                          color: hintColor(
+                                                              context),
+                                                        ),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ),
                                                 Container(
@@ -1433,11 +1593,31 @@ class _GameEditScreenState extends State<GameEditScreen> {
                                           ),
                                           const SizedBox(width: 10),
                                           Expanded(
-                                            child: Text(
-                                              v.filename,
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                              ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  v.filename,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  _versionSourceDetail(v),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style:
+                                                      AppText.caption.copyWith(
+                                                    color: hintColor(context),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                           Container(
@@ -1607,6 +1787,24 @@ class _GameEditScreenState extends State<GameEditScreen> {
           child: Icon(Icons.image, size: 32, color: placeholderIcon(context)),
         ),
       );
+
+  String _versionSourceLabel(GameVersion version) {
+    final type = version.sourceType.trim().toLowerCase();
+    return switch (type) {
+      "openlist" => "OpenList",
+      "local" => "本地",
+      "steam_patch" => "Steam 补丁库",
+      "" => "本地",
+      _ => version.sourceType,
+    };
+  }
+
+  String _versionSourceDetail(GameVersion version) {
+    final label = _versionSourceLabel(version);
+    final path = version.sourcePath?.trim();
+    if (path != null && path.isNotEmpty) return "$label · $path";
+    return label;
+  }
 
   Widget _sourceBadge(String label, String? id) {
     final active = id != null && id.isNotEmpty;
@@ -1832,7 +2030,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "vndb_kana": "VNDB Kana v2",
       "bangumi": "Bangumi",
       "steam": "Steam",
-      "ymgal": "月幕GalGame",
       "hikarinagi": "Hikarinagi",
     };
     final src = await showDialog<String>(
@@ -2672,6 +2869,17 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   @override
   void dispose() {
+    for (final controller in [
+      _dev,
+      _desc,
+      _date,
+      _vndb,
+      _steam,
+      _bgm,
+      _bgUrl
+    ]) {
+      controller.removeListener(_onMetadataEdited);
+    }
     _name.dispose();
     _dev.dispose();
     _desc.dispose();

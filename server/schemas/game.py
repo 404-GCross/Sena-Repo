@@ -13,6 +13,9 @@ class GameVersionOut(BaseModel):
     filename: str
     file_path: str
     file_size: int
+    source_type: str = "local"
+    source_id: int | None = None
+    source_path: str | None = None
     extract_password: str | None = None
 
     model_config = {"from_attributes": True}

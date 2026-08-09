@@ -6,6 +6,9 @@ class GameVersion {
   final String filename;
   final String filePath;
   final int fileSize;
+  final String sourceType;
+  final int? sourceId;
+  final String? sourcePath;
   final String? extractPassword;
 
   GameVersion({
@@ -14,6 +17,9 @@ class GameVersion {
     required this.filename,
     required this.filePath,
     required this.fileSize,
+    this.sourceType = "local",
+    this.sourceId,
+    this.sourcePath,
     this.extractPassword,
   });
 
@@ -24,6 +30,9 @@ class GameVersion {
       filename: json["filename"] ?? "",
       filePath: json["file_path"] ?? "",
       fileSize: json["file_size"] ?? 0,
+      sourceType: json["source_type"] ?? "local",
+      sourceId: json["source_id"],
+      sourcePath: json["source_path"],
       extractPassword: json["extract_password"],
     );
   }

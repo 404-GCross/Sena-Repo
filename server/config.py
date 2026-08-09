@@ -29,8 +29,8 @@ def _parse_positive_int(value, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam", "ymgal"]
-DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam", "ymgal"]
+SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
+DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
 
 
 def _normalize_source_list(value, default: list[str]) -> list[str]:
@@ -88,8 +88,6 @@ class CustomRegex:
 class ScraperConfig:
     bangumi_token: str = ""
     vndb_token: str = ""
-    ymgal_client_id: str = "ymgal"
-    ymgal_client_secret: str = "luna0327"
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
@@ -157,8 +155,6 @@ def _apply_persisted_scraper_config(config: Config) -> None:
     fields = {
         "bangumi_token": ("scrapers", "SENA_BANGUMI_TOKEN"),
         "vndb_token": ("scrapers", "SENA_VNDB_TOKEN"),
-        "ymgal_client_id": ("scrapers", "SENA_YMGAL_CLIENT_ID"),
-        "ymgal_client_secret": ("scrapers", "SENA_YMGAL_CLIENT_SECRET"),
         "hikarinagi_client_id": ("scrapers", "SENA_HIKARINAGI_CLIENT_ID"),
         "hikarinagi_client_secret": ("scrapers", "SENA_HIKARINAGI_CLIENT_SECRET"),
         "hikarinagi_scope": ("scrapers", "SENA_HIKARINAGI_SCOPE"),
@@ -253,10 +249,6 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.bangumi_token = os.environ["SENA_BANGUMI_TOKEN"]
     if os.environ.get("SENA_VNDB_TOKEN"):
         config.scrapers.vndb_token = os.environ["SENA_VNDB_TOKEN"]
-    if os.environ.get("SENA_YMGAL_CLIENT_ID"):
-        config.scrapers.ymgal_client_id = os.environ["SENA_YMGAL_CLIENT_ID"]
-    if os.environ.get("SENA_YMGAL_CLIENT_SECRET"):
-        config.scrapers.ymgal_client_secret = os.environ["SENA_YMGAL_CLIENT_SECRET"]
     if os.environ.get("SENA_HIKARINAGI_CLIENT_ID"):
         config.scrapers.hikarinagi_client_id = os.environ["SENA_HIKARINAGI_CLIENT_ID"]
     if os.environ.get("SENA_HIKARINAGI_CLIENT_SECRET"):

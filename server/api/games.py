@@ -215,6 +215,9 @@ async def get_game(
                 "filename": v.filename,
                 "file_path": v.file_path,
                 "file_size": v.file_size,
+                "source_type": v.source_type,
+                "source_id": v.source_id,
+                "source_path": v.source_path,
                 "extract_password": v.extract_password,
             }
             for v in game.versions

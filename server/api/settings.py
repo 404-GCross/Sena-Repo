@@ -115,8 +115,6 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
 class ScraperConfigOut(BaseModel):
     bangumi_token: str = ""
     vndb_token: str = ""
-    ymgal_client_id: str = ""
-    ymgal_client_secret: str = ""
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
@@ -132,8 +130,6 @@ class ScraperConfigOut(BaseModel):
 class ScraperConfigUpdate(BaseModel):
     bangumi_token: str | None = None
     vndb_token: str | None = None
-    ymgal_client_id: str | None = None
-    ymgal_client_secret: str | None = None
     hikarinagi_client_id: str | None = None
     hikarinagi_client_secret: str | None = None
     hikarinagi_scope: str | None = None
@@ -164,8 +160,6 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
     return ScraperConfigOut(
         bangumi_token=_mask(s.bangumi_token),
         vndb_token=_mask(s.vndb_token),
-        ymgal_client_id=_mask(s.ymgal_client_id),
-        ymgal_client_secret=_mask(s.ymgal_client_secret),
         hikarinagi_client_id=_mask(s.hikarinagi_client_id),
         hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
         hikarinagi_scope=s.hikarinagi_scope,
@@ -212,8 +206,6 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     for key in (
         "bangumi_token",
         "vndb_token",
-        "ymgal_client_id",
-        "ymgal_client_secret",
         "hikarinagi_client_id",
         "hikarinagi_client_secret",
         "hikarinagi_scope",

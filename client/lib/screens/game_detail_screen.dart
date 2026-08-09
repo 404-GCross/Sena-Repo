@@ -614,12 +614,43 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                                       ),
                                                       const SizedBox(width: 10),
                                                       Expanded(
-                                                        child: Text(
-                                                          v.filename,
-                                                          style:
-                                                              const TextStyle(
-                                                            fontSize: 14,
-                                                          ),
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Text(
+                                                              v.filename,
+                                                              maxLines: 1,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style:
+                                                                  const TextStyle(
+                                                                fontSize: 14,
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                              height: 2,
+                                                            ),
+                                                            Text(
+                                                              _versionSourceDetail(
+                                                                v,
+                                                              ),
+                                                              maxLines: 1,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style: AppText
+                                                                  .caption
+                                                                  .copyWith(
+                                                                color:
+                                                                    hintColor(
+                                                                  context,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
                                                       ),
                                                       const SizedBox(width: 12),
@@ -800,11 +831,33 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                                 ),
                                                 const SizedBox(width: 10),
                                                 Expanded(
-                                                  child: Text(
-                                                    v.filename,
-                                                    style: const TextStyle(
-                                                      fontSize: 14,
-                                                    ),
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        v.filename,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: const TextStyle(
+                                                          fontSize: 14,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        _versionSourceDetail(v),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: AppText.caption
+                                                            .copyWith(
+                                                          color: hintColor(
+                                                              context),
+                                                        ),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ),
                                                 const SizedBox(width: 12),
@@ -969,6 +1022,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
 
   Widget _desktopIdentity(GameDetail game, {required bool compact}) {
     final hasCover = game.coverPath?.isNotEmpty == true;
+    final completeness = _metadataCompleteness(game);
     final studio = game.companyName?.isNotEmpty == true
         ? game.companyName!
         : game.developer?.isNotEmpty == true
@@ -1064,6 +1118,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               _desktopSourceBadge("VNDB", game.vndbId),
               _desktopSourceBadge("Steam", game.steamId),
               _desktopSourceBadge("Bangumi", game.bangumiId),
+              if (game.isNsfw) _desktopStatusBadge("NSFW", Colors.red),
+              _desktopStatusBadge("资料 $completeness%", Colors.green),
             ],
           ),
         ],
@@ -1103,8 +1159,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                 ),
               ),
               Expanded(
-                child: _desktopFact("可用版本", "${game.versions.length} 个"),
-              ),
+                  child: _desktopFact("可用版本", "${game.versions.length} 个")),
             ],
           ),
         ),
@@ -1180,6 +1235,24 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _desktopStatusBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Text(
+        label,
+        style: AppText.caption.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -1297,6 +1370,13 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                   style:
                       AppText.bodySmall.copyWith(fontWeight: FontWeight.w700),
                 ),
+                const SizedBox(height: 3),
+                Text(
+                  _versionSourceDetail(version),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.caption.copyWith(color: hintColor(context)),
+                ),
                 if (version.extractPassword?.isNotEmpty == true) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -1354,6 +1434,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _desktopSectionTitle("数据完整度", Icons.fact_check_outlined),
+        _desktopCompletenessCard(game),
+        const SizedBox(height: 32),
         _desktopSectionTitle("详细信息", Icons.info_outline),
         Container(
           decoration: BoxDecoration(
@@ -1365,6 +1448,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               _desktopInfoRow("发售日", game.releaseDate),
               _desktopInfoRow("平均时长", _formatPlaytime(game)),
               _desktopInfoRow("平台", platforms),
+              _desktopInfoRow("资源总大小", _formatSize(_totalVersionBytes(game))),
+              _desktopInfoRow("资源来源", "${_versionSourceCount(game)} 类"),
             ],
           ),
         ),
@@ -1383,6 +1468,66 @@ class _GameDetailScreenState extends State<GameDetailScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _desktopCompletenessCard(GameDetail game) {
+    final score = _metadataCompleteness(game);
+    final missing = _metadataMissingLabels(game);
+    final color = score >= 80
+        ? Colors.green
+        : score >= 55
+            ? Colors.orange
+            : Colors.red;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  "$score%",
+                  style: AppText.headline.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                missing.isEmpty ? "资料完整" : "缺失 ${missing.length} 项",
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: score / 100,
+              minHeight: 7,
+              backgroundColor: cardBorder(context).withValues(alpha: 0.45),
+              color: color,
+            ),
+          ),
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: missing
+                  .map((label) => _desktopStatusBadge(label, Colors.orange))
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1613,6 +1758,69 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         ),
       );
 
+  int _metadataCompleteness(GameDetail game) {
+    final checks = <bool>[
+      game.coverPath?.isNotEmpty == true,
+      game.bgPath?.isNotEmpty == true,
+      game.description?.isNotEmpty == true,
+      game.developer?.isNotEmpty == true,
+      game.releaseDate?.isNotEmpty == true,
+      game.lengthMinutes > 0 || game.length > 0,
+      game.tags.isNotEmpty,
+      game.versions.isNotEmpty,
+      game.vndbId?.isNotEmpty == true ||
+          game.steamId?.isNotEmpty == true ||
+          game.bangumiId?.isNotEmpty == true,
+    ];
+    final filled = checks.where((value) => value).length;
+    return ((filled / checks.length) * 100).round();
+  }
+
+  List<String> _metadataMissingLabels(GameDetail game) {
+    final missing = <String>[];
+    if (game.coverPath?.isNotEmpty != true) missing.add("封面");
+    if (game.bgPath?.isNotEmpty != true) missing.add("背景");
+    if (game.description?.isNotEmpty != true) missing.add("简介");
+    if (game.developer?.isNotEmpty != true) missing.add("开发商");
+    if (game.releaseDate?.isNotEmpty != true) missing.add("发售日");
+    if (game.lengthMinutes <= 0 && game.length <= 0) missing.add("平均时长");
+    if (game.tags.isEmpty) missing.add("标签");
+    if (game.versions.isEmpty) missing.add("版本");
+    if (game.vndbId?.isNotEmpty != true &&
+        game.steamId?.isNotEmpty != true &&
+        game.bangumiId?.isNotEmpty != true) {
+      missing.add("来源ID");
+    }
+    return missing;
+  }
+
+  int _totalVersionBytes(GameDetail game) =>
+      game.versions.fold(0, (total, version) => total + version.fileSize);
+
+  int _versionSourceCount(GameDetail game) => game.versions
+      .map((version) => _versionSourceLabel(version))
+      .where((source) => source.isNotEmpty)
+      .toSet()
+      .length;
+
+  String _versionSourceLabel(GameVersion version) {
+    final type = version.sourceType.trim().toLowerCase();
+    return switch (type) {
+      "openlist" => "OpenList",
+      "local" => "本地",
+      "steam_patch" => "Steam 补丁库",
+      "" => "本地",
+      _ => version.sourceType,
+    };
+  }
+
+  String _versionSourceDetail(GameVersion version) {
+    final label = _versionSourceLabel(version);
+    final path = version.sourcePath?.trim();
+    if (path != null && path.isNotEmpty) return "$label · $path";
+    return label;
+  }
+
   String _formatPlaytime(GameDetail game) {
     final minutes = game.lengthMinutes;
     if (minutes > 0) {
@@ -1694,7 +1902,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    _formatSize(v.fileSize),
+                                    "${_formatSize(v.fileSize)} · ${_versionSourceDetail(v)}",
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: AppText.label.copyWith(
                                       color: hintColor(context),
                                     ),

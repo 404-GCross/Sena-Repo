@@ -25,21 +25,18 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "vndb_kana": "VNDB Kana v2",
     "bangumi": "Bangumi",
     "steam": "Steam",
-    "ymgal": "月幕 GalGame",
   };
   final List<String> _scraperOrder = [
     "hikarinagi",
     "vndb_kana",
     "bangumi",
     "steam",
-    "ymgal",
   ];
   final Map<String, bool> _scraperEnabled = {
     "hikarinagi": true,
     "vndb_kana": true,
     "bangumi": true,
     "steam": true,
-    "ymgal": true,
   };
   int _step = 0;
   bool _loading = false;

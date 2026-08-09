@@ -23,7 +23,6 @@ from .base import BaseScraper, ScraperResult, clean_title
 from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
-from .ymgal import YmgalScraper
 from .hikarinagi import HikarinagiScraper
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,7 @@ logger = logging.getLogger(__name__)
 _SCRAPER_SEARCH_TIMEOUT = 45
 _GAME_SCRAPE_TIMEOUT = 300
 
-_VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "ymgal", "hikarinagi"}
+_VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "hikarinagi"}
 # Average playtime is intentionally sourced from VNDB only.
 _PLAYTIME_SOURCES = {"vndb_kana", "vndb"}
 
@@ -73,11 +72,6 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         "vndb_kana": lambda: VndbKanaScraper(proxy=config.proxy),
         "bangumi": lambda: BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
         "steam": lambda: SteamScraper(proxy=config.proxy),
-        "ymgal": lambda: YmgalScraper(
-            proxy=config.proxy,
-            client_id=s.ymgal_client_id,
-            client_secret=s.ymgal_client_secret,
-        ),
     }
     scrapers: list[BaseScraper] = []
     for source in s.scraper_order:

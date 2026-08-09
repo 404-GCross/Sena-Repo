@@ -720,7 +720,6 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
     "vndb_kana": "VNDB Kana v2",
     "bangumi": "Bangumi",
     "steam": "Steam",
-    "ymgal": "月幕GalGame",
     "hikarinagi": "Hikarinagi",
   };
   static const _modeLabels = {
@@ -1129,20 +1128,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "vndb_kana",
     "bangumi",
     "steam",
-    "ymgal",
   ];
   static const _scraperLabels = {
     "vndb_kana": "VNDB Kana v2",
     "bangumi": "Bangumi",
     "steam": "Steam",
-    "ymgal": "月幕 GalGame",
     "hikarinagi": "Hikarinagi",
   };
   static const _scraperHints = {
     "vndb_kana": "中文标题、平均游戏时长",
     "bangumi": "免认证，填 Token 可提高速率",
     "steam": "免认证，Steam 商店元数据",
-    "ymgal": "中文名称和简介",
     "hikarinagi": "需要 OAuth Client ID/Secret",
   };
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
@@ -1163,7 +1159,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "vndb_kana": true,
     "bangumi": true,
     "steam": true,
-    "ymgal": true,
     "hikarinagi": true,
   };
   final _keys = {
