@@ -286,6 +286,10 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           ],
                                         ),
                                       ],
+                                      if (game.tags.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        _tagChips(game.tags, compact: true),
+                                      ],
                                       const SizedBox(height: 16),
                                       if (game.versions.isNotEmpty)
                                         FilledButton.icon(
@@ -427,6 +431,14 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                     ],
                                   ),
                                 ],
+                                if (game.tags.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  _tagChips(
+                                    game.tags,
+                                    centered: true,
+                                    compact: true,
+                                  ),
+                                ],
                                 if (game.versions.isNotEmpty) ...[
                                   const SizedBox(height: 12),
                                   Center(
@@ -499,55 +511,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           ),
                                         ),
                                       ),
-                                      if (game.tags.isNotEmpty) ...[
-                                        const SizedBox(height: 16),
-                                        _section("标签", Icons.label_outline),
-                                        const SizedBox(height: 4),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 6,
-                                          children: game.tags
-                                              .map(
-                                                (t) => Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                    horizontal: 12,
-                                                    vertical: 6,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: Theme.of(context)
-                                                        .colorScheme
-                                                        .primary
-                                                        .withValues(
-                                                          alpha: 0.08,
-                                                        ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                      16,
-                                                    ),
-                                                    border: Border.all(
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .primary
-                                                          .withValues(
-                                                            alpha: 0.18,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    t.name,
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                      color: Theme.of(
-                                                        context,
-                                                      ).colorScheme.primary,
-                                                    ),
-                                                  ),
-                                                ),
-                                              )
-                                              .toList(),
-                                        ),
-                                      ],
                                     ],
                                   ),
                                 ),
@@ -738,48 +701,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                     ),
                                   ),
                                 ),
-                                if (game.tags.isNotEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  _section("标签", Icons.label_outline),
-                                  const SizedBox(height: 4),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 6,
-                                    children: game.tags
-                                        .map(
-                                          (t) => Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary
-                                                  .withValues(alpha: 0.08),
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              border: Border.all(
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .primary
-                                                    .withValues(alpha: 0.18),
-                                              ),
-                                            ),
-                                            child: Text(
-                                              t.name,
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
-                                ],
                                 const SizedBox(height: 20),
                                 _section("详细信息", Icons.info_outline),
                                 _fieldCard(
@@ -1024,6 +945,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   Widget _desktopIdentity(GameDetail game, {required bool compact}) {
     final hasCover = game.coverPath?.isNotEmpty == true;
     final completeness = _metadataCompleteness(game);
+    final hasSourceIds =
+        game.vndbId != null || game.steamId != null || game.bangumiId != null;
     final studio = game.companyName?.isNotEmpty == true
         ? game.companyName!
         : game.developer?.isNotEmpty == true
@@ -1108,9 +1031,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             ),
           ],
         ),
-        if (game.vndbId != null ||
-            game.steamId != null ||
-            game.bangumiId != null) ...[
+        if (hasSourceIds) ...[
           const SizedBox(height: 16),
           Wrap(
             spacing: 7,
@@ -1123,6 +1044,10 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               _desktopStatusBadge("资料 $completeness%", Colors.green),
             ],
           ),
+        ],
+        if (game.tags.isNotEmpty) ...[
+          SizedBox(height: hasSourceIds ? 12 : 16),
+          _tagChips(game.tags, compact: compact),
         ],
         const SizedBox(height: 18),
         Container(
@@ -1290,32 +1215,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                 : hintColor(context),
           ),
         ),
-        if (game.tags.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: game.tags
-                .map(
-                  (tag) => Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: cardBg(context),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: cardBorder(context)),
-                    ),
-                    child: Text(
-                      tag.name,
-                      style: AppText.caption.copyWith(
-                        color: subTextColor(context),
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
-          ),
-        ],
         const SizedBox(height: 32),
         _desktopSectionTitle("可下载版本", Icons.folder_outlined),
         if (game.versions.isEmpty)
@@ -1755,6 +1654,51 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         ),
       ),
     );
+  }
+
+  Widget _tagChips(
+    List<Tag> tags, {
+    bool centered = false,
+    bool compact = false,
+  }) {
+    return Wrap(
+      alignment: centered ? WrapAlignment.center : WrapAlignment.start,
+      spacing: compact ? 6 : 8,
+      runSpacing: compact ? 6 : 8,
+      children: tags.map((tag) {
+        final color = _tagColor(tag);
+        return Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 9 : 11,
+            vertical: compact ? 5 : 6,
+          ),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.24)),
+          ),
+          child: Text(
+            tag.name,
+            style: AppText.caption.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Color _tagColor(Tag tag) {
+    final raw = tag.color.trim();
+    final hex = raw.startsWith("#") ? raw.substring(1) : raw;
+    if (hex.length == 6 || hex.length == 8) {
+      final value = int.tryParse(hex, radix: 16);
+      if (value != null) {
+        return Color(hex.length == 6 ? 0xFF000000 | value : value);
+      }
+    }
+    return Theme.of(context).colorScheme.primary;
   }
 
   Widget _coverPlaceholder() => Container(
