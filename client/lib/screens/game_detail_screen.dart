@@ -1179,6 +1179,24 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             ),
           ),
         ),
+        if (ManagerInstallService.isSupportedDesktop) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 42,
+            child: OutlinedButton.icon(
+              onPressed: game.versions.isEmpty
+                  ? null
+                  : () => _showManagerInstallDialog(game),
+              icon: const Icon(Icons.send_outlined, size: 18),
+              label: const Text("推送到管理器下载"),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1421,13 +1439,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             icon: const Icon(Icons.download_outlined, size: 20),
             color: Theme.of(context).colorScheme.primary,
           ),
-          if (!compact && ManagerInstallService.isSupportedDesktop)
-            IconButton(
-              tooltip: "推送到管理器下载",
-              onPressed: () => _showManagerInstallDialog(game, version),
-              icon: const Icon(Icons.send_outlined, size: 19),
-              color: Theme.of(context).colorScheme.primary,
-            ),
         ],
       ),
     );
@@ -1960,10 +1971,13 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     _startDownload(game, v);
   }
 
-  Future<void> _showManagerInstallDialog(
-    GameDetail game,
-    GameVersion version,
-  ) async {
+  Future<void> _showManagerInstallDialog(GameDetail game) async {
+    if (game.versions.isEmpty) {
+      _showDialog(context, "提示", "暂无可推送的下载版本");
+      return;
+    }
+
+    GameVersion selectedVersion = game.versions.first;
     String? runningTarget;
     String? errorText;
 
@@ -1977,6 +1991,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
 
           Future<void> pushToManager(String target) async {
             if (isBusy) return;
+            final version = selectedVersion;
             if (target == "reinamanager" && missingBangumi) {
               setDialogState(() {
                 errorText = "ReinaManager 推送需要 Bangumi ID，请先补全该条目的 Bangumi ID。";
@@ -2050,7 +2065,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        "只发送下载链接和基础识别信息",
+                        "先选择版本，再选择目标管理器",
                         style: AppText.caption.copyWith(
                           color: hintColor(context),
                           fontWeight: FontWeight.w500,
@@ -2067,7 +2082,21 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _managerPayloadSummary(game, version),
+                  if (game.versions.length > 1) ...[
+                    _managerVersionSelector(
+                      versions: game.versions,
+                      selected: selectedVersion,
+                      disabled: isBusy,
+                      onChanged: (version) {
+                        setDialogState(() {
+                          selectedVersion = version;
+                          errorText = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  _managerPayloadSummary(game, selectedVersion),
                   const SizedBox(height: 14),
                   _managerInstallOption(
                     name: "LunaBox",
@@ -2169,6 +2198,48 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     );
   }
 
+  Widget _managerVersionSelector({
+    required List<GameVersion> versions,
+    required GameVersion selected,
+    required bool disabled,
+    required ValueChanged<GameVersion> onChanged,
+  }) {
+    return DropdownButtonFormField<GameVersion>(
+      value: selected,
+      isExpanded: true,
+      onChanged: disabled
+          ? null
+          : (version) {
+              if (version != null) onChanged(version);
+            },
+      decoration: InputDecoration(
+        labelText: "选择下载版本",
+        prefixIcon: const Icon(Icons.folder_zip_outlined, size: 20),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: BorderSide(color: cardBorder(context)),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      ),
+      items: versions
+          .map(
+            (version) => DropdownMenuItem<GameVersion>(
+              value: version,
+              child: Text(
+                "${version.platform} · ${version.filename} · ${_formatSize(version.fileSize)}",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
   Widget _managerMetaChip(String label, String value) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -2206,7 +2277,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
-        onTap: loading ? null : onTap,
+        onTap: disabled || loading ? null : onTap,
         child: Container(
           padding: const EdgeInsets.all(13),
           decoration: BoxDecoration(
