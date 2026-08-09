@@ -234,7 +234,10 @@ class _PosterCardState extends State<_PosterCard>
 
                   // Hover overlay
                   if (_hovered)
-                    Container(color: cs.primary.withValues(alpha: 0.12)),
+                    IgnorePointer(
+                      child:
+                          Container(color: cs.primary.withValues(alpha: 0.12)),
+                    ),
                 ],
               ),
             ),
