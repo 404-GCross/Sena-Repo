@@ -1167,56 +1167,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       _showMsg("加载关键词失败", error: true);
       return;
     }
-    final ctrls = <String, TextEditingController>{};
-    for (final entry in keywords.entries) {
-      ctrls[entry.key] =
-          TextEditingController(text: (entry.value as List).join(", "));
-    }
-    final confirmed = await showDialog<bool>(
+    final updated = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (ctx) => AlertDialog(
-              title: const Row(children: [
-                Icon(Icons.manage_search, size: 20),
-                SizedBox(width: 8),
-                Text("关键词快捷匹配")
-              ]),
-              content: SizedBox(
-                  width: 500,
-                  child: SingleChildScrollView(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text("补丁文件名包含以下关键词时，自动识别为对应类型",
-                        style: AppText.bodySmall
-                            .copyWith(color: hintColor(context))),
-                    const SizedBox(height: 16),
-                    ..._typeLabels.entries.map((e) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: TextField(
-                          controller: ctrls[e.key],
-                          decoration: InputDecoration(
-                              labelText: "${e.value}（${e.key}）",
-                              hintText: "逗号分隔多个关键词",
-                              isDense: true,
-                              prefixIcon: _typeBadge(e.key)),
-                        ))),
-                  ]))),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("取消")),
-                FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text("保存")),
-              ],
-            ));
-    if (confirmed != true || !mounted) return;
-    final updated = <String, dynamic>{};
-    for (final entry in ctrls.entries) {
-      updated[entry.key] = entry.value.text
-          .split(",")
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty)
-          .toList();
-    }
+        builder: (ctx) => _KeywordMatchDialog(initialKeywords: keywords));
+    if (updated == null || !mounted) return;
     try {
       await SteamService.saveTypeKeywords(api, updated);
       _showMsg("关键词已保存");
@@ -1307,6 +1261,491 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     if (bytes < 1048576) return "${(bytes / 1024).toStringAsFixed(1)} KB";
     if (bytes < 1073741824) return "${(bytes / 1048576).toStringAsFixed(1)} MB";
     return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
+  }
+}
+
+class _KeywordMatchDialog extends StatefulWidget {
+  final Map<String, dynamic> initialKeywords;
+
+  const _KeywordMatchDialog({required this.initialKeywords});
+
+  @override
+  State<_KeywordMatchDialog> createState() => _KeywordMatchDialogState();
+}
+
+class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
+  late final Map<String, TextEditingController> _controllers;
+  String _selectedType = _SteamPatchScreenState._typeLabels.keys.first;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = {
+      for (final entry in _SteamPatchScreenState._typeLabels.entries)
+        entry.key: TextEditingController(text: _initialTextFor(entry.key))
+          ..addListener(_onKeywordsChanged),
+    };
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller
+        ..removeListener(_onKeywordsChanged)
+        ..dispose();
+    }
+    super.dispose();
+  }
+
+  String _initialTextFor(String type) {
+    final value = widget.initialKeywords[type];
+    if (value is List) {
+      return value.map((item) => item.toString()).join(", ");
+    }
+    return value?.toString() ?? "";
+  }
+
+  void _onKeywordsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<String> _keywordsFor(String type) => (_controllers[type]?.text ?? "")
+      .split(RegExp(r"[,，\n]"))
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toList();
+
+  Map<String, dynamic> _collectKeywords() => {
+        for (final type in _SteamPatchScreenState._typeLabels.keys)
+          type: _keywordsFor(type),
+      };
+
+  int get _totalKeywords => _SteamPatchScreenState._typeLabels.keys
+      .fold(0, (total, type) => total + _keywordsFor(type).length);
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.width < 720;
+    return Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: compact ? 16 : 28,
+        vertical: compact ? 18 : 28,
+      ),
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: compact ? 560 : 900,
+          maxHeight: size.height * 0.88,
+        ),
+        child: AppSurface(
+          padding: EdgeInsets.zero,
+          radius: AppRadius.xl,
+          blur: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildHeader(context, compact: compact),
+              Flexible(child: _buildBody(context, compact: compact)),
+              _buildFooter(context, compact: compact),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, {required bool compact}) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, compact ? 18 : 20, 14, 16),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: cardBorder(context).withValues(alpha: 0.7)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Icon(Icons.manage_search_rounded, color: cs.primary),
+          ),
+          const SizedBox(width: AppGap.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("关键词快捷匹配", style: AppText.headline),
+                const SizedBox(height: 3),
+                Text(
+                  "按补丁文件名自动归类类型，支持逗号、中文逗号或换行分隔",
+                  style: AppText.bodySmall.copyWith(color: hintColor(context)),
+                  maxLines: compact ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (!compact)
+            AppStatusPill(
+              icon: Icons.sell_outlined,
+              label: "$_totalKeywords 个关键词",
+              color: cs.primary,
+            ),
+          IconButton(
+            tooltip: "关闭",
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.close_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, {required bool compact}) {
+    if (compact) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCompactSelector(context),
+            const SizedBox(height: AppGap.md),
+            _buildEditorCard(context),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: 238, child: _buildTypeRail(context)),
+          const SizedBox(width: AppGap.lg),
+          Expanded(child: _buildEditorCard(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeRail(BuildContext context) {
+    return AppSurface(
+      padding: const EdgeInsets.all(12),
+      radius: AppRadius.lg,
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withValues(alpha: 0.42),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+            child: Text(
+              "补丁类型",
+              style: AppText.bodySmall.copyWith(
+                color: hintColor(context),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          ..._SteamPatchScreenState._typeLabels.entries.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: AppGap.sm),
+              child: _buildTypeTile(context, entry.key, entry.value),
+            ),
+          ),
+          const Spacer(),
+          Text(
+            "匹配只影响服务端补丁列表里的类型识别，不会修改补丁文件本身。",
+            style: AppText.caption.copyWith(color: hintColor(context)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactSelector(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final entry in _SteamPatchScreenState._typeLabels.entries) ...[
+            _buildTypeChip(context, entry.key, entry.value),
+            const SizedBox(width: AppGap.sm),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeTile(BuildContext context, String type, String label) {
+    final selected = type == _selectedType;
+    final color = _typeColor(type);
+    return Material(
+      color: selected ? color.withValues(alpha: 0.13) : Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: () => setState(() => _selectedType = type),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: selected
+                  ? color.withValues(alpha: 0.38)
+                  : cardBorder(context).withValues(alpha: 0.58),
+            ),
+          ),
+          child: Row(
+            children: [
+              _typeIconBox(type, compact: true),
+              const SizedBox(width: AppGap.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: AppText.bodyMedium
+                          .copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "${_keywordsFor(type).length} 个关键词",
+                      style:
+                          AppText.caption.copyWith(color: hintColor(context)),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected)
+                Icon(Icons.check_circle_rounded, size: 17, color: color),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypeChip(BuildContext context, String type, String label) {
+    final selected = type == _selectedType;
+    final color = _typeColor(type);
+    return ChoiceChip(
+      selected: selected,
+      label: Text("$label · ${_keywordsFor(type).length}"),
+      avatar: Icon(_typeIcon(type), size: 16, color: selected ? color : null),
+      selectedColor: color.withValues(alpha: 0.16),
+      onSelected: (_) => setState(() => _selectedType = type),
+      side: BorderSide(
+        color: selected
+            ? color.withValues(alpha: 0.36)
+            : cardBorder(context).withValues(alpha: 0.72),
+      ),
+      labelStyle: AppText.bodySmall.copyWith(fontWeight: FontWeight.w700),
+    );
+  }
+
+  Widget _buildEditorCard(BuildContext context) {
+    final label = _SteamPatchScreenState._typeLabels[_selectedType] ?? "其他";
+    final controller = _controllers[_selectedType]!;
+    final keywords = _keywordsFor(_selectedType);
+    final color = _typeColor(_selectedType);
+
+    return AppSurface(
+      padding: const EdgeInsets.all(18),
+      radius: AppRadius.lg,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _typeIconBox(_selectedType),
+                const SizedBox(width: AppGap.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("$label 关键词", style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        "文件名包含任一关键词时会自动识别为“$label”",
+                        style: AppText.bodySmall
+                            .copyWith(color: hintColor(context)),
+                      ),
+                    ],
+                  ),
+                ),
+                AppStatusPill(
+                  icon: Icons.tag_rounded,
+                  label: "${keywords.length} 个",
+                  color: color,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppGap.lg),
+            TextField(
+              controller: controller,
+              minLines: 7,
+              maxLines: 10,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                labelText: "匹配关键词",
+                hintText: "例如：汉化, 中文, zh, 简中",
+                alignLabelWithHint: true,
+                filled: true,
+                fillColor: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.36),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: BorderSide(color: cardBorder(context)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: BorderSide(color: color, width: 1.4),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppGap.md),
+            Text(
+              "预览",
+              style: AppText.bodySmall.copyWith(
+                color: hintColor(context),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: AppGap.sm),
+            if (keywords.isEmpty)
+              _buildEmptyPreview(context, color)
+            else
+              Wrap(
+                spacing: AppGap.sm,
+                runSpacing: AppGap.sm,
+                children: [
+                  for (final keyword in keywords)
+                    _KeywordPreviewChip(label: keyword, color: color),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyPreview(BuildContext context, Color color) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        "当前类型还没有关键词，保存后不会自动匹配到这个类型。",
+        style: AppText.bodySmall.copyWith(color: hintColor(context)),
+      ),
+    );
+  }
+
+  Widget _buildFooter(BuildContext context, {required bool compact}) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: cardBorder(context).withValues(alpha: 0.7)),
+        ),
+      ),
+      child: Row(
+        children: [
+          if (!compact)
+            Expanded(
+              child: Text(
+                "保存后服务端补丁列表会按这些关键词重新识别类型。",
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+            )
+          else
+            const Spacer(),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("取消"),
+          ),
+          const SizedBox(width: AppGap.sm),
+          AppActionButton(
+            icon: Icons.save_rounded,
+            label: "保存规则",
+            filled: true,
+            onPressed: () => Navigator.pop(context, _collectKeywords()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _typeIconBox(String type, {bool compact = false}) {
+    final color = _typeColor(type);
+    return Container(
+      width: compact ? 34 : 42,
+      height: compact ? 34 : 42,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius:
+            BorderRadius.circular(compact ? AppRadius.sm : AppRadius.md),
+      ),
+      child: Icon(_typeIcon(type), size: compact ? 18 : 21, color: color),
+    );
+  }
+
+  Color _typeColor(String type) =>
+      _SteamPatchScreenState._typeColors[type] ?? Colors.grey;
+
+  IconData _typeIcon(String type) => switch (type) {
+        "translation" => Icons.translate_rounded,
+        "voice" => Icons.record_voice_over_rounded,
+        "story" => Icons.menu_book_rounded,
+        "extra" => Icons.extension_rounded,
+        _ => Icons.more_horiz_rounded,
+      };
+}
+
+class _KeywordPreviewChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _KeywordPreviewChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.11),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        label,
+        style: AppText.bodySmall.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
   }
 }
 

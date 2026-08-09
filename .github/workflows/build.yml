@@ -250,7 +250,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev zstd file imagemagick \
-            libayatana-appindicator3-dev libsecret-1-dev p7zip-full
+            libayatana-appindicator3-dev libsecret-1-dev p7zip-full \
+            ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
 
       # Linux uses system 7z from p7zip-full (already installed above)
 
@@ -337,11 +339,63 @@ jobs:
           ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
 
-      - name: Upload AppImage
+      - name: Build Linux tarball
+        run: |
+          BUNDLE=build/linux/x64/release/bundle
+          PKG="Sena-Repo_Linux_${VERSION}-x86_64"
+          rm -rf "$PKG"
+          mkdir -p "$PKG"
+          cp -a "$BUNDLE"/. "$PKG"/
+          tar -czf "dist/${PKG}.tar.gz" "$PKG"
+          rm -rf "$PKG"
+
+      - name: Build DEB and RPM packages
+        run: |
+          set -euo pipefail
+          BUNDLE=build/linux/x64/release/bundle
+          STAGE="package-root"
+          APP_DIR="$STAGE/opt/sena-repo"
+          DESKTOP_DIR="$STAGE/usr/share/applications"
+          ICON_DIR="$STAGE/usr/share/icons/hicolor/256x256/apps"
+          rm -rf "$STAGE"
+          mkdir -p "$APP_DIR" "$DESKTOP_DIR" "$ICON_DIR"
+          cp -a "$BUNDLE"/. "$APP_DIR"/
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$ICON_DIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$ICON_DIR/sena-repo.png"
+          fi
+          cat > "$DESKTOP_DIR/sena-repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=/opt/sena-repo/sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Game;Utility;
+          DESKTOP
+          DEB_VERSION="0.0.0+${VERSION//-/.}"
+          RPM_RELEASE="0.${VERSION//[^A-Za-z0-9_+.]/.}"
+          fpm -s dir -t deb -n sena-repo -v "$DEB_VERSION" \
+            --architecture amd64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends libgtk-3-0 --depends libayatana-appindicator3-1 --depends libsecret-1-0 \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_amd64.deb" .
+          fpm -s dir -t rpm -n sena-repo -v "0.0.0" --iteration "$RPM_RELEASE" \
+            --architecture x86_64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_x86_64.rpm" .
+
+      - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Linux
-          path: client/dist/Sena-Repo_Linux_*.AppImage
+          path: client/dist/Sena-Repo_Linux_*
 
   # ── Docker Server Image ──────────────────────────
   build-server:
@@ -467,6 +521,9 @@ jobs:
           require_one "Windows portable zip" "Sena-Repo_Windows_${VERSION}.zip"
           require_one "Windows installer" "Sena-Repo_Windows_${VERSION}_Setup.exe"
           require_one "Linux AppImage" "Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
+          require_one "Linux tarball" "Sena-Repo_Linux_${VERSION}-x86_64.tar.gz"
+          require_one "Linux DEB package" "Sena-Repo_Linux_${VERSION}_amd64.deb"
+          require_one "Linux RPM package" "Sena-Repo_Linux_${VERSION}_x86_64.rpm"
           require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
           require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
 
@@ -499,6 +556,9 @@ jobs:
             printf '| `Sena-Repo_Windows_%s_Setup.exe` | Windows | Windows 安装版 |\n' "$VERSION"
             printf '| `Sena-Repo_Windows_%s.zip` | Windows | Windows 便携版，解压即用 |\n' "$VERSION"
             printf '| `Sena-Repo_Linux_%s-x86_64.AppImage` | Linux | Linux AppImage 客户端 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s-x86_64.tar.gz` | Linux | Linux 通用压缩包，解压运行 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_amd64.deb` | Linux Debian/Ubuntu | DEB 安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_x86_64.rpm` | Linux Fedora/RHEL/openSUSE | RPM 安装包 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_amd64_%s.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
           } > release_notes.md
