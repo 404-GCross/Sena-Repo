@@ -613,6 +613,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Widget _scraperSourceList() {
     return ReorderableListView.builder(
       shrinkWrap: true,
+      buildDefaultDragHandles: false,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _scraperOrder.length,
       onReorderItem: (oldIndex, newIndex) {

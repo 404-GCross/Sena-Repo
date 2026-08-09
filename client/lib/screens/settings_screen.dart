@@ -2460,6 +2460,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Widget _scraperSourceList() {
     return ReorderableListView.builder(
       shrinkWrap: true,
+      buildDefaultDragHandles: false,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _scraperOrder.length,
       onReorderItem: (oldIndex, newIndex) {
