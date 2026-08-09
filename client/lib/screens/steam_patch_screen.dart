@@ -1160,16 +1160,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _showKeywordsDialog() async {
     final api = context.read<GameProvider>().api;
-    Map<String, dynamic> keywords;
-    try {
-      keywords = await SteamService.getTypeKeywords(api);
-    } catch (_) {
-      _showMsg("加载关键词失败", error: true);
-      return;
-    }
     final updated = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (ctx) => _KeywordMatchDialog(initialKeywords: keywords));
+        builder: (ctx) => _KeywordMatchDialog(
+              loadKeywords: () => SteamService.getTypeKeywords(api),
+            ));
     if (updated == null || !mounted) return;
     try {
       await SteamService.saveTypeKeywords(api, updated);
@@ -1265,26 +1260,24 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 }
 
 class _KeywordMatchDialog extends StatefulWidget {
-  final Map<String, dynamic> initialKeywords;
+  final Future<Map<String, dynamic>> Function() loadKeywords;
 
-  const _KeywordMatchDialog({required this.initialKeywords});
+  const _KeywordMatchDialog({required this.loadKeywords});
 
   @override
   State<_KeywordMatchDialog> createState() => _KeywordMatchDialogState();
 }
 
 class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
-  late final Map<String, TextEditingController> _controllers;
+  final Map<String, TextEditingController> _controllers = {};
+  Object? _loadError;
+  bool _loading = true;
   String _selectedType = _SteamPatchScreenState._typeLabels.keys.first;
 
   @override
   void initState() {
     super.initState();
-    _controllers = {
-      for (final entry in _SteamPatchScreenState._typeLabels.entries)
-        entry.key: TextEditingController(text: _initialTextFor(entry.key))
-          ..addListener(_onKeywordsChanged),
-    };
+    _loadKeywords();
   }
 
   @override
@@ -1297,8 +1290,44 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
     super.dispose();
   }
 
-  String _initialTextFor(String type) {
-    final value = widget.initialKeywords[type];
+  Future<void> _loadKeywords() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      final keywords = await widget.loadKeywords();
+      if (!mounted) return;
+      _replaceControllers(keywords);
+      setState(() => _loading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = e;
+      });
+    }
+  }
+
+  void _replaceControllers(Map<String, dynamic> keywords) {
+    for (final controller in _controllers.values) {
+      controller
+        ..removeListener(_onKeywordsChanged)
+        ..dispose();
+    }
+    _controllers
+      ..clear()
+      ..addEntries(_SteamPatchScreenState._typeLabels.keys.map(
+        (type) => MapEntry(
+          type,
+          TextEditingController(text: _initialTextFor(keywords, type))
+            ..addListener(_onKeywordsChanged),
+        ),
+      ));
+  }
+
+  String _initialTextFor(Map<String, dynamic> keywords, String type) {
+    final value = keywords[type];
     if (value is List) {
       return value.map((item) => item.toString()).join(", ");
     }
@@ -1308,6 +1337,8 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
   void _onKeywordsChanged() {
     if (mounted) setState(() {});
   }
+
+  bool get _ready => !_loading && _loadError == null && _controllers.isNotEmpty;
 
   List<String> _keywordsFor(String type) => (_controllers[type]?.text ?? "")
       .split(RegExp(r"[,，\n]"))
@@ -1346,7 +1377,7 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildHeader(context, compact: compact),
-              Flexible(child: _buildBody(context, compact: compact)),
+              Flexible(child: _buildContent(context, compact: compact)),
               _buildFooter(context, compact: compact),
             ],
           ),
@@ -1393,9 +1424,17 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
           ),
           if (!compact)
             AppStatusPill(
-              icon: Icons.sell_outlined,
-              label: "$_totalKeywords 个关键词",
-              color: cs.primary,
+              icon: _loading
+                  ? Icons.sync_rounded
+                  : _loadError == null
+                      ? Icons.sell_outlined
+                      : Icons.error_outline_rounded,
+              label: _loading
+                  ? "加载中"
+                  : _loadError == null
+                      ? "$_totalKeywords 个关键词"
+                      : "加载失败",
+              color: _loadError == null ? cs.primary : Colors.red,
             ),
           IconButton(
             tooltip: "关闭",
@@ -1403,6 +1442,80 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
             icon: const Icon(Icons.close_rounded),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, {required bool compact}) {
+    if (_loading) {
+      return _buildStatePane(
+        context,
+        icon: Icons.sync_rounded,
+        title: "正在加载关键词规则",
+        message: "弹窗已经打开，正在从服务端读取当前匹配规则。",
+        progress: true,
+      );
+    }
+    if (_loadError != null) {
+      return _buildStatePane(
+        context,
+        icon: Icons.error_outline_rounded,
+        title: "关键词规则加载失败",
+        message: "$_loadError",
+        action: AppActionButton(
+          icon: Icons.refresh_rounded,
+          label: "重试",
+          onPressed: _loadKeywords,
+        ),
+      );
+    }
+    return _buildBody(context, compact: compact);
+  }
+
+  Widget _buildStatePane(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String message,
+    bool progress = false,
+    Widget? action,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: AppSurface(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        radius: AppRadius.lg,
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.42),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (progress)
+              SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.6,
+                  color: cs.primary,
+                ),
+              )
+            else
+              Icon(icon, size: 34, color: Colors.red),
+            const SizedBox(height: AppGap.md),
+            Text(title, style: AppText.title),
+            const SizedBox(height: AppGap.sm),
+            Text(
+              message,
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+              textAlign: TextAlign.center,
+            ),
+            if (action != null) ...[
+              const SizedBox(height: AppGap.lg),
+              action,
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1556,7 +1669,10 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
 
   Widget _buildEditorCard(BuildContext context) {
     final label = _SteamPatchScreenState._typeLabels[_selectedType] ?? "其他";
-    final controller = _controllers[_selectedType]!;
+    final controller = _controllers[_selectedType];
+    if (controller == null) {
+      return const SizedBox.shrink();
+    }
     final keywords = _keywordsFor(_selectedType);
     final color = _typeColor(_selectedType);
 
@@ -1690,7 +1806,9 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
             icon: Icons.save_rounded,
             label: "保存规则",
             filled: true,
-            onPressed: () => Navigator.pop(context, _collectKeywords()),
+            onPressed: _ready
+                ? () => Navigator.pop(context, _collectKeywords())
+                : null,
           ),
         ],
       ),
