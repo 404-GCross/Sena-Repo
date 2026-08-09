@@ -2,6 +2,15 @@ import "dart:convert";
 
 import "package:http/http.dart" as http;
 
+class ApiResponseException implements Exception {
+  final String message;
+
+  const ApiResponseException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 Map<String, dynamic>? tryDecodeJsonMap(String body) {
   try {
     final data = jsonDecode(body);
@@ -53,4 +62,25 @@ String describeUnexpectedApiResponse(
 
   final preview = apiResponsePreview(response.body);
   return "服务器返回 200，但不是 $expected 响应：$preview";
+}
+
+void checkResponse(
+  http.Response response, {
+  String fallbackMessage = "请求失败",
+}) {
+  if (response.statusCode >= 200 && response.statusCode < 300) return;
+
+  final data = tryDecodeJsonMap(response.body);
+  final detail = data?["detail"];
+  if (detail != null && detail.toString().trim().isNotEmpty) {
+    throw ApiResponseException(detail.toString());
+  }
+
+  throw ApiResponseException(
+    "$fallbackMessage：" +
+        describeUnexpectedApiResponse(
+          response,
+          expected: fallbackMessage,
+        ),
+  );
 }

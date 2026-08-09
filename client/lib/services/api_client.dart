@@ -11,6 +11,41 @@ import "../models/game.dart";
 import "api_response_utils.dart";
 import "secure_store.dart";
 
+class ManagerInstallLink {
+  final String target;
+  final String installUrl;
+  final int expiresAt;
+  final String fileName;
+  final String archiveFormat;
+  final int size;
+  final String checksumAlgo;
+  final String checksum;
+
+  ManagerInstallLink({
+    required this.target,
+    required this.installUrl,
+    required this.expiresAt,
+    required this.fileName,
+    required this.archiveFormat,
+    required this.size,
+    required this.checksumAlgo,
+    required this.checksum,
+  });
+
+  factory ManagerInstallLink.fromJson(Map<String, dynamic> json) {
+    return ManagerInstallLink(
+      target: json["target"] ?? "",
+      installUrl: json["install_url"] ?? "",
+      expiresAt: json["expires_at"] ?? 0,
+      fileName: json["file_name"] ?? "",
+      archiveFormat: json["archive_format"] ?? "",
+      size: json["size"] ?? 0,
+      checksumAlgo: json["checksum_algo"] ?? "",
+      checksum: json["checksum"] ?? "",
+    );
+  }
+}
+
 /// Global access token — always accessible, survives Provider rebuilds.
 String? _accessToken;
 
@@ -206,6 +241,27 @@ class ApiClient {
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
+  Future<ManagerInstallLink> createManagerInstallLink({
+    required int gameId,
+    required int versionId,
+    required String target,
+  }) async {
+    final resp = await _execute(
+      () => _client.post(
+        Uri.parse(
+          "$baseUrl/api/download/$gameId/$versionId/manager-install-link",
+        ),
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"target": target}),
+      ),
+      allowRetry: false,
+    );
+    checkResponse(resp, fallbackMessage: "生成管理器下载链接失败");
+    return ManagerInstallLink.fromJson(
+      jsonDecode(resp.body) as Map<String, dynamic>,
+    );
+  }
+
   Future<void> deleteGame(int id) async {
     final resp = await _execute(
       () =>
@@ -301,12 +357,10 @@ class ApiClient {
         var isAdmin = data["is_admin"] == true;
         var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
         try {
-          final meResp = await _client
-              .get(
-                Uri.parse("$baseUrl/api/auth/profile/me"),
-                headers: {"Authorization": "Bearer $_accessToken"},
-              )
-              .timeout(const Duration(seconds: 5));
+          final meResp = await _client.get(
+            Uri.parse("$baseUrl/api/auth/profile/me"),
+            headers: {"Authorization": "Bearer $_accessToken"},
+          ).timeout(const Duration(seconds: 5));
           if (meResp.statusCode == 200) {
             final me = tryDecodeJsonMap(meResp.body);
             if (me == null || me["id"] == null) {

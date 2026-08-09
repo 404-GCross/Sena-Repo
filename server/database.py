@@ -91,6 +91,12 @@ async def create_tables():
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_id INTEGER")
         if "source_path" not in version_columns:
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_path VARCHAR(1024)")
+        if "checksum_algo" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum_algo VARCHAR(16)")
+        if "checksum" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum VARCHAR(128)")
+        if "checksum_updated_at" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum_updated_at DATETIME")
 
         columns = await conn.exec_driver_sql("PRAGMA table_info(root_directories)")
         root_columns = {row[1] for row in columns}

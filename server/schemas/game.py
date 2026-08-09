@@ -17,6 +17,8 @@ class GameVersionOut(BaseModel):
     source_id: int | None = None
     source_path: str | None = None
     extract_password: str | None = None
+    checksum_algo: str | None = None
+    checksum: str | None = None
 
     model_config = {"from_attributes": True}
 

@@ -84,6 +84,9 @@ class GameVersion(Base):
     source_path = Column(String(1024), nullable=True)
     file_size = Column(BigInteger, default=0)
     extract_password = Column(String(256), nullable=True)
+    checksum_algo = Column(String(16), nullable=True)
+    checksum = Column(String(128), nullable=True)
+    checksum_updated_at = Column(DateTime, nullable=True)
 
     game = relationship("Game", back_populates="versions")
 

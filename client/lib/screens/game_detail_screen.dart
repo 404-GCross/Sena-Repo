@@ -14,6 +14,7 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/file_open_service.dart";
+import "../services/manager_install_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
@@ -1420,6 +1421,13 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             icon: const Icon(Icons.download_outlined, size: 20),
             color: Theme.of(context).colorScheme.primary,
           ),
+          if (!compact && ManagerInstallService.isSupportedDesktop)
+            IconButton(
+              tooltip: "推送到管理器下载",
+              onPressed: () => _showManagerInstallDialog(game, version),
+              icon: const Icon(Icons.send_outlined, size: 19),
+              color: Theme.of(context).colorScheme.primary,
+            ),
         ],
       ),
     );
@@ -1950,6 +1958,337 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     );
     if (v == null || !mounted) return;
     _startDownload(game, v);
+  }
+
+  Future<void> _showManagerInstallDialog(
+    GameDetail game,
+    GameVersion version,
+  ) async {
+    String? runningTarget;
+    String? errorText;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final isBusy = runningTarget != null;
+          final missingBangumi = (game.bangumiId ?? "").trim().isEmpty;
+
+          Future<void> pushToManager(String target) async {
+            if (isBusy) return;
+            if (target == "reinamanager" && missingBangumi) {
+              setDialogState(() {
+                errorText = "ReinaManager 推送需要 Bangumi ID，请先补全该条目的 Bangumi ID。";
+              });
+              return;
+            }
+
+            setDialogState(() {
+              runningTarget = target;
+              errorText = null;
+            });
+
+            try {
+              final link = await _api.createManagerInstallLink(
+                gameId: game.id,
+                versionId: version.id,
+                target: target,
+              );
+              await ManagerInstallService.openInstallUrl(link.installUrl);
+              if (!mounted) return;
+              Navigator.of(dialogContext).pop();
+              _showDialog(
+                context,
+                "已发起推送",
+                "已打开 ${_managerDisplayName(target)}，下载和入库由目标管理器继续处理。",
+              );
+            } catch (e) {
+              if (!mounted) return;
+              setDialogState(() {
+                runningTarget = null;
+                errorText = _cleanErrorMessage(e);
+              });
+            }
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
+            contentPadding: const EdgeInsets.fromLTRB(22, 16, 22, 8),
+            actionsPadding: const EdgeInsets.fromLTRB(22, 0, 22, 18),
+            title: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: Icon(
+                    Icons.send_outlined,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "推送到管理器下载",
+                        style: AppText.title.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        "只发送下载链接和基础识别信息",
+                        style: AppText.caption.copyWith(
+                          color: hintColor(context),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _managerPayloadSummary(game, version),
+                  const SizedBox(height: 14),
+                  _managerInstallOption(
+                    name: "LunaBox",
+                    description: "通过 lunabox://install 打开，后续刮削由 LunaBox 完成。",
+                    assetPath: "assets/manager_icons/lunabox.png",
+                    loading: runningTarget == "lunabox",
+                    disabled: isBusy && runningTarget != "lunabox",
+                    onTap: () => pushToManager("lunabox"),
+                  ),
+                  const SizedBox(height: 10),
+                  _managerInstallOption(
+                    name: "ReinaManager",
+                    description: missingBangumi
+                        ? "需要先补全 Bangumi ID，才能推送到 ReinaManager。"
+                        : "通过 reinamanager://install 打开，后续刮削由 ReinaManager 完成。",
+                    assetPath: "assets/manager_icons/reinamanager.png",
+                    loading: runningTarget == "reinamanager",
+                    disabled: missingBangumi ||
+                        (isBusy && runningTarget != "reinamanager"),
+                    onTap: () => pushToManager("reinamanager"),
+                  ),
+                  if (errorText != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Text(
+                        errorText!,
+                        style: AppText.bodySmall.copyWith(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isBusy ? null : () => Navigator.pop(dialogContext),
+                child: const Text("取消"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _managerPayloadSummary(GameDetail game, GameVersion version) {
+    final ids = <Widget>[
+      if ((game.bangumiId ?? "").trim().isNotEmpty)
+        _managerMetaChip("BGM", game.bangumiId!.trim()),
+      if ((game.vndbId ?? "").trim().isNotEmpty)
+        _managerMetaChip("VNDB", game.vndbId!.trim()),
+      if ((game.steamId ?? "").trim().isNotEmpty)
+        _managerMetaChip("Steam", game.steamId!.trim()),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            game.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            version.filename,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.label.copyWith(color: subTextColor(context)),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _managerMetaChip("大小", _formatSize(version.fileSize)),
+              _managerMetaChip("平台", version.platform),
+              if (ids.isNotEmpty) ...ids,
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _managerMetaChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        "$label: $value",
+        style: AppText.caption.copyWith(
+          color: subTextColor(context),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _managerInstallOption({
+    required String name,
+    required String description,
+    required String assetPath,
+    required bool loading,
+    required bool disabled,
+    required VoidCallback onTap,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final fg = disabled ? hintColor(context) : cs.onSurface;
+    return Material(
+      color: disabled
+          ? cs.surfaceContainerHighest.withValues(alpha: 0.32)
+          : cardBg(context),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: loading ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: disabled
+                  ? cardBorder(context).withValues(alpha: 0.58)
+                  : cs.primary.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                child: Image.asset(
+                  assetPath,
+                  width: 42,
+                  height: 42,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    width: 42,
+                    height: 42,
+                    color: cs.primary.withValues(alpha: 0.12),
+                    child: Icon(Icons.apps_outlined, color: cs.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: AppText.bodyMedium.copyWith(
+                        color: fg,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption.copyWith(
+                        color: disabled
+                            ? hintColor(context)
+                            : subTextColor(context),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (loading)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  disabled ? Icons.info_outline : Icons.open_in_new_outlined,
+                  size: 20,
+                  color: disabled ? hintColor(context) : cs.primary,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _managerDisplayName(String target) =>
+      target == "reinamanager" ? "ReinaManager" : "LunaBox";
+
+  String _cleanErrorMessage(Object error) {
+    final message = error.toString().trim();
+    return message
+        .replaceFirst(RegExp(r"^Exception:\s*"), "")
+        .replaceFirst(RegExp(r"^HttpException:\s*"), "");
   }
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {

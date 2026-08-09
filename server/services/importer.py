@@ -274,6 +274,16 @@ async def _upsert_version(
     )
     existing = result.scalar_one_or_none()
     if existing is not None:
+        checksum_stale = (
+            existing.file_size != file_size
+            or existing.source_type != source_type
+            or existing.source_id != source_id
+            or (existing.source_path or existing.file_path) != (source_path or file_path)
+        )
+        if checksum_stale:
+            existing.checksum_algo = None
+            existing.checksum = None
+            existing.checksum_updated_at = None
         # Update size if changed
         existing.file_size = file_size
         existing.source_type = source_type

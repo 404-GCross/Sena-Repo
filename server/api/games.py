@@ -219,6 +219,8 @@ async def get_game(
                 "source_id": v.source_id,
                 "source_path": v.source_path,
                 "extract_password": v.extract_password,
+                "checksum_algo": v.checksum_algo,
+                "checksum": v.checksum,
             }
             for v in game.versions
         ],

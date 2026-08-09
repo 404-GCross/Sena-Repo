@@ -44,4 +44,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/binaries/
+    - assets/manager_icons/
     - assets/icon.png
