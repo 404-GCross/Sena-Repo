@@ -7,7 +7,7 @@ import "dart:convert";
 class ScrapeService {
   static const _vndbFields =
       "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
-      "image.url,screenshots.url,description,rating,released,"
+      "image.url,image.sexual,screenshots.url,description,rating,released,"
       "length,length_minutes,"
       "developers.name,tags.name,tags.rating,tags.spoiler";
 
@@ -83,12 +83,21 @@ class ScrapeService {
           "length": item["length"] ?? 0,
           "length_minutes": item["length_minutes"] ?? 0,
           "source_id": item["id"] ?? "",
+          "is_nsfw": _isVndbImageNsfw(item["image"]),
         });
       }
       return results;
     } catch (_) {
       return [];
     }
+  }
+
+  static bool _isVndbImageNsfw(dynamic image) {
+    if (image is! Map) return false;
+    final sexual = image["sexual"];
+    if (sexual is num) return sexual >= 1.0;
+    final parsed = double.tryParse(sexual?.toString() ?? "");
+    return parsed != null && parsed >= 1.0;
   }
 
   static Future<String> _pickVndbCover(dynamic item) async {
@@ -188,6 +197,7 @@ class ScrapeService {
       "cover_url": cover,
       "screenshots": <String>[],
       "source_id": item["id"]?.toString() ?? "",
+      "is_nsfw": item["nsfw"] == true,
     };
   }
 

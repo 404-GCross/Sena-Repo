@@ -249,6 +249,9 @@ class HikarinagiScraper(BaseScraper):
         screenshots = [_media_url(img) for img in images]
         screenshots = [url for url in screenshots if url]
         hero_url = screenshots[0] if screenshots else ""
+        nsfw_value = item.get("nsfw")
+        if nsfw_value is None and fallback is not None:
+            nsfw_value = fallback.is_nsfw
 
         return ScraperResult(
             title=title.strip(),
@@ -262,6 +265,7 @@ class HikarinagiScraper(BaseScraper):
             screenshot_urls=screenshots,
             source_id=str(item.get("id") or (fallback.source_id if fallback else "") or "").strip(),
             source_name=self.source_name,
+            is_nsfw=bool(nsfw_value) if nsfw_value is not None else None,
         )
 
 
