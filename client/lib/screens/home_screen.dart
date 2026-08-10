@@ -23,7 +23,7 @@ import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
 import "settings_screen.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "dart:convert";
 import "download_manager_screen.dart";
 import "notification_screen.dart";

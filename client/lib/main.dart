@@ -15,7 +15,7 @@ import "dart:io"
         Socket,
         X509Certificate,
         exit;
-import "dart:ui" show PointerDeviceKind;
+import "dart:ui" show PlatformDispatcher, PointerDeviceKind;
 import "services/api_client.dart" show trustedServerHost;
 
 import "package:flutter/material.dart";
@@ -89,40 +89,62 @@ class _AllowAllCertificates extends HttpOverrides {
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  HttpOverrides.global = _AllowAllCertificates();
-  // Prevent Android system bars from overlapping the app
-  if (Platform.isAndroid) {
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      systemNavigationBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarIconBrightness: Brightness.light,
-    ));
-  }
-  NotificationService().init();
-  DownloadService().initLifecycle();
-  LoggerService().cleanOldLogs();
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      LoggerService().error(
+        "Flutter framework error",
+        details.exception,
+        details.stack,
+      );
+    };
+    PlatformDispatcher.instance.onError = (error, stackTrace) {
+      LoggerService().error("Uncaught platform error", error, stackTrace);
+      return true;
+    };
 
-  if (Platform.isWindows || Platform.isLinux) {
-    if (!await _acquireSingleInstanceLock()) {
-      exit(0);
+    HttpOverrides.global = _AllowAllCertificates();
+    // Prevent Android system bars from overlapping the app
+    if (Platform.isAndroid) {
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ));
     }
-    await windowManager.ensureInitialized();
-    windowManager.setTitle("Sena-Repo,bye~bye~");
-    _startInstanceListener();
-  }
+    NotificationService().init();
+    DownloadService().initLifecycle();
+    LoggerService().cleanOldLogs();
+    LoggerService().info("client startup: platform=${Platform.operatingSystem}");
 
-  // Disclaimer / EULA check
-  final prefs = await SharedPreferences.getInstance();
-  if (prefs.getBool("disclaimer_agreed") != true) {
-    final agreed = await _showDisclaimer();
-    if (agreed != true) exit(0);
-    await prefs.setBool("disclaimer_agreed", true);
-  }
+    if (Platform.isWindows || Platform.isLinux) {
+      if (!await _acquireSingleInstanceLock()) {
+        LoggerService().warn("client startup blocked: another instance is active");
+        exit(0);
+      }
+      await windowManager.ensureInitialized();
+      windowManager.setTitle("Sena-Repo,bye~bye~");
+      _startInstanceListener();
+    }
 
-  runApp(const SenaRepoApp());
+    // Disclaimer / EULA check
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool("disclaimer_agreed") != true) {
+      final agreed = await _showDisclaimer();
+      if (agreed != true) {
+        LoggerService().warn("client startup cancelled: disclaimer rejected");
+        exit(0);
+      }
+      await prefs.setBool("disclaimer_agreed", true);
+    }
+
+    runApp(const SenaRepoApp());
+  }, (error, stackTrace) {
+    LoggerService().error("Uncaught zone error", error, stackTrace);
+  });
 }
 
 Future<bool?> _showDisclaimer() async {

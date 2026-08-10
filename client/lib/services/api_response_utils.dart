@@ -1,6 +1,6 @@
 import "dart:convert";
 
-import "package:http/http.dart" as http;
+import "logged_http.dart" as http;
 
 class ApiResponseException implements Exception {
   final String message;

@@ -9,12 +9,11 @@ import "dart:convert";
 import "dart:io";
 import "dart:typed_data";
 
-import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:flutter/widgets.dart"
     show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import "../services/logger_service.dart";
-import "package:http/http.dart" as http;
+import "logged_http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
@@ -786,12 +785,12 @@ class DownloadService with WidgetsBindingObserver {
       // Extract from bundled assets
       bool ok = false;
       try {
-        debugPrint(
-          "[SenaRepo] Loading 7zz from assets: assets/binaries/$exeName",
+        LoggerService().info(
+          "Loading 7zz from assets: assets/binaries/$exeName",
         );
         final data = await rootBundle.load("assets/binaries/$exeName");
-        debugPrint(
-          "[SenaRepo] 7zz size from assets: ${data.buffer.lengthInBytes} bytes",
+        LoggerService().info(
+          "7zz size from assets: ${data.buffer.lengthInBytes} bytes",
         );
         await dest.writeAsBytes(data.buffer.asUint8List());
         // 7z.dll (Windows only — full format support incl. RAR)
@@ -1476,8 +1475,8 @@ class DownloadService with WidgetsBindingObserver {
           );
         } catch (_) {}
       }
-      debugPrint(
-        "[SenaRepo] _extract: exe=$exe args=${_redactToolArgs(args)}",
+      LoggerService().info(
+        "extract command: exe=$exe args=${_redactToolArgs(args)}",
       );
       await _runTool(
         exe,

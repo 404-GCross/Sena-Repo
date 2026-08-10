@@ -10,7 +10,7 @@ import "package:flutter/services.dart";
 
 import "dart:convert";
 
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "package:provider/provider.dart";
 
 import "../providers/game_provider.dart";

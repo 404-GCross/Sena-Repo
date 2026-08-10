@@ -1,7 +1,7 @@
 /// Notification list + admin approval panel.
 
 import "package:flutter/material.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "dart:convert";
 
 import "../services/api_client.dart";

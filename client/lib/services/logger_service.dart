@@ -49,20 +49,30 @@ class LoggerService {
     return "sena_$d.log";
   }
 
-  Future<void> log(String level, String message, [Object? error]) async {
+  Future<void> log(
+    String level,
+    String message, [
+    Object? error,
+    StackTrace? stackTrace,
+  ]) async {
     try {
       final dir = await _dir;
       final ts = DateTime.now().toString().substring(0, 19);
-      var line = "[$ts] [$level] ${_redact(message)}";
-      if (error != null) line += " | ${_redact(error.toString())}";
+      var line = "[$ts] [$level] ${_sanitize(message)}";
+      if (error != null) line += " | error=${_sanitize(error.toString())}";
+      if (stackTrace != null) line += " | stack=${_sanitize(stackTrace.toString())}";
       await File("$dir${Platform.pathSeparator}${_todayFile()}")
           .writeAsString("$line\n", mode: FileMode.append);
     } catch (_) {}
   }
 
   void info(String message) => log("INFO", message);
-  void warn(String message, [Object? e]) => log("WARN", message, e);
-  void error(String message, [Object? e]) => log("ERROR", message, e);
+  void warn(String message, [Object? e, StackTrace? stackTrace]) =>
+      log("WARN", message, e, stackTrace);
+  void error(String message, [Object? e, StackTrace? stackTrace]) =>
+      log("ERROR", message, e, stackTrace);
+
+  String redact(String value) => _sanitize(value);
 
   Future<List<File>> getLogFiles() async {
     try {
@@ -143,7 +153,13 @@ class LoggerService {
     final lower = message.toLowerCase();
     if (message.contains("连接") ||
         message.contains("令牌") ||
+        message.contains("账号") ||
+        message.contains("注册") ||
+        message.contains("登录") ||
         lower.contains("connect") ||
+        lower.contains("auth") ||
+        lower.contains("account") ||
+        lower.contains("register") ||
         lower.contains("login") ||
         lower.contains("token")) {
       return "连接";
@@ -151,6 +167,8 @@ class LoggerService {
     if (message.contains("刮削") ||
         message.contains("Hikarinagi") ||
         message.contains("VNDB") ||
+        lower.contains("hikarinagi") ||
+        lower.contains("vndb") ||
         lower.contains("scrape")) {
       return "刮削";
     }
@@ -164,24 +182,57 @@ class LoggerService {
         message.contains("补丁") ||
         message.contains("解压") ||
         lower.contains("download") ||
+        lower.contains("manager") ||
         lower.contains("patch") ||
         lower.contains("extract")) {
       return "下载";
     }
+    if (message.contains("设置") ||
+        message.contains("用户") ||
+        lower.contains("setting") ||
+        lower.contains("profile") ||
+        lower.contains("user")) {
+      return "设置";
+    }
     return "其他";
   }
 
+  String _sanitize(String value) => _redact(value)
+      .replaceAll("\r", r"\r")
+      .replaceAll("\n", r"\n")
+      .replaceAll(RegExp(r"\s+"), " ")
+      .trim();
+
   String _redact(String value) {
+    const sensitiveKeys =
+        r"token|access_token|refresh_token|password|passwd|pwd|key|api_key|"
+        r"secret|client_secret|signature|sig|auth|authorization|username|"
+        r"account|email";
     return value
         .replaceAll(
             RegExp(r"Bearer\s+[A-Za-z0-9._~+/=-]+", caseSensitive: false),
             "Bearer [REDACTED]")
         .replaceAll(
-            RegExp(r"([?&](?:token|access_token|password|passwd|key)=)[^&\s]+",
+            RegExp(r"Basic\s+[A-Za-z0-9._~+/=-]+", caseSensitive: false),
+            "Basic [REDACTED]")
+        .replaceAll(
+            RegExp(r"(Authorization\s*[:=]\s*)[^,\s}]+",
                 caseSensitive: false),
             r"$1[REDACTED]")
         .replaceAll(
-            RegExp(r"((?:password|passwd|token|access_token)\s*[:=]\s*)[^,\s]+",
+            RegExp("([?&](?:$sensitiveKeys)=)[^&\\s]+",
+                caseSensitive: false),
+            r"$1[REDACTED]")
+        .replaceAll(
+            RegExp("(%3[f&](?:$sensitiveKeys)%3[dD])[^%&\\s]+",
+                caseSensitive: false),
+            r"$1[REDACTED]")
+        .replaceAll(
+            RegExp("((?:$sensitiveKeys)\\s*[:=]\\s*)[^,\\s}]+",
+                caseSensitive: false),
+            r"$1[REDACTED]")
+        .replaceAll(
+            RegExp("([\"'](?:$sensitiveKeys)[\"']\\s*:\\s*)[\"'][^\"']*[\"']",
                 caseSensitive: false),
             r"$1[REDACTED]");
   }

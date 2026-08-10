@@ -3,7 +3,7 @@
 import "package:flutter/material.dart";
 import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 import "dart:io" show Platform;

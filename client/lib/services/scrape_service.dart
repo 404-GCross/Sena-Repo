@@ -1,7 +1,7 @@
 /// Client-side direct scraper — calls external APIs without going through the server.
 /// Used for single-game editing. Batch scraping still uses the server-side scraper.
 
-import "package:http/http.dart" as http;
+import "logged_http.dart" as http;
 import "dart:convert";
 
 class ScrapeService {

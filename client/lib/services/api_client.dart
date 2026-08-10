@@ -4,11 +4,12 @@ import "dart:convert";
 import "dart:io";
 import "dart:async";
 
-import "package:http/http.dart" as http;
+import "logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 import "api_response_utils.dart";
+import "logger_service.dart";
 import "secure_store.dart";
 
 class ManagerInstallLink {
@@ -88,7 +89,7 @@ class ApiClient {
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       return {"Authorization": "Bearer $_accessToken"};
     }
-    print("[ApiClient] WARN: headers called with no token set!");
+    LoggerService().warn("auth headers requested without token");
     return {};
   }
 
@@ -100,9 +101,9 @@ class ApiClient {
     _cachedIsAdmin = prefs.getBool("is_admin");
     _cachedRole = prefs.getString("role");
     if (_accessToken != null && _accessToken!.isNotEmpty) {
-      print("[ApiClient] Token restored from secure storage");
+      LoggerService().info("auth token restored from secure storage");
     } else {
-      print("[ApiClient] No token found on disk");
+      LoggerService().info("auth token not found on disk");
     }
   }
 
@@ -181,17 +182,48 @@ class ApiClient {
   Future<http.Response> _execute(
     Future<http.Response> Function() request, {
     bool allowRetry = true,
+    String method = "HTTP",
+    Uri? uri,
+    String? label,
   }) async {
     const maxAttempts = 2;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      final started = DateTime.now();
       try {
         final response = await request();
+        final durationMs = DateTime.now().difference(started).inMilliseconds;
+        final retrying = allowRetry &&
+            attempt < maxAttempts - 1 &&
+            _isRetryableStatus(response.statusCode);
+        _logHttpResponse(
+          method,
+          uri,
+          response.statusCode,
+          durationMs,
+          attempt + 1,
+          retrying: retrying,
+          label: label,
+        );
         if (!allowRetry ||
             attempt == maxAttempts - 1 ||
             !_isRetryableStatus(response.statusCode)) {
           return response;
         }
-      } catch (error) {
+      } catch (error, stackTrace) {
+        final durationMs = DateTime.now().difference(started).inMilliseconds;
+        final retrying = allowRetry &&
+            attempt < maxAttempts - 1 &&
+            _isRetryableError(error);
+        _logHttpError(
+          method,
+          uri,
+          error,
+          stackTrace,
+          durationMs,
+          attempt + 1,
+          retrying: retrying,
+          label: label,
+        );
         if (!allowRetry ||
             attempt == maxAttempts - 1 ||
             !_isRetryableError(error)) {
@@ -201,6 +233,50 @@ class ApiClient {
       await Future.delayed(Duration(milliseconds: 250 * (attempt + 1)));
     }
     throw StateError("HTTP retry loop exited unexpectedly");
+  }
+
+  String _uriForLog(Uri? uri) {
+    if (uri == null) return "-";
+    return LoggerService().redact(uri.toString());
+  }
+
+  void _logHttpResponse(
+    String method,
+    Uri? uri,
+    int statusCode,
+    int durationMs,
+    int attempt, {
+    bool retrying = false,
+    String? label,
+  }) {
+    final target = label ?? "${method.toUpperCase()} ${_uriForLog(uri)}";
+    final message =
+        "HTTP ${retrying ? "retry" : "response"}: $target status=$statusCode attempt=$attempt durationMs=$durationMs";
+    if (retrying || statusCode >= 400) {
+      LoggerService().warn(message);
+    } else {
+      LoggerService().info(message);
+    }
+  }
+
+  void _logHttpError(
+    String method,
+    Uri? uri,
+    Object error,
+    StackTrace stackTrace,
+    int durationMs,
+    int attempt, {
+    bool retrying = false,
+    String? label,
+  }) {
+    final target = label ?? "${method.toUpperCase()} ${_uriForLog(uri)}";
+    final message =
+        "HTTP ${retrying ? "retry" : "error"}: $target attempt=$attempt durationMs=$durationMs";
+    if (retrying) {
+      LoggerService().warn(message, error, stackTrace);
+    } else {
+      LoggerService().error(message, error, stackTrace);
+    }
   }
 
   // --- Games ---
@@ -223,7 +299,12 @@ class ApiClient {
     final uri = Uri.parse(
       "$baseUrl/api/games",
     ).replace(queryParameters: params);
-    final resp = await _execute(() => _client.get(uri, headers: headers));
+    final resp = await _execute(
+      () => _client.get(uri, headers: headers),
+      method: "GET",
+      uri: uri,
+      label: "load games page=$page pageSize=$pageSize",
+    );
     if (resp.statusCode != 200) throw HttpException("Failed to load games");
 
     final List<dynamic> data = jsonDecode(resp.body);
@@ -233,8 +314,12 @@ class ApiClient {
   }
 
   Future<GameDetail> getGame(int id) async {
+    final uri = Uri.parse("$baseUrl/api/games/$id");
     final resp = await _execute(
-      () => _client.get(Uri.parse("$baseUrl/api/games/$id"), headers: headers),
+      () => _client.get(uri, headers: headers),
+      method: "GET",
+      uri: uri,
+      label: "load game detail id=$id",
     );
     if (resp.statusCode == 401) throw AuthException("登录已失效，请重新登录");
     if (resp.statusCode != 200) throw HttpException("Game not found");
@@ -246,15 +331,19 @@ class ApiClient {
     required int versionId,
     required String target,
   }) async {
+    final uri = Uri.parse(
+      "$baseUrl/api/download/$gameId/$versionId/manager-install-link",
+    );
     final resp = await _execute(
       () => _client.post(
-        Uri.parse(
-          "$baseUrl/api/download/$gameId/$versionId/manager-install-link",
-        ),
+        uri,
         headers: {...headers, "Content-Type": "application/json"},
         body: jsonEncode({"target": target}),
       ),
       allowRetry: false,
+      method: "POST",
+      uri: uri,
+      label: "create manager install link gameId=$gameId versionId=$versionId target=$target",
     );
     checkResponse(resp, fallbackMessage: "生成管理器下载链接失败");
     return ManagerInstallLink.fromJson(
@@ -263,9 +352,12 @@ class ApiClient {
   }
 
   Future<void> deleteGame(int id) async {
+    final uri = Uri.parse("$baseUrl/api/games/$id");
     final resp = await _execute(
-      () =>
-          _client.delete(Uri.parse("$baseUrl/api/games/$id"), headers: headers),
+      () => _client.delete(uri, headers: headers),
+      method: "DELETE",
+      uri: uri,
+      label: "delete game id=$id",
     );
     if (resp.statusCode != 200) throw HttpException("Failed to delete game");
   }
@@ -273,8 +365,12 @@ class ApiClient {
   // --- Tags ---
 
   Future<List<Tag>> getTags() async {
+    final uri = Uri.parse("$baseUrl/api/tags");
     final resp = await _execute(
-      () => _client.get(Uri.parse("$baseUrl/api/tags"), headers: headers),
+      () => _client.get(uri, headers: headers),
+      method: "GET",
+      uri: uri,
+      label: "load tags",
     );
     if (resp.statusCode != 200) throw HttpException("Failed to load tags");
     final List<dynamic> data = jsonDecode(resp.body);
@@ -284,22 +380,24 @@ class ApiClient {
   // --- Roots ---
 
   Future<Map<String, dynamic>> refreshRoot(int id) async {
+    final uri = Uri.parse("$baseUrl/api/roots/$id/refresh");
     final resp = await _execute(
-      () => _client.post(
-        Uri.parse("$baseUrl/api/roots/$id/refresh"),
-        headers: headers,
-      ),
+      () => _client.post(uri, headers: headers),
+      method: "POST",
+      uri: uri,
+      label: "refresh root id=$id",
     );
     if (resp.statusCode != 200) throw HttpException("Refresh failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> refreshAllRoots() async {
+    final uri = Uri.parse("$baseUrl/api/roots/refresh-all");
     final resp = await _execute(
-      () => _client.post(
-        Uri.parse("$baseUrl/api/roots/refresh-all"),
-        headers: headers,
-      ),
+      () => _client.post(uri, headers: headers),
+      method: "POST",
+      uri: uri,
+      label: "refresh all roots",
     );
     if (resp.statusCode != 200) throw HttpException("Refresh all failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
@@ -309,11 +407,15 @@ class ApiClient {
 
   Future<bool> checkSetupNeeded() async {
     try {
+      final uri = Uri.parse("$baseUrl/api/setup/status");
       final resp = await _execute(
-        () => _client
-            .get(Uri.parse("$baseUrl/api/setup/status"), headers: headers)
-            .timeout(const Duration(seconds: 5)),
+        () => _client.get(uri, headers: headers).timeout(
+              const Duration(seconds: 5),
+            ),
         allowRetry: false,
+        method: "GET",
+        uri: uri,
+        label: "check setup status",
       );
       if (resp.statusCode == 200) {
         final data = tryDecodeJsonMap(resp.body);
@@ -326,14 +428,25 @@ class ApiClient {
   // --- Auth ---
 
   Future<Map<String, dynamic>> login(String username, String password) async {
+    final loginUri = Uri.parse("$baseUrl/api/auth/login");
+    final started = DateTime.now();
     try {
+      LoggerService().info("auth login started: POST ${_uriForLog(loginUri)}");
       final resp = await _client
           .post(
-            Uri.parse("$baseUrl/api/auth/login"),
+            loginUri,
             headers: {"Content-Type": "application/json"},
             body: jsonEncode({"username": username, "password": password}),
           )
           .timeout(const Duration(seconds: 10));
+      _logHttpResponse(
+        "POST",
+        loginUri,
+        resp.statusCode,
+        DateTime.now().difference(started).inMilliseconds,
+        1,
+        label: "auth login",
+      );
       if (resp.statusCode == 200) {
         final data = tryDecodeJsonMap(resp.body);
         if (data == null) {
@@ -357,10 +470,20 @@ class ApiClient {
         var isAdmin = data["is_admin"] == true;
         var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
         try {
+          final meUri = Uri.parse("$baseUrl/api/auth/profile/me");
+          final meStarted = DateTime.now();
           final meResp = await _client.get(
-            Uri.parse("$baseUrl/api/auth/profile/me"),
+            meUri,
             headers: {"Authorization": "Bearer $_accessToken"},
           ).timeout(const Duration(seconds: 5));
+          _logHttpResponse(
+            "GET",
+            meUri,
+            meResp.statusCode,
+            DateTime.now().difference(meStarted).inMilliseconds,
+            1,
+            label: "auth profile after login",
+          );
           if (meResp.statusCode == 200) {
             final me = tryDecodeJsonMap(meResp.body);
             if (me == null || me["id"] == null) {
@@ -381,13 +504,16 @@ class ApiClient {
           }
         } on AuthException {
           rethrow;
-        } catch (_) {}
+        } catch (e, stackTrace) {
+          LoggerService().warn("auth profile sync after login failed", e, stackTrace);
+        }
         await _persistTokens(
           accessToken: _accessToken,
           username: username,
           isAdmin: isAdmin,
           role: role,
         );
+        LoggerService().info("auth login succeeded: role=$role isAdmin=$isAdmin");
         return data;
       }
 
@@ -402,9 +528,14 @@ class ApiClient {
           endpointPath: "/api/auth/login",
         ),
       );
-    } on SocketException catch (e) {
+    } on AuthException catch (e, stackTrace) {
+      LoggerService().warn("auth login rejected", e, stackTrace);
+      rethrow;
+    } on SocketException catch (e, stackTrace) {
+      LoggerService().error("auth login socket failure", e, stackTrace);
       throw AuthException("无法连接服务器: ${e.message}");
-    } on TimeoutException {
+    } on TimeoutException catch (e, stackTrace) {
+      LoggerService().error("auth login timeout", e, stackTrace);
       throw AuthException("连接服务器超时");
     }
   }
@@ -422,11 +553,12 @@ class ApiClient {
   // --- Scraper ---
 
   Future<Map<String, dynamic>> scrapeGame(int gameId) async {
+    final uri = Uri.parse("$baseUrl/api/games/$gameId/scrape");
     final resp = await _execute(
-      () => _client.post(
-        Uri.parse("$baseUrl/api/games/$gameId/scrape"),
-        headers: headers,
-      ),
+      () => _client.post(uri, headers: headers),
+      method: "POST",
+      uri: uri,
+      label: "scrape game id=$gameId",
     );
     if (resp.statusCode != 200) throw HttpException("Scrape failed");
     return jsonDecode(resp.body) as Map<String, dynamic>;
