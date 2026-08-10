@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sena Project Guidelines"
+  short_description: "Repository rules for Sena development"
+  default_prompt: "Use $sena-project-guidelines when changing Sena Repo code, tests, build workflows, or project skills."

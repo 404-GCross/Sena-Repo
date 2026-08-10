@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit Format"
+  short_description: "Enforce English Conventional Commits"
+  default_prompt: "Use $git-commit-format to draft or create a correctly formatted commit message."
