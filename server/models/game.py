@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Float,
     Integer,
     String,
     Text,
@@ -97,6 +98,9 @@ class GameTag(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
     tag_id = Column(Integer, ForeignKey("tags.id"), nullable=False)
+    source = Column(String(32), nullable=False, default="user")
+    weight = Column(Float, nullable=False, default=0.0)
+    is_spoiler = Column(Boolean, nullable=False, default=False)
 
     game = relationship("Game", back_populates="tags")
     tag = relationship("Tag", back_populates="games")

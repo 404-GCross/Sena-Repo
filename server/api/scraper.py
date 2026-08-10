@@ -23,6 +23,7 @@ from api.auth import get_current_user, require_admin
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
+    _apply_result,
     _build_scrapers,
     run_batch_scrape,
 )
@@ -253,41 +254,25 @@ async def scrape_game_cover(
                         "cover_url": result.cover_url,
                         "developer": result.developer,
                         "is_nsfw": result.is_nsfw,
+                        "tags": [
+                            {
+                                "name": tag.name,
+                                "rating": tag.rating,
+                                "is_spoiler": tag.is_spoiler,
+                            }
+                            for tag in result.tags
+                        ],
                     })
 
-                    # Download first available cover
-                    if result.cover_url and not game.cover_path:
-                        ext = ".jpg"
-                        cover_path = covers_dir / f"{game_id}_{scraper.source_name}{ext}"
-                        try:
-                            resp = await _safe_get(client, result.cover_url, timeout=30.0)
-                            resp.raise_for_status()
-                            covers_dir.mkdir(parents=True, exist_ok=True)
-                            cover_path.write_bytes(resp.content)
-                            game.cover_path = str(cover_path)
-                            session.add(game)
-                        except Exception as e:
-                            logger.warning(f"Cover download failed: {e}")
-                    # Download hero/landscape banner
-                    if result.hero_url and not game.bg_path:
-                        try:
-                            bg_dir = config.backgrounds_path
-                            bg_dir.mkdir(parents=True, exist_ok=True)
-                            resp = await _safe_get(client, result.hero_url, timeout=30.0)
-                            resp.raise_for_status()
-                            bg_path = bg_dir / f"{game_id}_hero.jpg"
-                            bg_path.write_bytes(resp.content)
-                            game.bg_path = str(bg_path)
-                            session.add(game)
-                        except Exception as e:
-                            logger.warning(f"Hero download failed: {e}")
-
-                    if result.developer and not game.developer:
-                        game.developer = result.developer
-                        session.add(game)
-                    if result.is_nsfw is True and not game.is_nsfw:
-                        game.is_nsfw = True
-                        session.add(game)
+                    await _apply_result(
+                        result,
+                        scraper.source_name,
+                        game,
+                        client,
+                        covers_dir,
+                        session,
+                        config,
+                    )
 
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} failed: {e}")

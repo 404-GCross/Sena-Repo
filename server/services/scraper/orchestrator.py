@@ -16,10 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from config import Config, normalize_scraper_config
-from models.game import Game
+from models.game import Game, GameTag
 from models.scrape_job import JobStatus, ScrapeJob
+from models.tag import Tag
 
-from .base import BaseScraper, ScraperResult, clean_title
+from .base import BaseScraper, ScrapedTag, ScraperResult, clean_title
 from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
@@ -300,6 +301,61 @@ async def _apply_result(
         if col and result.source_id and (overwrite or not getattr(game, col, None)):
             setattr(game, col, result.source_id)
             session.add(game)
+        if result.tags:
+            await _apply_scraped_tags(
+                session,
+                game,
+                source_name,
+                result.tags,
+                overwrite=overwrite,
+            )
+
+
+async def _apply_scraped_tags(
+    session: AsyncSession,
+    game: Game,
+    source_name: str,
+    tags: list[ScrapedTag],
+    *,
+    overwrite: bool,
+) -> None:
+    for scraped in tags:
+        name = scraped.name.strip()
+        if not name:
+            continue
+
+        result = await session.execute(select(Tag).where(Tag.name == name))
+        tag = result.scalar_one_or_none()
+        if tag is None:
+            tag = Tag(name=name)
+            session.add(tag)
+            await session.flush()
+
+        assoc_result = await session.execute(
+            select(GameTag).where(
+                GameTag.game_id == game.id,
+                GameTag.tag_id == tag.id,
+            )
+        )
+        assoc = assoc_result.scalar_one_or_none()
+        if assoc is None:
+            session.add(
+                GameTag(
+                    game_id=game.id,
+                    tag_id=tag.id,
+                    source=source_name,
+                    weight=scraped.rating,
+                    is_spoiler=scraped.is_spoiler,
+                )
+            )
+            continue
+
+        if overwrite or (assoc.source or "") != "user":
+            assoc.source = source_name
+        if overwrite or scraped.rating > (assoc.weight or 0.0):
+            assoc.weight = scraped.rating
+        assoc.is_spoiler = bool(assoc.is_spoiler) or scraped.is_spoiler
+        session.add(assoc)
 
 
 async def run_batch_scrape(

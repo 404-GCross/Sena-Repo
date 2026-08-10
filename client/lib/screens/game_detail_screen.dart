@@ -3,17 +3,19 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io" show Platform;
+import "dart:ui" show ImageFilter;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 import "package:file_picker/file_picker.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "../services/file_open_service.dart";
+import "../services/logger_service.dart";
 import "../services/manager_install_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
@@ -52,6 +54,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   GameDetail? _game;
   int _refreshKey = 0;
   bool _isLoading = true;
+  final Set<String> _revealedSpoilerTags = <String>{};
 
   // Pending download info — retried after storage permission granted
   GameDetail? _pendingGame;
@@ -125,6 +128,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
           _game = game;
           _isLoading = false;
           _refreshKey++;
+          _revealedSpoilerTags.clear();
         });
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -271,25 +275,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           ],
                                         ),
                                       ],
-                                      if (game.vndbId != null ||
-                                          game.steamId != null ||
-                                          game.bangumiId != null) ...[
-                                        const SizedBox(height: 10),
-                                        Row(
-                                          children: [
-                                            _sourceBadge("VNDB", game.vndbId),
-                                            _sourceBadge("Steam", game.steamId),
-                                            _sourceBadge(
-                                              "Bangumi",
-                                              game.bangumiId,
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                      if (game.tags.isNotEmpty) ...[
-                                        const SizedBox(height: 10),
-                                        _tagChips(game.tags, compact: true),
-                                      ],
                                       const SizedBox(height: 16),
                                       if (game.versions.isNotEmpty)
                                         FilledButton.icon(
@@ -417,28 +402,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                     ),
                                   ),
                                 ],
-                                if (game.vndbId != null ||
-                                    game.steamId != null ||
-                                    game.bangumiId != null) ...[
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    alignment: WrapAlignment.center,
-                                    spacing: 6,
-                                    children: [
-                                      _sourceBadge("VNDB", game.vndbId),
-                                      _sourceBadge("Steam", game.steamId),
-                                      _sourceBadge("Bangumi", game.bangumiId),
-                                    ],
-                                  ),
-                                ],
-                                if (game.tags.isNotEmpty) ...[
-                                  const SizedBox(height: 10),
-                                  _tagChips(
-                                    game.tags,
-                                    centered: true,
-                                    compact: true,
-                                  ),
-                                ],
                                 if (game.versions.isNotEmpty) ...[
                                   const SizedBox(height: 12),
                                   Center(
@@ -511,6 +474,11 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           ),
                                         ),
                                       ),
+                                      if (game.tags.isNotEmpty) ...[
+                                        const SizedBox(height: 20),
+                                        _section("标签", Icons.sell_outlined),
+                                        _tagCard(game.tags, compact: true),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -694,13 +662,17 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                         : "暂无简介",
                                     style: AppText.body.copyWith(
                                       height: 1.7,
-                                      color:
-                                          game.description?.isNotEmpty == true
-                                              ? null
-                                              : Colors.grey[500],
+                                      color: game.description?.isNotEmpty == true
+                                          ? null
+                                          : Colors.grey[500],
                                     ),
                                   ),
                                 ),
+                                if (game.tags.isNotEmpty) ...[
+                                  const SizedBox(height: 20),
+                                  _section("标签", Icons.sell_outlined),
+                                  _tagCard(game.tags, compact: true),
+                                ],
                                 const SizedBox(height: 20),
                                 _section("详细信息", Icons.info_outline),
                                 _fieldCard(
@@ -944,9 +916,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
 
   Widget _desktopIdentity(GameDetail game, {required bool compact}) {
     final hasCover = game.coverPath?.isNotEmpty == true;
-    final completeness = _metadataCompleteness(game);
-    final hasSourceIds =
-        game.vndbId != null || game.steamId != null || game.bangumiId != null;
     final studio = game.companyName?.isNotEmpty == true
         ? game.companyName!
         : game.developer?.isNotEmpty == true
@@ -1031,24 +1000,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             ),
           ],
         ),
-        if (hasSourceIds) ...[
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: [
-              _desktopSourceBadge("VNDB", game.vndbId),
-              _desktopSourceBadge("Steam", game.steamId),
-              _desktopSourceBadge("Bangumi", game.bangumiId),
-              if (game.isNsfw) _desktopStatusBadge("NSFW", Colors.red),
-              _desktopStatusBadge("资料 $completeness%", Colors.green),
-            ],
-          ),
-        ],
-        if (game.tags.isNotEmpty) ...[
-          SizedBox(height: hasSourceIds ? 12 : 16),
-          _tagChips(game.tags, compact: compact),
-        ],
         const SizedBox(height: 18),
         Container(
           decoration: BoxDecoration(
@@ -1150,39 +1101,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     );
   }
 
-  Widget _desktopSourceBadge(String label, String? id) {
-    final active = id?.isNotEmpty == true;
-    final color = active ? Colors.green.shade700 : hintColor(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: active ? Colors.green.withValues(alpha: 0.09) : cardBg(context),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: active
-              ? Colors.green.withValues(alpha: 0.28)
-              : cardBorder(context),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (active) ...[
-            Icon(Icons.check_circle_outline, size: 14, color: color),
-            const SizedBox(width: 5),
-          ],
-          Text(
-            label,
-            style: AppText.caption.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _desktopStatusBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -1215,6 +1133,11 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                 : hintColor(context),
           ),
         ),
+        if (game.tags.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          _desktopSectionTitle("标签", Icons.sell_outlined),
+          _tagChips(game.tags, compact: compact),
+        ],
         const SizedBox(height: 32),
         _desktopSectionTitle("可下载版本", Icons.folder_outlined),
         if (game.versions.isEmpty)
@@ -1550,6 +1473,17 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         child: Column(children: children),
       );
 
+  Widget _tagCard(
+    List<Tag> tags, {
+    bool centered = false,
+    bool compact = false,
+  }) =>
+      AppSurface(
+        padding: const EdgeInsets.all(14),
+        radius: AppRadius.md,
+        child: _tagChips(tags, centered: centered, compact: compact),
+      );
+
   Widget _hintCard(String text) => AppSurface(
         padding: const EdgeInsets.all(16),
         radius: AppRadius.md,
@@ -1616,46 +1550,6 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   Widget _divider() =>
       Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
-  Widget _sourceBadge(String label, String? id) {
-    final active = id != null && id.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color:
-              active ? Colors.green.withValues(alpha: 0.15) : cardBg(context),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color:
-                active ? Colors.green.withValues(alpha: 0.35) : Colors.white24,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (active)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Icon(
-                  Icons.check_circle,
-                  size: 12,
-                  color: Colors.green[300],
-                ),
-              ),
-            Text(
-              label,
-              style: AppText.label.copyWith(
-                fontWeight: FontWeight.w500,
-                color: active ? Colors.green[300] : Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _tagChips(
     List<Tag> tags, {
     bool centered = false,
@@ -1666,28 +1560,84 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       spacing: compact ? 6 : 8,
       runSpacing: compact ? 6 : 8,
       children: tags.map((tag) {
-        final color = _tagColor(tag);
-        return Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 9 : 11,
-            vertical: compact ? 5 : 6,
+        final color = tag.isSpoiler ? Colors.red.shade700 : _tagColor(tag);
+        final revealKey = _tagRevealKey(tag);
+        final isHiddenSpoiler =
+            tag.isSpoiler && !_revealedSpoilerTags.contains(revealKey);
+        final label = Text(
+          tag.name,
+          style: AppText.caption.copyWith(
+            color: color,
+            fontWeight: FontWeight.w700,
           ),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.24)),
-          ),
-          child: Text(
-            tag.name,
-            style: AppText.caption.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
+        );
+        final child = isHiddenSpoiler
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRect(
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                      child: label,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    "揭示",
+                    style: AppText.caption.copyWith(
+                      color: color.withValues(alpha: 0.78),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              )
+            : label;
+
+        return Tooltip(
+          message: tag.isSpoiler
+              ? (isHiddenSpoiler ? "点击揭示剧透标签" : "点击隐藏剧透标签")
+              : tag.name,
+          child: Semantics(
+            button: tag.isSpoiler,
+            label: tag.isSpoiler
+                ? (isHiddenSpoiler ? "剧透标签，点击揭示" : "${tag.name}，剧透标签")
+                : tag.name,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: tag.isSpoiler
+                  ? () {
+                      setState(() {
+                        if (isHiddenSpoiler) {
+                          _revealedSpoilerTags.add(revealKey);
+                        } else {
+                          _revealedSpoilerTags.remove(revealKey);
+                        }
+                      });
+                    }
+                  : null,
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 9 : 11,
+                  vertical: compact ? 5 : 6,
+                ),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: tag.isSpoiler ? 0.08 : 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: color.withValues(alpha: tag.isSpoiler ? 0.28 : 0.24),
+                  ),
+                ),
+                child: child,
+              ),
             ),
           ),
         );
       }).toList(),
     );
   }
+
+  String _tagRevealKey(Tag tag) =>
+      tag.id > 0 ? "id:${tag.id}" : "name:${tag.name}";
 
   Color _tagColor(Tag tag) {
     final raw = tag.color.trim();
@@ -1937,6 +1887,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             if (isBusy) return;
             final version = selectedVersion;
             if (target == "reinamanager" && missingBangumi) {
+              LoggerService().warn(
+                "manager push blocked: target=$target gameId=${game.id} reason=missing_bangumi_id",
+              );
               setDialogState(() {
                 errorText = "ReinaManager 推送需要 Bangumi ID，请先补全该条目的 Bangumi ID。";
               });
@@ -1949,12 +1902,18 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             });
 
             try {
+              LoggerService().info(
+                "manager push started: target=$target gameId=${game.id} versionId=${version.id}",
+              );
               final link = await _api.createManagerInstallLink(
                 gameId: game.id,
                 versionId: version.id,
                 target: target,
               );
               await ManagerInstallService.openInstallUrl(link.installUrl);
+              LoggerService().info(
+                "manager push opened: target=$target gameId=${game.id} versionId=${version.id} file=${link.fileName} archive=${link.archiveFormat}",
+              );
               if (!mounted) return;
               Navigator.of(dialogContext).pop();
               _showDialog(
@@ -1962,7 +1921,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                 "已发起推送",
                 "已打开 ${_managerDisplayName(target)}，下载和入库由目标管理器继续处理。",
               );
-            } catch (e) {
+            } catch (e, stackTrace) {
+              LoggerService().error(
+                "manager push failed: target=$target gameId=${game.id} versionId=${version.id}",
+                e,
+                stackTrace,
+              );
               if (!mounted) return;
               setDialogState(() {
                 runningTarget = null;

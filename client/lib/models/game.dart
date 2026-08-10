@@ -42,15 +42,44 @@ class Tag {
   final int id;
   final String name;
   final String color;
+  final String source;
+  final double weight;
+  final bool isSpoiler;
 
-  Tag({required this.id, required this.name, required this.color});
+  Tag({
+    required this.id,
+    required this.name,
+    required this.color,
+    this.source = "",
+    this.weight = 0,
+    this.isSpoiler = false,
+  });
 
   factory Tag.fromJson(Map<String, dynamic> json) {
     return Tag(
       id: json["id"] ?? 0,
       name: json["name"] ?? "",
       color: json["color"] ?? "#3B82F6",
+      source: json["source"]?.toString() ?? "",
+      weight: _readDouble(json["weight"] ?? json["rating"]),
+      isSpoiler: _readBool(json["is_spoiler"] ?? json["spoiler"]),
     );
+  }
+
+  static double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  static bool _readBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      return normalized == "true" || normalized == "1" || normalized == "yes";
+    }
+    return false;
   }
 }
 

@@ -225,8 +225,25 @@ async def get_game(
             for v in game.versions
         ],
         tags=[
-            {"id": gt.tag.id, "name": gt.tag.name, "color": gt.tag.color, "created_at": gt.tag.created_at}
-            for gt in game.tags
+            {
+                "id": gt.tag.id,
+                "name": gt.tag.name,
+                "color": gt.tag.color,
+                "created_at": gt.tag.created_at,
+                "source": gt.source,
+                "weight": gt.weight or 0.0,
+                "rating": gt.weight or 0.0,
+                "is_spoiler": bool(gt.is_spoiler),
+                "spoiler": bool(gt.is_spoiler),
+            }
+            for gt in sorted(
+                game.tags,
+                key=lambda gt: (
+                    0 if (gt.source or "") == "user" else 1,
+                    -(gt.weight or 0.0),
+                    gt.tag.name.lower(),
+                ),
+            )
         ],
     )
 

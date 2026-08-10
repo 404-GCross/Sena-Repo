@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from .base import BaseScraper, ScraperResult, clean_title
+from .base import BaseScraper, ScrapedTag, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,11 @@ class BangumiScraper(BaseScraper):
             cover = "https:" + cover
 
         tags = item.get("tags", [])
-        tag_names = [t.get("name", "") for t in tags[:5] if t.get("name")]
+        tag_items = [
+            ScrapedTag(name=str(t.get("name", "")).strip())
+            for t in tags[:5]
+            if str(t.get("name", "")).strip()
+        ]
 
         return ScraperResult(
             title=item.get("name_cn", "") or item.get("name", ""),
@@ -104,4 +108,5 @@ class BangumiScraper(BaseScraper):
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
             is_nsfw=bool(item.get("nsfw", False)),
+            tags=tag_items,
         )

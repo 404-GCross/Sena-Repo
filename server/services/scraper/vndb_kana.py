@@ -7,7 +7,7 @@ import re
 
 import httpx
 
-from .base import BaseScraper, ScraperResult
+from .base import BaseScraper, ScrapedTag, ScraperResult
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,13 @@ VNDB_FIELDS = (
     "length,length_minutes,"
     "developers.name,tags.name,tags.rating,tags.spoiler"
 )
+
+
+def _tag_rating(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _normalize_vndb_id(value: str) -> str | None:
@@ -153,8 +160,17 @@ class VndbKanaScraper(BaseScraper):
 
         # Tags (filter rating >= 1.5, sort by rating desc, top 5)
         tags = item.get("tags", [])
-        filtered = [t for t in tags if t.get("rating", 0) >= 1.5]
-        filtered.sort(key=lambda t: t.get("rating", 0), reverse=True)
+        filtered = [t for t in tags if _tag_rating(t.get("rating")) >= 1.5]
+        filtered.sort(key=lambda t: _tag_rating(t.get("rating")), reverse=True)
+        tag_items = [
+            ScrapedTag(
+                name=str(t.get("name", "")).strip(),
+                rating=_tag_rating(t.get("rating")),
+                is_spoiler=bool(t.get("spoiler")),
+            )
+            for t in filtered[:5]
+            if str(t.get("name", "")).strip()
+        ]
 
         return ScraperResult(
             title=title,
@@ -169,6 +185,7 @@ class VndbKanaScraper(BaseScraper):
             length=(item.get("length") or 0),
             length_minutes=(item.get("length_minutes") or 0),
             is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 1.0,
+            tags=tag_items,
         )
 
     def _pick_title(self, titles: list[dict]) -> str:

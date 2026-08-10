@@ -98,6 +98,21 @@ async def create_tables():
         if "checksum_updated_at" not in version_columns:
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum_updated_at DATETIME")
 
+        columns = await conn.exec_driver_sql("PRAGMA table_info(game_tags)")
+        game_tag_columns = {row[1] for row in columns}
+        if "source" not in game_tag_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_tags ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'user'"
+            )
+        if "weight" not in game_tag_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_tags ADD COLUMN weight FLOAT NOT NULL DEFAULT 0"
+            )
+        if "is_spoiler" not in game_tag_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_tags ADD COLUMN is_spoiler BOOLEAN NOT NULL DEFAULT 0"
+            )
+
         columns = await conn.exec_driver_sql("PRAGMA table_info(root_directories)")
         root_columns = {row[1] for row in columns}
         if "source_type" not in root_columns:

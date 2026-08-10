@@ -34,6 +34,15 @@ def _get_throttle_lock() -> asyncio.Lock:
 
 
 @dataclass
+class ScrapedTag:
+    """Tag metadata returned by an upstream scraper."""
+
+    name: str
+    rating: float = 0.0
+    is_spoiler: bool = False
+
+
+@dataclass
 class ScraperResult:
     """Result from a scraper query."""
 
@@ -49,6 +58,7 @@ class ScraperResult:
     length: int = 0         # VNDB length category 1-5
     length_minutes: int = 0 # average play time in minutes
     is_nsfw: bool | None = None  # None means this source does not classify NSFW
+    tags: list[ScrapedTag] = field(default_factory=list)
 
 
 class BaseScraper(ABC):
