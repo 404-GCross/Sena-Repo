@@ -276,7 +276,7 @@ async def test_hikarinagi(
             await scraper._ensure_token(client)
             await scraper._api_get(
                 client,
-                "/api/v3/open/search",
+                "/open/search",
                 params=[
                     ("q", "test"),
                     ("types", "galgame"),

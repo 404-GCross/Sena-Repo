@@ -12,7 +12,7 @@ from .base import BaseScraper, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
-HIKARINAGI_BASE = "https://www.hikarinagi.org"
+HIKARINAGI_BASE = "https://api.hikarinagi.org/v3"
 HIKARINAGI_TOKEN_URL = "https://id.hikarinagi.org/oidc/token"
 
 
@@ -190,7 +190,7 @@ class HikarinagiScraper(BaseScraper):
     ) -> list[dict]:
         data = await self._api_get(
             client,
-            "/api/v3/open/search",
+            "/open/search",
             params=[
                 ("q", keyword),
                 ("types", "galgame"),
@@ -212,7 +212,7 @@ class HikarinagiScraper(BaseScraper):
         normalized_id = _normalize_hikarinagi_id(game_id)
         if not normalized_id:
             return fallback
-        data = await self._api_get(client, f"/api/v3/open/galgames/{normalized_id}")
+        data = await self._api_get(client, f"/open/galgames/{normalized_id}")
         if not data:
             return fallback
         return self._parse_detail(data, fallback)
