@@ -12,7 +12,8 @@ from .base import BaseScraper, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
-HIKARINAGI_BASE = "https://api.hikarinagi.org/v3"
+HIKARINAGI_BASE = "https://www.hikarinagi.org/api/v3"
+HIKARINAGI_CDN_BASE = "https://images.yurari.moe/"
 HIKARINAGI_TOKEN_URL = "https://id.hikarinagi.org/oidc/token"
 
 
@@ -76,13 +77,15 @@ class HikarinagiScraper(BaseScraper):
         client: httpx.AsyncClient,
         path: str,
         params: dict | list[tuple[str, str]] | None = None,
+        use_auth: bool = False,
     ) -> dict:
-        token = await self._ensure_token(client)
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
             "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
         }
+        if use_auth:
+            token = await self._ensure_token(client)
+            headers["Authorization"] = f"Bearer {token}"
         for attempt in range(2):
             try:
                 resp = await self._request_with_retry(
@@ -93,7 +96,7 @@ class HikarinagiScraper(BaseScraper):
                     headers=headers,
                 )
             except httpx.HTTPStatusError as e:
-                if e.response.status_code in (401, 403) and attempt == 0:
+                if use_auth and e.response.status_code in (401, 403) and attempt == 0:
                     self._token = ""
                     token = await self._ensure_token(client)
                     headers["Authorization"] = f"Bearer {token}"
@@ -104,7 +107,12 @@ class HikarinagiScraper(BaseScraper):
                 return {}
             if payload.get("success") is False:
                 request_id = payload.get("request_id")
-                message = payload.get("message") or payload.get("error") or "Hikarinagi API 调用失败"
+                error = payload.get("error")
+                if isinstance(error, dict):
+                    message = error.get("message") or error.get("code")
+                else:
+                    message = payload.get("message") or error
+                message = message or "Hikarinagi API 调用失败"
                 if request_id:
                     message = f"{message} (request_id: {request_id})"
                 raise RuntimeError(str(message))
@@ -190,7 +198,7 @@ class HikarinagiScraper(BaseScraper):
     ) -> list[dict]:
         data = await self._api_get(
             client,
-            "/open/search",
+            "/search",
             params=[
                 ("q", keyword),
                 ("types", "galgame"),
@@ -212,7 +220,7 @@ class HikarinagiScraper(BaseScraper):
         normalized_id = _normalize_hikarinagi_id(game_id)
         if not normalized_id:
             return fallback
-        data = await self._api_get(client, f"/open/galgames/{normalized_id}")
+        data = await self._api_get(client, f"/galgames/{normalized_id}")
         if not data:
             return fallback
         return self._parse_detail(data, fallback)
@@ -282,9 +290,20 @@ def _media_url(value) -> str:
     if not value:
         return ""
     if isinstance(value, str):
-        return value.strip()
+        url = value.strip()
+        if not url:
+            return ""
+        if url.startswith(("http://", "https://")):
+            return url
+        return f"{HIKARINAGI_CDN_BASE}{url.lstrip('/')}"
     if isinstance(value, dict):
-        return str(value.get("url") or value.get("image") or "").strip()
+        for key in ("url", "image", "src"):
+            url = _media_url(value.get(key))
+            if url:
+                return url
+        media = value.get("media")
+        if isinstance(media, dict):
+            return _media_url(media)
     return ""
 
 

@@ -276,13 +276,14 @@ async def test_hikarinagi(
             await scraper._ensure_token(client)
             await scraper._api_get(
                 client,
-                "/open/search",
+                "/search",
                 params=[
                     ("q", "test"),
                     ("types", "galgame"),
                     ("page", "1"),
                     ("page_size", "1"),
                 ],
+                use_auth=True,
             )
         return {
             "ok": True,
