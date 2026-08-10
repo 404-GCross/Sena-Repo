@@ -33,6 +33,7 @@ class LoggerService {
   LoggerService._();
 
   String? _logDir;
+  Future<void> _writeQueue = Future<void>.value();
 
   Future<String> get _dir async {
     if (_logDir != null) return _logDir!;
@@ -55,14 +56,25 @@ class LoggerService {
     Object? error,
     StackTrace? stackTrace,
   ]) async {
+    final ts = DateTime.now().toString().substring(0, 19);
+    var line = "[$ts] [$level] ${_sanitize(message)}";
+    if (error != null) line += " | error=${_sanitize(error.toString())}";
+    if (stackTrace != null) {
+      line += " | stack=${_sanitize(stackTrace.toString())}";
+    }
+
+    final writeTask = _writeQueue.catchError((_) {}).then((_) {
+      return _writeLine(line);
+    });
+    _writeQueue = writeTask;
+    return writeTask;
+  }
+
+  Future<void> _writeLine(String line) async {
     try {
       final dir = await _dir;
-      final ts = DateTime.now().toString().substring(0, 19);
-      var line = "[$ts] [$level] ${_sanitize(message)}";
-      if (error != null) line += " | error=${_sanitize(error.toString())}";
-      if (stackTrace != null) line += " | stack=${_sanitize(stackTrace.toString())}";
       await File("$dir${Platform.pathSeparator}${_todayFile()}")
-          .writeAsString("$line\n", mode: FileMode.append);
+          .writeAsString("$line\n", mode: FileMode.append, flush: true);
     } catch (_) {}
   }
 
