@@ -537,6 +537,7 @@ jobs:
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          NOTES_SOURCE=".github/dev-pre-release-notes.md"
           {
             printf '> [!CAUTION]\n'
             printf '>\n'
@@ -546,12 +547,42 @@ jobs:
             printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
             printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
             printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
-            printf '## 最近提交\n\n'
-            while IFS=$'\t' read -r sha subject; do
-              [ -n "$sha" ] || continue
-              printf -- '- [**%s**](https://github.com/%s/commit/%s)\n' "$subject" "${GITHUB_REPOSITORY}" "$sha"
-            done < <(git log --no-merges --format='%H%x09%s' -n 5)
-            printf '\n\n'
+            if [ -s "$NOTES_SOURCE" ]; then
+              cat "$NOTES_SOURCE"
+              printf '\n\n'
+            else
+              printf '## 自动提交摘要\n\n'
+              while IFS=$'\t' read -r sha subject; do
+                [ -n "$sha" ] || continue
+                lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
+                summary="$subject"
+                if [[ "$summary" == *": "* ]]; then
+                  summary="${summary#*: }"
+                fi
+                case "$lower" in
+                  feat:*|feat\(*|feature:*|feature\(*)
+                    category="新增"
+                    ;;
+                  fix:*|fix\(*|bugfix:*|bugfix\(*)
+                    category="修复"
+                    ;;
+                  perf:*|perf\(*|refactor:*|refactor\(*|optimize:*|optimize\(*|style:*|style\(*)
+                    category="优化"
+                    ;;
+                  docs:*|docs\(*|doc:*|doc\(*)
+                    category="文档"
+                    ;;
+                  build:*|build\(*|ci:*|ci\(*|chore:*|chore\(*)
+                    category="构建"
+                    ;;
+                  *)
+                    category="其他"
+                    ;;
+                esac
+                printf -- '- %s: [**%s**](https://github.com/%s/commit/%s)\n' "$category" "$summary" "${GITHUB_REPOSITORY}" "$sha"
+              done < <(git log --no-merges --format='%H%x09%s' -n 5)
+              printf '\n\n'
+            fi
             printf '## 下载说明\n\n'
             printf '| 文件 | 平台/用途 | 说明 |\n'
             printf '|------|-----------|------|\n'
