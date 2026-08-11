@@ -370,13 +370,8 @@ async def _manager_download_url(
     request: Request,
     game_id: int,
     version_id: int,
-    version: GameVersion,
-    session: AsyncSession,
-    target: str,
     expires_at: int,
 ) -> tuple[str, int | None]:
-    if target == "reinamanager" and (version.source_type or "local") == "openlist":
-        return await _openlist_download_url(version, session), None
     return _build_signed_download_url(request, game_id, version_id, expires_at), expires_at
 
 
@@ -386,6 +381,7 @@ async def download_signed_game_version(
     version_id: int,
     expires_at: int,
     signature: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
     """Download a game version through a short-lived signed URL."""
@@ -431,9 +427,6 @@ async def create_manager_install_link(
         request,
         game_id,
         version_id,
-        version,
-        session,
-        body.target,
         expires_at,
     )
 
