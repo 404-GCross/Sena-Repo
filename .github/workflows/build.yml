@@ -19,8 +19,51 @@ defaults:
     working-directory: client
 
 jobs:
+  server-checks:
+    name: Server checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install server dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: python -m compileall .
+
+  flutter-analyze:
+    name: Flutter analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: "stable"
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter client
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
   # ── Android APK ──────────────────────────────────
   build-android:
+    needs: [server-checks, flutter-analyze]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +138,7 @@ jobs:
 
   # ── Windows EXE ──────────────────────────────────
   build-windows:
+    needs: [server-checks, flutter-analyze]
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -225,6 +269,7 @@ jobs:
 
   # ── Linux (AppImage) ─────────────────
   build-linux:
+    needs: [server-checks, flutter-analyze]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -402,6 +447,7 @@ jobs:
 
   # ── Docker Server Image ──────────────────────────
   build-server:
+    needs: [server-checks, flutter-analyze]
     runs-on: ubuntu-latest
     permissions:
       contents: read

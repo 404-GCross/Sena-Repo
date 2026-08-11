@@ -12,6 +12,7 @@ description: Project-specific engineering rules for Sena Repo. Use whenever Code
 3. Do not leak secrets in logs, errors, release notes, or commit messages. Redact passwords, tokens, API keys, authorization headers, signatures, account identifiers, and OpenList credentials.
 4. Preserve user and unrelated workspace changes. Do not run destructive Git commands, broad cleanup, branch switching, reset, rebase, stash, prune, or repository-wide commits unless explicitly requested.
 5. Do not use `git add -A` for commits in this repository. Stage explicit paths that belong to the current task.
+6. The user has authorized automatic GitHub submission after requested changes are complete: run the available checks, commit with `$git-commit-format`, push to `origin/dev`, and track the required GitHub Actions checks unless the user says not to commit or push.
 
 ## Repository Shape
 
@@ -53,7 +54,9 @@ description: Project-specific engineering rules for Sena Repo. Use whenever Code
 
 - Run the narrowest reliable checks available for the touched area.
 - For server Python changes, prefer at least `python -m py_compile` on edited Python files; run tests when the environment has the required dependencies.
-- For Flutter changes, prefer `flutter analyze` and relevant tests/builds when Flutter/Dart is installed. If the local environment lacks Flutter/Dart, state that instead of pretending the check ran.
+- For Flutter changes, local `flutter analyze` is optional when Flutter/Dart is unavailable or the user has accepted relying on CI. Do not block commit/push solely because the local machine lacks Flutter/Dart; state that local analyze was skipped because the toolchain is unavailable.
+- After pushing Flutter/client changes, always track the GitHub Actions analyze check for the pushed commit. Find the run for the pushed SHA, confirm the `Flutter analyze` job and the `Analyze Flutter client` step complete, and report the result. If analyze fails, inspect the action logs, fix the issue, commit, push, and track analyze again.
+- Do not treat the broader packaging/build workflow as a substitute for analyze. The client build workflow may still be running; the required CI signal for this rule is the analyze job/step.
 - For project skills, run `quick_validate.py` on each changed skill folder.
 - Report unavailable toolchains or skipped checks in the final response.
 
