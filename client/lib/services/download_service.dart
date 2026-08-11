@@ -7,7 +7,6 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io";
-import "dart:math" as math;
 import "dart:typed_data";
 
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
@@ -237,9 +236,7 @@ class DownloadService with WidgetsBindingObserver {
     inj.task._cancelled = true;
     inj.task.status = "cancelled";
     inj.task.error = "已取消";
-    try {
-      File(inj.tempPath).delete();
-    } catch (_) {}
+    unawaited(_deleteFileQuietly(inj.tempPath));
     _patchInjections.remove(appId);
     _emit();
   }
@@ -1132,20 +1129,17 @@ class DownloadService with WidgetsBindingObserver {
   static const _retryDelays = [1, 3, 7]; // seconds
   static const _downloadConnectTimeout = Duration(seconds: 20);
   static const _downloadIdleTimeout = Duration(seconds: 45);
-  static const _parallelDownloadMinSize = 128 * 1024 * 1024;
-  static const _parallelDownloadChunkSize = 64 * 1024 * 1024;
-  static const _parallelDownloadConcurrency = 8;
 
   Future<void> _download(DownloadTask t, File dest) async {
     for (int attempt = 0; attempt <= _maxRetries; attempt++) {
       if (_stopped(t)) return;
 
       // Sync counter with disk
-      final parallelState = await _loadParallelDownloadState(dest);
-      if (parallelState != null && await dest.exists()) {
-        t.receivedBytes = parallelState.receivedBytes;
-        t.totalBytes = parallelState.totalBytes;
-      } else if (t.receivedBytes > 0) {
+      if (await _discardParallelDownloadState(dest)) {
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+      }
+      if (t.receivedBytes > 0) {
         LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
           final sz = await dest.length();
@@ -1165,10 +1159,7 @@ class DownloadService with WidgetsBindingObserver {
 
       try {
         t.headersReceived = false;
-        final handledByParallel = await _attemptParallel(t, dest);
-        if (!handledByParallel) {
-          await _attempt(t, dest);
-        }
+        await _attempt(t, dest);
         return; // success
       } on http.ClientException catch (e) {
         if (_stopped(t)) return;
@@ -1220,425 +1211,23 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> _attemptParallel(DownloadTask t, File dest) async {
-    final speedLimitEnabled = await downloadSpeedLimitKbps > 0;
-    if (speedLimitEnabled) return false;
-
-    final existingState = await _loadParallelDownloadState(dest);
-    final probe = await _probeParallelDownload(t);
-    if (probe == null) return false;
-    if (probe.totalBytes < _parallelDownloadMinSize && existingState == null) {
-      return false;
-    }
-
-    final state = await _prepareParallelDownloadState(
-      dest,
-      probe.totalBytes,
-      existingState,
-    );
-    final pendingSegments = state.pendingSegments;
-    if (pendingSegments.isEmpty) {
-      t.headersReceived = true;
-      t.totalBytes = state.totalBytes;
-      t.receivedBytes = state.totalBytes;
-      t.progress = 1.0;
-      await _deleteParallelDownloadState(dest);
-      return true;
-    }
-    if (pendingSegments.length == 1 && existingState == null) return false;
-
-    t.headersReceived = true;
-    t.totalBytes = state.totalBytes;
-    t.receivedBytes = state.receivedBytes;
-    t.progress = t.totalBytes > 0 ? t.receivedBytes / t.totalBytes : 0.0;
-    _emit();
-    LoggerService().info(
-      "parallel download enabled: total=${state.totalBytes} "
-      "base=${state.baseBytes} segments=${state.segments.length} "
-      "pending=${pendingSegments.length} "
-      "parallelism=${math.min(_parallelDownloadConcurrency, pendingSegments.length)} "
-      "chunkSize=$_parallelDownloadChunkSize",
-    );
-
-    await dest.parent.create(recursive: true);
-    if (!await dest.exists()) {
-      await dest.writeAsBytes(const <int>[], mode: FileMode.writeOnly);
-    }
-    RandomAccessFile? file;
-    Future<void> writeLock = Future<void>.value();
-    Future<void> writeAt(int offset, List<int> data) async {
-      final previous = writeLock;
-      final completer = Completer<void>();
-      writeLock = completer.future;
-      try {
-        try {
-          await previous;
-        } catch (_) {}
-        await file!.setPosition(offset);
-        await file!.writeFrom(data);
-      } finally {
-        if (!completer.isCompleted) completer.complete();
-      }
-    }
-
-    final downloadStartedAt = DateTime.now();
-    var received = state.receivedBytes;
-    var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
-    var lastStateSave = DateTime.now();
-    var lastTraceLog = DateTime.now();
-    var lastTraceBytes = received;
-    var traceChunks = 0;
-    var traceSmallChunks = 0;
-    final uiEmitIntervalMs = Platform.isAndroid ? 500 : 250;
-    final stateSaveIntervalMs = Platform.isAndroid ? 5000 : 2000;
-    const notificationIntervalMs = 5000;
-
-    Future<void> recordProgress(int chunkLength) async {
-      received += chunkLength;
-      t.receivedBytes = received;
-      traceChunks += 1;
-      if (chunkLength < 32 * 1024) traceSmallChunks += 1;
-      final now = DateTime.now();
-      final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
-      if (elapsed >= 1000) {
-        t.speedBytesPerSecond = ((received - t._lastBytes) / elapsed * 1000)
-            .round();
-        t._lastBytes = received;
-        t._lastSpeedTime = now;
-      }
-      t.progress = t.totalBytes > 0 ? received / t.totalBytes : 0.0;
-      if (now.difference(lastUiEmit).inMilliseconds >= uiEmitIntervalMs) {
-        lastUiEmit = now;
-        _emit(save: false);
-      }
-      if (now.difference(lastStateSave).inMilliseconds >=
-          stateSaveIntervalMs) {
-        lastStateSave = now;
-        await _saveParallelDownloadState(dest, state);
-        _saveTasks();
-      }
-      final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
-      if (notifyElapsed >= notificationIntervalMs) {
-        t._lastNotifyTime = now;
-        NotificationService().showDownloadProgress(
-          id: t.gameId,
-          gameName: t.gameName,
-          progress: t.progress,
-          receivedBytes: received,
-          totalBytes: t.totalBytes,
-        );
-      }
-      final traceElapsed = now.difference(lastTraceLog).inMilliseconds;
-      if (traceElapsed >= 10000) {
-        final windowBytes = received - lastTraceBytes;
-        final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
-        LoggerService().info(
-          "parallel download trace: platform=${Platform.operatingSystem} "
-          "received=$received total=${t.totalBytes} "
-          "windowSpeed=$windowSpeed chunks=$traceChunks "
-          "smallChunks=$traceSmallChunks",
-        );
-        lastTraceLog = now;
-        lastTraceBytes = received;
-        traceChunks = 0;
-        traceSmallChunks = 0;
-      }
-    }
-
-    Object? firstError;
-    StackTrace? firstStackTrace;
-    var nextSegment = 0;
-    final parallelism = math.min(
-      _parallelDownloadConcurrency,
-      pendingSegments.length,
-    );
-
-    Future<void> worker() async {
-      while (!_stopped(t) && firstError == null) {
-        final index = nextSegment;
-        if (index >= pendingSegments.length) return;
-        nextSegment += 1;
-        final segment = pendingSegments[index];
-        try {
-          await _downloadParallelSegment(
-            t,
-            state,
-            segment,
-            writeAt,
-            recordProgress,
-          );
-        } catch (e, stackTrace) {
-          if (_stopped(t)) return;
-          firstError ??= e;
-          firstStackTrace ??= stackTrace;
-          _closeTaskClients(t);
-          return;
-        }
-      }
-    }
-
-    file = await dest.open(mode: FileMode.append);
-    try {
-      await _saveParallelDownloadState(dest, state);
-      await Future.wait([
-        for (var i = 0; i < parallelism; i++) worker(),
-      ]);
-      await writeLock;
-      if (firstError != null) {
-        Error.throwWithStackTrace(firstError!, firstStackTrace!);
-      }
-      if (_stopped(t)) {
-        await _saveParallelDownloadState(dest, state);
-        _saveTasks();
-        return true;
-      }
-      if (state.pendingSegments.isNotEmpty) {
-        throw http.ClientException(
-          "Parallel download ended before all ranges completed",
-        );
-      }
-      t.receivedBytes = state.totalBytes;
-      t.progress = 1.0;
-      _emit();
-      await file.flush();
-      await file.close();
-      file = null;
-
-      final fileSize = await dest.length();
-      if (fileSize != state.totalBytes) {
-        t.receivedBytes = 0;
-        t.totalBytes = 0;
-        try {
-          await dest.delete();
-        } catch (_) {}
-        await _deleteParallelDownloadState(dest);
-        throw Exception("文件不完整: 预期${state.totalBytes}B 实际${fileSize}B");
-      }
-      await _deleteParallelDownloadState(dest);
-      final elapsedMs = DateTime.now()
-          .difference(downloadStartedAt)
-          .inMilliseconds
-          .clamp(1, 1 << 31);
-      final avgSpeed = (fileSize * 1000 / elapsedMs).round();
-      LoggerService().info(
-        "parallel download completed: bytes=$fileSize "
-        "elapsedMs=$elapsedMs avgSpeed=$avgSpeed",
-      );
-      return true;
-    } finally {
-      try {
-        await writeLock;
-      } catch (_) {}
-      try {
-        await file?.flush();
-      } catch (_) {}
-      try {
-        await file?.close();
-      } catch (_) {}
-      _closeTaskClients(t);
-      if (Platform.isAndroid) {
-        await Future.delayed(const Duration(milliseconds: 200));
-      }
-      if (t.status == "paused") {
-        await _saveParallelDownloadState(dest, state);
-        _saveTasks();
-      }
-    }
-  }
-
-  Future<_ParallelDownloadProbe?> _probeParallelDownload(DownloadTask t) async {
-    final client = http.Client();
-    _trackTaskClient(t, client);
-    try {
-      final result = await _sendDownloadRequestWithUri(
-        client,
-        t.downloadUrl,
-        const {"Range": "bytes=0-0"},
-      );
-      final resp = result.response;
-      LoggerService().info(
-        "parallel download probe: status=${resp.statusCode} "
-        "contentLength=${resp.contentLength ?? 0} "
-        "contentRange=${resp.headers["content-range"] ?? "-"} "
-        "acceptRanges=${resp.headers["accept-ranges"] ?? "-"}",
-      );
-      if (resp.statusCode != 206) return null;
-      final range = _parseContentRange(resp.headers["content-range"]);
-      if (range == null || range.totalBytes <= 0) return null;
-      await resp.stream.drain<void>();
-      return _ParallelDownloadProbe(range.totalBytes);
-    } finally {
-      client.close();
-      _untrackTaskClient(t, client);
-    }
-  }
-
-  Future<_ParallelDownloadState> _prepareParallelDownloadState(
-    File dest,
-    int totalBytes,
-    _ParallelDownloadState? existingState,
-  ) async {
-    if (existingState != null &&
-        existingState.isCompatible(totalBytes, _parallelDownloadChunkSize) &&
-        await dest.exists()) {
-      return existingState;
-    }
-    if (existingState != null) {
-      await _deleteParallelDownloadState(dest);
-      try {
-        await dest.delete();
-      } catch (_) {}
-    }
-
-    var baseBytes = 0;
-    if (await dest.exists()) {
-      final existingSize = await dest.length();
-      if (existingSize == totalBytes) {
-        return _ParallelDownloadState(
-          totalBytes: totalBytes,
-          baseBytes: totalBytes,
-          chunkSize: _parallelDownloadChunkSize,
-          segments: const <_ParallelDownloadSegment>[],
-        );
-      }
-      if (existingSize > totalBytes) {
-        await dest.delete();
-      } else {
-        baseBytes = existingSize;
-      }
-    }
-
-    return _ParallelDownloadState(
-      totalBytes: totalBytes,
-      baseBytes: baseBytes,
-      chunkSize: _parallelDownloadChunkSize,
-      segments: _buildParallelSegments(baseBytes, totalBytes),
-    );
-  }
-
-  List<_ParallelDownloadSegment> _buildParallelSegments(
-    int startByte,
-    int totalBytes,
-  ) {
-    final segments = <_ParallelDownloadSegment>[];
-    var start = startByte;
-    while (start < totalBytes) {
-      final end = math.min(
-        start + _parallelDownloadChunkSize - 1,
-        totalBytes - 1,
-      );
-      segments.add(_ParallelDownloadSegment(start: start, end: end));
-      start = end + 1;
-    }
-    return segments;
-  }
-
-  Future<void> _downloadParallelSegment(
-    DownloadTask t,
-    _ParallelDownloadState state,
-    _ParallelDownloadSegment segment,
-    Future<void> Function(int offset, List<int> data) writeAt,
-    Future<void> Function(int chunkLength) recordProgress,
-  ) async {
-    while (!segment.complete && !_stopped(t)) {
-      final rangeStart = segment.start + segment.downloaded;
-      final client = http.Client();
-      _trackTaskClient(t, client);
-      try {
-        final result = await _sendDownloadRequestWithUri(
-          client,
-          t.downloadUrl,
-          {"Range": "bytes=$rangeStart-${segment.end}"},
-        );
-        final resp = result.response;
-        if (resp.statusCode != 206) {
-          throw http.ClientException(
-            "Parallel download range unsupported: HTTP ${resp.statusCode}",
-          );
-        }
-        final contentRange = _parseContentRange(resp.headers["content-range"]);
-        if (contentRange == null ||
-            contentRange.start != rangeStart ||
-            contentRange.totalBytes != state.totalBytes) {
-          throw http.ClientException("Parallel download range mismatch");
-        }
-
-        await for (final chunk in resp.stream.timeout(
-          _downloadIdleTimeout,
-          onTimeout: (sink) {
-            sink.addError(
-              TimeoutException("下载连接长时间没有收到数据", _downloadIdleTimeout),
-            );
-          },
-        )) {
-          if (_stopped(t)) return;
-          final remaining = segment.length - segment.downloaded;
-          if (chunk.length > remaining) {
-            throw http.ClientException("Parallel download segment overflow");
-          }
-          final offset = segment.start + segment.downloaded;
-          await writeAt(offset, chunk);
-          segment.downloaded += chunk.length;
-          await recordProgress(chunk.length);
-        }
-
-        if (!segment.complete && !_stopped(t)) {
-          throw http.ClientException("Parallel download segment ended early");
-        }
-      } finally {
-        client.close();
-        _untrackTaskClient(t, client);
-      }
-    }
-  }
-
-  _ParsedContentRange? _parseContentRange(String? value) {
-    if (value == null) return null;
-    final match = RegExp(
-      r'^bytes\s+(\d+)-(\d+)/(\d+)$',
-      caseSensitive: false,
-    ).firstMatch(value.trim());
-    if (match == null) return null;
-    return _ParsedContentRange(
-      start: int.parse(match.group(1)!),
-      end: int.parse(match.group(2)!),
-      totalBytes: int.parse(match.group(3)!),
-    );
-  }
-
   File _parallelDownloadStateFile(File dest) =>
       File("${dest.path}.parallel.json");
 
-  Future<_ParallelDownloadState?> _loadParallelDownloadState(File dest) async {
-    final file = _parallelDownloadStateFile(dest);
-    try {
-      if (!await file.exists()) return null;
-      final decoded = const JsonDecoder().convert(await file.readAsString());
-      if (decoded is! Map) return null;
-      return _ParallelDownloadState.fromJson(Map<String, dynamic>.from(decoded));
-    } catch (e) {
-      LoggerService().warn("parallel download state ignored: $e");
-      return null;
-    }
-  }
-
-  Future<void> _saveParallelDownloadState(
-    File dest,
-    _ParallelDownloadState state,
-  ) async {
+  Future<bool> _discardParallelDownloadState(File dest) async {
     final file = _parallelDownloadStateFile(dest);
     final tmp = File("${file.path}.tmp");
+    final hadState = await file.exists() || await tmp.exists();
+    if (!hadState) return false;
+
+    LoggerService().warn("discard stale parallel download: ${dest.path}");
     try {
-      await tmp.writeAsString(const JsonEncoder().convert(state.toJson()));
-      try {
-        await file.delete();
-      } catch (_) {}
-      await tmp.rename(file.path);
-    } catch (_) {
-      try {
-        await file.writeAsString(const JsonEncoder().convert(state.toJson()));
-      } catch (_) {}
+      if (await dest.exists()) await dest.delete();
+    } catch (e) {
+      LoggerService().warn("discard stale parallel download file failed: $e");
     }
+    await _deleteParallelDownloadState(dest);
+    return true;
   }
 
   Future<void> _deleteParallelDownloadState(File dest) async {
@@ -1648,6 +1237,12 @@ class DownloadService with WidgetsBindingObserver {
     } catch (_) {}
     try {
       await File("${file.path}.tmp").delete();
+    } catch (_) {}
+  }
+
+  Future<void> _deleteFileQuietly(String path) async {
+    try {
+      await File(path).delete();
     } catch (_) {}
   }
 
@@ -1852,19 +1447,6 @@ class DownloadService with WidgetsBindingObserver {
     String url,
     Map<String, String> baseHeaders,
   ) async {
-    final result = await _sendDownloadRequestWithUri(
-      client,
-      url,
-      baseHeaders,
-    );
-    return result.response;
-  }
-
-  Future<_DownloadResponse> _sendDownloadRequestWithUri(
-    http.Client client,
-    String url,
-    Map<String, String> baseHeaders,
-  ) async {
     var current = Uri.parse(url);
     final originalScheme = current.scheme;
     final originalHost = current.host;
@@ -1873,12 +1455,6 @@ class DownloadService with WidgetsBindingObserver {
     for (var redirectCount = 0; redirectCount < 8; redirectCount++) {
       final req = http.Request("GET", current)..followRedirects = false;
       req.headers.addAll(baseHeaders);
-      req.headers["User-Agent"] =
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
-      req.headers["Accept"] = "*/*";
-      req.headers["Accept-Encoding"] = "identity";
-      req.headers["Connection"] = "keep-alive";
 
       final sameOrigin =
           current.scheme == originalScheme &&
@@ -1921,7 +1497,7 @@ class DownloadService with WidgetsBindingObserver {
       LoggerService().info(
         "download final[$redirectCount]: HTTP ${resp.statusCode} ${_downloadLogTarget(current)}",
       );
-      return _DownloadResponse(response: resp);
+      return resp;
     }
 
     throw Exception("下载重定向次数过多");
@@ -2294,130 +1870,6 @@ class DownloadService with WidgetsBindingObserver {
     _controller.add(List.unmodifiable(_tasks));
     if (save) _saveTasks();
     if (!_hasActiveDownloads()) _stopForegroundService();
-  }
-}
-
-class _DownloadResponse {
-  final http.StreamedResponse response;
-
-  _DownloadResponse({required this.response});
-}
-
-class _ParallelDownloadProbe {
-  final int totalBytes;
-
-  _ParallelDownloadProbe(this.totalBytes);
-}
-
-class _ParsedContentRange {
-  final int start;
-  final int end;
-  final int totalBytes;
-
-  _ParsedContentRange({
-    required this.start,
-    required this.end,
-    required this.totalBytes,
-  });
-}
-
-class _ParallelDownloadState {
-  final int totalBytes;
-  final int baseBytes;
-  final int chunkSize;
-  final List<_ParallelDownloadSegment> segments;
-
-  _ParallelDownloadState({
-    required this.totalBytes,
-    required this.baseBytes,
-    required this.chunkSize,
-    required this.segments,
-  });
-
-  int get receivedBytes {
-    final segmentBytes = segments.fold<int>(
-      0,
-      (sum, segment) => sum + math.min(segment.downloaded, segment.length),
-    );
-    return math.min(totalBytes, baseBytes + segmentBytes);
-  }
-
-  List<_ParallelDownloadSegment> get pendingSegments =>
-      segments.where((segment) => !segment.complete).toList(growable: false);
-
-  bool isCompatible(int expectedTotalBytes, int expectedChunkSize) {
-    if (totalBytes != expectedTotalBytes ||
-        chunkSize != expectedChunkSize ||
-        baseBytes < 0 ||
-        baseBytes > totalBytes) {
-      return false;
-    }
-    return segments.every(
-      (segment) =>
-          segment.start >= baseBytes &&
-          segment.start <= segment.end &&
-          segment.end < totalBytes &&
-          segment.downloaded >= 0 &&
-          segment.downloaded <= segment.length,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    "totalBytes": totalBytes,
-    "baseBytes": baseBytes,
-    "chunkSize": chunkSize,
-    "segments": segments.map((segment) => segment.toJson()).toList(),
-  };
-
-  factory _ParallelDownloadState.fromJson(Map<String, dynamic> json) {
-    final rawSegments = json["segments"];
-    final segments = <_ParallelDownloadSegment>[];
-    if (rawSegments is List) {
-      for (final item in rawSegments) {
-        if (item is Map) {
-          segments.add(
-            _ParallelDownloadSegment.fromJson(
-              Map<String, dynamic>.from(item),
-            ),
-          );
-        }
-      }
-    }
-    return _ParallelDownloadState(
-      totalBytes: (json["totalBytes"] as num?)?.toInt() ?? 0,
-      baseBytes: (json["baseBytes"] as num?)?.toInt() ?? 0,
-      chunkSize: (json["chunkSize"] as num?)?.toInt() ?? 0,
-      segments: segments,
-    );
-  }
-}
-
-class _ParallelDownloadSegment {
-  final int start;
-  final int end;
-  int downloaded;
-
-  _ParallelDownloadSegment({
-    required this.start,
-    required this.end,
-    this.downloaded = 0,
-  });
-
-  int get length => end - start + 1;
-  bool get complete => downloaded >= length;
-
-  Map<String, dynamic> toJson() => {
-    "start": start,
-    "end": end,
-    "downloaded": downloaded,
-  };
-
-  factory _ParallelDownloadSegment.fromJson(Map<String, dynamic> json) {
-    return _ParallelDownloadSegment(
-      start: (json["start"] as num?)?.toInt() ?? 0,
-      end: (json["end"] as num?)?.toInt() ?? -1,
-      downloaded: (json["downloaded"] as num?)?.toInt() ?? 0,
-    );
   }
 }
 
