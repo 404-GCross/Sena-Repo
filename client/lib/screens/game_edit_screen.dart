@@ -2034,149 +2034,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
     };
     final src = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("选择数据来源"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: sources.entries
-              .map(
-                (e) => ListTile(
-                  title: Text(e.value),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.pop(ctx, e.key),
-                ),
-              )
-              .toList(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-        ],
-      ),
+      builder: (ctx) => _MetadataSourceDialog(sources: sources),
     );
     if (src == null || !mounted) return;
 
     // Step 2: Search with inline loading + results
-    final ctrl = TextEditingController(text: _name.text);
     final picked = await showDialog<Object?>(
       context: context,
-      builder: (ctx) {
-        var results = <Map<String, dynamic>>[];
-        var searching = false;
-        var error = "";
-        return StatefulBuilder(
-          builder: (ctx, setD) => AlertDialog(
-            title: Text("${sources[src]} - 搜索"),
-            content: SizedBox(
-              width: 440,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: ctrl,
-                          autofocus: true,
-                          decoration: _dec(
-                            labelText: "名称/ID",
-                            hintText: "游戏名 或 VNDB/Steam/Bangumi/Hikarinagi ID",
-                          ),
-                          onSubmitted: (v) async {
-                            setD(() {
-                              searching = true;
-                              results = [];
-                              error = "";
-                            });
-                            try {
-                              results = await _searchMetadataSource(src, v);
-                            } catch (e) {
-                              error = "$e";
-                            }
-                            setD(() => searching = false);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        icon: const Icon(Icons.search, size: 18),
-                        onPressed: () async {
-                          setD(() {
-                            searching = true;
-                            results = [];
-                            error = "";
-                          });
-                          try {
-                            results =
-                                await _searchMetadataSource(src, ctrl.text);
-                          } catch (e) {
-                            error = "$e";
-                          }
-                          setD(() => searching = false);
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (searching)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: CircularProgressIndicator(),
-                    ),
-                  if (error.isNotEmpty)
-                    Text(error, style: const TextStyle(color: Colors.red)),
-                  if (!searching && results.isEmpty && error.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text("无结果", style: TextStyle(color: Colors.grey)),
-                    ),
-                  if (results.isNotEmpty)
-                    SizedBox(
-                      height: 350,
-                      child: ListView.builder(
-                        itemCount: results.length,
-                        itemBuilder: (_, i) {
-                          final r = results[i];
-                          return ListTile(
-                            title: Text(
-                              r["title"] ?? "",
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            subtitle: Text(
-                              [r["developer"], r["release_date"]]
-                                  .where(
-                                    (s) => s != null && s.toString().isNotEmpty,
-                                  )
-                                  .join(" · "),
-                              maxLines: 1,
-                              style: AppText.label.copyWith(
-                                color: hintColor(context),
-                              ),
-                            ),
-                            trailing: const Icon(Icons.chevron_right, size: 18),
-                            onTap: () => Navigator.pop(ctx, r),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, "retry"),
-                child: const Text("重新选择来源"),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("取消"),
-              ),
-            ],
-          ),
-        );
-      },
+      builder: (ctx) => _MetadataSearchDialog(
+        sourceName: sources[src] ?? src,
+        initialQuery: _name.text,
+        onSearch: (query) => _searchMetadataSource(src, query),
+      ),
     );
     if (picked == "retry") {
       await _downloadMetadata();
@@ -2276,569 +2145,52 @@ class _GameEditScreenState extends State<GameEditScreen> {
     useSearch["封面"] = hasCoverDiff;
     useSearch["背景"] = hasHeroDiff;
 
+    final currentCoverUrl = _coverPath != null
+        ? "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion"
+        : "";
+    final currentHeroUrl = _bgUrl.text.isEmpty
+        ? ""
+        : _bgUrl.text.startsWith("http")
+            ? _bgUrl.text
+            : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion";
+
     final confirmed = await showDialog<Map<String, bool>?>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) {
-          final anyDiff = useSearch.values.any((v) => v);
-          return AlertDialog(
-            title: Row(
-              children: [
-                Icon(Icons.compare_arrows, size: 22, color: Colors.green[300]),
-                const SizedBox(width: 8),
-                Text("对比 - ${sources[src]}"),
-              ],
-            ),
-            content: SizedBox(
-              width: 500,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 480),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (!anyDiff)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                size: 18,
-                                color: hintColor(context),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                "所有字段与现有数据一致，无需更新",
-                                style: AppText.bodySmall.copyWith(
-                                  color: hintColor(context),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ...fields.keys.map((f) {
-                        final cur = fields[f]!.text;
-                        final inc = incoming[f] ?? "";
-                        final hasDiff = inc.isNotEmpty && inc != cur;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: hasDiff ? cardBg(context) : cardBg(context),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: hasDiff
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : cardBorder(context),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    f,
-                                    style: AppText.bodySmall.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: subTextColor(context),
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  if (hasDiff)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.withValues(
-                                          alpha: 0.15,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        "有变更",
-                                        style: AppText.caption.copyWith(
-                                          color: Colors.green[300],
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              if (hasDiff)
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.withValues(
-                                            alpha: 0.06,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          cur.isEmpty ? "(空)" : cur,
-                                          style: AppText.bodyMedium.copyWith(
-                                            color: hintColor(context),
-                                            decoration:
-                                                TextDecoration.lineThrough,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                      ),
-                                      child: Icon(
-                                        Icons.arrow_forward,
-                                        size: 18,
-                                        color: Colors.green[400],
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withValues(
-                                            alpha: 0.06,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          inc.length > 80
-                                              ? "${inc.substring(0, 80)}..."
-                                              : inc,
-                                          style: AppText.bodyMedium.copyWith(
-                                            color: Colors.green,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              else
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: cardBg(context),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    cur.isEmpty ? "(空)" : cur,
-                                    style: AppText.bodyMedium.copyWith(
-                                      color: subTextColor(context),
-                                    ),
-                                  ),
-                                ),
-                              if (hasDiff)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: Checkbox(
-                                          value: useSearch[f],
-                                          onChanged: (v) => setD(
-                                            () => useSearch[f] = v ?? false,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      GestureDetector(
-                                        onTap: () => setD(
-                                          () => useSearch[f] =
-                                              !(useSearch[f] ?? false),
-                                        ),
-                                        child: const Text(
-                                          "应用此项",
-                                          style: TextStyle(fontSize: 13),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      }),
-                      if (hasCoverDiff) ...[
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.green.withValues(alpha: 0.25),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    "封面",
-                                    style: AppText.bodySmall.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: subTextColor(context),
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withValues(
-                                        alpha: 0.15,
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      "有变更",
-                                      style: AppText.caption.copyWith(
-                                        color: Colors.green[300],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: _coverPath != null
-                                        ? Image.network(
-                                            "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                                            key: ValueKey(
-                                              "cover_$_coverVersion",
-                                            ),
-                                            headers: mediaAuthHeaders,
-                                            width: 90,
-                                            height: 120,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                                _coverPlaceholderSmall(),
-                                          )
-                                        : _coverPlaceholderSmall(),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
-                                    child: Icon(
-                                      Icons.arrow_forward,
-                                      size: 22,
-                                      color: Colors.green[400],
-                                    ),
-                                  ),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Image.network(
-                                      coverUrl,
-                                      width: 90,
-                                      height: 120,
-                                      fit: BoxFit.cover,
-                                      loadingBuilder: (_, child, progress) {
-                                        if (progress == null) return child;
-                                        return Container(
-                                          width: 90,
-                                          height: 120,
-                                          color: Colors.grey.withValues(
-                                            alpha: 0.15,
-                                          ),
-                                          child: Center(
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              value: progress
-                                                          .expectedTotalBytes !=
-                                                      null
-                                                  ? progress
-                                                          .cumulativeBytesLoaded /
-                                                      progress
-                                                          .expectedTotalBytes!
-                                                  : null,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder: (_, __, ___) =>
-                                          _coverPlaceholderSmall(),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: Checkbox(
-                                      value: useSearch["封面"],
-                                      onChanged: (v) => setD(
-                                        () => useSearch["封面"] = v ?? false,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  GestureDetector(
-                                    onTap: () => setD(
-                                      () => useSearch["封面"] =
-                                          !(useSearch["封面"] ?? false),
-                                    ),
-                                    child: const Text(
-                                      "下载并替换封面",
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (hasHeroDiff) ...[
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.green.withValues(alpha: 0.25),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    "背景",
-                                    style: AppText.bodySmall.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: subTextColor(context),
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withValues(
-                                        alpha: 0.15,
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      "有变更",
-                                      style: AppText.caption.copyWith(
-                                        color: Colors.green[300],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "当前背景",
-                                        style: AppText.caption.copyWith(
-                                          color: hintColor(context),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: _bgUrl.text.isNotEmpty
-                                            ? Image.network(
-                                                _bgUrl.text.startsWith("http")
-                                                    ? _bgUrl.text
-                                                    : "$_baseUrl/api/files/backgrounds/${_bgUrl.text.split("/").last}?v=$_bgVersion",
-                                                headers: _bgUrl.text
-                                                        .startsWith("http")
-                                                    ? null
-                                                    : mediaAuthHeaders,
-                                                width: 180,
-                                                height: 90,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
-                                                    Container(
-                                                  width: 180,
-                                                  height: 90,
-                                                  color: Colors.grey[800],
-                                                  child: const Icon(
-                                                    Icons.broken_image,
-                                                    color: Colors.grey,
-                                                  ),
-                                                ),
-                                              )
-                                            : Container(
-                                                width: 180,
-                                                height: 90,
-                                                color: Colors.grey[800],
-                                                child: const Icon(
-                                                  Icons.image,
-                                                  color: Colors.grey,
-                                                ),
-                                              ),
-                                      ),
-                                    ],
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      left: 12,
-                                      right: 12,
-                                      top: 50,
-                                    ),
-                                    child: Icon(
-                                      Icons.arrow_forward,
-                                      size: 22,
-                                      color: Colors.green[400],
-                                    ),
-                                  ),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "${sources[src]} 背景",
-                                        style: AppText.caption.copyWith(
-                                          color: Colors.green[300],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Image.network(
-                                          heroUrl,
-                                          width: 180,
-                                          height: 90,
-                                          fit: BoxFit.cover,
-                                          loadingBuilder: (_, child, progress) {
-                                            if (progress == null) return child;
-                                            return Container(
-                                              width: 180,
-                                              height: 90,
-                                              color: Colors.grey.withValues(
-                                                alpha: 0.15,
-                                              ),
-                                              child: Center(
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  value: progress
-                                                              .expectedTotalBytes !=
-                                                          null
-                                                      ? progress
-                                                              .cumulativeBytesLoaded /
-                                                          progress
-                                                              .expectedTotalBytes!
-                                                      : null,
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                          errorBuilder: (_, __, ___) =>
-                                              Container(
-                                            width: 180,
-                                            height: 90,
-                                            color: Colors.grey[800],
-                                            child: const Icon(
-                                              Icons.broken_image,
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: Checkbox(
-                                      value: useSearch["背景"],
-                                      onChanged: (v) => setD(
-                                        () => useSearch["背景"] = v ?? false,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  GestureDetector(
-                                    onTap: () => setD(
-                                      () => useSearch["背景"] =
-                                          !(useSearch["背景"] ?? false),
-                                    ),
-                                    child: const Text(
-                                      "应用背景",
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("取消"),
-              ),
-              FilledButton.icon(
-                onPressed: anyDiff ? () => Navigator.pop(ctx, useSearch) : null,
-                icon: const Icon(Icons.check, size: 18),
-                label: const Text("应用所选"),
-              ),
-            ],
-          );
+      builder: (ctx) => _MetadataApplyDialog(
+        sourceName: sources[src] ?? src,
+        currentFields: {
+          for (final entry in fields.entries) entry.key: entry.value.text,
         },
+        incomingFields: incoming,
+        initialSelection: useSearch,
+        imageComparisons: [
+          if (hasCoverDiff)
+            _MetadataApplyImage(
+              key: "封面",
+              title: "封面",
+              currentLabel: "当前封面",
+              sourceLabel: "${sources[src] ?? src} 封面",
+              currentUrl: currentCoverUrl,
+              sourceUrl: coverUrl,
+              currentHeaders: mediaAuthHeaders,
+              aspectRatio: 3 / 4,
+              icon: Icons.image_outlined,
+            ),
+          if (hasHeroDiff)
+            _MetadataApplyImage(
+              key: "背景",
+              title: "背景",
+              currentLabel: "当前背景",
+              sourceLabel: "${sources[src] ?? src} 背景",
+              currentUrl: currentHeroUrl,
+              sourceUrl: heroUrl,
+              currentHeaders: currentHeroUrl.contains("/api/files/")
+                  ? mediaAuthHeaders
+                  : null,
+              aspectRatio: 16 / 9,
+              icon: Icons.wallpaper_outlined,
+            ),
+        ],
       ),
     );
     if (confirmed == null || !mounted) return;
@@ -2934,6 +2286,1467 @@ class _GameEditScreenState extends State<GameEditScreen> {
       ),
     );
   }
+}
+
+class _MetadataSourceDialog extends StatelessWidget {
+  final Map<String, String> sources;
+
+  const _MetadataSourceDialog({required this.sources});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final width = MediaQuery.sizeOf(context).width > 540
+        ? 500.0
+        : MediaQuery.sizeOf(context).width - 32;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: width,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+                child: Row(
+                  children: [
+                    _MetadataDialogIcon(
+                      icon: Icons.travel_explore_rounded,
+                      color: cs.primary,
+                    ),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("选择元数据来源", style: AppText.headline),
+                          const SizedBox(height: 4),
+                          Text(
+                            "从可用来源中选择一个，然后搜索游戏条目。",
+                            style: AppText.bodySmall.copyWith(
+                              color: hintColor(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AppStatusPill(
+                      icon: Icons.hub_outlined,
+                      label: "${sources.length} 个来源",
+                      color: cs.primary,
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  itemCount: sources.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: AppGap.sm),
+                  itemBuilder: (context, index) {
+                    final entry = sources.entries.elementAt(index);
+                    return _MetadataSourceTile(
+                      label: entry.value,
+                      selected: false,
+                      onTap: () => Navigator.pop<String>(context, entry.key),
+                    );
+                  },
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    AppActionButton(
+                      icon: Icons.close_rounded,
+                      label: "取消",
+                      color: hintColor(context),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataSearchDialog extends StatefulWidget {
+  final String sourceName;
+  final String initialQuery;
+  final Future<List<Map<String, dynamic>>> Function(String) onSearch;
+
+  const _MetadataSearchDialog({
+    required this.sourceName,
+    required this.initialQuery,
+    required this.onSearch,
+  });
+
+  @override
+  State<_MetadataSearchDialog> createState() => _MetadataSearchDialogState();
+}
+
+class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
+  late final TextEditingController _controller;
+  List<Map<String, dynamic>> _results = const [];
+  bool _loading = false;
+  bool _searched = false;
+  String? _error;
+  int _requestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialQuery.trim());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _controller.text.trim().isEmpty) return;
+      _search();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    final query = _controller.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _searched = true;
+        _loading = false;
+        _results = const [];
+        _error = "请输入搜索关键词";
+      });
+      return;
+    }
+
+    final requestId = ++_requestId;
+    setState(() {
+      _loading = true;
+      _searched = true;
+      _results = const [];
+      _error = null;
+    });
+
+    try {
+      final results = await widget.onSearch(query);
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _results = results;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _error = "搜索失败，请稍后重试";
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width > 680 ? 620.0 : size.width - 32;
+    final height = size.height > 640 ? 560.0 : size.height - 32;
+    final statusLabel = _loading
+        ? "搜索中"
+        : _error != null
+            ? "失败"
+            : _results.isNotEmpty
+                ? "${_results.length} 项"
+                : widget.sourceName;
+    final statusColor = _error != null
+        ? cs.error
+        : _results.isNotEmpty
+            ? Colors.green
+            : cs.primary;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+                child: Row(
+                  children: [
+                    _MetadataDialogIcon(
+                      icon: Icons.search_rounded,
+                      color: cs.primary,
+                    ),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("搜索 ${widget.sourceName}", style: AppText.headline),
+                          const SizedBox(height: 4),
+                          Text(
+                            "输入名称或 ID，选择要导入的匹配条目。",
+                            style: AppText.bodySmall.copyWith(
+                              color: hintColor(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AppStatusPill(
+                      icon: _loading
+                          ? Icons.sync_rounded
+                          : _error != null
+                              ? Icons.error_outline_rounded
+                              : Icons.manage_search_rounded,
+                      label: statusLabel,
+                      color: statusColor,
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                child: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  enabled: !_loading,
+                  onSubmitted: (_) => _search(),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: cardBg(context),
+                    labelText: "名称或 ID",
+                    hintText: "输入后回车搜索",
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: IconButton(
+                      tooltip: "搜索",
+                      icon: const Icon(Icons.arrow_forward_rounded),
+                      onPressed: _loading ? null : _search,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                  child: _buildBody(context),
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    AppActionButton(
+                      icon: Icons.close_rounded,
+                      label: "取消",
+                      color: hintColor(context),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const SizedBox(width: AppGap.sm),
+                    AppActionButton(
+                      icon: Icons.swap_horiz_rounded,
+                      label: "更换来源",
+                      color: Colors.orange,
+                      onPressed: _loading
+                          ? null
+                          : () => Navigator.pop<Object?>(context, "retry"),
+                    ),
+                    const SizedBox(width: AppGap.sm),
+                    AppActionButton(
+                      icon: Icons.search_rounded,
+                      label: "搜索",
+                      filled: true,
+                      busy: _loading,
+                      onPressed: _loading ? null : _search,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (_loading) {
+      return const _MetadataStateMessage(
+        icon: Icons.sync_rounded,
+        title: "正在搜索",
+        message: "请稍候，正在获取候选元数据。",
+        showProgress: true,
+      );
+    }
+    if (_error != null) {
+      return _MetadataStateMessage(
+        icon: Icons.error_outline_rounded,
+        title: "搜索失败",
+        message: _error!,
+        color: cs.error,
+        action: AppActionButton(
+          icon: Icons.refresh_rounded,
+          label: "重试搜索",
+          filled: true,
+          onPressed: _search,
+        ),
+      );
+    }
+    if (!_searched) {
+      return _MetadataStateMessage(
+        icon: Icons.travel_explore_rounded,
+        title: "准备搜索",
+        message: "确认关键词后开始搜索 ${widget.sourceName}。",
+      );
+    }
+    if (_results.isEmpty) {
+      return const _MetadataStateMessage(
+        icon: Icons.search_off_rounded,
+        title: "没有结果",
+        message: "未找到匹配条目，请调整关键词后重试。",
+      );
+    }
+
+    return ListView.separated(
+      itemCount: _results.length,
+      separatorBuilder: (_, __) => const SizedBox(height: AppGap.sm),
+      itemBuilder: (context, index) => _MetadataResultTile(
+        result: _results[index],
+        onTap: () => Navigator.pop<Object?>(
+          context,
+          _results[index],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataSourceTile extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _MetadataSourceTile({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: selected ? cs.primary.withValues(alpha: 0.12) : cardBg(context),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.public_rounded, size: 20, color: cs.primary),
+              const SizedBox(width: AppGap.md),
+              Expanded(
+                child: Text(
+                  label,
+                  style: AppText.bodyMedium.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: hintColor(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataResultTile extends StatelessWidget {
+  final Map<String, dynamic> result;
+  final VoidCallback onTap;
+
+  const _MetadataResultTile({
+    required this.result,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final title = _metadataText(result, const ["title", "name"]);
+    final developer = _metadataText(result, const ["developer", "brand"]);
+    final releaseDate = _metadataText(
+      result,
+      const ["release_date", "date", "released"],
+    );
+    final coverUrl = _metadataText(result, const ["cover_url", "image", "image_url"]);
+
+    return Material(
+      color: cardBg(context),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: Row(
+            children: [
+              _MetadataCoverThumb(url: coverUrl),
+              const SizedBox(width: AppGap.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title.isEmpty ? "未命名条目" : title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.bodyMedium.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: AppGap.sm,
+                      runSpacing: AppGap.xs,
+                      children: [
+                        if (developer.isNotEmpty)
+                          _MetadataMiniPill(
+                            icon: Icons.business_rounded,
+                            label: developer,
+                          ),
+                        if (releaseDate.isNotEmpty)
+                          _MetadataMiniPill(
+                            icon: Icons.event_rounded,
+                            label: releaseDate,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppGap.sm),
+              Icon(Icons.chevron_right_rounded, color: hintColor(context)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataCoverThumb extends StatelessWidget {
+  final String url;
+
+  const _MetadataCoverThumb({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Container(
+      width: 58,
+      height: 78,
+      color: placeholderBg(context),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.image_not_supported_outlined,
+        color: placeholderIcon(context),
+      ),
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: url.isEmpty
+          ? fallback
+          : Image.network(
+              url,
+              key: ValueKey(url),
+              width: 58,
+              height: 78,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => fallback,
+            ),
+    );
+  }
+}
+
+class _MetadataMiniPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _MetadataMiniPill({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: hintColor(context)),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: AppText.caption.copyWith(color: hintColor(context)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataStateMessage extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color? color;
+  final Widget? action;
+  final bool showProgress;
+
+  const _MetadataStateMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.color,
+    this.action,
+    this.showProgress = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = color ?? Theme.of(context).colorScheme.primary;
+    return Center(
+      child: AppSurface(
+        radius: AppRadius.lg,
+        padding: const EdgeInsets.all(AppGap.lg),
+        color: cardBg(context),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showProgress)
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.4, color: base),
+              )
+            else
+              Icon(icon, size: 30, color: base),
+            const SizedBox(height: AppGap.md),
+            Text(
+              title,
+              style: AppText.title.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: AppGap.xs),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppText.bodySmall.copyWith(
+                color: hintColor(context),
+                height: 1.35,
+              ),
+            ),
+            if (action != null) ...[
+              const SizedBox(height: AppGap.md),
+              action!,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataDialogIcon extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _MetadataDialogIcon({
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Icon(icon, color: color, size: 21),
+    );
+  }
+}
+
+String _metadataText(Map<String, dynamic> result, List<String> keys) {
+  for (final key in keys) {
+    final value = result[key];
+    if (value == null) continue;
+    final text = value.toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return "";
+}
+
+class _MetadataApplyImage {
+  final String key;
+  final String title;
+  final String currentLabel;
+  final String sourceLabel;
+  final String currentUrl;
+  final String sourceUrl;
+  final Map<String, String>? currentHeaders;
+  final Map<String, String>? sourceHeaders;
+  final double aspectRatio;
+  final IconData icon;
+
+  const _MetadataApplyImage({
+    required this.key,
+    required this.title,
+    required this.currentLabel,
+    required this.sourceLabel,
+    required this.currentUrl,
+    required this.sourceUrl,
+    this.currentHeaders,
+    this.sourceHeaders,
+    required this.aspectRatio,
+    required this.icon,
+  });
+}
+
+class _MetadataApplyDialog extends StatefulWidget {
+  final String sourceName;
+  final Map<String, String> currentFields;
+  final Map<String, String> incomingFields;
+  final Map<String, bool> initialSelection;
+  final List<_MetadataApplyImage> imageComparisons;
+
+  const _MetadataApplyDialog({
+    required this.sourceName,
+    required this.currentFields,
+    required this.incomingFields,
+    required this.initialSelection,
+    required this.imageComparisons,
+  });
+
+  @override
+  State<_MetadataApplyDialog> createState() => _MetadataApplyDialogState();
+}
+
+class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
+  late final Map<String, bool> _selection;
+
+  @override
+  void initState() {
+    super.initState();
+    _selection = Map<String, bool>.from(widget.initialSelection);
+  }
+
+  int get _selectedCount => _selection.values.where((value) => value).length;
+
+  bool get _hasChanges {
+    for (final key in widget.currentFields.keys) {
+      if (_fieldHasDiff(key)) return true;
+    }
+    return widget.imageComparisons.isNotEmpty;
+  }
+
+  bool _fieldHasDiff(String key) {
+    final current = widget.currentFields[key] ?? "";
+    final incoming = widget.incomingFields[key] ?? "";
+    return incoming.isNotEmpty && incoming != current;
+  }
+
+  void _setSelected(String key, bool value) {
+    setState(() => _selection[key] = value);
+  }
+
+  Future<void> _showFullDescription(String title, String text) {
+    final compact = MediaQuery.sizeOf(context).width < 640;
+    if (compact) {
+      return showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => _MetadataDescriptionSheet(
+          title: title,
+          description: text,
+        ),
+      );
+    }
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: SizedBox(
+          width: 620,
+          height: 540,
+          child: _MetadataDescriptionSurface(
+            title: title,
+            description: text,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width > 980 ? 920.0 : size.width - 32;
+    final height = size.height > 760 ? 700.0 : size.height - 32;
+    final selectedCount = _selectedCount;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+                child: Row(
+                  children: [
+                    _MetadataDialogIcon(
+                      icon: Icons.rule_rounded,
+                      color: cs.primary,
+                    ),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "应用 ${widget.sourceName} 元数据",
+                            style: AppText.headline,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "对比当前字段和来源字段，勾选要写入编辑表单的项目。",
+                            style: AppText.bodySmall.copyWith(
+                              color: hintColor(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AppStatusPill(
+                      icon: selectedCount > 0
+                          ? Icons.check_circle_rounded
+                          : Icons.info_outline_rounded,
+                      label: selectedCount > 0
+                          ? "已选 $selectedCount 项"
+                          : _hasChanges
+                              ? "未选择"
+                              : "无变更",
+                      color: selectedCount > 0
+                          ? Colors.green
+                          : _hasChanges
+                              ? cs.primary
+                              : hintColor(context),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    if (!_hasChanges) ...[
+                      const _MetadataStateMessage(
+                        icon: Icons.check_circle_outline_rounded,
+                        title: "没有可应用的变更",
+                        message: "来源字段与当前编辑内容一致，或来源未提供可写入内容。",
+                      ),
+                      const SizedBox(height: AppGap.md),
+                    ],
+                    ...widget.currentFields.keys.map(
+                      (key) => _MetadataApplyFieldRow(
+                        field: key,
+                        currentValue: widget.currentFields[key] ?? "",
+                        sourceValue: widget.incomingFields[key] ?? "",
+                        sourceName: widget.sourceName,
+                        selected: _selection[key] ?? false,
+                        enabled: _fieldHasDiff(key),
+                        onChanged: (value) => _setSelected(key, value),
+                        onShowDescription: _showFullDescription,
+                      ),
+                    ),
+                    if (widget.imageComparisons.isNotEmpty) ...[
+                      const SizedBox(height: AppGap.sm),
+                      Text(
+                        "图片资源",
+                        style: AppText.section.copyWith(
+                          color: sectionTextColor(context),
+                        ),
+                      ),
+                      const SizedBox(height: AppGap.md),
+                      ...widget.imageComparisons.map(
+                        (image) => _MetadataApplyImageCard(
+                          comparison: image,
+                          selected: _selection[image.key] ?? false,
+                          onChanged: (value) => _setSelected(image.key, value),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    AppActionButton(
+                      icon: Icons.close_rounded,
+                      label: "取消",
+                      color: hintColor(context),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const SizedBox(width: AppGap.sm),
+                    AppActionButton(
+                      icon: Icons.check_rounded,
+                      label: "应用所选",
+                      filled: true,
+                      onPressed: selectedCount == 0
+                          ? null
+                          : () => Navigator.pop<Map<String, bool>>(
+                                context,
+                                Map<String, bool>.from(_selection),
+                              ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataApplyFieldRow extends StatelessWidget {
+  final String field;
+  final String currentValue;
+  final String sourceValue;
+  final String sourceName;
+  final bool selected;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+  final void Function(String title, String text) onShowDescription;
+
+  const _MetadataApplyFieldRow({
+    required this.field,
+    required this.currentValue,
+    required this.sourceValue,
+    required this.sourceName,
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+    required this.onShowDescription,
+  });
+
+  bool get _isDescription => field == "简介";
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppGap.md),
+      padding: const EdgeInsets.all(AppGap.md),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: enabled
+              ? Colors.green.withValues(alpha: 0.25)
+              : cardBorder(context),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  field,
+                  style: AppText.bodyMedium.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              AppStatusPill(
+                icon: enabled
+                    ? Icons.compare_arrows_rounded
+                    : Icons.check_circle_outline_rounded,
+                label: enabled ? "有变更" : "一致",
+                color: enabled ? Colors.green : hintColor(context),
+              ),
+              const SizedBox(width: AppGap.sm),
+              _MetadataApplyCheckbox(
+                label: "应用",
+                value: selected,
+                enabled: enabled,
+                onChanged: onChanged,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppGap.md),
+          _MetadataComparePanels(
+            current: _MetadataTextPanel(
+              label: "当前",
+              text: currentValue,
+              emptyText: "(空)",
+              isDescription: _isDescription,
+              onShowFull: currentValue.trim().isEmpty
+                  ? null
+                  : () => onShowDescription("当前简介", currentValue),
+            ),
+            source: _MetadataTextPanel(
+              label: sourceName,
+              text: sourceValue,
+              emptyText: "(来源未提供)",
+              isDescription: _isDescription,
+              highlighted: enabled,
+              onShowFull: sourceValue.trim().isEmpty
+                  ? null
+                  : () => onShowDescription("$sourceName 简介", sourceValue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataApplyImageCard extends StatelessWidget {
+  final _MetadataApplyImage comparison;
+  final bool selected;
+  final ValueChanged<bool> onChanged;
+
+  const _MetadataApplyImageCard({
+    required this.comparison,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppGap.md),
+      padding: const EdgeInsets.all(AppGap.md),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(comparison.icon, size: 20, color: cs.primary),
+              const SizedBox(width: AppGap.sm),
+              Expanded(
+                child: Text(
+                  comparison.title,
+                  style: AppText.bodyMedium.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              AppStatusPill(
+                icon: Icons.compare_arrows_rounded,
+                label: "有变更",
+                color: Colors.green,
+              ),
+              const SizedBox(width: AppGap.sm),
+              _MetadataApplyCheckbox(
+                label: "应用",
+                value: selected,
+                enabled: true,
+                onChanged: onChanged,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppGap.md),
+          _MetadataComparePanels(
+            current: _MetadataImagePanel(
+              label: comparison.currentLabel,
+              url: comparison.currentUrl,
+              headers: comparison.currentHeaders,
+              aspectRatio: comparison.aspectRatio,
+            ),
+            source: _MetadataImagePanel(
+              label: comparison.sourceLabel,
+              url: comparison.sourceUrl,
+              headers: comparison.sourceHeaders,
+              aspectRatio: comparison.aspectRatio,
+              highlighted: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataComparePanels extends StatelessWidget {
+  final Widget current;
+  final Widget source;
+
+  const _MetadataComparePanels({
+    required this.current,
+    required this.source,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              current,
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppGap.sm),
+                child: Icon(
+                  Icons.arrow_downward_rounded,
+                  color: Colors.green.withValues(alpha: 0.8),
+                ),
+              ),
+              source,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: current),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 36, 12, 0),
+              child: Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.green.withValues(alpha: 0.8),
+              ),
+            ),
+            Expanded(child: source),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MetadataTextPanel extends StatelessWidget {
+  final String label;
+  final String text;
+  final String emptyText;
+  final bool isDescription;
+  final bool highlighted;
+  final VoidCallback? onShowFull;
+
+  const _MetadataTextPanel({
+    required this.label,
+    required this.text,
+    required this.emptyText,
+    required this.isDescription,
+    this.highlighted = false,
+    this.onShowFull,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final value = text.trim().isEmpty ? emptyText : text.trim();
+    final preview = isDescription ? _metadataPreview(value, 120) : value;
+    final baseColor = highlighted ? Colors.green : hintColor(context);
+    return Container(
+      padding: const EdgeInsets.all(AppGap.md),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? Colors.green.withValues(alpha: 0.06)
+            : Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color: highlighted
+              ? Colors.green.withValues(alpha: 0.18)
+              : cardBorder(context),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppText.caption.copyWith(
+              color: baseColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppGap.sm),
+          Text(
+            preview,
+            maxLines: isDescription ? 4 : 3,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.bodySmall.copyWith(
+              color: highlighted
+                  ? Colors.green
+                  : Theme.of(context).colorScheme.onSurface,
+              height: 1.4,
+            ),
+          ),
+          if (isDescription && onShowFull != null) ...[
+            const SizedBox(height: AppGap.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AppActionButton(
+                icon: Icons.open_in_full_rounded,
+                label: "查看完整简介",
+                onPressed: onShowFull,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataImagePanel extends StatelessWidget {
+  final String label;
+  final String url;
+  final Map<String, String>? headers;
+  final double aspectRatio;
+  final bool highlighted;
+
+  const _MetadataImagePanel({
+    required this.label,
+    required this.url,
+    required this.headers,
+    required this.aspectRatio,
+    this.highlighted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = highlighted ? Colors.green : hintColor(context);
+    return Container(
+      padding: const EdgeInsets.all(AppGap.sm),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? Colors.green.withValues(alpha: 0.06)
+            : Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color: highlighted
+              ? Colors.green.withValues(alpha: 0.18)
+              : cardBorder(context),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppText.caption.copyWith(
+              color: baseColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppGap.sm),
+          AspectRatio(
+            aspectRatio: aspectRatio,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: url.isEmpty
+                  ? _MetadataImagePlaceholder(aspectRatio: aspectRatio)
+                  : Image.network(
+                      url,
+                      headers: headers,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (_, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: placeholderBg(context),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              value: progress.expectedTotalBytes != null
+                                  ? progress.cumulativeBytesLoaded /
+                                      progress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) =>
+                          _MetadataImagePlaceholder(aspectRatio: aspectRatio),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataImagePlaceholder extends StatelessWidget {
+  final double aspectRatio;
+
+  const _MetadataImagePlaceholder({required this.aspectRatio});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: placeholderBg(context),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.image_not_supported_outlined,
+        color: placeholderIcon(context),
+        size: aspectRatio > 1 ? 34 : 28,
+      ),
+    );
+  }
+}
+
+class _MetadataApplyCheckbox extends StatelessWidget {
+  final String label;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _MetadataApplyCheckbox({
+    required this.label,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = enabled ? Theme.of(context).colorScheme.primary : hintColor(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: enabled ? () => onChanged(!value) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: Checkbox(
+                value: enabled ? value : false,
+                onChanged: enabled ? (checked) => onChanged(checked ?? false) : null,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: AppText.bodySmall.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataDescriptionSheet extends StatelessWidget {
+  final String title;
+  final String description;
+
+  const _MetadataDescriptionSheet({
+    required this.title,
+    required this.description,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height * 0.82;
+    return SafeArea(
+      top: false,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: SizedBox(
+          height: height,
+          child: _MetadataDescriptionSurface(
+            title: title,
+            description: description,
+            sheet: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataDescriptionSurface extends StatelessWidget {
+  final String title;
+  final String description;
+  final bool sheet;
+
+  const _MetadataDescriptionSurface({
+    required this.title,
+    required this.description,
+    this.sheet = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = sheet ? 28.0 : AppRadius.xl;
+    return AppSurface(
+      radius: radius,
+      blur: true,
+      padding: EdgeInsets.zero,
+      child: ClipRRect(
+        borderRadius: sheet
+            ? const BorderRadius.vertical(top: Radius.circular(28))
+            : BorderRadius.circular(AppRadius.xl),
+        child: Column(
+          children: [
+            if (sheet) ...[
+              const SizedBox(height: AppGap.sm),
+              Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+              child: Row(
+                children: [
+                  _MetadataDialogIcon(
+                    icon: Icons.description_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: AppGap.md),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppText.title.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  AppActionButton(
+                    icon: Icons.close_rounded,
+                    label: "关闭",
+                    color: hintColor(context),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: cardBorder(context)),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: SelectableText(
+                  description.trim().isEmpty ? "(空)" : description.trim(),
+                  style: AppText.body.copyWith(height: 1.65),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _metadataPreview(String text, int maxLength) {
+  final normalized = text.trim().replaceAll(RegExp(r"\s+"), " ");
+  if (normalized.length <= maxLength) return normalized;
+  return "${normalized.substring(0, maxLength)}...";
 }
 
 class _HeroBackgroundPickerDialog extends StatefulWidget {
