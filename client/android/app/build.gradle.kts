@@ -16,6 +16,7 @@ if (propsFile.exists()) {
 android {
     namespace = "com.github.senarepo"
     compileSdk = flutter.compileSdkVersion
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
