@@ -1881,20 +1881,10 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
           final isBusy = runningTarget != null;
-          final missingBangumi = (game.bangumiId ?? "").trim().isEmpty;
 
           Future<void> pushToManager(String target) async {
             if (isBusy) return;
             final version = selectedVersion;
-            if (target == "reinamanager" && missingBangumi) {
-              LoggerService().warn(
-                "manager push blocked: target=$target gameId=${game.id} reason=missing_bangumi_id",
-              );
-              setDialogState(() {
-                errorText = "ReinaManager 推送需要 Bangumi ID，请先补全该条目的 Bangumi ID。";
-              });
-              return;
-            }
 
             setDialogState(() {
               runningTarget = target;
@@ -2017,13 +2007,10 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                   const SizedBox(height: 10),
                   _managerInstallOption(
                     name: "ReinaManager",
-                    description: missingBangumi
-                        ? "需要先补全 Bangumi ID，才能推送到 ReinaManager。"
-                        : "通过 reinamanager://install 打开，后续刮削由 ReinaManager 完成。",
+                    description: "通过 reinamanager://install 打开，已有元数据 ID 会随请求传递。",
                     assetPath: "assets/manager_icons/reinamanager.png",
                     loading: runningTarget == "reinamanager",
-                    disabled: missingBangumi ||
-                        (isBusy && runningTarget != "reinamanager"),
+                    disabled: isBusy && runningTarget != "reinamanager",
                     onTap: () => pushToManager("reinamanager"),
                   ),
                   if (errorText != null) ...[

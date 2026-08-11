@@ -11,11 +11,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,10 +178,7 @@ async def _calculate_version_sha256(
     session: AsyncSession,
 ) -> str:
     if (version.source_type or "local") == "openlist":
-        result = await session.execute(select(FileSource).where(FileSource.id == version.source_id))
-        source = result.scalar_one_or_none()
-        adapter = adapter_from_source(source, "openlist")
-        raw_url = await asyncio.to_thread(adapter.download_url, version.source_path or version.file_path)
+        raw_url = await _openlist_download_url(version, session)
         return await _sha256_url(raw_url)
 
     file_path = Path(version.file_path).resolve()
@@ -212,16 +209,113 @@ async def _ensure_version_checksum(
     return checksum
 
 
+async def _openlist_download_url(version: GameVersion, session: AsyncSession) -> str:
+    result = await session.execute(
+        select(FileSource).where(FileSource.id == version.source_id)
+    )
+    source = result.scalar_one_or_none()
+    adapter = adapter_from_source(source, "openlist")
+    return await asyncio.to_thread(
+        adapter.download_url,
+        version.source_path or version.file_path,
+    )
+
+
+def _download_headers(filename: str) -> dict[str, str]:
+    return {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+    }
+
+
+def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
+    unit, _, value = range_header.partition("=")
+    if unit.strip().lower() != "bytes" or "," in value:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+
+    start_text, sep, end_text = value.strip().partition("-")
+    if sep != "-":
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+
+    try:
+        if start_text == "":
+            suffix_size = int(end_text)
+            if suffix_size <= 0:
+                raise ValueError
+            start = max(file_size - suffix_size, 0)
+            end = file_size - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else file_size - 1
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        ) from exc
+
+    if start < 0 or start >= file_size or end < start:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+    return start, min(end, file_size - 1)
+
+
+async def _iter_file_range(file_path: Path, start: int, end: int):
+    with file_path.open("rb") as handle:
+        handle.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            chunk = await asyncio.to_thread(handle.read, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+
+
+def _serve_local_file(request: Request, file_path: Path, filename: str):
+    range_header = request.headers.get("range")
+    file_size = file_path.stat().st_size
+    if range_header:
+        start, end = _parse_range_header(range_header, file_size)
+        headers = {
+            **_download_headers(filename),
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(end - start + 1),
+        }
+        return StreamingResponse(
+            _iter_file_range(file_path, start, end),
+            status_code=206,
+            media_type="application/octet-stream",
+            headers=headers,
+        )
+
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/octet-stream",
+        headers=_download_headers(filename),
+    )
+
+
 async def _serve_version_download(
+    request: Request,
     game: Game,
     version: GameVersion,
     session: AsyncSession,
 ):
     if (version.source_type or "local") == "openlist":
-        result = await session.execute(select(FileSource).where(FileSource.id == version.source_id))
-        source = result.scalar_one_or_none()
-        adapter = adapter_from_source(source, "openlist")
-        raw_url = await asyncio.to_thread(adapter.download_url, version.source_path or version.file_path)
+        raw_url = await _openlist_download_url(version, session)
         return RedirectResponse(raw_url, status_code=302)
 
     file_path = Path(version.file_path).resolve()
@@ -231,11 +325,7 @@ async def _serve_version_download(
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(
-        path=str(file_path),
-        filename=version.filename,
-        media_type="application/octet-stream",
-    )
+    return _serve_local_file(request, file_path, version.filename)
 
 
 def _build_signed_download_url(
@@ -270,6 +360,26 @@ def _primary_lunabox_identity(game: Game) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _set_non_empty(params: dict[str, str], key: str, value: str | None) -> None:
+    normalized = (value or "").strip()
+    if normalized:
+        params[key] = normalized
+
+
+async def _manager_download_url(
+    request: Request,
+    game_id: int,
+    version_id: int,
+    version: GameVersion,
+    session: AsyncSession,
+    target: str,
+    expires_at: int,
+) -> tuple[str, int | None]:
+    if target == "reinamanager" and (version.source_type or "local") == "openlist":
+        return await _openlist_download_url(version, session), None
+    return _build_signed_download_url(request, game_id, version_id, expires_at), expires_at
+
+
 @router.get("/signed/{game_id}/{version_id}", name="download_signed_game_version")
 async def download_signed_game_version(
     game_id: int,
@@ -283,7 +393,7 @@ async def download_signed_game_version(
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
     try:
         game, version = await _get_game_and_version(game_id, version_id, session)
-        return await _serve_version_download(game, version, session)
+        return await _serve_version_download(request, game, version, session)
     except HTTPException:
         raise
     except Exception as e:
@@ -306,8 +416,6 @@ async def create_manager_install_link(
 
     if version.extract_password:
         raise HTTPException(status_code=400, detail="目标管理器暂不支持带解压密码的压缩包，请使用内置下载")
-    if body.target == "reinamanager" and not (game.bangumi_id or "").strip():
-        raise HTTPException(status_code=400, detail="ReinaManager 推送需要 Bangumi ID，请先补全该条目的 Bangumi ID")
 
     archive_format = _archive_format(version.filename)
     if archive_format not in SUPPORTED_MANAGER_ARCHIVE_FORMATS:
@@ -319,20 +427,29 @@ async def create_manager_install_link(
 
     checksum = await _ensure_version_checksum(version, session)
     expires_at = int(time.time()) + _download_ttl_seconds(size)
-    signed_url = _build_signed_download_url(request, game_id, version_id, expires_at)
+    download_url, url_expires_at = await _manager_download_url(
+        request,
+        game_id,
+        version_id,
+        version,
+        session,
+        body.target,
+        expires_at,
+    )
 
     if body.target == "lunabox":
         params = {
-            "url": signed_url,
+            "url": download_url,
             "file_name": version.filename,
             "archive_format": archive_format,
             "size": str(size),
-            "expires_at": str(expires_at),
             "checksum_algo": "sha256",
             "checksum": checksum,
             "title": game.name,
             "download_source": "sena-repo",
         }
+        if url_expires_at is not None:
+            params["expires_at"] = str(url_expires_at)
         meta_source, meta_id = _primary_lunabox_identity(game)
         if meta_source and meta_id:
             params["source"] = meta_source
@@ -343,24 +460,25 @@ async def create_manager_install_link(
             "v": "1",
             "provider": "sena-repo",
             "resource_id": f"game-{game.id}-version-{version.id}",
-            "url": signed_url,
+            "url": download_url,
             "file_name": version.filename,
             "archive_format": archive_format,
             "size": str(size),
             "checksum_algo": "sha256",
             "checksum": checksum,
-            "expires_at": str(expires_at),
-            "bgm_id": game.bangumi_id or "",
             "title": game.name,
         }
-        if game.vndb_id:
-            params["vndb_id"] = game.vndb_id
+        if url_expires_at is not None:
+            params["expires_at"] = str(url_expires_at)
+        _set_non_empty(params, "bgm_id", game.bangumi_id)
+        _set_non_empty(params, "vndb_id", game.vndb_id)
+        _set_non_empty(params, "hikarinagi_id", getattr(game, "hikarinagi_id", None))
         install_url = "reinamanager://install?" + urlencode(params)
 
     return ManagerInstallLinkResponse(
         target=body.target,
         install_url=install_url,
-        expires_at=expires_at,
+        expires_at=url_expires_at or 0,
         file_name=version.filename,
         archive_format=archive_format,
         size=size,
@@ -373,13 +491,14 @@ async def create_manager_install_link(
 async def download_game_version(
     game_id: int,
     version_id: int,
+    request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Download a specific game version archive file."""
     try:
         game, version = await _get_game_and_version(game_id, version_id, session)
-        return await _serve_version_download(game, version, session)
+        return await _serve_version_download(request, game, version, session)
     except HTTPException:
         raise
     except Exception as e:
