@@ -1079,10 +1079,7 @@ class DownloadService with WidgetsBindingObserver {
     return lower.contains("password") ||
         lower.contains("encrypted") ||
         lower.contains("wrong password") ||
-        lower.contains("can't open encrypted") ||
-        lower.contains("crc error") ||
-        lower.contains("crc_error") ||
-        lower.contains("data error");
+        lower.contains("can't open encrypted");
   }
 
   bool _isExtractorMissingError(String err) {
@@ -1091,6 +1088,44 @@ class DownloadService with WidgetsBindingObserver {
         lower.contains("cannot run") ||
         lower.contains("no such file") ||
         lower.contains("解压组件未就绪");
+  }
+
+  bool _isArchiveIntegrityError(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains("crc failed") ||
+        lower.contains("crc error") ||
+        lower.contains("crc_error") ||
+        lower.contains("data error") ||
+        lower.contains("checksum") ||
+        lower.contains("archive is corrupted") ||
+        lower.contains("unexpected end") ||
+        lower.contains("headers error");
+  }
+
+  String _extractFailedArchivePath(String err) {
+    final patterns = [
+      RegExp(r'CRC Failed\s*:\s*([^\r\n]+)', caseSensitive: false),
+      RegExp(r'Data Error\s*:\s*([^\r\n]+)', caseSensitive: false),
+      RegExp(r'ERROR\s*:\s*([^\r\n]+)', caseSensitive: false),
+    ];
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(err);
+      final value = match?.group(1)?.trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return "";
+  }
+
+  String _formatToolError(String err) {
+    final raw = err.trim();
+    if (raw.isEmpty) return "解压工具执行失败";
+    if (_isEncryptedError(raw)) return "压缩包需要密码或密码不正确";
+    if (_isArchiveIntegrityError(raw)) {
+      final failedPath = _extractFailedArchivePath(raw);
+      final suffix = failedPath.isEmpty ? "" : "\n失败文件: $failedPath";
+      return "压缩包校验失败，文件可能已损坏、下载不完整，或源文件本身有问题。请重新下载补丁；如果仍失败，请检查补丁源文件完整性。$suffix";
+    }
+    return raw;
   }
 
   // ── download ──
@@ -1715,7 +1750,9 @@ class DownloadService with WidgetsBindingObserver {
         String.fromCharCodes(stderrChunks).trim(),
         String.fromCharCodes(stdoutChunks).trim(),
       ].where((s) => s.isNotEmpty).join("\n");
-      throw Exception(err.isNotEmpty ? err : "exit code $exitCode");
+      final rawErr = err.isNotEmpty ? err : "exit code $exitCode";
+      LoggerService().warn("extract tool failed: ${_formatToolError(rawErr)}");
+      throw Exception(_formatToolError(rawErr));
     }
   }
 
