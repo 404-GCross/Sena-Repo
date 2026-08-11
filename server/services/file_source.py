@@ -234,11 +234,16 @@ class OpenListFileSource:
             except HTTPException:
                 return False
 
-    def _download_url(self, path: str, prefix: str) -> str:
+    def _file_info(self, path: str) -> dict:
         remote_path = normalize_remote_path(path)
         data = self._post("/api/fs/get", {"path": remote_path, "password": ""})
         if data.get("is_dir"):
             raise HTTPException(status_code=400, detail="OpenList path is a directory")
+        return data
+
+    def _download_url(self, path: str, prefix: str) -> str:
+        remote_path = normalize_remote_path(path)
+        data = self._file_info(remote_path)
         sign = (data.get("sign") or "").strip()
         query = f"?{urlencode({'sign': sign})}" if sign else ""
         return self._url(prefix + quote(remote_path, safe="/") + query)
@@ -248,6 +253,10 @@ class OpenListFileSource:
 
     def proxy_download_url(self, path: str) -> str:
         return self._download_url(path, "p")
+
+    def raw_download_url(self, path: str) -> str:
+        raw_url = (self._file_info(path).get("raw_url") or "").strip()
+        return raw_url or self.download_url(path)
 
 
 def adapter_from_source(source: FileSource | None, source_type: str = "local") -> FileSourceAdapter:

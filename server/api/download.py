@@ -221,17 +221,17 @@ async def _openlist_download_url(version: GameVersion, session: AsyncSession) ->
     )
 
 
-async def _openlist_proxy_download_url(version: GameVersion, session: AsyncSession) -> str:
+async def _openlist_raw_download_url(version: GameVersion, session: AsyncSession) -> str:
     result = await session.execute(
         select(FileSource).where(FileSource.id == version.source_id)
     )
     source = result.scalar_one_or_none()
     adapter = adapter_from_source(source, "openlist")
-    proxy_download_url = getattr(adapter, "proxy_download_url", None)
-    if proxy_download_url is None:
+    raw_download_url = getattr(adapter, "raw_download_url", None)
+    if raw_download_url is None:
         return await _openlist_download_url(version, session)
     return await asyncio.to_thread(
-        proxy_download_url,
+        raw_download_url,
         version.source_path or version.file_path,
     )
 
@@ -472,7 +472,7 @@ async def create_manager_install_link(
         install_url = "lunabox://install?" + urlencode(params)
     else:
         if (version.source_type or "local") == "openlist":
-            download_url = await _openlist_proxy_download_url(version, session)
+            download_url = await _openlist_raw_download_url(version, session)
             url_expires_at = None
         params = {
             "v": "1",
