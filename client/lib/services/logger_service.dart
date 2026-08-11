@@ -218,35 +218,39 @@ class LoggerService {
   String _redact(String value) {
     const sensitiveKeys =
         r"token|access_token|refresh_token|password|passwd|pwd|key|api_key|"
-        r"secret|client_secret|signature|sig|auth|authorization|username|"
+        r"secret|client_secret|signature|sign|sig|auth|authorization|username|"
         r"account|email";
-    return value
+    var redacted = value
         .replaceAll(
             RegExp(r"Bearer\s+[A-Za-z0-9._~+/=-]+", caseSensitive: false),
             "Bearer [REDACTED]")
         .replaceAll(
             RegExp(r"Basic\s+[A-Za-z0-9._~+/=-]+", caseSensitive: false),
-            "Basic [REDACTED]")
-        .replaceAll(
-            RegExp(r"(Authorization\s*[:=]\s*)[^,\s}]+",
-                caseSensitive: false),
-            r"$1[REDACTED]")
-        .replaceAll(
-            RegExp("([?&](?:$sensitiveKeys)=)[^&\\s]+",
-                caseSensitive: false),
-            r"$1[REDACTED]")
-        .replaceAll(
-            RegExp("(%3[f&](?:$sensitiveKeys)%3[dD])[^%&\\s]+",
-                caseSensitive: false),
-            r"$1[REDACTED]")
-        .replaceAll(
-            RegExp("((?:$sensitiveKeys)\\s*[:=]\\s*)[^,\\s}]+",
-                caseSensitive: false),
-            r"$1[REDACTED]")
-        .replaceAll(
-            RegExp("([\"'](?:$sensitiveKeys)[\"']\\s*:\\s*)[\"'][^\"']*[\"']",
-                caseSensitive: false),
-            r"$1[REDACTED]");
+            "Basic [REDACTED]");
+
+    redacted = redacted.replaceAllMapped(
+      RegExp(r"(Authorization\s*[:=]\s*)[^,\s}]+", caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    redacted = redacted.replaceAllMapped(
+      RegExp("([?&](?:$sensitiveKeys)=)[^&\\s]+", caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    redacted = redacted.replaceAllMapped(
+      RegExp("(%3[f&](?:$sensitiveKeys)%3[dD])[^%&\\s]+",
+          caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    redacted = redacted.replaceAllMapped(
+      RegExp("((?:$sensitiveKeys)\\s*[:=]\\s*)[^,\\s}]+",
+          caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    return redacted.replaceAllMapped(
+      RegExp("([\"'](?:$sensitiveKeys)[\"']\\s*:\\s*)([\"'])[^\"']*([\"'])",
+          caseSensitive: false),
+      (match) => "${match.group(1)}${match.group(2)}[REDACTED]${match.group(3)}",
+    );
   }
 
   /// Delete logs older than 7 days

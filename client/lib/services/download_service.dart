@@ -1219,8 +1219,9 @@ class DownloadService with WidgetsBindingObserver {
     try {
       final headers = <String, String>{};
 
-      // Always request ranges so OpenList/cloud sources return resumable metadata early.
-      headers["Range"] = "bytes=${t.receivedBytes}-";
+      if (t.receivedBytes > 0) {
+        headers["Range"] = "bytes=${t.receivedBytes}-";
+      }
 
       final resp = await _sendDownloadRequest(client, t.downloadUrl, headers);
       t.headersReceived = true;
@@ -1435,14 +1436,16 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       LoggerService().info(
-        "download request[$redirectCount]: $current range=${req.headers["Range"] ?? "-"} auth=${req.headers.containsKey("Authorization")}",
+        "download request[$redirectCount]: ${_downloadLogTarget(current)} "
+        "range=${req.headers["Range"] ?? "-"} "
+        "auth=${req.headers.containsKey("Authorization")}",
       );
       final resp = await client
           .send(req)
           .timeout(
             _downloadConnectTimeout,
             onTimeout: () => throw TimeoutException(
-              "连接下载地址超时: $current",
+              "连接下载地址超时: ${_downloadLogTarget(current)}",
               _downloadConnectTimeout,
             ),
           );
@@ -1455,19 +1458,32 @@ class DownloadService with WidgetsBindingObserver {
         }
         final next = current.resolve(location.trim());
         LoggerService().info(
-          "download redirect[$redirectCount]: HTTP ${resp.statusCode} $current -> $next",
+          "download redirect[$redirectCount]: HTTP ${resp.statusCode} "
+          "${_downloadLogTarget(current)} -> ${_downloadLogTarget(next)}",
         );
         current = next;
         continue;
       }
 
       LoggerService().info(
-        "download final[$redirectCount]: HTTP ${resp.statusCode} $current",
+        "download final[$redirectCount]: HTTP ${resp.statusCode} ${_downloadLogTarget(current)}",
       );
       return resp;
     }
 
     throw Exception("下载重定向次数过多");
+  }
+
+  String _downloadLogTarget(Uri uri) {
+    final port = uri.hasPort ? ":${uri.port}" : "";
+    final name = uri.pathSegments.isEmpty ? "" : uri.pathSegments.last;
+    final safeName = name.length > 96 ? "${name.substring(0, 96)}..." : name;
+    final queryKeys = uri.queryParametersAll.keys.toList()..sort();
+    final query = queryKeys.isEmpty
+        ? ""
+        : " queryKeys=${queryKeys.join(",")}";
+    final suffix = safeName.isEmpty ? "" : "/.../$safeName";
+    return "${uri.scheme}://${uri.host}$port$suffix$query";
   }
 
   // ── extract (desktop only) ──
