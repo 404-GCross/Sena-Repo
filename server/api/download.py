@@ -221,27 +221,26 @@ async def _openlist_download_url(version: GameVersion, session: AsyncSession) ->
     )
 
 
+async def _openlist_proxy_download_url(version: GameVersion, session: AsyncSession) -> str:
+    result = await session.execute(
+        select(FileSource).where(FileSource.id == version.source_id)
+    )
+    source = result.scalar_one_or_none()
+    adapter = adapter_from_source(source, "openlist")
+    proxy_download_url = getattr(adapter, "proxy_download_url", None)
+    if proxy_download_url is None:
+        return await _openlist_download_url(version, session)
+    return await asyncio.to_thread(
+        proxy_download_url,
+        version.source_path or version.file_path,
+    )
+
+
 def _download_headers(filename: str) -> dict[str, str]:
     return {
         "Accept-Ranges": "bytes",
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
     }
-
-
-def _remote_download_headers(
-    filename: str,
-    response: httpx.Response,
-) -> dict[str, str]:
-    headers = _download_headers(filename)
-    for source, target in (
-        ("content-length", "Content-Length"),
-        ("content-range", "Content-Range"),
-        ("content-type", "Content-Type"),
-    ):
-        value = response.headers.get(source)
-        if value:
-            headers[target] = value
-    return headers
 
 
 def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
@@ -329,13 +328,9 @@ async def _serve_version_download(
     game: Game,
     version: GameVersion,
     session: AsyncSession,
-    *,
-    proxy_remote: bool = False,
 ):
     if (version.source_type or "local") == "openlist":
         raw_url = await _openlist_download_url(version, session)
-        if proxy_remote:
-            return await _serve_remote_file(request, raw_url, version.filename)
         return RedirectResponse(raw_url, status_code=302)
 
     file_path = Path(version.file_path).resolve()
@@ -348,61 +343,11 @@ async def _serve_version_download(
     return _serve_local_file(request, file_path, version.filename)
 
 
-async def _serve_remote_file(request: Request, url: str, filename: str):
-    headers = {}
-    range_header = request.headers.get("range")
-    if range_header:
-        headers["Range"] = range_header
-
-    client = httpx.AsyncClient(
-        timeout=httpx.Timeout(None, connect=20.0, read=60.0),
-        follow_redirects=True,
-    )
-    response: httpx.Response | None = None
-    try:
-        upstream = client.build_request("GET", url, headers=headers)
-        response = await client.send(upstream, stream=True)
-        if response.status_code in {401, 403}:
-            await response.aclose()
-            await client.aclose()
-            raise HTTPException(status_code=502, detail="OpenList 拒绝了下载请求，请重新推送任务")
-        if response.status_code >= 400:
-            status = response.status_code
-            await response.aclose()
-            await client.aclose()
-            raise HTTPException(status_code=502, detail=f"OpenList 下载失败: HTTP {status}")
-
-        async def iter_remote():
-            try:
-                async for chunk in response.aiter_bytes(1024 * 1024):
-                    yield chunk
-            finally:
-                await response.aclose()
-                await client.aclose()
-
-        status_code = 206 if response.status_code == 206 else 200
-        return StreamingResponse(
-            iter_remote(),
-            status_code=status_code,
-            media_type=response.headers.get("content-type") or "application/octet-stream",
-            headers=_remote_download_headers(filename, response),
-        )
-    except HTTPException:
-        raise
-    except httpx.HTTPError as exc:
-        if response is not None:
-            await response.aclose()
-        await client.aclose()
-        raise HTTPException(status_code=502, detail=f"OpenList 下载请求失败: {exc}") from exc
-
-
 def _build_signed_download_url(
     request: Request,
     game_id: int,
     version_id: int,
     expires_at: int,
-    *,
-    proxy_remote: bool = False,
 ) -> str:
     base = str(
         request.url_for(
@@ -415,8 +360,6 @@ def _build_signed_download_url(
         "expires_at": str(expires_at),
         "signature": _sign_download(game_id, version_id, expires_at),
     }
-    if proxy_remote:
-        params["proxy"] = "1"
     query = urlencode(params)
     return f"{base}?{query}"
 
@@ -442,8 +385,6 @@ async def _manager_download_url(
     game_id: int,
     version_id: int,
     expires_at: int,
-    *,
-    proxy_remote: bool = False,
 ) -> tuple[str, int | None]:
     return (
         _build_signed_download_url(
@@ -451,7 +392,6 @@ async def _manager_download_url(
             game_id,
             version_id,
             expires_at,
-            proxy_remote=proxy_remote,
         ),
         expires_at,
     )
@@ -471,14 +411,7 @@ async def download_signed_game_version(
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
     try:
         game, version = await _get_game_and_version(game_id, version_id, session)
-        proxy_remote = request.query_params.get("proxy") == "1"
-        return await _serve_version_download(
-            request,
-            game,
-            version,
-            session,
-            proxy_remote=proxy_remote,
-        )
+        return await _serve_version_download(request, game, version, session)
     except HTTPException:
         raise
     except Exception as e:
@@ -512,13 +445,11 @@ async def create_manager_install_link(
 
     checksum = await _ensure_version_checksum(version, session)
     expires_at = int(time.time()) + _download_ttl_seconds(size)
-    proxy_remote = body.target == "reinamanager"
     download_url, url_expires_at = await _manager_download_url(
         request,
         game_id,
         version_id,
         expires_at,
-        proxy_remote=proxy_remote,
     )
 
     if body.target == "lunabox":
@@ -540,6 +471,9 @@ async def create_manager_install_link(
             params["meta_id"] = meta_id
         install_url = "lunabox://install?" + urlencode(params)
     else:
+        if (version.source_type or "local") == "openlist":
+            download_url = await _openlist_proxy_download_url(version, session)
+            url_expires_at = None
         params = {
             "v": "1",
             "provider": "sena-repo",
