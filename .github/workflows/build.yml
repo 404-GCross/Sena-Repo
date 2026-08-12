@@ -659,8 +659,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' 2>/dev/null || true)"
-          if [ -z "$release_id" ]; then
+          release_id="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId --jq '.databaseId' 2>/dev/null || true)"
+          if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
             echo "No existing release for ${TAG}; nothing to delete."
             exit 0
           fi
