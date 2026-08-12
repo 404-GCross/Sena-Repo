@@ -581,9 +581,27 @@ jobs:
       - name: Generate pre-release notes
         working-directory: .
         run: |
+          set -euo pipefail
           VERSION="${{ steps.meta.outputs.version }}"
           BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           NOTES_SOURCE=".github/dev-pre-release-notes.md"
+          git fetch --tags --force --prune
+
+          PREV_DEV_SHA="$(git rev-parse --verify "refs/tags/${{ steps.meta.outputs.tag }}^{commit}" 2>/dev/null || true)"
+          RELEASE_RANGE=""
+          RELEASE_TITLE="最近更新"
+          if [ -n "$PREV_DEV_SHA" ] && [ "$PREV_DEV_SHA" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$PREV_DEV_SHA" "$GITHUB_SHA"; then
+            RELEASE_RANGE="$PREV_DEV_SHA..$GITHUB_SHA"
+            RELEASE_TITLE="本次更新 (${PREV_DEV_SHA:0:7} -> ${{ steps.meta.outputs.commit }})"
+          fi
+
+          RELEASE_NOTES_TITLE="$RELEASE_TITLE" \
+            RELEASE_NOTES_RANGE="$RELEASE_RANGE" \
+            RELEASE_NOTES_LIMIT="20" \
+            RELEASE_NOTES_MANUAL_SOURCE="$NOTES_SOURCE" \
+            RELEASE_NOTES_MANUAL_TITLE="手动说明" \
+            bash .github/scripts/generate_release_notes.sh
+
           {
             printf '> [!CAUTION]\n'
             printf '>\n'
@@ -593,42 +611,8 @@ jobs:
             printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
             printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
             printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
-            if [ -s "$NOTES_SOURCE" ]; then
-              cat "$NOTES_SOURCE"
-              printf '\n\n'
-            else
-              printf '## 自动提交摘要\n\n'
-              while IFS=$'\t' read -r sha subject; do
-                [ -n "$sha" ] || continue
-                lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
-                summary="$subject"
-                if [[ "$summary" == *": "* ]]; then
-                  summary="${summary#*: }"
-                fi
-                case "$lower" in
-                  feat:*|feat\(*|feature:*|feature\(*)
-                    category="新增"
-                    ;;
-                  fix:*|fix\(*|bugfix:*|bugfix\(*)
-                    category="修复"
-                    ;;
-                  perf:*|perf\(*|refactor:*|refactor\(*|optimize:*|optimize\(*|style:*|style\(*)
-                    category="优化"
-                    ;;
-                  docs:*|docs\(*|doc:*|doc\(*)
-                    category="文档"
-                    ;;
-                  build:*|build\(*|ci:*|ci\(*|chore:*|chore\(*)
-                    category="构建"
-                    ;;
-                  *)
-                    category="其他"
-                    ;;
-                esac
-                printf -- '- %s: [**%s**](https://github.com/%s/commit/%s)\n' "$category" "$summary" "${GITHUB_REPOSITORY}" "$sha"
-              done < <(git log --no-merges --format='%H%x09%s' -n 5)
-              printf '\n\n'
-            fi
+            cat release_notes_auto.md
+            printf '\n'
             printf '## 下载说明\n\n'
             printf '| 文件 | 平台/用途 | 说明 |\n'
             printf '|------|-----------|------|\n'

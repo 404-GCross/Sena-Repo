@@ -505,66 +505,16 @@ jobs:
 
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..$GITHUB_SHA"
-            printf '## 更新内容 (%s -> %s)\n\n' "$PREV_TAG" "$TAG" > release_notes_auto.md
+            RELEASE_TITLE="更新内容 ($PREV_TAG -> $TAG)"
           else
             RANGE="$GITHUB_SHA"
-            printf '## 更新内容 (%s)\n\n' "$TAG" > release_notes_auto.md
+            RELEASE_TITLE="更新内容 ($TAG)"
           fi
 
-          CATEGORIES_DIR="$(mktemp -d)"
-          : > "$CATEGORIES_DIR/features.md"
-          : > "$CATEGORIES_DIR/fixes.md"
-          : > "$CATEGORIES_DIR/optimizations.md"
-          : > "$CATEGORIES_DIR/docs.md"
-          : > "$CATEGORIES_DIR/build.md"
-          : > "$CATEGORIES_DIR/others.md"
-
-          while IFS=$'\t' read -r sha subject; do
-            [ -n "$sha" ] || continue
-            lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
-            line="- [**${subject}**](https://github.com/${GITHUB_REPOSITORY}/commit/${sha})"
-            case "$lower" in
-              feat:*|feat\(*|feature:*|feature\(*|新增*|*新增*)
-                printf '%s\n' "$line" >> "$CATEGORIES_DIR/features.md"
-                ;;
-              fix:*|fix\(*|bugfix:*|bugfix\(*|修复*|*修复*)
-                printf '%s\n' "$line" >> "$CATEGORIES_DIR/fixes.md"
-                ;;
-              perf:*|perf\(*|refactor:*|refactor\(*|optimize:*|optimize\(*|style:*|style\(*|优化*|调整*|改进*|*优化*|*调整*|*改进*)
-                printf '%s\n' "$line" >> "$CATEGORIES_DIR/optimizations.md"
-                ;;
-              docs:*|docs\(*|doc:*|doc\(*|文档*|*文档*)
-                printf '%s\n' "$line" >> "$CATEGORIES_DIR/docs.md"
-                ;;
-              build:*|build\(*|ci:*|ci\(*|chore:*|chore\(*|构建*|发布*|*构建*|*发布*)
-                printf '%s\n' "$line" >> "$CATEGORIES_DIR/build.md"
-                ;;
-              *)
-                printf '%s\n' "$line" >> "$CATEGORIES_DIR/others.md"
-                ;;
-            esac
-          done < <(git log --no-merges --format='%H%x09%s' "$RANGE")
-
-          append_section() {
-            local title="$1"
-            local file="$2"
-            if [ -s "$file" ]; then
-              printf '### %s\n\n' "$title" >> release_notes_auto.md
-              cat "$file" >> release_notes_auto.md
-              printf '\n' >> release_notes_auto.md
-            fi
-          }
-
-          append_section "新增" "$CATEGORIES_DIR/features.md"
-          append_section "修复" "$CATEGORIES_DIR/fixes.md"
-          append_section "优化" "$CATEGORIES_DIR/optimizations.md"
-          append_section "文档" "$CATEGORIES_DIR/docs.md"
-          append_section "构建" "$CATEGORIES_DIR/build.md"
-          append_section "其他" "$CATEGORIES_DIR/others.md"
-
-          if ! grep -q '^- ' "$CATEGORIES_DIR"/*.md; then
-            printf -- '- Build artifacts updated.\n\n' >> release_notes_auto.md
-          fi
+          RELEASE_NOTES_TITLE="$RELEASE_TITLE" \
+            RELEASE_NOTES_RANGE="$RANGE" \
+            RELEASE_NOTES_FALLBACK="构建产物已更新。" \
+            bash .github/scripts/generate_release_notes.sh
 
           cat > release_notes_download.md <<'EOF'
           ## 下载说明
