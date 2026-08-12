@@ -241,6 +241,9 @@ class OpenListFileSource:
             raise HTTPException(status_code=400, detail="OpenList path is a directory")
         return data
 
+    def file_info(self, path: str) -> dict:
+        return self._file_info(path)
+
     def _download_url(self, path: str, prefix: str) -> str:
         remote_path = normalize_remote_path(path)
         data = self._file_info(remote_path)

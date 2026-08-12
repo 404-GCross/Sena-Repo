@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
+import re
 import secrets
 import time
 from datetime import datetime
@@ -51,6 +53,11 @@ ARCHIVE_SUFFIX_ALIASES = {
     "txz": "tar.xz",
     "tzst": "tar.zst",
 }
+
+_SHA256_VALUE_RE = re.compile(
+    r"(?:sha[-_]?256)[^0-9a-f]{0,32}([0-9a-f]{64})",
+    re.IGNORECASE,
+)
 
 
 class ManagerInstallLinkRequest(BaseModel):
@@ -151,6 +158,61 @@ def _archive_format(filename: str) -> str:
     return ARCHIVE_SUFFIX_ALIASES.get(ext, ext)
 
 
+def _valid_sha256(value: object) -> str | None:
+    checksum = str(value or "").strip().lower()
+    if len(checksum) == 64 and all(char in "0123456789abcdef" for char in checksum):
+        return checksum
+    return None
+
+
+def _normalized_hash_key(key: object) -> str:
+    return "".join(char for char in str(key).lower() if char.isalnum())
+
+
+def _extract_sha256_from_hash_container(value: object) -> str | None:
+    direct = _valid_sha256(value)
+    if direct:
+        return direct
+
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if _normalized_hash_key(key).endswith("sha256"):
+                checksum = _valid_sha256(nested)
+                if checksum:
+                    return checksum
+        return None
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            checksum = _extract_sha256_from_hash_container(parsed)
+            if checksum:
+                return checksum
+        match = _SHA256_VALUE_RE.search(text)
+        if match:
+            return match.group(1).lower()
+
+    return None
+
+
+def _extract_openlist_sha256(file_info: dict) -> str | None:
+    for key, value in file_info.items():
+        normalized = _normalized_hash_key(key)
+        if normalized.endswith("sha256"):
+            checksum = _valid_sha256(value)
+            if checksum:
+                return checksum
+        if normalized in {"hashinfo", "hash", "hashes"}:
+            checksum = _extract_sha256_from_hash_container(value)
+            if checksum:
+                return checksum
+    return None
+
+
 def _sha256_local_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -169,7 +231,7 @@ async def _sha256_url(url: str) -> str:
                 async for chunk in response.aiter_bytes(1024 * 1024):
                     digest.update(chunk)
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"计算远程文件校验失败: {exc}") from exc
+        raise HTTPException(status_code=502, detail="计算远程文件校验失败，请检查资源连接状态") from exc
     return digest.hexdigest()
 
 
@@ -193,28 +255,42 @@ async def _ensure_version_checksum(
     version: GameVersion,
     session: AsyncSession,
 ) -> str:
-    checksum = (version.checksum or "").strip().lower()
-    if (
-        (version.checksum_algo or "").lower() == "sha256"
-        and len(checksum) == 64
-        and all(char in "0123456789abcdef" for char in checksum)
-    ):
+    checksum = _cached_version_sha256(version)
+    if checksum:
         return checksum
 
     checksum = await _calculate_version_sha256(version, session)
+    await _store_version_sha256(version, session, checksum)
+    return checksum
+
+
+def _cached_version_sha256(version: GameVersion) -> str | None:
+    if (version.checksum_algo or "").lower() != "sha256":
+        return None
+    return _valid_sha256(version.checksum)
+
+
+async def _store_version_sha256(
+    version: GameVersion,
+    session: AsyncSession,
+    checksum: str,
+) -> None:
     version.checksum_algo = "sha256"
     version.checksum = checksum
     version.checksum_updated_at = datetime.utcnow()
     await session.commit()
-    return checksum
 
 
-async def _openlist_download_url(version: GameVersion, session: AsyncSession) -> str:
+async def _openlist_adapter(version: GameVersion, session: AsyncSession):
     result = await session.execute(
         select(FileSource).where(FileSource.id == version.source_id)
     )
     source = result.scalar_one_or_none()
-    adapter = adapter_from_source(source, "openlist")
+    return adapter_from_source(source, "openlist")
+
+
+async def _openlist_download_url(version: GameVersion, session: AsyncSession) -> str:
+    adapter = await _openlist_adapter(version, session)
     return await asyncio.to_thread(
         adapter.download_url,
         version.source_path or version.file_path,
@@ -222,11 +298,7 @@ async def _openlist_download_url(version: GameVersion, session: AsyncSession) ->
 
 
 async def _openlist_raw_download_url(version: GameVersion, session: AsyncSession) -> str:
-    result = await session.execute(
-        select(FileSource).where(FileSource.id == version.source_id)
-    )
-    source = result.scalar_one_or_none()
-    adapter = adapter_from_source(source, "openlist")
+    adapter = await _openlist_adapter(version, session)
     raw_download_url = getattr(adapter, "raw_download_url", None)
     if raw_download_url is None:
         return await _openlist_download_url(version, session)
@@ -234,6 +306,53 @@ async def _openlist_raw_download_url(version: GameVersion, session: AsyncSession
         raw_download_url,
         version.source_path or version.file_path,
     )
+
+
+async def _openlist_file_info(version: GameVersion, session: AsyncSession) -> dict:
+    adapter = await _openlist_adapter(version, session)
+    file_info = getattr(adapter, "file_info", None)
+    if file_info is None:
+        return {}
+    return await asyncio.to_thread(file_info, version.source_path or version.file_path)
+
+
+async def _openlist_metadata_sha256(
+    version: GameVersion,
+    session: AsyncSession,
+) -> str | None:
+    return _extract_openlist_sha256(await _openlist_file_info(version, session))
+
+
+async def _manager_install_checksum(
+    version: GameVersion,
+    session: AsyncSession,
+    target: str,
+) -> str:
+    checksum = _cached_version_sha256(version)
+    if checksum:
+        return checksum
+
+    source_type = version.source_type or "local"
+    if target == "reinamanager" and source_type == "openlist":
+        checksum = await _openlist_metadata_sha256(version, session)
+        if checksum:
+            await _store_version_sha256(version, session, checksum)
+            logger.info(
+                "Cached OpenList SHA256 from metadata for manager install vid=%s",
+                version.id,
+            )
+            return checksum
+
+        logger.warning(
+            "ReinaManager install link blocked because OpenList SHA256 is missing vid=%s",
+            version.id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="OpenList 资源未提供 SHA256 校验值，ReinaManager 推送不能在生成链接时远程整包计算；请在 OpenList 端启用或补全文件哈希后重新扫描资源。",
+        )
+
+    return await _ensure_version_checksum(version, session)
 
 
 def _download_headers(filename: str) -> dict[str, str]:
@@ -443,7 +562,15 @@ async def create_manager_install_link(
     if size <= 0:
         raise HTTPException(status_code=400, detail="文件大小无效，无法生成管理器安装链接")
 
-    checksum = await _ensure_version_checksum(version, session)
+    logger.info(
+        "Manager install link requested target=%s gid=%s vid=%s source_type=%s checksum_cached=%s",
+        body.target,
+        game_id,
+        version_id,
+        version.source_type or "local",
+        _cached_version_sha256(version) is not None,
+    )
+    checksum = await _manager_install_checksum(version, session, body.target)
     expires_at = int(time.time()) + _download_ttl_seconds(size)
     download_url, url_expires_at = await _manager_download_url(
         request,
