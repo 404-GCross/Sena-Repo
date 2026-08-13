@@ -6,7 +6,7 @@ Usage:
   python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2" "translation"
                                                         # add one entry
 """
-import json, os, sys, argparse, re
+import argparse, json, re
 from pathlib import Path
 
 # Default keywords for auto type detection (mirrors steam_patch.py)

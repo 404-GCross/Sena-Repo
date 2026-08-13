@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio, json, logging, traceback
+import asyncio, logging, traceback
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user, require_admin
+from api.auth import require_admin
 from config import load_config
 from database import get_session
 from models.game import Game, GameTag, GameVersion

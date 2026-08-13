@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 async def main(username: str) -> None:
     from config import load_config
     from database import init_database, create_tables
-    from sqlalchemy import select, update
+    from sqlalchemy import select
     from models.user import User
     import database as db
 

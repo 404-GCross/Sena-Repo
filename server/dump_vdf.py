@@ -1,5 +1,5 @@
 """Diagnostic: dump shortcuts.vdf entries for comparison."""
-import json, os, sys
+import os, sys
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 _vdf_path = os.path.join(_script_dir, "vdf")

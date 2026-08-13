@@ -5,7 +5,7 @@ Falls back to bare file scanning if no patches.json exists.
 """
 from __future__ import annotations
 
-import asyncio, json, logging, re
+import asyncio, json, logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -20,7 +20,7 @@ from database import get_session
 from models.user import User
 from models.file_source import FileSource, SteamPatchRoot
 from api.auth import get_current_user, require_admin
-from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
+from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
 
 logger = logging.getLogger(__name__)
 

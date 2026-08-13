@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Config
 from models.game import Company, Game, GameVersion, Platform, GameTag
 from models.file_source import FileSource
-from models.ignore_list import IgnoreList
 from models.root_directory import RootDirectory
 from models.tag import Tag
 from services.cleaner import clean_filename, normalize_company_name, _clean_name
