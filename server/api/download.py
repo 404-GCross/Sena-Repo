@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from api.auth import get_current_user
 from config import load_config
@@ -81,7 +82,9 @@ async def _get_game_and_version(
     session: AsyncSession,
 ) -> tuple[Game, GameVersion]:
     result = await session.execute(
-        select(Game).where(Game.id == game_id, Game.is_deleted == False)
+        select(Game)
+        .options(joinedload(Game.company))
+        .where(Game.id == game_id, Game.is_deleted == False)
     )
     game = result.scalar_one_or_none()
     if game is None:
@@ -493,6 +496,24 @@ def _primary_lunabox_identity(game: Game) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _safe_lunabox_install_segment(value: str | None) -> str:
+    normalized = re.sub(r'[\\/:*?"<>|\x00]+', "_", str(value or "").strip())
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.strip(" .")
+    return normalized[:120]
+
+
+def _lunabox_install_subdir(game: Game) -> str | None:
+    company_name = game.company.name if game.company else None
+    company = _safe_lunabox_install_segment(company_name) or _safe_lunabox_install_segment(
+        game.developer
+    )
+    title = _safe_lunabox_install_segment(game.name)
+    if company and title:
+        return f"{company}/{title}"
+    return title or None
+
+
 def _set_non_empty(params: dict[str, str], key: str, value: str | None) -> None:
     normalized = (value or "").strip()
     if normalized:
@@ -590,6 +611,9 @@ async def create_manager_install_link(
             "title": game.name,
             "download_source": "sena-repo",
         }
+        install_subdir = _lunabox_install_subdir(game)
+        if install_subdir:
+            params["install_subdir"] = install_subdir
         if url_expires_at is not None:
             params["expires_at"] = str(url_expires_at)
         meta_source, meta_id = _primary_lunabox_identity(game)
