@@ -309,9 +309,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(12)),
                       color:
                           Theme.of(context).colorScheme.surfaceContainerHighest,
-                      onSelected: (v) => gameProvider.setSort(v),
+                      onSelected: (v) =>
+                          gameProvider.setSort(v == "imported" ? null : v),
                       itemBuilder: (_) => [
-                        _sortItem(null, "导入时间 ↓", Icons.schedule,
+                        _sortItem("imported", "导入时间 ↓", Icons.schedule,
                             gameProvider.sortBy == null),
                         _sortItem("name", "名称 A → Z", Icons.sort_by_alpha,
                             gameProvider.sortBy == "name"),
@@ -842,7 +843,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   PopupMenuItem<String> _sortItem(
-      String? value, String label, IconData icon, bool active) {
+      String value, String label, IconData icon, bool active) {
     return PopupMenuItem<String>(
       value: value,
       child: Row(children: [

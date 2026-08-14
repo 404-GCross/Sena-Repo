@@ -20,7 +20,7 @@ class GameProvider extends ChangeNotifier {
   bool? _filterHasCover;
 
   List<GameSummary> get games {
-    var list = _games;
+    var list = List<GameSummary>.from(_games);
     // Client-side search
     if (_searchQuery.isNotEmpty) {
       list = list.where((g) =>
