@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sena Repo - Steam Patch Injection Tree Preview</title>
+  <style>
+    :root {
+      --bg-a:#f7f8fa; --bg-b:#eff3f7; --surface:rgba(255,255,255,.84); --surface-soft:rgba(255,255,255,.62);
+      --border:rgba(196,203,214,.70); --border-soft:rgba(196,203,214,.44); --text:#20242c; --sub:rgba(32,36,44,.70);
+      --hint:rgba(32,36,44,.56); --primary:#6750a4; --primary-soft:rgba(103,80,164,.10); --primary-mid:rgba(103,80,164,.18);
+      --green:#2f9d55; --green-soft:rgba(47,157,85,.10); --blue:#2f73d2; --blue-soft:rgba(47,115,210,.10);
+      --orange:#d98222; --orange-soft:rgba(217,130,34,.12); --red:#c64555; --red-soft:rgba(198,69,85,.11);
+      --shadow:rgba(28,36,50,.08); --sm:8px; --md:12px; --lg:16px; --xl:20px;
+    }
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;color:var(--text);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;background:linear-gradient(135deg,var(--bg-a),var(--bg-b));letter-spacing:0}
+    button,input{font:inherit}.top{position:sticky;top:0;z-index:10;display:flex;gap:14px;align-items:center;padding:14px 24px;background:rgba(255,255,255,.64);border-bottom:1px solid var(--border);backdrop-filter:blur(18px)}
+    .mark{width:38px;height:38px;display:grid;place-items:center;border-radius:var(--md);background:var(--primary-soft);color:var(--primary);font-weight:900}.title{flex:1;min-width:0}.title h1{margin:0;font-size:18px}.title p{margin:3px 0 0;color:var(--hint);font-size:12px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.pill,.btn,.chip,.icon-btn{display:inline-flex;align-items:center;justify-content:center;border:0;white-space:nowrap}.pill{min-height:34px;padding:0 12px;border-radius:999px;color:var(--primary);background:var(--primary-soft);font-size:12px;font-weight:800;text-decoration:none}
+    .page{max-width:1480px;margin:0 auto;padding:24px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:28px 0 14px}.head h2{margin:0;font-size:24px}.head p{max-width:900px;margin:7px 0 0;color:var(--sub);font-size:14px;line-height:1.65}
+    .surface{background:var(--surface);border:1px solid var(--border);border-radius:var(--lg);box-shadow:0 10px 22px var(--shadow);backdrop-filter:blur(14px)}.app{overflow:hidden;background:linear-gradient(135deg,var(--bg-a),var(--bg-b))}
+    .appbar{min-height:74px;display:flex;align-items:center;gap:10px;padding:20px 24px 14px;background:rgba(255,255,255,.56);border-bottom:1px solid var(--border);backdrop-filter:blur(18px)}.appbar .spacer{flex:1}
+    .icon-btn{width:42px;height:42px;border-radius:999px;color:var(--primary);background:var(--primary-soft);font-size:18px;font-weight:900}.btn{min-height:38px;gap:7px;padding:0 14px;border-radius:999px;color:var(--primary);background:var(--primary-soft);font-size:13px;font-weight:800}.btn.fill{background:var(--primary-mid)}.btn.green{color:var(--green);background:var(--green-soft)}.btn.orange{color:var(--orange);background:var(--orange-soft)}.btn.red{color:var(--red);background:var(--red-soft)}
+    .chip{min-height:26px;gap:5px;padding:5px 10px;border-radius:999px;border:1px solid rgba(103,80,164,.22);color:var(--primary);background:var(--primary-soft);font-size:12px;font-weight:800}.chip.green{color:var(--green);background:var(--green-soft);border-color:rgba(47,157,85,.22)}.chip.blue{color:var(--blue);background:var(--blue-soft);border-color:rgba(47,115,210,.22)}.chip.orange{color:var(--orange);background:var(--orange-soft);border-color:rgba(217,130,34,.22)}.chip.red{color:var(--red);background:var(--red-soft);border-color:rgba(198,69,85,.22)}.chip.gray{color:var(--hint);background:rgba(32,36,44,.04);border-color:rgba(32,36,44,.08)}
+    .hero{padding:26px}.hero-grid{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:22px}.hero-title h2{margin:0;font-size:30px;line-height:1.25}.hero-title p{margin:10px 0 0;color:var(--sub);font-size:15px;line-height:1.7}.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}.stat{padding:13px;border:1px solid var(--border);border-radius:var(--md);background:var(--surface-soft)}.stat label{display:block;color:var(--hint);font-size:11px;font-weight:800}.stat strong{display:block;margin-top:6px;font-size:18px}.summary-card{padding:16px;display:grid;gap:12px}.summary-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--border-soft)}.summary-line:last-child{padding-bottom:0;border-bottom:0}.summary-line span{color:var(--hint);font-size:12px;font-weight:800}.summary-line strong{text-align:right;font-size:13px}
+    .section-title{display:flex;align-items:center;gap:9px;margin:0 0 14px;font-size:16px;font-weight:800}.section-title .mi{width:22px;text-align:center;color:var(--hint)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px}.panel{padding:16px}.tree-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.tree-panel{padding:14px;border:1px solid var(--border);border-radius:var(--lg);background:rgba(255,255,255,.58);min-width:0}.tree-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.tree-head h3{margin:0;font-size:16px}.tree-head p{margin:3px 0 0;color:var(--hint);font-size:12px}.tree{display:grid;gap:4px;font-family:"Cascadia Mono","Consolas",monospace;font-size:13px}.node{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;min-height:30px;padding:5px 8px;border-radius:var(--sm)}.node:hover,.node.hot{background:var(--primary-soft)}.node.warn{background:var(--orange-soft)}.node.write{background:var(--green-soft)}.node.conflict{background:var(--red-soft)}.node .twisty{width:18px;color:var(--hint);font-weight:900}.node .name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.node .meta{color:var(--hint);font-size:11px}.lvl-1{padding-left:26px}.lvl-2{padding-left:52px}.lvl-3{padding-left:78px}.folder{font-weight:900}.file{color:var(--sub)}
+    .map-table{display:grid;grid-template-columns:1.1fr 1.1fr 120px;border:1px solid var(--border);border-radius:var(--lg);overflow:hidden;background:rgba(255,255,255,.54);margin-top:16px}.map-table div{min-height:48px;padding:11px 12px;border-right:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);font-size:12px;line-height:1.45}.map-table div:nth-child(3n){border-right:0}.map-table div:nth-last-child(-n+3){border-bottom:0}.map-table .h{background:rgba(255,255,255,.72);font-weight:900;color:var(--text)}.map-table .path{font-family:"Cascadia Mono","Consolas",monospace;color:var(--sub);word-break:break-all}.risk-list{display:grid;gap:10px}.risk{display:grid;grid-template-columns:38px 1fr;gap:11px;align-items:start;padding:12px;border:1px solid var(--border);border-radius:var(--md);background:var(--surface-soft)}.risk-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:var(--sm);background:var(--primary-soft);color:var(--primary);font-size:13px;font-weight:900}.risk.green .risk-icon{background:var(--green-soft);color:var(--green)}.risk.orange .risk-icon{background:var(--orange-soft);color:var(--orange)}.risk.red .risk-icon{background:var(--red-soft);color:var(--red)}.risk strong{display:block;font-size:14px}.risk span{display:block;margin-top:4px;color:var(--hint);font-size:12px;line-height:1.55}
+    .flow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}.step{padding:13px;border:1px solid var(--border);border-radius:var(--md);background:var(--surface-soft)}.step b{display:grid;place-items:center;width:30px;height:30px;margin-bottom:9px;border-radius:999px;background:var(--primary-soft);color:var(--primary)}.step strong{display:block;font-size:13px}.step span{display:block;margin-top:5px;color:var(--hint);font-size:11px;line-height:1.5}.code{margin:0;overflow:auto;padding:14px;border:1px solid var(--border);border-radius:var(--md);background:rgba(32,36,44,.04);color:var(--sub);font-family:"Cascadia Mono","Consolas",monospace;font-size:12px;line-height:1.55}
+    @media(max-width:1120px){.hero-grid,.workspace,.tree-grid{grid-template-columns:1fr}.flow{grid-template-columns:repeat(3,1fr)}.stat-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:720px){.top{align-items:flex-start;flex-direction:column}.nav{justify-content:flex-start}.page{padding:14px}.hero{padding:16px}.appbar{padding:10px 12px}.stat-grid,.flow{grid-template-columns:1fr}.map-table{grid-template-columns:1fr}.map-table .h:nth-child(2),.map-table .h:nth-child(3){display:none}.map-table div{border-right:0}}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="mark">S</div>
+    <div class="title">
+      <h1>Steam 补丁注入重构样板</h1>
+      <p>服务端扫描压缩包目录，桌面客户端像文件管理器一样展示原始结构、注入预览和风险；手机端隐藏该功能。</p>
+    </div>
+    <nav class="nav">
+      <a class="pill" href="#desktop">桌面流程</a>
+      <a class="pill" href="#payload">数据结构</a>
+    </nav>
+  </header>
+
+  <main class="page">
+    <section class="surface hero">
+      <div class="hero-grid">
+        <div class="hero-title">
+          <h2>我的理解：补丁不直接覆盖，先把压缩包当成“虚拟文件夹”给用户看清楚。</h2>
+          <p>服务端提前扫描 RAR / 7z / ZIP 的内部路径，识别单一外层目录、危险路径和推荐剥离层级；桌面客户端拿到 manifest 后展示原始目录树和剥离后的目标目录树，确认后才下载、校验、备份、注入。手机端不显示 Steam 补丁注入入口。</p>
+          <div class="stat-grid">
+            <div class="stat"><label>文件数</label><strong>128</strong></div>
+            <div class="stat"><label>压缩包大小</label><strong>213 MB</strong></div>
+            <div class="stat"><label>推荐剥离</label><strong>1 层</strong></div>
+            <div class="stat"><label>安全状态</label><strong style="color:var(--green)">可注入</strong></div>
+          </div>
+        </div>
+        <aside class="surface summary-card">
+          <div class="summary-line"><span>补丁包</span><strong>Kinkoi_R18DLC.rar</strong></div>
+          <div class="summary-line"><span>检测结构</span><strong>单一根目录 Kinkoi_R18DLC</strong></div>
+          <div class="summary-line"><span>目标模式</span><strong>游戏根目录</strong></div>
+          <div class="summary-line"><span>目标位置</span><strong>/Games/SAGA PLANETS/Kinkoi/</strong></div>
+          <div class="summary-line"><span>预计写入</span><strong>127 个新增 / 1 个覆盖</strong></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="desktop">
+      <div class="head">
+        <div>
+          <h2>桌面端：目录树 + 注入预览</h2>
+          <p>左边是压缩包原始结构，右边是按推荐剥离规则计算后的目标结构。用户不用猜“解出来会不会多套一层目录”。</p>
+        </div>
+        <span class="chip green">Desktop Only</span>
+      </div>
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h1>Steam 补丁注入</h1>
+            <p>巧可甜恋 · Kinkoi_R18DLC.rar</p>
+          </div>
+          <span class="chip green">已扫描</span>
+          <span class="chip orange">剥离 1 层</span>
+          <div class="spacer"></div>
+          <button class="btn">重新扫描</button>
+          <button class="btn fill">开始注入</button>
+        </div>
+        <div class="panel">
+          <div class="workspace">
+            <main>
+              <div class="tree-grid">
+                <section class="tree-panel">
+                  <div class="tree-head">
+                    <div>
+                      <h3>原始压缩包结构</h3>
+                      <p>服务端扫描得到，不需要完整解压。</p>
+                    </div>
+                    <span class="chip blue">Raw</span>
+                  </div>
+                  <div class="tree">
+                    <div class="node hot"><span class="twisty">▾</span><span class="name folder">Kinkoi_R18DLC/</span><span class="meta">单一外层目录</span></div>
+                    <div class="node lvl-1"><span class="twisty">▾</span><span class="name folder">Kinkoi_Data/</span><span class="meta">目标数据目录</span></div>
+                    <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">adult.dat</span><span class="meta">28.4 MB · CRC OK</span></div>
+                    <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">resources.assets</span><span class="meta">96.2 MB</span></div>
+                    <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">sharedassets0.assets</span><span class="meta">44.1 MB</span></div>
+                    <div class="node lvl-1"><span class="twisty">▾</span><span class="name folder">Movie/</span><span class="meta">12 files</span></div>
+                    <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">op_patch.usm</span><span class="meta">18.8 MB</span></div>
+                    <div class="node lvl-1 file"><span class="twisty">·</span><span class="name">readme_patch.txt</span><span class="meta">2 KB</span></div>
+                  </div>
+                </section>
+
+                <section class="tree-panel">
+                  <div class="tree-head">
+                    <div>
+                      <h3>注入预览</h3>
+                      <p>剥离 1 层后写入游戏根目录。</p>
+                    </div>
+                    <span class="chip green">Preview</span>
+                  </div>
+                  <div class="tree">
+                    <div class="node write"><span class="twisty">▾</span><span class="name folder">/Games/SAGA PLANETS/Kinkoi/</span><span class="meta">目标根目录</span></div>
+                    <div class="node lvl-1 write"><span class="twisty">▾</span><span class="name folder">Kinkoi_Data/</span><span class="meta">写入</span></div>
+                    <div class="node lvl-2 conflict"><span class="twisty">·</span><span class="name">adult.dat</span><span class="meta">覆盖已有文件</span></div>
+                    <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">resources.assets</span><span class="meta">新增</span></div>
+                    <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">sharedassets0.assets</span><span class="meta">新增</span></div>
+                    <div class="node lvl-1 write"><span class="twisty">▾</span><span class="name folder">Movie/</span><span class="meta">新增目录</span></div>
+                    <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">op_patch.usm</span><span class="meta">新增</span></div>
+                    <div class="node lvl-1 write"><span class="twisty">·</span><span class="name">readme_patch.txt</span><span class="meta">新增</span></div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="map-table">
+                <div class="h">压缩包路径</div><div class="h">目标路径</div><div class="h">动作</div>
+                <div class="path">Kinkoi_R18DLC/Kinkoi_Data/adult.dat</div><div class="path">Kinkoi_Data/adult.dat</div><div><span class="chip red">覆盖</span></div>
+                <div class="path">Kinkoi_R18DLC/Kinkoi_Data/resources.assets</div><div class="path">Kinkoi_Data/resources.assets</div><div><span class="chip green">新增</span></div>
+                <div class="path">Kinkoi_R18DLC/Movie/op_patch.usm</div><div class="path">Movie/op_patch.usm</div><div><span class="chip green">新增</span></div>
+              </div>
+            </main>
+
+            <aside class="risk-list">
+              <section class="risk green">
+                <div class="risk-icon">✓</div>
+                <div><strong>路径安全</strong><span>未发现绝对路径、.. 路径穿越、空文件名或 Windows 盘符路径。</span></div>
+              </section>
+              <section class="risk orange">
+                <div class="risk-icon">1</div>
+                <div><strong>单一外层目录</strong><span>压缩包顶层只有 Kinkoi_R18DLC，推荐剥离 1 层，避免注入后变成 游戏目录/Kinkoi_R18DLC/Kinkoi_Data。</span></div>
+              </section>
+              <section class="risk red">
+                <div class="risk-icon">!</div>
+                <div><strong>1 个覆盖文件</strong><span>adult.dat 已存在。注入前创建备份记录，失败或回滚时按 manifest 还原。</span></div>
+              </section>
+              <section class="risk">
+                <div class="risk-icon">↺</div>
+                <div><strong>可回滚注入</strong><span>客户端保存 installed manifest：写入路径、原文件 hash、备份位置和注入批次 ID。</span></div>
+              </section>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="head">
+        <div>
+          <h2>实际执行流程</h2>
+          <p>服务端负责判断结构和给 manifest，客户端负责本地 dry-run、备份和解压落地。</p>
+        </div>
+        <span class="chip">Pipeline</span>
+      </div>
+      <div class="flow">
+        <div class="step"><b>1</b><strong>服务端扫描</strong><span>读取压缩包列表，生成虚拟目录树。</span></div>
+        <div class="step"><b>2</b><strong>生成规则</strong><span>推荐 strip_components、target_mode 和风险。</span></div>
+        <div class="step"><b>3</b><strong>客户端下载</strong><span>下载到补丁缓存，校验 hash / size。</span></div>
+        <div class="step"><b>4</b><strong>本地预演</strong><span>结合游戏目录计算最终写入路径。</span></div>
+        <div class="step"><b>5</b><strong>备份覆盖</strong><span>覆盖文件先备份，记录批次 manifest。</span></div>
+        <div class="step"><b>6</b><strong>注入回滚</strong><span>成功写入；失败按 manifest 回滚。</span></div>
+      </div>
+    </section>
+
+    <section id="payload">
+      <div class="head">
+        <div>
+          <h2>服务端返回给客户端的核心数据</h2>
+          <p>这不是最终字段名，只表达 contract：目录树、推荐剥离层级、路径安全、文件映射和覆盖风险都应该由服务端扫描后给出。</p>
+        </div>
+        <span class="chip gray">Draft Contract</span>
+      </div>
+      <pre class="code">{
+  "archive_name": "Kinkoi_R18DLC.rar",
+  "archive_type": "rar5",
+  "file_count": 128,
+  "total_size": 222629784,
+  "safe": true,
+  "recommended_strip_components": 1,
+  "target_mode": "game_root",
+  "warnings": [
+    {
+      "type": "single_wrapper_directory",
+      "message": "Top level has only Kinkoi_R18DLC; strip 1 level to avoid nested game directory."
+    },
+    {
+      "type": "overwrite",
+      "message": "adult.dat already exists in dry-run target."
+    }
+  ],
+  "tree": {
+    "name": "Kinkoi_R18DLC",
+    "type": "directory",
+    "children": [
+      {
+        "name": "Kinkoi_Data",
+        "type": "directory",
+        "children": [
+          {"name": "adult.dat", "type": "file", "size": 29779558, "crc": "A1B2C3D4"},
+          {"name": "resources.assets", "type": "file", "size": 100873011}
+        ]
+      }
+    ]
+  }
+}</pre>
+    </section>
+  </main>
+</body>
+</html>
