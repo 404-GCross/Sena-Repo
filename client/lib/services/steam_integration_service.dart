@@ -9,7 +9,6 @@ import "dart:io";
 import "logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
-import "../services/logger_service.dart";
 import "api_client.dart";
 import "vdf_parser.dart"; // only for gridAppId CRC32 calculation
 
@@ -93,7 +92,7 @@ class SteamIntegrationService {
             final shortcuts = File("${config.path}${Platform.pathSeparator}shortcuts.vdf");
             modified = await shortcuts.exists()
                 ? await shortcuts.lastModified()
-                : await config.lastModified();
+                : (await config.stat()).modified;
           } catch (_) {
             modified = DateTime.fromMillisecondsSinceEpoch(0);
           }
