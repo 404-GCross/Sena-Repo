@@ -345,6 +345,8 @@ class GameUpdate(BaseModel):
     steam_id: str | None = None
     bangumi_id: str | None = None
     is_nsfw: bool | None = None
+    tag_names: list[str] | None = None
+    tag_source: str | None = None
 
 
 class VersionUpdate(BaseModel):
@@ -365,11 +367,60 @@ async def update_game(
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    tag_names = data.pop("tag_names", None)
+    tag_source = data.pop("tag_source", None)
+    for field, value in data.items():
         setattr(game, field, value)
+    if tag_names is not None:
+        await _replace_game_tags(session, game, tag_names, tag_source)
     game.updated_at = datetime.utcnow()
     await session.commit()
     return {"message": "更新成功"}
+
+
+async def _replace_game_tags(
+    session: AsyncSession,
+    game: Game,
+    tag_names: list[str],
+    source: str | None,
+) -> None:
+    source_name = str(source or "metadata").strip()[:32] or "metadata"
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_name in tag_names:
+        name = str(raw_name or "").strip()
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(name)
+
+    existing_result = await session.execute(
+        select(GameTag).where(
+            GameTag.game_id == game.id,
+            GameTag.source != "user",
+        )
+    )
+    for assoc in existing_result.scalars():
+        await session.delete(assoc)
+    await session.flush()
+
+    for name in normalized:
+        tag_result = await session.execute(select(Tag).where(Tag.name == name))
+        tag = tag_result.scalar_one_or_none()
+        if tag is None:
+            tag = Tag(name=name)
+            session.add(tag)
+            await session.flush()
+        assoc_result = await session.execute(
+            select(GameTag).where(
+                GameTag.game_id == game.id,
+                GameTag.tag_id == tag.id,
+            )
+        )
+        if assoc_result.scalar_one_or_none() is None:
+            session.add(GameTag(game_id=game.id, tag_id=tag.id, source=source_name))
 
 
 @router.put("/{game_id}/versions/{version_id}")

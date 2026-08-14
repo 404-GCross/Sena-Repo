@@ -71,6 +71,16 @@ class ScrapeService {
         }
         final devs = item["developers"] as List? ?? [];
         final cover = await _pickVndbCover(item);
+        final tags = ((item["tags"] as List?) ?? [])
+            .whereType<Map>()
+            .map((tag) => {
+                  "name": tag["name"]?.toString() ?? "",
+                  "rating": tag["rating"] ?? 0,
+                  "is_spoiler": tag["spoiler"] == true,
+                })
+            .where((tag) => (tag["name"] ?? "").toString().trim().isNotEmpty)
+            .take(5)
+            .toList();
         results.add({
           "title": title,
           "developer": devs.isNotEmpty ? (devs.first["name"] ?? "") : "",
@@ -84,6 +94,7 @@ class ScrapeService {
           "length_minutes": item["length_minutes"] ?? 0,
           "source_id": item["id"] ?? "",
           "is_nsfw": _isVndbImageNsfw(item["image"]),
+          "tags": tags,
         });
       }
       return results;
@@ -189,6 +200,12 @@ class ScrapeService {
     final cover = (item["images"] ?? {})["large"] ??
         (item["images"] ?? {})["common"] ??
         "";
+    final tags = ((item["tags"] as List?) ?? [])
+        .whereType<Map>()
+        .map((tag) => {"name": tag["name"]?.toString() ?? ""})
+        .where((tag) => (tag["name"] ?? "").toString().trim().isNotEmpty)
+        .take(5)
+        .toList();
     return {
       "title": item["name_cn"] ?? item["name"] ?? "",
       "developer": "",
@@ -198,6 +215,7 @@ class ScrapeService {
       "screenshots": <String>[],
       "source_id": item["id"]?.toString() ?? "",
       "is_nsfw": item["nsfw"] == true,
+      "tags": tags,
     };
   }
 

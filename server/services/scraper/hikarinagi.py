@@ -8,11 +8,11 @@ from datetime import datetime
 
 import httpx
 
-from .base import BaseScraper, ScraperResult, clean_title
+from .base import BaseScraper, ScrapedTag, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
-HIKARINAGI_BASE = "https://www.hikarinagi.org/api/v3"
+HIKARINAGI_BASE = "https://www.hikarinagi.org/api/v3/open"
 HIKARINAGI_CDN_BASE = "https://images.yurari.moe/"
 HIKARINAGI_TOKEN_URL = "https://id.hikarinagi.org/oidc/token"
 
@@ -205,6 +205,7 @@ class HikarinagiScraper(BaseScraper):
                 ("page", "1"),
                 ("page_size", str(page_size)),
             ],
+            use_auth=True,
         )
         items = data.get("items")
         if not isinstance(items, list):
@@ -220,7 +221,11 @@ class HikarinagiScraper(BaseScraper):
         normalized_id = _normalize_hikarinagi_id(game_id)
         if not normalized_id:
             return fallback
-        data = await self._api_get(client, f"/galgames/{normalized_id}")
+        data = await self._api_get(
+            client,
+            f"/galgames/{normalized_id}",
+            use_auth=True,
+        )
         if not data:
             return fallback
         return self._parse_detail(data, fallback)
@@ -260,6 +265,7 @@ class HikarinagiScraper(BaseScraper):
         nsfw_value = item.get("nsfw")
         if nsfw_value is None and fallback is not None:
             nsfw_value = fallback.is_nsfw
+        tags = _tags_from_detail(item)
 
         return ScraperResult(
             title=title.strip(),
@@ -274,6 +280,7 @@ class HikarinagiScraper(BaseScraper):
             source_id=str(item.get("id") or (fallback.source_id if fallback else "") or "").strip(),
             source_name=self.source_name,
             is_nsfw=bool(nsfw_value) if nsfw_value is not None else None,
+            tags=tags,
         )
 
 
@@ -349,3 +356,40 @@ def _developer_from_detail(item: dict) -> str:
             if names:
                 return ", ".join(names[:3])
     return ""
+
+
+def _tags_from_detail(item: dict) -> list[ScrapedTag]:
+    values = item.get("tags")
+    if not isinstance(values, list):
+        return []
+
+    result: list[ScrapedTag] = []
+    seen: set[str] = set()
+    for entry in values:
+        if isinstance(entry, str):
+            name = entry.strip()
+            likes = 0.0
+        elif isinstance(entry, dict):
+            name = str(
+                entry.get("name")
+                or entry.get("trans_name")
+                or entry.get("title")
+                or ""
+            ).strip()
+            likes = _tag_likes(entry.get("likes"))
+        else:
+            continue
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        result.append(ScrapedTag(name=name, rating=likes))
+    result.sort(key=lambda tag: tag.rating, reverse=True)
+    return result[:8]
+
+
+def _tag_likes(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0

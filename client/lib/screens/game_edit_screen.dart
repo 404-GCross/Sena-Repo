@@ -39,11 +39,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _bgUrl;
   bool _saving = false;
   bool _isNsfw = false;
+  bool _tagsDirty = false;
+  String _tagSource = "metadata";
   String? _coverPath;
   String? _pendingCoverUrl;
   String? _pendingCoverFilePath;
   String? _pendingBgFilePath;
   late List<GameVersion> _versions;
+  late List<String> _tagNames;
   int _mobileSection = 0;
   int _coverVersion = 0;
   int _bgVersion = 0;
@@ -80,6 +83,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     super.initState();
     final g = widget.game;
     _versions = List<GameVersion>.from(g.versions);
+    _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
@@ -142,6 +146,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "bangumi_id": _bgm.text.trim(),
         "is_nsfw": _isNsfw,
       };
+      if (_tagsDirty) {
+        body["tag_names"] = _tagNames;
+        body["tag_source"] = _tagSource;
+      }
       final resp = await http.put(
         Uri.parse("$_baseUrl/api/games/${g.id}"),
         headers: {"Content-Type": "application/json", ..._authHeaders},
@@ -2641,20 +2649,28 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
 
     // Step 4: Per-field comparison
-    final fields = {"名称": _name, "开发商": _dev, "日期": _date, "简介": _desc};
+    final incomingTags = _metadataTagNames(r);
+    final currentFields = {
+      "名称": _name.text,
+      "开发商": _dev.text,
+      "日期": _date.text,
+      "简介": _desc.text,
+      "标签": _tagNames.join("、"),
+    };
     final incoming = {
       "名称": (r["title"] ?? "").toString(),
       "开发商": (r["developer"] ?? "").toString(),
       "日期": (r["release_date"] ?? "").toString(),
       "简介": (r["description"] ?? "").toString(),
+      "标签": incomingTags.join("、"),
     };
     final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
     final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
     // Build initial selection state (outside StatefulBuilder so it persists across rebuilds)
     final useSearch = <String, bool>{};
-    for (final f in fields.keys) {
-      useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != fields[f]!.text;
+    for (final f in currentFields.keys) {
+      useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != currentFields[f];
     }
     useSearch["封面"] = hasCoverDiff;
     useSearch["背景"] = hasHeroDiff;
@@ -2672,9 +2688,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       context: context,
       builder: (ctx) => _MetadataApplyDialog(
         sourceName: sources[src] ?? src,
-        currentFields: {
-          for (final entry in fields.entries) entry.key: entry.value.text,
-        },
+        currentFields: currentFields,
         incomingFields: incoming,
         initialSelection: useSearch,
         imageComparisons: [
@@ -2717,6 +2731,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
+      if (apply["标签"] == true) {
+        _tagNames = incomingTags;
+        _tagsDirty = true;
+        _tagSource = src;
+      }
       if (r["is_nsfw"] == true) _isNsfw = true;
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
@@ -3454,6 +3473,31 @@ String _metadataText(Map<String, dynamic> result, List<String> keys) {
     if (text.isNotEmpty) return text;
   }
   return "";
+}
+
+List<String> _metadataTagNames(Map<String, dynamic> result) {
+  final tags = result["tags"];
+  if (tags is! List) return const [];
+  return _normalizeTagNames(
+    tags.map((tag) {
+      if (tag is String) return tag;
+      if (tag is Map) return tag["name"]?.toString() ?? "";
+      return "";
+    }),
+  );
+}
+
+List<String> _normalizeTagNames(Iterable<String> names) {
+  final result = <String>[];
+  final seen = <String>{};
+  for (final rawName in names) {
+    final name = rawName.trim();
+    final key = name.toLowerCase();
+    if (name.isEmpty || seen.contains(key)) continue;
+    seen.add(key);
+    result.add(name);
+  }
+  return result;
 }
 
 class _MetadataApplyImage {

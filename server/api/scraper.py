@@ -124,7 +124,15 @@ async def search_candidates(
                  "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
                  "is_nsfw": r.is_nsfw,
-                 "source_id": r.source_id}
+                 "source_id": r.source_id,
+                 "tags": [
+                     {
+                         "name": tag.name,
+                         "rating": tag.rating,
+                         "is_spoiler": tag.is_spoiler,
+                     }
+                     for tag in r.tags
+                 ]}
                 for r in results
             ],
         }
