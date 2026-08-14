@@ -1,5 +1,5 @@
-/// Full-screen game metadata editor — Playnite style.
-/// Layout: cover right header, left metadata panel, right description, inline download buttons.
+/// Adaptive game metadata editor.
+/// Desktop uses a two-column editor; mobile uses compact segmented sections.
 
 import "dart:async";
 import "dart:convert";
@@ -44,6 +44,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   String? _pendingCoverFilePath;
   String? _pendingBgFilePath;
   late List<GameVersion> _versions;
+  int _mobileSection = 0;
   int _coverVersion = 0;
   int _bgVersion = 0;
 
@@ -1033,7 +1034,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final g = widget.game;
     final hasCover = _coverPath != null && _coverPath!.isNotEmpty;
     final mediaWidth = MediaQuery.sizeOf(context).width;
-    final isWide = mediaWidth > 600;
     final isDesktop = mediaWidth >= 980;
 
     return AppScaffold(
@@ -1049,663 +1049,707 @@ class _GameEditScreenState extends State<GameEditScreen> {
           label: "下载元数据",
           onPressed: _downloadMetadata,
         ),
-        AppActionButton(
-          icon: Icons.delete_outline,
-          label: "删除",
-          color: Colors.red,
-          onPressed: () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text("确认删除"),
-                content: Text("确定删除「${widget.game.name}」吗？\n不会删除本地文件。"),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text("取消"),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text("删除"),
-                  ),
-                ],
-              ),
-            );
-            if (confirmed == true && context.mounted) {
-              await context.read<GameProvider>().deleteGame(widget.game.id);
-              if (context.mounted) Navigator.pop(context, true);
-            }
-          },
-        ),
-        AppActionButton(
-          icon: Icons.save_outlined,
-          label: "保存",
-          filled: true,
-          busy: _saving,
-          onPressed: _saving ? null : _save,
-        ),
+        if (isDesktop)
+          AppActionButton(
+            icon: Icons.delete_outline,
+            label: "删除",
+            color: Colors.red,
+            onPressed: _confirmDelete,
+          ),
+        if (isDesktop)
+          AppActionButton(
+            icon: Icons.save_outlined,
+            label: "保存",
+            filled: true,
+            busy: _saving,
+            onPressed: _saving ? null : _save,
+          ),
       ],
       child: isDesktop
           ? _desktopEditor(g, hasCover: hasCover)
-          : SingleChildScrollView(
-        padding: EdgeInsets.all(isWide ? 28 : 12),
-        child: Column(
-          children: [
-            // ── Hero banner (landscape) full width ──
-            Padding(
-              padding: EdgeInsets.fromLTRB(0, 0, 0, 4),
-              child: NsfwImage(
-                isNsfw: _isNsfw,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(isWide ? 14 : 0),
-                  child: _bgHeroPreview(),
-                ),
-              ),
-            ),
-            Center(
-              child: TextButton.icon(
-                onPressed: _pickLocalBg,
-                icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
-                label: const Text("上传背景", style: TextStyle(fontSize: 12)),
-              ),
-            ),
-            Center(
-              child: TextButton.icon(
-                onPressed: () => _promptImageUrl(cover: false),
-                icon: const Icon(Icons.link, size: 14),
-                label: const Text("URL", style: TextStyle(fontSize: 12)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // ── Content area ──
-            Center(
-              child: SizedBox(
-                width: 900,
-                child: Column(
-                  children: [
-                    // ── Header: cover right, name left ──
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextField(
-                                controller: _name,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.2,
-                                ),
-                                decoration: _dec(
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              if (g.companyName != null &&
-                                  g.companyName!.isNotEmpty)
-                                Text(
-                                  g.companyName!,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: subTextColor(context),
-                                  ),
-                                )
-                              else
-                                Text(
-                                  "无公司信息",
-                                  style: AppText.bodyMedium.copyWith(
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  _sourceBadge("VNDB", g.vndbId),
-                                  _sourceBadge("Steam", g.steamId),
-                                  _sourceBadge("Bangumi", g.bangumiId),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 24),
-                        Column(
-                          children: [
-                            Container(
-                              width: isWide ? 200 : 130,
-                              height: isWide ? 280 : 182,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary
-                                        .withValues(alpha: 0.2),
-                                    blurRadius: 20,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.15),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                                border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant
-                                      .withValues(alpha: 0.5),
-                                ),
-                              ),
-                              child: NsfwImage(
-                                isNsfw: _isNsfw,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: _pendingCoverFilePath != null
-                                      ? Image.file(
-                                          File(_pendingCoverFilePath!),
-                                          key: ValueKey(
-                                            "pending_cover_$_pendingCoverFilePath",
-                                          ),
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              _coverPlaceholder(),
-                                        )
-                                      : hasCover
-                                          ? Image.network(
-                                              "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion",
-                                              key: ValueKey(
-                                                  "cover_$_coverVersion"),
-                                              headers: mediaAuthHeaders,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) =>
-                                                  _coverPlaceholder(),
-                                            )
-                                          : _coverPlaceholder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: () => _pickLocalCover(),
-                              icon: const Icon(
-                                Icons.add_photo_alternate_outlined,
-                                size: 16,
-                              ),
-                              label: const Text(
-                                "本地上传",
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            TextButton.icon(
-                              onPressed: () => _promptImageUrl(cover: true),
-                              icon: const Icon(Icons.link, size: 16),
-                              label: const Text(
-                                "URL",
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    _editCompletenessCard(),
-                    const SizedBox(height: 24),
+          : _mobileEditor(g, hasCover: hasCover),
+    );
+  }
 
-                    // ── Body: responsive — wide: Row, narrow: Column ──
-                    if (isWide)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left: metadata grid
-                          Expanded(
-                            flex: 5,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _section("详细信息", Icons.info_outline),
-                                _fieldCard(
-                                  children: [
-                                    _field(
-                                      "开发商",
-                                      _dev,
-                                      icon: Icons.business,
-                                      sourceId: g.vndbId,
-                                    ),
-                                    _divider(),
-                                    _field(
-                                      "发售日",
-                                      _date,
-                                      icon: Icons.calendar_today,
-                                      sourceId: g.vndbId,
-                                    ),
-                                    _divider(),
-                                    _field(
-                                      "VNDB ID",
-                                      _vndb,
-                                      icon: Icons.tag,
-                                      sourceId: g.vndbId != null &&
-                                              g.vndbId!.isNotEmpty
-                                          ? g.vndbId
-                                          : null,
-                                    ),
-                                    _divider(),
-                                    _field(
-                                      "Steam ID",
-                                      _steam,
-                                      icon: Icons.tag,
-                                      sourceId: g.steamId != null &&
-                                              g.steamId!.isNotEmpty
-                                          ? g.steamId
-                                          : null,
-                                    ),
-                                    _divider(),
-                                    _field(
-                                      "Bangumi ID",
-                                      _bgm,
-                                      icon: Icons.tag,
-                                      sourceId: g.bangumiId != null &&
-                                              g.bangumiId!.isNotEmpty
-                                          ? g.bangumiId
-                                          : null,
-                                    ),
-                                    _divider(),
-                                    SwitchListTile.adaptive(
-                                      contentPadding: EdgeInsets.zero,
-                                      secondary: const Icon(
-                                        Icons.visibility_off_outlined,
-                                      ),
-                                      title: const Text("NSFW 内容"),
-                                      subtitle: const Text("启用后封面和背景默认模糊"),
-                                      value: _isNsfw,
-                                      onChanged: (value) =>
-                                          setState(() => _isNsfw = value),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 20),
-                                _section("版本", Icons.folder_outlined),
-                                if (_versions.isEmpty)
-                                  _hintCard("暂无版本信息")
-                                else ...[
-                                  _fieldCard(
-                                    children: _versions.asMap().entries.map((
-                                      e,
-                                    ) {
-                                      final v = e.value;
-                                      final isLast =
-                                          e.key == _versions.length - 1;
-                                      return Column(
-                                        children: [
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 10,
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                Icon(
-                                                  Icons
-                                                      .insert_drive_file_outlined,
-                                                  size: 18,
-                                                  color: hintColor(context),
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        v.filename,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: const TextStyle(
-                                                          fontSize: 14,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(height: 2),
-                                                      Text(
-                                                        _versionSourceDetail(v),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: AppText.caption
-                                                            .copyWith(
-                                                          color: hintColor(
-                                                              context),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 4,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                      12,
-                                                    ),
-                                                    color: _platformColor(
-                                                      v.platform,
-                                                    ).withValues(alpha: 0.15),
-                                                  ),
-                                                  child: Text(
-                                                    v.platform,
-                                                    style:
-                                                        AppText.label.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                      color: _platformColor(
-                                                        v.platform,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                PopupMenuButton<String>(
-                                                  icon: const Icon(
-                                                    Icons.more_vert,
-                                                    size: 18,
-                                                  ),
-                                                  onSelected: (action) {
-                                                    if (action == "move")
-                                                      _moveVersionDialog(v);
-                                                    if (action == "platform")
-                                                      _changeVersionPlatform(v);
-                                                    if (action == "password")
-                                                      _changeVersionPassword(v);
-                                                  },
-                                                  itemBuilder: (_) => const [
-                                                    PopupMenuItem(
-                                                      value: "platform",
-                                                      child: Text("修改平台"),
-                                                    ),
-                                                    PopupMenuItem(
-                                                      value: "password",
-                                                      child: Text("预填解压密码"),
-                                                    ),
-                                                    PopupMenuItem(
-                                                      value: "move",
-                                                      child: Text("移动到其他游戏..."),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (!isLast) _divider(),
-                                        ],
-                                      );
-                                    }).toList(),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  OutlinedButton.icon(
-                                    icon: const Icon(Icons.merge, size: 16),
-                                    label: const Text("合并到其他游戏..."),
-                                    onPressed: _mergeGameDialog,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 28),
-                          // Right: description + notes
-                          Expanded(
-                            flex: 4,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _section("简介", Icons.description_outlined),
-                                TextField(
-                                  controller: _desc,
-                                  maxLines: 8,
-                                  decoration: _dec(
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    hintText: "游戏简介...",
-                                  ),
-                                  style: AppText.body.copyWith(height: 1.6),
-                                ),
-                                const SizedBox(height: 20),
-                                _section("备注", Icons.note_outlined),
-                                TextField(
-                                  controller: _notes,
-                                  maxLines: 4,
-                                  decoration: _dec(
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    hintText: "个人备注...",
-                                  ),
-                                  style: AppText.body.copyWith(height: 1.6),
-                                ),
-                                // hero moved to top,
-                              ],
-                            ),
-                          ),
-                        ],
-                      )
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _section("简介", Icons.description_outlined),
-                          TextField(
-                            controller: _desc,
-                            maxLines: 8,
-                            decoration: _dec(
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              hintText: "游戏简介...",
-                            ),
-                            style: AppText.body.copyWith(height: 1.6),
-                          ),
-                          const SizedBox(height: 20),
-                          _section("详细信息", Icons.info_outline),
-                          _fieldCard(
-                            children: [
-                              _field(
-                                "开发商",
-                                _dev,
-                                icon: Icons.business,
-                                sourceId: g.vndbId,
-                              ),
-                              _divider(),
-                              _field(
-                                "发售日",
-                                _date,
-                                icon: Icons.calendar_today,
-                                sourceId: g.vndbId,
-                              ),
-                              _divider(),
-                              _field(
-                                "VNDB ID",
-                                _vndb,
-                                icon: Icons.tag,
-                                sourceId:
-                                    g.vndbId != null && g.vndbId!.isNotEmpty
-                                        ? g.vndbId
-                                        : null,
-                              ),
-                              _divider(),
-                              _field(
-                                "Steam ID",
-                                _steam,
-                                icon: Icons.tag,
-                                sourceId:
-                                    g.steamId != null && g.steamId!.isNotEmpty
-                                        ? g.steamId
-                                        : null,
-                              ),
-                              _divider(),
-                              _field(
-                                "Bangumi ID",
-                                _bgm,
-                                icon: Icons.tag,
-                                sourceId: g.bangumiId != null &&
-                                        g.bangumiId!.isNotEmpty
-                                    ? g.bangumiId
-                                    : null,
-                              ),
-                              _divider(),
-                              SwitchListTile.adaptive(
-                                contentPadding: EdgeInsets.zero,
-                                secondary: const Icon(
-                                  Icons.visibility_off_outlined,
-                                ),
-                                title: const Text("NSFW 内容"),
-                                subtitle: const Text("启用后封面和背景默认模糊"),
-                                value: _isNsfw,
-                                onChanged: (value) =>
-                                    setState(() => _isNsfw = value),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          _section("版本", Icons.folder_outlined),
-                          if (_versions.isEmpty)
-                            _hintCard("暂无版本信息")
-                          else ...[
-                            _fieldCard(
-                              children: _versions.asMap().entries.map((e) {
-                                final v = e.value;
-                                final isLast = e.key == _versions.length - 1;
-                                return Column(
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.insert_drive_file_outlined,
-                                            size: 18,
-                                            color: hintColor(context),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  v.filename,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontSize: 14,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  _versionSourceDetail(v),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style:
-                                                      AppText.caption.copyWith(
-                                                    color: hintColor(context),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              color: _platformColor(
-                                                v.platform,
-                                              ).withValues(alpha: 0.15),
-                                            ),
-                                            child: Text(
-                                              v.platform,
-                                              style: AppText.label.copyWith(
-                                                fontWeight: FontWeight.w500,
-                                                color: _platformColor(
-                                                  v.platform,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          PopupMenuButton<String>(
-                                            icon: const Icon(
-                                              Icons.more_vert,
-                                              size: 18,
-                                            ),
-                                            onSelected: (action) {
-                                              if (action == "move")
-                                                _moveVersionDialog(v);
-                                              if (action == "platform")
-                                                _changeVersionPlatform(v);
-                                              if (action == "password")
-                                                _changeVersionPassword(v);
-                                            },
-                                            itemBuilder: (_) => const [
-                                              PopupMenuItem(
-                                                value: "platform",
-                                                child: Text("修改平台"),
-                                              ),
-                                              PopupMenuItem(
-                                                value: "password",
-                                                child: Text("预填解压密码"),
-                                              ),
-                                              PopupMenuItem(
-                                                value: "move",
-                                                child: Text("移动到其他游戏..."),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (!isLast) _divider(),
-                                  ],
-                                );
-                              }).toList(),
-                            ),
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              icon: const Icon(Icons.merge, size: 16),
-                              label: const Text("合并到其他游戏..."),
-                              onPressed: _mergeGameDialog,
-                            ),
-                          ],
-                          const SizedBox(height: 20),
-                          _section("备注", Icons.note_outlined),
-                          TextField(
-                            controller: _notes,
-                            maxLines: 4,
-                            decoration: _dec(
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              hintText: "个人备注...",
-                            ),
-                            style: AppText.body.copyWith(height: 1.6),
-                          ),
-                        ],
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("确认删除"),
+        content: Text("确定删除「" + widget.game.name + "」吗？\n不会删除本地文件。"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("删除"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await context.read<GameProvider>().deleteGame(widget.game.id);
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  Widget _mobileEditor(GameDetail g, {required bool hasCover}) {
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _mobileHeader(g, hasCover: hasCover),
+                const SizedBox(height: 12),
+                _mobileTabs(),
+                const SizedBox(height: 12),
+                _mobileBody(hasCover: hasCover),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
+        _mobileBottomBar(),
+      ],
+    );
+  }
+
+  Widget _mobileHeader(GameDetail g, {required bool hasCover}) {
+    final developer = _dev.text.trim().isNotEmpty
+        ? _dev.text.trim()
+        : (g.companyName ?? "").trim();
+    final subtitle = developer.isEmpty ? "无公司信息" : developer;
+    final completeness = _editCompleteness();
+    final completenessColor = completeness >= 80
+        ? Colors.green
+        : completeness >= 55
+            ? Colors.orange
+            : Colors.red;
+
+    return _mobilePanel(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _mobileCoverPreview(hasCover: hasCover, width: 78),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _name,
+                  maxLines: 2,
+                  minLines: 1,
+                  style: AppText.title.copyWith(
+                    fontWeight: FontWeight.w800,
+                    height: 1.18,
+                  ),
+                  decoration: _dec(
+                    border: InputBorder.none,
+                    isDense: true,
+                    hintText: "游戏名称",
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.bodySmall.copyWith(
+                    color: subTextColor(context),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _mobileStatusChip(
+                      icon: Icons.fact_check_outlined,
+                      label: "完整度 $completeness%",
+                      color: completenessColor,
+                    ),
+                    if (_isNsfw)
+                      _mobileStatusChip(
+                        icon: Icons.visibility_off_outlined,
+                        label: "NSFW",
+                        color: Colors.pink,
                       ),
+                    _sourceBadge("VNDB", _vndb.text.trim()),
+                    _sourceBadge("Steam", _steam.text.trim()),
+                    _sourceBadge("Bangumi", _bgm.text.trim()),
                   ],
                 ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileTabs() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: AppSegmentedTabs(
+        selectedIndex: _mobileSection,
+        onChanged: (index) => setState(() => _mobileSection = index),
+        tabs: const [
+          AppSegmentedTab(0, Icons.edit_note_outlined, "基础"),
+          AppSegmentedTab(1, Icons.perm_media_outlined, "媒体"),
+          AppSegmentedTab(2, Icons.folder_outlined, "版本"),
+          AppSegmentedTab(3, Icons.notes_outlined, "备注"),
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileBody({required bool hasCover}) {
+    return AnimatedSwitcher(
+      duration: AppMotion.normal,
+      switchInCurve: AppMotion.curve,
+      switchOutCurve: AppMotion.curve,
+      child: KeyedSubtree(
+        key: ValueKey(_mobileSection),
+        child: switch (_mobileSection) {
+          1 => _mobileMedia(hasCover: hasCover),
+          2 => _mobileVersions(),
+          3 => _mobileNotes(),
+          _ => _mobileBasics(),
+        },
+      ),
+    );
+  }
+
+  Widget _mobileBasics() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _mobilePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const AppSectionTitle(
+                icon: Icons.info_outline,
+                title: "基础信息",
+                subtitle: "优先编辑检索和展示都会使用的字段",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "开发商",
+                _dev,
+                icon: Icons.business_outlined,
+                hintText: "开发商 / 社团",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "发售日",
+                _date,
+                icon: Icons.calendar_today_outlined,
+                hintText: "YYYY-MM-DD",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "VNDB ID",
+                _vndb,
+                icon: Icons.tag_outlined,
+                hintText: "v12345",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "Steam ID",
+                _steam,
+                icon: Icons.tag_outlined,
+                hintText: "Steam App ID",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "Bangumi ID",
+                _bgm,
+                icon: Icons.tag_outlined,
+                hintText: "Bangumi subject ID",
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _editCompletenessCard(),
+      ],
+    );
+  }
+
+  Widget _mobileMedia({required bool hasCover}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _mobilePanel(
+          padding: EdgeInsets.zero,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Stack(
+                  children: [
+                    NsfwImage(
+                      isNsfw: _isNsfw,
+                      child: _bgHeroPreview(),
+                    ),
+                    Positioned(
+                      left: 12,
+                      bottom: 12,
+                      child: _mobileMediaLabel(
+                        icon: Icons.landscape_outlined,
+                        label: "背景",
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: _pickLocalBg,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: const Text("上传背景"),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _promptImageUrl(cover: false),
+                        icon: const Icon(Icons.link_outlined),
+                        label: const Text("背景 URL"),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _mobilePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const AppSectionTitle(
+                icon: Icons.image_outlined,
+                title: "封面",
+                subtitle: "用于列表、详情页和下载任务展示",
+              ),
+              const SizedBox(height: 14),
+              Center(child: _mobileCoverPreview(hasCover: hasCover, width: 144)),
+              const SizedBox(height: 14),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _pickLocalCover,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: const Text("上传封面"),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _promptImageUrl(cover: true),
+                    icon: const Icon(Icons.link_outlined),
+                    label: const Text("封面 URL"),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _mobilePanel(
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.visibility_off_outlined),
+            title: const Text("NSFW 内容"),
+            subtitle: const Text("启用后封面和背景默认模糊"),
+            value: _isNsfw,
+            onChanged: (value) => setState(() => _isNsfw = value),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mobileVersions() {
+    return _mobilePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppSectionTitle(
+            icon: Icons.folder_outlined,
+            title: "版本",
+            subtitle: _versions.isEmpty
+                ? "暂无可管理版本"
+                : _versions.length.toString() + " 个版本",
+            trailing: OutlinedButton.icon(
+              onPressed: _mergeGameDialog,
+              icon: const Icon(Icons.merge_outlined, size: 16),
+              label: const Text("合并"),
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (_versions.isEmpty)
+            _hintCard("暂无版本信息")
+          else
+            Column(
+              children: _versions.asMap().entries.map((entry) {
+                final version = entry.value;
+                final isLast = entry.key == _versions.length - 1;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+                  child: _mobileVersionCard(version),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileNotes() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _mobilePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const AppSectionTitle(
+                icon: Icons.description_outlined,
+                title: "简介",
+                subtitle: "详情页展示的主要正文",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "简介内容",
+                _desc,
+                icon: Icons.article_outlined,
+                maxLines: 9,
+                hintText: "游戏简介...",
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _mobilePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const AppSectionTitle(
+                icon: Icons.note_outlined,
+                title: "备注",
+                subtitle: "仅用于本地管理记录",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "个人备注",
+                _notes,
+                icon: Icons.sticky_note_2_outlined,
+                maxLines: 5,
+                hintText: "个人备注...",
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mobilePanel({
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(16),
+  }) {
+    return AppSurface(
+      padding: padding,
+      radius: AppRadius.lg,
+      child: child,
+    );
+  }
+
+  Widget _mobileTextField(
+    String label,
+    TextEditingController controller, {
+    IconData? icon,
+    int maxLines = 1,
+    String? hintText,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: sectionIconColor(context)),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: AppText.label.copyWith(
+                color: subTextColor(context),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        TextField(
+          controller: controller,
+          maxLines: maxLines,
+          decoration: _dec(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            hintText: hintText,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 11,
+            ),
+          ),
+          style: AppText.body.copyWith(height: 1.45),
+        ),
+      ],
+    );
+  }
+
+  Widget _mobileCoverPreview({required bool hasCover, required double width}) {
+    final radius = BorderRadius.circular(width < 100 ? 10 : 16);
+    return Container(
+      width: width,
+      height: width * 1.4,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        border: Border.all(color: cardBorder(context)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: width < 100 ? 0.10 : 0.18),
+            blurRadius: width < 100 ? 12 : 22,
+            offset: Offset(0, width < 100 ? 6 : 12),
+          ),
+        ],
+      ),
+      child: NsfwImage(
+        isNsfw: _isNsfw,
+        child: ClipRRect(
+          borderRadius: radius,
+          child: _pendingCoverFilePath != null
+              ? Image.file(
+                  File(_pendingCoverFilePath!),
+                  key: ValueKey("pending_cover_$_pendingCoverFilePath"),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _coverPlaceholder(),
+                )
+              : hasCover
+                  ? Image.network(
+                      "$_baseUrl/api/files/covers$_coverPath?v=$_coverVersion",
+                      key: ValueKey("cover_$_coverVersion"),
+                      headers: mediaAuthHeaders,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _coverPlaceholder(),
+                    )
+                  : _coverPlaceholder(),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileVersionCard(GameVersion version) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cardBg(context).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: cardBorder(context).withValues(alpha: 0.72)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _platformColor(version.platform).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(
+              Icons.insert_drive_file_outlined,
+              size: 20,
+              color: _platformColor(version.platform),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  version.filename,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _versionSourceDetail(version),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.caption.copyWith(color: hintColor(context)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              color: _platformColor(version.platform).withValues(alpha: 0.15),
+            ),
+            child: Text(
+              version.platform,
+              style: AppText.caption.copyWith(
+                fontWeight: FontWeight.w800,
+                color: _platformColor(version.platform),
+              ),
+            ),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 18),
+            onSelected: (action) {
+              if (action == "move") _moveVersionDialog(version);
+              if (action == "platform") _changeVersionPlatform(version);
+              if (action == "password") _changeVersionPassword(version);
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: "platform",
+                child: Text("修改平台"),
+              ),
+              PopupMenuItem(
+                value: "password",
+                child: Text("预填解压密码"),
+              ),
+              PopupMenuItem(
+                value: "move",
+                child: Text("移动到其他游戏..."),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileMediaLabel({required IconData icon, required String label}) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.46),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: AppText.caption.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileStatusChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppText.caption.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileBottomBar() {
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: cs.surface.withValues(alpha: 0.94),
+          border: Border(
+            top: BorderSide(color: cardBorder(context).withValues(alpha: 0.86)),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.10),
+              blurRadius: 18,
+              offset: const Offset(0, -8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            TextButton.icon(
+              onPressed: _confirmDelete,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text("删除"),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: const Text("保存"),
               ),
             ),
           ],
