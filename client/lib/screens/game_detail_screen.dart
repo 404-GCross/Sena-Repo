@@ -181,7 +181,10 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               context,
               MaterialPageRoute(builder: (_) => GameEditScreen(game: game)),
             );
-            if (changed == true) _load();
+            if (changed == true) {
+              unawaited(context.read<GameProvider>().refreshGames());
+              _load();
+            }
           },
         ),
       ],
