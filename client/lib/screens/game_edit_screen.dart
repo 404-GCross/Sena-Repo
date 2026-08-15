@@ -40,6 +40,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   bool _saving = false;
   bool _isNsfw = false;
   bool _tagsDirty = false;
+  bool _desktopBgActionsHovered = false;
   String _tagSource = "metadata";
   String? _coverPath;
   String? _pendingCoverUrl;
@@ -1854,48 +1855,65 @@ class _GameEditScreenState extends State<GameEditScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Stack(
-              children: [
-                NsfwImage(
-                  isNsfw: _isNsfw,
-                  child: _bgHeroPreview(),
-                ),
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.28),
-                        ],
+            MouseRegion(
+              onEnter: (_) => setState(() => _desktopBgActionsHovered = true),
+              onExit: (_) => setState(() => _desktopBgActionsHovered = false),
+              child: Stack(
+                children: [
+                  NsfwImage(
+                    isNsfw: _isNsfw,
+                    child: _bgHeroPreview(),
+                  ),
+                  Positioned.fill(
+                    child: AnimatedOpacity(
+                      opacity: _desktopBgActionsHovered ? 1 : 0,
+                      duration: const Duration(milliseconds: 140),
+                      curve: Curves.easeOut,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.28),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 12,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: _pickLocalBg,
-                        icon: const Icon(Icons.add_photo_alternate_outlined),
-                        label: const Text("背景"),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: IgnorePointer(
+                      ignoring: !_desktopBgActionsHovered,
+                      child: AnimatedOpacity(
+                        opacity: _desktopBgActionsHovered ? 1 : 0,
+                        duration: const Duration(milliseconds: 140),
+                        curve: Curves.easeOut,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.tonalIcon(
+                              onPressed: _pickLocalBg,
+                              icon: const Icon(Icons.add_photo_alternate_outlined),
+                              label: const Text("背景"),
+                            ),
+                            FilledButton.tonalIcon(
+                              onPressed: () => _promptImageUrl(cover: false),
+                              icon: const Icon(Icons.link),
+                              label: const Text("URL"),
+                            ),
+                          ],
+                        ),
                       ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => _promptImageUrl(cover: false),
-                        icon: const Icon(Icons.link),
-                        label: const Text("URL"),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
