@@ -1861,7 +1861,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               child: Stack(
                 children: [
                   NsfwImage(
-                    isNsfw: _isNsfw,
+                    isNsfw: _isNsfw && !_desktopBgActionsHovered,
                     child: _bgHeroPreview(),
                   ),
                   Positioned.fill(
