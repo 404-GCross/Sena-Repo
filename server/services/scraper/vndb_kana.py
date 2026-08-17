@@ -184,7 +184,7 @@ class VndbKanaScraper(BaseScraper):
             source_name=self.source_name,
             length=(item.get("length") or 0),
             length_minutes=(item.get("length_minutes") or 0),
-            is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 1.0,
+            is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 2.0,
             tags=tag_items,
         )
 
@@ -249,7 +249,7 @@ class VndbTitlesScraper(BaseScraper):
                     screenshot_urls=all_shots,
                     source_id=str(item.get("id", "")),
                     source_name=self.source_name,
-                    is_nsfw=float((image.get("sexual") or 0)) >= 1.0,
+                    is_nsfw=float((image.get("sexual") or 0)) >= 2.0,
                 ))
         except Exception as e:
             logger.warning(f"VNDB failed for '{name}': {e}")

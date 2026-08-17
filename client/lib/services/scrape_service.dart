@@ -106,9 +106,9 @@ class ScrapeService {
   static bool _isVndbImageNsfw(dynamic image) {
     if (image is! Map) return false;
     final sexual = image["sexual"];
-    if (sexual is num) return sexual >= 1.0;
+    if (sexual is num) return sexual >= 2.0;
     final parsed = double.tryParse(sexual?.toString() ?? "");
-    return parsed != null && parsed >= 1.0;
+    return parsed != null && parsed >= 2.0;
   }
 
   static Future<String> _pickVndbCover(dynamic item) async {

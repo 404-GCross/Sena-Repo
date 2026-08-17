@@ -2668,12 +2668,27 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
     // Step 4: Per-field comparison
     final incomingTags = _metadataTagNames(r);
+    bool? scrapedNsfw;
+    final nsfwRaw = r["is_nsfw"];
+    if (nsfwRaw is bool) {
+      scrapedNsfw = nsfwRaw;
+    } else if (nsfwRaw is num) {
+      scrapedNsfw = nsfwRaw != 0;
+    } else if (nsfwRaw is String && nsfwRaw.trim().isNotEmpty) {
+      final normalized = nsfwRaw.trim().toLowerCase();
+      if (["true", "1", "yes", "y"].contains(normalized)) {
+        scrapedNsfw = true;
+      } else if (["false", "0", "no", "n"].contains(normalized)) {
+        scrapedNsfw = false;
+      }
+    }
     final currentFields = {
       "名称": _name.text,
       "开发商": _dev.text,
       "日期": _date.text,
       "简介": _desc.text,
       "标签": _tagNames.join("、"),
+      if (scrapedNsfw != null) "NSFW": _isNsfw ? "是" : "否",
     };
     final incoming = {
       "名称": (r["title"] ?? "").toString(),
@@ -2681,6 +2696,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "日期": (r["release_date"] ?? "").toString(),
       "简介": (r["description"] ?? "").toString(),
       "标签": incomingTags.join("、"),
+      if (scrapedNsfw != null) "NSFW": scrapedNsfw == true ? "是" : "否",
     };
     final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
@@ -2754,7 +2770,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
         _tagsDirty = true;
         _tagSource = src;
       }
-      if (r["is_nsfw"] == true) _isNsfw = true;
+      if (apply["NSFW"] == true && scrapedNsfw != null) {
+        _isNsfw = scrapedNsfw == true;
+      }
       final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = r["source_id"].toString();
