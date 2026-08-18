@@ -5,6 +5,8 @@ import "logged_http.dart" as http;
 import "dart:convert";
 
 class ScrapeService {
+  static const int _maxScrapedTags = 20;
+
   static const _vndbFields =
       "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
       "image.url,image.sexual,screenshots.url,description,rating,released,"
@@ -71,15 +73,21 @@ class ScrapeService {
         }
         final devs = item["developers"] as List? ?? [];
         final cover = await _pickVndbCover(item);
-        final tags = ((item["tags"] as List?) ?? [])
+        final vndbTags = ((item["tags"] as List?) ?? [])
             .whereType<Map>()
+            .where((tag) => _tagRating(tag["rating"]) >= 1.5)
+            .toList();
+        vndbTags.sort(
+          (a, b) => _tagRating(b["rating"]).compareTo(_tagRating(a["rating"])),
+        );
+        final tags = vndbTags
             .map((tag) => {
                   "name": tag["name"]?.toString() ?? "",
                   "rating": tag["rating"] ?? 0,
                   "is_spoiler": tag["spoiler"] == true,
                 })
             .where((tag) => (tag["name"] ?? "").toString().trim().isNotEmpty)
-            .take(5)
+            .take(_maxScrapedTags)
             .toList();
         results.add({
           "title": title,
@@ -109,6 +117,11 @@ class ScrapeService {
     if (sexual is num) return sexual >= 2.0;
     final parsed = double.tryParse(sexual?.toString() ?? "");
     return parsed != null && parsed >= 2.0;
+  }
+
+  static double _tagRating(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? "") ?? 0.0;
   }
 
   static Future<String> _pickVndbCover(dynamic item) async {
@@ -204,7 +217,7 @@ class ScrapeService {
         .whereType<Map>()
         .map((tag) => {"name": tag["name"]?.toString() ?? ""})
         .where((tag) => (tag["name"] ?? "").toString().trim().isNotEmpty)
-        .take(5)
+        .take(_maxScrapedTags)
         .toList();
     return {
       "title": item["name_cn"] ?? item["name"] ?? "",
@@ -346,6 +359,7 @@ class ScrapeService {
         ? details["short_description"].toString().substring(0, 500)
         : (details["short_description"]?.toString() ?? "");
     final release = ((details["release_date"] ?? {})["date"] ?? "").toString();
+    final tags = _steamTagMaps(details);
     final screenshots = ((details["screenshots"] as List?) ?? [])
         .map<dynamic>((s) => s["path_full"] ?? "")
         .where((u) => u is String && u.isNotEmpty)
@@ -390,7 +404,32 @@ class ScrapeService {
         "hero_url": hero,
         "screenshots": screenshots,
         "source_id": appid,
+        "tags": tags,
       },
     ];
+  }
+
+  static List<Map<String, dynamic>> _steamTagMaps(
+    Map<String, dynamic> details,
+  ) {
+    final tags = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void addName(dynamic value) {
+      final name = value?.toString().trim() ?? "";
+      final key = name.toLowerCase();
+      if (name.isEmpty || seen.contains(key)) return;
+      seen.add(key);
+      tags.add({"name": name});
+    }
+
+    for (final genre in (details["genres"] as List?) ?? const []) {
+      if (genre is Map) addName(genre["description"]);
+    }
+    for (final category in (details["categories"] as List?) ?? const []) {
+      if (category is Map) addName(category["description"]);
+    }
+
+    return tags.take(_maxScrapedTags).toList();
   }
 }

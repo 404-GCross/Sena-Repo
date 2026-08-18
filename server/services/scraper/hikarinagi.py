@@ -8,7 +8,7 @@ from datetime import datetime
 
 import httpx
 
-from .base import BaseScraper, ScrapedTag, ScraperResult, clean_title
+from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +385,7 @@ def _tags_from_detail(item: dict) -> list[ScrapedTag]:
         seen.add(key)
         result.append(ScrapedTag(name=name, rating=likes))
     result.sort(key=lambda tag: tag.rating, reverse=True)
-    return result[:8]
+    return result[:MAX_SCRAPED_TAGS]
 
 
 def _tag_likes(value: object) -> float:

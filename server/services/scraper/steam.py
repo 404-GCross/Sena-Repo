@@ -7,7 +7,7 @@ from urllib.parse import quote as url_encode
 
 import httpx
 
-from .base import BaseScraper, ScraperResult, clean_title
+from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
@@ -213,9 +213,16 @@ class SteamScraper(BaseScraper):
                 except Exception:
                     pass
 
-            genres = [g.get("description", "") for g in details.get("genres", []) if g.get("description")]
-            if not genres:
-                genres = [c.get("description", "") for c in details.get("categories", [])[:5] if c.get("description")]
+            tag_names: list[str] = []
+            seen_tags: set[str] = set()
+            for entry in [*(details.get("genres") or []), *(details.get("categories") or [])]:
+                name = str(entry.get("description", "")).strip() if isinstance(entry, dict) else ""
+                key = name.casefold()
+                if not name or key in seen_tags:
+                    continue
+                seen_tags.add(key)
+                tag_names.append(name)
+            tags = [ScrapedTag(name=name) for name in tag_names[:MAX_SCRAPED_TAGS]]
 
             return [ScraperResult(
                 title=title,
@@ -226,4 +233,5 @@ class SteamScraper(BaseScraper):
                 hero_url=hero_url,
                 source_id=appid,
                 source_name=self.source_name,
+                tags=tags,
             )] if title else []

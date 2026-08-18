@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from .base import BaseScraper, ScrapedTag, ScraperResult, clean_title
+from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult, clean_title
 
 logger = logging.getLogger(__name__)
 
@@ -93,12 +93,17 @@ class BangumiScraper(BaseScraper):
         if cover.startswith("//"):
             cover = "https:" + cover
 
-        tags = item.get("tags", [])
-        tag_items = [
-            ScrapedTag(name=str(t.get("name", "")).strip())
-            for t in tags[:5]
-            if str(t.get("name", "")).strip()
-        ]
+        tag_items: list[ScrapedTag] = []
+        seen_tags: set[str] = set()
+        for tag in item.get("tags", []) or []:
+            name = str(tag.get("name", "")).strip() if isinstance(tag, dict) else ""
+            key = name.casefold()
+            if not name or key in seen_tags:
+                continue
+            seen_tags.add(key)
+            tag_items.append(ScrapedTag(name=name))
+            if len(tag_items) >= MAX_SCRAPED_TAGS:
+                break
 
         return ScraperResult(
             title=item.get("name_cn", "") or item.get("name", ""),

@@ -13,6 +13,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+MAX_SCRAPED_TAGS = 20
+
 # Simple in-memory throttle to prevent hammering APIs
 _last_request_time: float = 0
 _throttle_lock: asyncio.Lock | None = None

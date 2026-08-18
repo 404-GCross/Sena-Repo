@@ -7,7 +7,7 @@ import re
 
 import httpx
 
-from .base import BaseScraper, ScrapedTag, ScraperResult
+from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ class VndbKanaScraper(BaseScraper):
         hero = screenshots[0].get("url", "") if screenshots else ""
         all_shots = [s.get("url", "") for s in screenshots if s.get("url")]
 
-        # Tags (filter rating >= 1.5, sort by rating desc, top 5)
+        # Tags (filter rating >= 1.5, sort by rating desc)
         tags = item.get("tags", [])
         filtered = [t for t in tags if _tag_rating(t.get("rating")) >= 1.5]
         filtered.sort(key=lambda t: _tag_rating(t.get("rating")), reverse=True)
@@ -168,7 +168,7 @@ class VndbKanaScraper(BaseScraper):
                 rating=_tag_rating(t.get("rating")),
                 is_spoiler=bool(t.get("spoiler")),
             )
-            for t in filtered[:5]
+            for t in filtered[:MAX_SCRAPED_TAGS]
             if str(t.get("name", "")).strip()
         ]
 
