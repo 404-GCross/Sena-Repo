@@ -145,6 +145,7 @@ class GameDetail {
   final String? vndbId;
   final String? steamId;
   final String? bangumiId;
+  final String? hikarinagiId;
   final int length;
   final int lengthMinutes;
   final bool isDeleted;
@@ -168,6 +169,7 @@ class GameDetail {
     this.vndbId,
     this.steamId,
     this.bangumiId,
+    this.hikarinagiId,
     this.length = 0,
     this.lengthMinutes = 0,
     required this.isDeleted,
@@ -193,6 +195,7 @@ class GameDetail {
       vndbId: json["vndb_id"],
       steamId: json["steam_id"],
       bangumiId: json["bangumi_id"],
+      hikarinagiId: json["hikarinagi_id"],
       length: json["length"] ?? 0,
       lengthMinutes: json["length_minutes"] ?? 0,
       isDeleted: json["is_deleted"] ?? false,

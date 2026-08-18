@@ -57,6 +57,7 @@ class GameDetail(BaseModel):
     vndb_id: str | None = None
     steam_id: str | None = None
     bangumi_id: str | None = None
+    hikarinagi_id: str | None = None
     length: int = 0
     length_minutes: int = 0
     is_deleted: bool

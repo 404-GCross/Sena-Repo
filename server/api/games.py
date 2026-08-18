@@ -203,6 +203,7 @@ async def get_game(
         vndb_id=game.vndb_id,
         steam_id=game.steam_id,
         bangumi_id=game.bangumi_id,
+        hikarinagi_id=game.hikarinagi_id,
         length=game.length or 0,
         length_minutes=game.length_minutes or 0,
         is_deleted=game.is_deleted,
@@ -344,6 +345,7 @@ class GameUpdate(BaseModel):
     vndb_id: str | None = None
     steam_id: str | None = None
     bangumi_id: str | None = None
+    hikarinagi_id: str | None = None
     is_nsfw: bool | None = None
     tag_names: list[str] | None = None
     tag_source: str | None = None

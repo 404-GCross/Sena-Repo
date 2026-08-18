@@ -201,6 +201,24 @@ async def scrape_single_game(
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} error for Bangumi ID '{game.bangumi_id}': {e}")
 
+    # Prefer an explicitly saved Hikarinagi ID for the Hikarinagi scraper only.
+    if game.hikarinagi_id:
+        for scraper in scrapers:
+            if scraper.source_name != "hikarinagi":
+                continue
+            try:
+                result = await search_best(
+                    scraper,
+                    game.hikarinagi_id,
+                    "Hikarinagi ID",
+                )
+                if result:
+                    await handle_result(scraper, result)
+            except Exception as e:
+                logger.error(
+                    f"Scraper {scraper.source_name} error for Hikarinagi ID '{game.hikarinagi_id}': {e}"
+                )
+
     # ── Standard search: try candidates × scrapers ──
     for query in candidates:
         for scraper in scrapers:
@@ -295,8 +313,13 @@ async def _apply_result(
             game.length_minutes = result.length_minutes
             session.add(game)
         # Source ID — map scraper to game ID column
-        _id_map = {"vndb_kana": "vndb_id", "vndb": "vndb_id",
-                   "steam": "steam_id", "bangumi": "bangumi_id"}
+        _id_map = {
+            "vndb_kana": "vndb_id",
+            "vndb": "vndb_id",
+            "steam": "steam_id",
+            "bangumi": "bangumi_id",
+            "hikarinagi": "hikarinagi_id",
+        }
         col = _id_map.get(source_name)
         if col and result.source_id and (overwrite or not getattr(game, col, None)):
             setattr(game, col, result.source_id)

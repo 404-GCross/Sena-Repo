@@ -35,6 +35,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb,
       _steam,
       _bgm,
+      _hikarinagi,
       _notes,
       _bgUrl;
   bool _saving = false;
@@ -95,6 +96,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _vndb = TextEditingController(text: g.vndbId ?? "");
     _steam = TextEditingController(text: g.steamId ?? "");
     _bgm = TextEditingController(text: g.bangumiId ?? "");
+    _hikarinagi = TextEditingController(text: g.hikarinagiId ?? "");
     _bgUrl = TextEditingController(text: g.bgPath ?? "");
     _notes = TextEditingController();
     for (final controller in [
@@ -104,6 +106,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb,
       _steam,
       _bgm,
+      _hikarinagi,
       _bgUrl
     ]) {
       controller.addListener(_onMetadataEdited);
@@ -145,6 +148,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "vndb_id": _vndb.text.trim(),
         "steam_id": _steam.text.trim(),
         "bangumi_id": _bgm.text.trim(),
+        "hikarinagi_id": _hikarinagi.text.trim(),
         "is_nsfw": _isNsfw,
       };
       if (_tagsDirty) {
@@ -994,7 +998,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _versions.isNotEmpty,
       _vndb.text.trim().isNotEmpty ||
           _steam.text.trim().isNotEmpty ||
-          _bgm.text.trim().isNotEmpty,
+          _bgm.text.trim().isNotEmpty ||
+          _hikarinagi.text.trim().isNotEmpty,
     ];
     return ((checks.where((value) => value).length / checks.length) * 100)
         .round();
@@ -1014,7 +1019,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (_versions.isEmpty) missing.add("版本");
     if (_vndb.text.trim().isEmpty &&
         _steam.text.trim().isEmpty &&
-        _bgm.text.trim().isEmpty) {
+        _bgm.text.trim().isEmpty &&
+        _hikarinagi.text.trim().isEmpty) {
       missing.add("来源ID");
     }
     return missing;
@@ -1196,6 +1202,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     _sourceBadge("VNDB", _vndb.text.trim()),
                     _sourceBadge("Steam", _steam.text.trim()),
                     _sourceBadge("Bangumi", _bgm.text.trim()),
+                    _sourceBadge("Hikarinagi", _hikarinagi.text.trim()),
                   ],
                 ),
               ],
@@ -2001,6 +2008,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               _sourceBadge("VNDB", g.vndbId),
               _sourceBadge("Steam", g.steamId),
               _sourceBadge("Bangumi", g.bangumiId),
+              _sourceBadge("Hikarinagi", g.hikarinagiId),
             ],
           ),
           const SizedBox(height: 14),
@@ -2105,11 +2113,30 @@ class _GameEditScreenState extends State<GameEditScreen> {
             ],
           ),
           _divider(),
-          _field(
-            "Bangumi ID",
-            _bgm,
-            icon: Icons.tag,
-            sourceId: g.bangumiId?.isNotEmpty == true ? g.bangumiId : null,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _field(
+                  "Bangumi ID",
+                  _bgm,
+                  icon: Icons.tag,
+                  sourceId:
+                      g.bangumiId?.isNotEmpty == true ? g.bangumiId : null,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _field(
+                  "Hikarinagi ID",
+                  _hikarinagi,
+                  icon: Icons.tag,
+                  sourceId: g.hikarinagiId?.isNotEmpty == true
+                      ? g.hikarinagiId
+                      : null,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2773,7 +2800,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["NSFW"] == true && scrapedNsfw != null) {
         _isNsfw = scrapedNsfw == true;
       }
-      final sf = {"vndb_kana": _vndb, "bangumi": _bgm, "steam": _steam};
+      final sf = {
+        "vndb_kana": _vndb,
+        "bangumi": _bgm,
+        "steam": _steam,
+        "hikarinagi": _hikarinagi,
+      };
       if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
         sf[src]!.text = r["source_id"].toString();
       }
@@ -2797,6 +2829,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb,
       _steam,
       _bgm,
+      _hikarinagi,
       _bgUrl
     ]) {
       controller.removeListener(_onMetadataEdited);
@@ -2808,6 +2841,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _vndb.dispose();
     _steam.dispose();
     _bgm.dispose();
+    _hikarinagi.dispose();
     _bgUrl.dispose();
     _notes.dispose();
     super.dispose();

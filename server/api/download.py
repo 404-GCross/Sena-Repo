@@ -494,6 +494,8 @@ def _primary_lunabox_identity(game: Game) -> tuple[str | None, str | None]:
         return "vndb", game.vndb_id
     if game.bangumi_id:
         return "bangumi", game.bangumi_id
+    if getattr(game, "hikarinagi_id", None):
+        return "hikarinagi", game.hikarinagi_id
     if game.steam_id:
         return "steam", game.steam_id
     return None, None

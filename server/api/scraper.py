@@ -201,7 +201,13 @@ async def scrape_apply(
     if is_nsfw is True:
         game.is_nsfw = True
     sfx = ""
-    sf = {"vndb_kana": "vndb_id", "vndb": "vndb_id", "bangumi": "bangumi_id", "steam": "steam_id"}
+    sf = {
+        "vndb_kana": "vndb_id",
+        "vndb": "vndb_id",
+        "bangumi": "bangumi_id",
+        "steam": "steam_id",
+        "hikarinagi": "hikarinagi_id",
+    }
     sfx = sf.get(source, "")
     if sfx and source_id:
         setattr(game, sfx, source_id)

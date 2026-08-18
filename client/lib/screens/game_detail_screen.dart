@@ -1308,6 +1308,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               _desktopMetadataRow("VNDB", game.vndbId),
               _desktopMetadataRow("Steam", game.steamId),
               _desktopMetadataRow("Bangumi", game.bangumiId),
+              _desktopMetadataRow("Hikarinagi", game.hikarinagiId),
             ],
           ),
         ),
@@ -1686,7 +1687,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       game.versions.isNotEmpty,
       game.vndbId?.isNotEmpty == true ||
           game.steamId?.isNotEmpty == true ||
-          game.bangumiId?.isNotEmpty == true,
+          game.bangumiId?.isNotEmpty == true ||
+          game.hikarinagiId?.isNotEmpty == true,
     ];
     final filled = checks.where((value) => value).length;
     return ((filled / checks.length) * 100).round();
@@ -1704,7 +1706,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     if (game.versions.isEmpty) missing.add("版本");
     if (game.vndbId?.isNotEmpty != true &&
         game.steamId?.isNotEmpty != true &&
-        game.bangumiId?.isNotEmpty != true) {
+        game.bangumiId?.isNotEmpty != true &&
+        game.hikarinagiId?.isNotEmpty != true) {
       missing.add("来源ID");
     }
     return missing;
