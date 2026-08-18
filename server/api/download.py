@@ -336,23 +336,26 @@ async def _manager_install_checksum(
         return checksum
 
     source_type = version.source_type or "local"
-    if target == "reinamanager" and source_type == "openlist":
+    if target in {"lunabox", "reinamanager"} and source_type == "openlist":
         checksum = await _openlist_metadata_sha256(version, session)
         if checksum:
             await _store_version_sha256(version, session, checksum)
             logger.info(
-                "Cached OpenList SHA256 from metadata for manager install vid=%s",
+                "Cached OpenList SHA256 from metadata for %s install vid=%s",
+                target,
                 version.id,
             )
             return checksum
 
+        target_name = "LunaBox" if target == "lunabox" else "ReinaManager"
         logger.warning(
-            "ReinaManager install link blocked because OpenList SHA256 is missing vid=%s",
+            "%s install link blocked because OpenList SHA256 is missing vid=%s",
+            target_name,
             version.id,
         )
         raise HTTPException(
             status_code=409,
-            detail="OpenList 资源未提供 SHA256 校验值，ReinaManager 推送不能在生成链接时远程整包计算；请在 OpenList 端启用或补全文件哈希后重新扫描资源。",
+            detail=f"OpenList 资源未提供 SHA256 校验值，{target_name} 推送不能在生成链接时远程整包计算；请在 OpenList 端启用或补全文件哈希后重新扫描资源。",
         )
 
     return await _ensure_version_checksum(version, session)
@@ -610,6 +613,7 @@ async def create_manager_install_link(
             "checksum": checksum,
             "title": game.name,
             "download_source": "sena-repo",
+            "strip_top_level": "true",
         }
         install_subdir = _lunabox_install_subdir(game)
         if install_subdir:
@@ -618,6 +622,7 @@ async def create_manager_install_link(
             params["expires_at"] = str(url_expires_at)
         meta_source, meta_id = _primary_lunabox_identity(game)
         if meta_source and meta_id:
+            params["meta_source"] = meta_source
             params["source"] = meta_source
             params["meta_id"] = meta_id
         install_url = "lunabox://install?" + urlencode(params)
