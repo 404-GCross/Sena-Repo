@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sena Repo - Steam Patch Redesign All Pages</title>
+  <style>
+    :root {
+      --bg-a:#f7f8fa;
+      --bg-b:#edf2f7;
+      --surface:rgba(255,255,255,.84);
+      --surface-strong:rgba(255,255,255,.96);
+      --surface-soft:rgba(255,255,255,.62);
+      --border:rgba(196,203,214,.72);
+      --border-soft:rgba(196,203,214,.42);
+      --text:#20242c;
+      --sub:rgba(32,36,44,.70);
+      --hint:rgba(32,36,44,.54);
+      --primary:#6750a4;
+      --primary-soft:rgba(103,80,164,.10);
+      --primary-mid:rgba(103,80,164,.18);
+      --blue:#2f73d2;
+      --blue-soft:rgba(47,115,210,.10);
+      --green:#2f9d55;
+      --green-soft:rgba(47,157,85,.10);
+      --orange:#d98222;
+      --orange-soft:rgba(217,130,34,.12);
+      --red:#c64555;
+      --red-soft:rgba(198,69,85,.11);
+      --shadow:rgba(28,36,50,.08);
+      --radius-sm:9px;
+      --radius-md:13px;
+      --radius-lg:18px;
+      --radius-xl:24px;
+    }
+
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body {
+      margin:0;
+      min-height:100vh;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 18% 0%, rgba(103,80,164,.10), transparent 31%),
+        radial-gradient(circle at 82% 6%, rgba(47,115,210,.10), transparent 28%),
+        linear-gradient(135deg,var(--bg-a),var(--bg-b));
+      font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+      letter-spacing:0;
+    }
+
+    button, input, select, textarea { font:inherit; }
+    .shell { max-width:1540px; margin:0 auto; padding:22px; }
+    .top {
+      position:sticky;
+      top:0;
+      z-index:20;
+      display:flex;
+      align-items:center;
+      gap:14px;
+      padding:14px 24px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.68);
+      backdrop-filter:blur(18px);
+    }
+    .logo {
+      width:40px;
+      height:40px;
+      display:grid;
+      place-items:center;
+      border-radius:14px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-weight:900;
+      box-shadow:inset 0 0 0 1px rgba(103,80,164,.14);
+    }
+    .top-title { flex:1; min-width:0; }
+    .top-title h1 { margin:0; font-size:18px; line-height:1.25; }
+    .top-title p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .nav { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+    .pill,
+    .btn,
+    .chip,
+    .icon-btn {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      white-space:nowrap;
+      border:0;
+      text-decoration:none;
+    }
+    .pill {
+      min-height:34px;
+      padding:0 12px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:12px;
+      font-weight:800;
+    }
+    .section-head {
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:18px;
+      margin:30px 0 14px;
+    }
+    .section-head h2 { margin:0; font-size:25px; line-height:1.25; }
+    .section-head p {
+      max-width:960px;
+      margin:7px 0 0;
+      color:var(--sub);
+      font-size:14px;
+      line-height:1.65;
+    }
+    .surface {
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      box-shadow:0 12px 28px var(--shadow);
+      backdrop-filter:blur(14px);
+    }
+    .panel { padding:18px; }
+    .hero { padding:28px; }
+    .hero-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 400px;
+      gap:22px;
+      align-items:stretch;
+    }
+    .hero h2 { margin:0; font-size:32px; line-height:1.22; letter-spacing:-.02em; }
+    .hero p { margin:12px 0 0; color:var(--sub); font-size:15px; line-height:1.75; }
+    .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:20px; }
+    .metric {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .metric label { display:block; color:var(--hint); font-size:11px; font-weight:900; }
+    .metric strong { display:block; margin-top:7px; font-size:20px; }
+    .summary-card { display:grid; gap:0; overflow:hidden; }
+    .summary-row {
+      display:flex;
+      justify-content:space-between;
+      gap:14px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border-soft);
+    }
+    .summary-row:last-child { border-bottom:0; }
+    .summary-row span { color:var(--hint); font-size:12px; font-weight:900; }
+    .summary-row strong { text-align:right; font-size:13px; }
+    .app {
+      overflow:hidden;
+      background:
+        linear-gradient(135deg,rgba(255,255,255,.50),rgba(255,255,255,.24)),
+        linear-gradient(135deg,var(--bg-a),var(--bg-b));
+    }
+    .appbar {
+      min-height:76px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:18px 22px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.56);
+      backdrop-filter:blur(18px);
+    }
+    .appbar .title { flex:1; min-width:0; }
+    .appbar h3 { margin:0; font-size:19px; line-height:1.25; }
+    .appbar p { margin:3px 0 0; color:var(--hint); font-size:12px; }
+    .icon-btn {
+      width:42px;
+      height:42px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:18px;
+      font-weight:900;
+    }
+    .btn {
+      min-height:38px;
+      gap:7px;
+      padding:0 14px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:13px;
+      font-weight:800;
+      cursor:default;
+    }
+    .btn.fill { color:white; background:var(--primary); }
+    .btn.green { color:var(--green); background:var(--green-soft); }
+    .btn.orange { color:var(--orange); background:var(--orange-soft); }
+    .btn.red { color:var(--red); background:var(--red-soft); }
+    .chip {
+      min-height:26px;
+      gap:5px;
+      padding:5px 10px;
+      border-radius:999px;
+      border:1px solid rgba(103,80,164,.22);
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:12px;
+      font-weight:850;
+    }
+    .chip.green { color:var(--green); background:var(--green-soft); border-color:rgba(47,157,85,.22); }
+    .chip.blue { color:var(--blue); background:var(--blue-soft); border-color:rgba(47,115,210,.22); }
+    .chip.orange { color:var(--orange); background:var(--orange-soft); border-color:rgba(217,130,34,.22); }
+    .chip.red { color:var(--red); background:var(--red-soft); border-color:rgba(198,69,85,.22); }
+    .chip.gray { color:var(--hint); background:rgba(32,36,44,.04); border-color:rgba(32,36,44,.08); }
+    .tabs { display:flex; gap:8px; padding:14px 18px 0; }
+    .tab {
+      padding:10px 14px;
+      border-radius:999px;
+      color:var(--hint);
+      background:rgba(32,36,44,.04);
+      font-size:13px;
+      font-weight:900;
+    }
+    .tab.active { color:var(--primary); background:var(--primary-soft); }
+    .two-col { display:grid; grid-template-columns:360px minmax(0,1fr); gap:18px; padding:18px; }
+    .three-col { display:grid; grid-template-columns:330px minmax(0,1fr) 330px; gap:18px; padding:18px; }
+    .card {
+      padding:16px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.62);
+      min-width:0;
+    }
+    .card-title {
+      display:flex;
+      align-items:center;
+      gap:9px;
+      margin:0 0 14px;
+      font-size:16px;
+      font-weight:900;
+    }
+    .card-title small {
+      margin-left:auto;
+      color:var(--hint);
+      font-size:11px;
+      font-weight:800;
+    }
+    .field {
+      display:grid;
+      gap:6px;
+      margin-bottom:12px;
+    }
+    .field label { color:var(--hint); font-size:11px; font-weight:900; }
+    .field .input,
+    .input,
+    textarea {
+      min-height:40px;
+      width:100%;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      color:var(--text);
+      background:rgba(255,255,255,.72);
+      outline:0;
+    }
+    textarea { min-height:104px; resize:none; line-height:1.55; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+    .list { display:grid; gap:10px; }
+    .game-row {
+      display:grid;
+      grid-template-columns:54px minmax(0,1fr) auto;
+      gap:12px;
+      align-items:center;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .cover {
+      width:54px;
+      height:72px;
+      border-radius:11px;
+      background:
+        linear-gradient(150deg,rgba(103,80,164,.32),rgba(47,115,210,.18)),
+        linear-gradient(135deg,#dce2ea,#fff);
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.64);
+    }
+    .game-row h4 { margin:0; font-size:15px; line-height:1.3; }
+    .game-row p { margin:5px 0 0; color:var(--hint); font-size:12px; line-height:1.45; }
+    .meta-line { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+    .progress {
+      height:8px;
+      border-radius:999px;
+      overflow:hidden;
+      background:rgba(32,36,44,.07);
+    }
+    .progress span { display:block; height:100%; border-radius:999px; background:var(--primary); }
+    .split { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .tree-panel {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.58);
+      min-width:0;
+    }
+    .tree-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .tree-head h4 { margin:0; font-size:16px; }
+    .tree-head p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .tree {
+      display:grid;
+      gap:4px;
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:13px;
+    }
+    .node {
+      display:grid;
+      grid-template-columns:auto minmax(0,1fr) auto;
+      align-items:center;
+      gap:8px;
+      min-height:30px;
+      padding:5px 8px;
+      border-radius:var(--radius-sm);
+    }
+    .node.hot,
+    .node:hover { background:var(--primary-soft); }
+    .node.write { background:var(--green-soft); }
+    .node.warn { background:var(--orange-soft); }
+    .node.conflict { background:var(--red-soft); }
+    .node .twisty { width:18px; color:var(--hint); font-weight:900; }
+    .node .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .node .meta { color:var(--hint); font-size:11px; }
+    .folder { font-weight:900; }
+    .file { color:var(--sub); }
+    .lvl-1 { padding-left:26px; }
+    .lvl-2 { padding-left:52px; }
+    .lvl-3 { padding-left:78px; }
+    .risk-list { display:grid; gap:10px; }
+    .risk {
+      display:grid;
+      grid-template-columns:38px 1fr;
+      gap:11px;
+      align-items:start;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .risk-icon {
+      width:38px;
+      height:38px;
+      display:grid;
+      place-items:center;
+      border-radius:var(--radius-sm);
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-weight:900;
+    }
+    .risk.green .risk-icon { color:var(--green); background:var(--green-soft); }
+    .risk.orange .risk-icon { color:var(--orange); background:var(--orange-soft); }
+    .risk.red .risk-icon { color:var(--red); background:var(--red-soft); }
+    .risk strong { display:block; font-size:14px; }
+    .risk span { display:block; margin-top:4px; color:var(--hint); font-size:12px; line-height:1.55; }
+    .mapping {
+      display:grid;
+      grid-template-columns:1.15fr 1.15fr 112px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      overflow:hidden;
+      background:rgba(255,255,255,.58);
+      margin-top:16px;
+    }
+    .mapping div {
+      min-height:48px;
+      padding:11px 12px;
+      border-right:1px solid var(--border-soft);
+      border-bottom:1px solid var(--border-soft);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .mapping div:nth-child(3n) { border-right:0; }
+    .mapping div:nth-last-child(-n+3) { border-bottom:0; }
+    .mapping .h { background:rgba(255,255,255,.76); color:var(--text); font-weight:900; }
+    .path { font-family:"Cascadia Mono","Consolas",monospace; color:var(--sub); word-break:break-all; }
+    .modal-frame {
+      max-width:840px;
+      margin:0 auto;
+      padding:18px;
+      border-radius:28px;
+      background:rgba(25,28,36,.08);
+    }
+    .modal {
+      overflow:hidden;
+      border:1px solid var(--border);
+      border-radius:24px;
+      background:var(--surface-strong);
+      box-shadow:0 20px 44px rgba(28,36,50,.12);
+    }
+    .modal-head {
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:20px 22px 14px;
+      border-bottom:1px solid var(--border-soft);
+    }
+    .modal-head h3 { margin:0; font-size:20px; }
+    .modal-head p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .modal-body { padding:18px 22px; }
+    .modal-actions {
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      padding:14px 22px 20px;
+      border-top:1px solid var(--border-soft);
+      background:rgba(32,36,44,.025);
+    }
+    .steps { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+    .step {
+      padding:13px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .step b {
+      display:grid;
+      place-items:center;
+      width:30px;
+      height:30px;
+      margin-bottom:9px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+    }
+    .step strong { display:block; font-size:13px; }
+    .step span { display:block; margin-top:5px; color:var(--hint); font-size:11px; line-height:1.5; }
+    .table {
+      display:grid;
+      grid-template-columns:1.05fr 110px 100px 130px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.58);
+    }
+    .table div {
+      min-height:46px;
+      padding:11px 12px;
+      border-right:1px solid var(--border-soft);
+      border-bottom:1px solid var(--border-soft);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .table div:nth-child(4n) { border-right:0; }
+    .table div:nth-last-child(-n+4) { border-bottom:0; }
+    .table .h { background:rgba(255,255,255,.76); font-weight:900; }
+    .keyword-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+    .keyword-box {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .keyword-box h4 { margin:0 0 10px; font-size:14px; }
+    .tag-cloud { display:flex; flex-wrap:wrap; gap:7px; }
+    .phone-card {
+      display:grid;
+      place-items:center;
+      min-height:420px;
+      border:1px dashed rgba(198,69,85,.36);
+      border-radius:28px;
+      background:var(--red-soft);
+      text-align:center;
+      padding:28px;
+    }
+    .phone-card h3 { margin:0; font-size:24px; color:var(--red); }
+    .phone-card p { max-width:520px; margin:12px auto 0; color:var(--sub); line-height:1.7; }
+    .code {
+      margin:0;
+      overflow:auto;
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      color:var(--sub);
+      background:rgba(32,36,44,.04);
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:12px;
+      line-height:1.55;
+    }
+    .spacer { flex:1; }
+
+    @media (max-width:1180px) {
+      .hero-grid,
+      .two-col,
+      .three-col,
+      .split { grid-template-columns:1fr; }
+      .steps { grid-template-columns:repeat(3,1fr); }
+      .metric-grid { grid-template-columns:repeat(2,1fr); }
+    }
+    @media (max-width:760px) {
+      .top { align-items:flex-start; flex-direction:column; }
+      .nav { justify-content:flex-start; }
+      .shell { padding:14px; }
+      .hero { padding:18px; }
+      .appbar { align-items:flex-start; flex-wrap:wrap; padding:14px; }
+      .tabs { overflow:auto; }
+      .two-col,
+      .three-col { padding:12px; }
+      .metric-grid,
+      .steps,
+      .keyword-grid { grid-template-columns:1fr; }
+      .game-row { grid-template-columns:44px minmax(0,1fr); }
+      .game-row > .toolbar { grid-column:1 / -1; justify-content:flex-end; }
+      .cover { width:44px; height:58px; }
+      .mapping,
+      .table { grid-template-columns:1fr; }
+      .mapping .h:nth-child(2),
+      .mapping .h:nth-child(3),
+      .table .h:nth-child(n+2) { display:none; }
+      .mapping div,
+      .table div { border-right:0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="logo">S</div>
+    <div class="top-title">
+      <h1>Steam 补丁功能重构 HTML 全套页</h1>
+      <p>覆盖补丁管理、服务端索引、压缩包分析、注入确认、执行进度、失败诊断、编辑弹窗、关键词弹窗、设置入口；Android/手机端直接隐藏。</p>
+    </div>
+    <nav class="nav">
+      <a class="pill" href="#overview">总览</a>
+      <a class="pill" href="#match">扫描匹配</a>
+      <a class="pill" href="#analyze">压缩包分析</a>
+      <a class="pill" href="#confirm">注入确认</a>
+      <a class="pill" href="#progress">执行进度</a>
+      <a class="pill" href="#index">补丁索引</a>
+      <a class="pill" href="#dialogs">弹窗</a>
+      <a class="pill" href="#settings">设置入口</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section id="overview" class="surface hero">
+      <div class="hero-grid">
+        <div>
+          <h2>核心思路：补丁包先被“看见”，再被注入。</h2>
+          <p>以前的体验像是按下按钮后直接把压缩包丢进游戏目录，用户不知道压缩包里是否多套了一层目录，也不知道会覆盖哪些文件。新设计把 Steam 补丁拆成完整流程：服务端索引补丁、分析压缩包结构、客户端展示目录树、确认映射和风险、再执行可回滚注入。</p>
+          <div class="metric-grid">
+            <div class="metric"><label>补丁索引</label><strong>42</strong></div>
+            <div class="metric"><label>可注入游戏</label><strong>12</strong></div>
+            <div class="metric"><label>待修正 AppID</label><strong>3</strong></div>
+            <div class="metric"><label>手机策略</label><strong>隐藏</strong></div>
+          </div>
+        </div>
+        <aside class="surface summary-card">
+          <div class="summary-row"><span>页面 1</span><strong>Steam 补丁管理 / 扫描匹配</strong></div>
+          <div class="summary-row"><span>页面 2</span><strong>压缩包目录树分析</strong></div>
+          <div class="summary-row"><span>页面 3</span><strong>注入确认 / Dry-run</strong></div>
+          <div class="summary-row"><span>页面 4</span><strong>注入进度 / 回滚结果</strong></div>
+          <div class="summary-row"><span>页面 5</span><strong>服务端补丁索引</strong></div>
+          <div class="summary-row"><span>页面 6</span><strong>设置与手机隐藏态</strong></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="match">
+      <div class="section-head">
+        <div>
+          <h2>页面 1：Steam 补丁管理 / 本地扫描匹配</h2>
+          <p>这是用户进入 Steam 补丁功能后的主页面：左侧负责选择 Steam 库并扫描，右侧展示“可注入”和“暂无补丁”的匹配结果。这里不直接弹复杂树，点击“注入”后进入压缩包分析页。</p>
+        </div>
+        <span class="chip blue">Current Main Page</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>Steam 补丁管理</h3>
+            <p>本地游戏匹配、服务端补丁索引和安全注入统一入口</p>
+          </div>
+          <span class="chip green">Desktop</span>
+          <span class="chip orange">12 个可注入</span>
+          <div class="spacer"></div>
+          <button class="btn">刷新</button>
+          <button class="btn fill">扫描游戏</button>
+        </div>
+        <div class="tabs">
+          <div class="tab active">本地游戏补丁</div>
+          <div class="tab">服务端补丁索引</div>
+          <div class="tab">注入记录</div>
+          <div class="tab">规则设置</div>
+        </div>
+        <div class="two-col">
+          <aside class="card">
+            <div class="card-title">🎮 本地 Steam 库 <small>steamapps</small></div>
+            <div class="field">
+              <label>Steam steamapps 目录</label>
+              <div class="input">/home/gcross/.steam/steam/steamapps</div>
+            </div>
+            <div class="toolbar">
+              <button class="btn">选择目录</button>
+              <button class="btn fill">重新扫描</button>
+            </div>
+            <div style="height:14px"></div>
+            <div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:0">
+              <div class="metric"><label>已安装游戏</label><strong>58</strong></div>
+              <div class="metric"><label>可匹配</label><strong>12</strong></div>
+              <div class="metric"><label>暂无补丁</label><strong>46</strong></div>
+              <div class="metric"><label>异常</label><strong>0</strong></div>
+            </div>
+            <div style="height:14px"></div>
+            <div class="risk green">
+              <div class="risk-icon">✓</div>
+              <div><strong>扫描完成</strong><span>已读取 Steam appmanifest 和补丁索引。结果按可注入优先排序。</span></div>
+            </div>
+          </aside>
+
+          <main class="card">
+            <div class="card-title">🧩 补丁匹配结果 <small>12 / 58 可注入</small></div>
+            <div class="list">
+              <article class="game-row">
+                <div class="cover"></div>
+                <div>
+                  <h4>金辉恋曲四重奏</h4>
+                  <p>AppID 1277940 · /steamapps/common/Kinkoi</p>
+                  <div class="meta-line">
+                    <span class="chip green">汉化补丁</span>
+                    <span class="chip">Kinkoi_R18DLC.rar</span>
+                    <span class="chip orange">需要分析目录</span>
+                    <span class="chip gray">213 MB</span>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn">打开目录</button>
+                  <button class="btn fill">注入</button>
+                </div>
+              </article>
+
+              <article class="game-row">
+                <div class="cover"></div>
+                <div>
+                  <h4>星光咖啡馆与死神之蝶</h4>
+                  <p>AppID 977400 · /steamapps/common/Cafe Stella</p>
+                  <div class="meta-line">
+                    <span class="chip green">语音补丁</span>
+                    <span class="chip">CafeStella_VoicePatch.zip</span>
+                    <span class="chip green">布局已缓存</span>
+                    <span class="chip gray">1.8 GB</span>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn">打开目录</button>
+                  <button class="btn fill">注入</button>
+                </div>
+              </article>
+
+              <article class="game-row">
+                <div class="cover" style="filter:grayscale(1);opacity:.62"></div>
+                <div>
+                  <h4>ATRI -My Dear Moments-</h4>
+                  <p>AppID 1230140 · 暂无匹配补丁</p>
+                  <div class="meta-line">
+                    <span class="chip gray">无可用补丁</span>
+                    <span class="chip gray">可在服务端索引页补 AppID</span>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn">查看索引</button>
+                </div>
+              </article>
+            </div>
+          </main>
+        </div>
+      </div>
+    </section>
+
+    <section id="analyze">
+      <div class="section-head">
+        <div>
+          <h2>页面 2：压缩包分析 / 目录树选择</h2>
+          <p>点击“注入”后进入这个页面。服务端先扫描压缩包目录树，客户端显示原始结构和目标预览。用户可以选择剥离层级、补丁根目录、目标子目录和覆盖策略。</p>
+        </div>
+        <span class="chip green">New Core Flow</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>分析补丁包</h3>
+            <p>金辉恋曲四重奏 · Kinkoi_R18DLC.rar</p>
+          </div>
+          <span class="chip green">CRC OK</span>
+          <span class="chip orange">推荐剥离 1 层</span>
+          <div class="spacer"></div>
+          <button class="btn">重新扫描</button>
+          <button class="btn fill">进入确认</button>
+        </div>
+        <div class="three-col">
+          <main class="card" style="grid-column:span 2">
+            <div class="split">
+              <section class="tree-panel">
+                <div class="tree-head">
+                  <div>
+                    <h4>原始压缩包结构</h4>
+                    <p>这里展示 7z/list 的扫描结果。</p>
+                  </div>
+                  <span class="chip blue">Raw</span>
+                </div>
+                <div class="tree">
+                  <div class="node hot"><span class="twisty">▾</span><span class="name folder">Kinkoi_R18DLC/</span><span class="meta">单一外层目录</span></div>
+                  <div class="node lvl-1"><span class="twisty">▾</span><span class="name folder">Kinkoi_Data/</span><span class="meta">目标数据目录</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">adult.dat</span><span class="meta">28.4 MB · CRC OK</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">resources.assets</span><span class="meta">96.2 MB</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">sharedassets0.assets</span><span class="meta">44.1 MB</span></div>
+                  <div class="node lvl-1"><span class="twisty">▾</span><span class="name folder">Movie/</span><span class="meta">12 files</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">op_patch.usm</span><span class="meta">18.8 MB</span></div>
+                  <div class="node lvl-1 file"><span class="twisty">·</span><span class="name">readme_patch.txt</span><span class="meta">2 KB</span></div>
+                </div>
+              </section>
+
+              <section class="tree-panel">
+                <div class="tree-head">
+                  <div>
+                    <h4>目标目录预览</h4>
+                    <p>剥离 1 层后写入游戏根目录。</p>
+                  </div>
+                  <span class="chip green">Dry-run</span>
+                </div>
+                <div class="tree">
+                  <div class="node write"><span class="twisty">▾</span><span class="name folder">/Games/SAGA PLANETS/Kinkoi/</span><span class="meta">目标根目录</span></div>
+                  <div class="node lvl-1 write"><span class="twisty">▾</span><span class="name folder">Kinkoi_Data/</span><span class="meta">写入</span></div>
+                  <div class="node lvl-2 conflict"><span class="twisty">·</span><span class="name">adult.dat</span><span class="meta">覆盖已有</span></div>
+                  <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">resources.assets</span><span class="meta">新增</span></div>
+                  <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">sharedassets0.assets</span><span class="meta">新增</span></div>
+                  <div class="node lvl-1 write"><span class="twisty">▾</span><span class="name folder">Movie/</span><span class="meta">新增目录</span></div>
+                  <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">op_patch.usm</span><span class="meta">新增</span></div>
+                  <div class="node lvl-1 write"><span class="twisty">·</span><span class="name">readme_patch.txt</span><span class="meta">新增</span></div>
+                </div>
+              </section>
+            </div>
+
+            <div class="mapping">
+              <div class="h">压缩包路径</div><div class="h">目标路径</div><div class="h">动作</div>
+              <div class="path">Kinkoi_R18DLC/Kinkoi_Data/adult.dat</div><div class="path">Kinkoi_Data/adult.dat</div><div><span class="chip red">覆盖</span></div>
+              <div class="path">Kinkoi_R18DLC/Kinkoi_Data/resources.assets</div><div class="path">Kinkoi_Data/resources.assets</div><div><span class="chip green">新增</span></div>
+              <div class="path">Kinkoi_R18DLC/Movie/op_patch.usm</div><div class="path">Movie/op_patch.usm</div><div><span class="chip green">新增</span></div>
+            </div>
+          </main>
+
+          <aside class="card">
+            <div class="card-title">⚙️ 注入规则 <small>可修改</small></div>
+            <div class="field">
+              <label>补丁根目录</label>
+              <div class="input">Kinkoi_R18DLC/</div>
+            </div>
+            <div class="field">
+              <label>剥离层级</label>
+              <div class="input">1 · 推荐</div>
+            </div>
+            <div class="field">
+              <label>目标目录</label>
+              <div class="input">游戏根目录 /</div>
+            </div>
+            <div class="field">
+              <label>覆盖策略</label>
+              <div class="input">覆盖前备份，可回滚</div>
+            </div>
+            <div class="risk-list">
+              <div class="risk green"><div class="risk-icon">✓</div><div><strong>路径安全</strong><span>未发现绝对路径、..、盘符路径。</span></div></div>
+              <div class="risk orange"><div class="risk-icon">1</div><div><strong>单一外层目录</strong><span>推荐剥离 1 层，避免目录重叠。</span></div></div>
+              <div class="risk red"><div class="risk-icon">!</div><div><strong>1 个覆盖文件</strong><span>确认页会单独列出覆盖清单。</span></div></div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="confirm">
+      <div class="section-head">
+        <div>
+          <h2>页面 3：注入确认 / Dry-run 弹窗</h2>
+          <p>真正写入前的最后确认。这里必须清晰告诉用户将写入哪里、覆盖哪些文件、是否备份、是否记录布局缓存。</p>
+        </div>
+        <span class="chip orange">Confirm Before Write</span>
+      </div>
+
+      <div class="modal-frame">
+        <div class="modal">
+          <div class="modal-head">
+            <div class="logo">!</div>
+            <div>
+              <h3>确认注入 Steam 补丁？</h3>
+              <p>金辉恋曲四重奏 · 将写入 /home/gcross/Games/GalGame/Kinkoi</p>
+            </div>
+            <span class="spacer"></span>
+            <span class="chip orange">1 个覆盖</span>
+          </div>
+          <div class="modal-body">
+            <div class="metric-grid" style="margin-top:0">
+              <div class="metric"><label>新增文件</label><strong>127</strong></div>
+              <div class="metric"><label>覆盖文件</label><strong>1</strong></div>
+              <div class="metric"><label>新增目录</label><strong>9</strong></div>
+              <div class="metric"><label>预计写入</label><strong>212 MB</strong></div>
+            </div>
+            <div style="height:16px"></div>
+            <div class="table">
+              <div class="h">文件</div><div class="h">动作</div><div class="h">备份</div><div class="h">状态</div>
+              <div class="path">Kinkoi_Data/adult.dat</div><div><span class="chip red">覆盖</span></div><div>是</div><div><span class="chip orange">需确认</span></div>
+              <div class="path">Kinkoi_Data/resources.assets</div><div><span class="chip green">新增</span></div><div>否</div><div><span class="chip green">可写入</span></div>
+              <div class="path">Movie/op_patch.usm</div><div><span class="chip green">新增</span></div><div>否</div><div><span class="chip green">可写入</span></div>
+            </div>
+            <div style="height:16px"></div>
+            <div class="risk orange">
+              <div class="risk-icon">↺</div>
+              <div><strong>保存布局缓存</strong><span>本次选择的剥离层级、补丁根目录、目标目录和覆盖策略会写入补丁索引。下次同一个补丁可直接使用相同布局。</span></div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn">取消</button>
+            <button class="btn">返回修改</button>
+            <button class="btn fill">确认并注入</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="progress">
+      <div class="section-head">
+        <div>
+          <h2>页面 4：注入执行进度 / 结果回执</h2>
+          <p>执行时不应该只是一个转圈。需要显示阶段、速度、正在处理的文件、可暂停/取消状态，以及完成后的回滚入口。</p>
+        </div>
+        <span class="chip green">Progress + Receipt</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>正在注入补丁</h3>
+            <p>Kinkoi_R18DLC.rar → 金辉恋曲四重奏</p>
+          </div>
+          <span class="chip blue">解压中</span>
+          <span class="chip">68%</span>
+          <div class="spacer"></div>
+          <button class="btn">暂停</button>
+          <button class="btn red">取消</button>
+        </div>
+        <div class="two-col">
+          <main class="card">
+            <div class="card-title">🚚 执行进度 <small>98 MB / 144 MB · 34 MB/s</small></div>
+            <div class="progress"><span style="width:68%"></span></div>
+            <div style="height:14px"></div>
+            <div class="steps">
+              <div class="step"><b>✓</b><strong>下载</strong><span>校验 size/hash 完成</span></div>
+              <div class="step"><b>✓</b><strong>扫描</strong><span>目录树与 CRC 检查完成</span></div>
+              <div class="step"><b>✓</b><strong>备份</strong><span>已备份 1 个覆盖文件</span></div>
+              <div class="step"><b>4</b><strong>解压</strong><span>正在写入 Kinkoi_Data</span></div>
+              <div class="step"><b>5</b><strong>校验</strong><span>等待执行</span></div>
+              <div class="step"><b>6</b><strong>完成</strong><span>等待执行</span></div>
+            </div>
+            <div style="height:16px"></div>
+            <pre class="code">[12:04:31] Download completed: Kinkoi_R18DLC.rar
+[12:04:32] Archive layout: strip_components=1
+[12:04:33] Backup created: Kinkoi_Data/adult.dat
+[12:04:34] Extracting: Kinkoi_Data/resources.assets
+[12:04:39] Extracting: Movie/op_patch.usm</pre>
+          </main>
+
+          <aside class="card">
+            <div class="card-title">📌 完成后回执 <small>成功状态</small></div>
+            <div class="risk green">
+              <div class="risk-icon">✓</div>
+              <div><strong>注入完成</strong><span>写入 128 个文件，覆盖 1 个文件，备份批次 ID：patch-20260819-120431。</span></div>
+            </div>
+            <div style="height:10px"></div>
+            <div class="toolbar">
+              <button class="btn">打开游戏目录</button>
+              <button class="btn">查看 manifest</button>
+              <button class="btn red">回滚本次注入</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="failure">
+      <div class="section-head">
+        <div>
+          <h2>页面 5：失败诊断 / CRC 或路径异常</h2>
+          <p>你之前遇到过 CRC Failed。新流程里这种错误要在分析或校验阶段就变成明确诊断，而不是只甩 7z 原始日志。</p>
+        </div>
+        <span class="chip red">Error State</span>
+      </div>
+
+      <div class="modal-frame">
+        <div class="modal">
+          <div class="modal-head">
+            <div class="logo" style="color:var(--red);background:var(--red-soft)">×</div>
+            <div>
+              <h3>补丁包校验失败</h3>
+              <p>Kinkoi_R18DLC.rar 的内部文件 CRC 不一致，已停止注入，未写入游戏目录。</p>
+            </div>
+            <span class="spacer"></span>
+            <span class="chip red">CRC Failed</span>
+          </div>
+          <div class="modal-body">
+            <div class="risk red">
+              <div class="risk-icon">!</div>
+              <div><strong>损坏文件</strong><span>Kinkoi_R18DLC/Kinkoi_Data/adult.dat 解压校验失败。建议重新下载补丁包，或在服务端补丁索引里重新扫描。</span></div>
+            </div>
+            <div style="height:14px"></div>
+            <pre class="code">7-Zip: CRC Failed : Kinkoi_R18DLC/Kinkoi_Data/adult.dat
+Archive: /steam_patch/Kinkoi_R18DLC.rar
+PhysicalSize: 222629784
+Result: stopped before writing target directory</pre>
+          </div>
+          <div class="modal-actions">
+            <button class="btn">复制诊断</button>
+            <button class="btn">重新下载</button>
+            <button class="btn fill">重新扫描补丁</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="index">
+      <div class="section-head">
+        <div>
+          <h2>页面 6：服务端补丁索引</h2>
+          <p>这个页面对应当前代码里的“服务端补丁索引”。重构后索引不只记录 app_id / patch_dir，还应记录分析状态、布局缓存和上次校验结果。</p>
+        </div>
+        <span class="chip blue">Server Index</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>服务端补丁索引</h3>
+            <p>扫描补丁库、补全 AppID、分析压缩包布局</p>
+          </div>
+          <span class="chip">42 个补丁</span>
+          <span class="chip orange">3 个待修正</span>
+          <div class="spacer"></div>
+          <button class="btn">加载索引</button>
+          <button class="btn fill">扫描补丁</button>
+          <button class="btn">批量刮削 ID</button>
+        </div>
+        <div class="two-col">
+          <aside class="card">
+            <div class="card-title">📦 索引概览 <small>patches.json</small></div>
+            <div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:0">
+              <div class="metric"><label>总补丁</label><strong>42</strong></div>
+              <div class="metric"><label>有 AppID</label><strong>39</strong></div>
+              <div class="metric"><label>有布局缓存</label><strong>18</strong></div>
+              <div class="metric"><label>上次异常</label><strong>2</strong></div>
+            </div>
+            <div style="height:14px"></div>
+            <div class="field">
+              <label>筛选</label>
+              <div class="input">全部 / 无 AppID / 未分析 / 异常</div>
+            </div>
+            <button class="btn fill" style="width:100%">分析全部未缓存布局</button>
+          </aside>
+
+          <main class="card">
+            <div class="card-title">🗂 补丁列表 <small>点击条目进入分析页</small></div>
+            <div class="list">
+              <article class="game-row">
+                <div class="cover"></div>
+                <div>
+                  <h4>Kinkoi_R18DLC.rar</h4>
+                  <p>AppID 1277940 · 金辉恋曲四重奏 · /patches/Kinkoi_R18DLC.rar</p>
+                  <div class="meta-line">
+                    <span class="chip green">布局已分析</span>
+                    <span class="chip orange">剥离 1 层</span>
+                    <span class="chip red">1 个覆盖风险</span>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn">分析</button>
+                  <button class="btn">编辑</button>
+                </div>
+              </article>
+
+              <article class="game-row">
+                <div class="cover"></div>
+                <div>
+                  <h4>CafeStella_VoicePatch.zip</h4>
+                  <p>AppID 977400 · 星光咖啡馆与死神之蝶 · OpenList:/SteamPatch/CafeStella.zip</p>
+                  <div class="meta-line">
+                    <span class="chip green">AppID OK</span>
+                    <span class="chip gray">未分析布局</span>
+                    <span class="chip blue">OpenList</span>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn fill">分析</button>
+                  <button class="btn">编辑</button>
+                </div>
+              </article>
+
+              <article class="game-row">
+                <div class="cover"></div>
+                <div>
+                  <h4>Unknown_Galgame_CN_Patch.7z</h4>
+                  <p>无 AppID · 文件名未匹配到游戏</p>
+                  <div class="meta-line">
+                    <span class="chip red">缺少 AppID</span>
+                    <span class="chip orange">需要刮削/手动指定</span>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn">刮削 ID</button>
+                  <button class="btn">编辑</button>
+                </div>
+              </article>
+            </div>
+          </main>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialogs">
+      <div class="section-head">
+        <div>
+          <h2>页面 7：编辑补丁弹窗 + 类型关键词弹窗</h2>
+          <p>这两个弹窗目前已经存在，重构后需要把“布局扫描”和“缓存结果”纳入编辑，而不是只让用户手填 patch_dir/target_dir。</p>
+        </div>
+        <span class="chip">Dialogs</span>
+      </div>
+
+      <div class="split">
+        <div class="modal-frame">
+          <div class="modal">
+            <div class="modal-head">
+              <div class="logo">✎</div>
+              <div>
+                <h3>编辑补丁 — Kinkoi_R18DLC</h3>
+                <p>修改 AppID、显示名、类型、补丁根目录和目标目录。</p>
+              </div>
+            </div>
+            <div class="modal-body">
+              <div class="field"><label>Steam AppID</label><div class="input">1277940</div></div>
+              <div class="field"><label>显示名称</label><div class="input">金辉恋曲四重奏 R18 DLC 补丁</div></div>
+              <div class="field"><label>补丁类型</label><div class="input">汉化 / translation</div></div>
+              <div class="field"><label>补丁根目录 patch_root</label><div class="input">Kinkoi_R18DLC/</div></div>
+              <div class="field"><label>目标目录 target_dir</label><div class="input">/</div></div>
+              <div class="toolbar">
+                <button class="btn">重新分析布局</button>
+                <button class="btn">从目录树选择</button>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn">取消</button>
+              <button class="btn fill">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-frame">
+          <div class="modal">
+            <div class="modal-head">
+              <div class="logo">#</div>
+              <div>
+                <h3>补丁类型关键词</h3>
+                <p>用于服务端补丁列表里的自动归类，不会修改补丁文件。</p>
+              </div>
+            </div>
+            <div class="modal-body">
+              <div class="keyword-grid">
+                <div class="keyword-box">
+                  <h4>汉化</h4>
+                  <div class="tag-cloud">
+                    <span class="chip green">Chinese</span>
+                    <span class="chip green">CN</span>
+                    <span class="chip green">汉化</span>
+                    <span class="chip green">_Steam_Chinese_Patch</span>
+                  </div>
+                </div>
+                <div class="keyword-box">
+                  <h4>语音</h4>
+                  <div class="tag-cloud">
+                    <span class="chip blue">Voice</span>
+                    <span class="chip blue">语音</span>
+                    <span class="chip blue">_Steam_Voice_Patch</span>
+                  </div>
+                </div>
+                <div class="keyword-box">
+                  <h4>剧情</h4>
+                  <div class="tag-cloud">
+                    <span class="chip orange">Story</span>
+                    <span class="chip orange">Append</span>
+                    <span class="chip orange">DLC</span>
+                  </div>
+                </div>
+                <div class="keyword-box">
+                  <h4>其他</h4>
+                  <div class="tag-cloud">
+                    <span class="chip gray">Extra</span>
+                    <span class="chip gray">Patch</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn">恢复默认</button>
+              <button class="btn fill">保存关键词</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="settings">
+      <div class="section-head">
+        <div>
+          <h2>页面 8：设置入口 / 补丁库配置 / 手机隐藏态</h2>
+          <p>Steam 补丁是桌面端功能。设置页仍然可以配置服务端补丁库来源，但 Android/手机端不显示“Steam 补丁注入”入口。</p>
+        </div>
+        <span class="chip red">Mobile Hidden</span>
+      </div>
+
+      <div class="split">
+        <div class="app surface">
+          <div class="appbar">
+            <div class="title">
+              <h3>设置 · 游戏库与补丁库</h3>
+              <p>配置本地目录、OpenList 来源和 Steam 补丁库。</p>
+            </div>
+            <button class="btn fill">新增补丁库</button>
+          </div>
+          <div class="panel">
+            <div class="card">
+              <div class="card-title">🧩 Steam 补丁库 <small>服务端扫描来源</small></div>
+              <div class="list">
+                <article class="game-row">
+                  <div class="cover"></div>
+                  <div>
+                    <h4>本地补丁库</h4>
+                    <p>/steam_patch · local · 28 个补丁</p>
+                    <div class="meta-line">
+                      <span class="chip green">可读</span>
+                      <span class="chip">默认库</span>
+                    </div>
+                  </div>
+                  <div class="toolbar">
+                    <button class="btn">编辑</button>
+                    <button class="btn red">删除</button>
+                  </div>
+                </article>
+                <article class="game-row">
+                  <div class="cover"></div>
+                  <div>
+                    <h4>OpenList 补丁库</h4>
+                    <p>OpenList:/GalPatch/Steam · 14 个补丁</p>
+                    <div class="meta-line">
+                      <span class="chip blue">OpenList</span>
+                      <span class="chip orange">建议刷新索引</span>
+                    </div>
+                  </div>
+                  <div class="toolbar">
+                    <button class="btn">编辑</button>
+                    <button class="btn red">删除</button>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="surface phone-card">
+          <div>
+            <h3>手机端不显示 Steam 补丁</h3>
+            <p>Android 不需要 Steam 补丁注入，也没有本机 Steam 库路径。移动端应该直接隐藏入口，不展示空页面、不展示灰掉的按钮，也不进入补丁扫描流程。</p>
+            <div style="height:16px"></div>
+            <span class="chip red">Hidden on Android / narrow mobile shell</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="contract">
+      <div class="section-head">
+        <div>
+          <h2>服务端返回给客户端的草案数据</h2>
+          <p>字段名后续可以按实际代码调整，但信息必须覆盖：目录树、推荐规则、目标映射、风险、校验状态和布局缓存。</p>
+        </div>
+        <span class="chip gray">Draft Contract</span>
+      </div>
+      <pre class="code">{
+  "archive_name": "Kinkoi_R18DLC.rar",
+  "archive_type": "rar5",
+  "file_count": 128,
+  "total_size": 222629784,
+  "safe": true,
+  "crc_status": "ok",
+  "recommended_strip_components": 1,
+  "patch_root": "Kinkoi_R18DLC/",
+  "target_dir": "",
+  "layout_cache_key": "sha256:archive-hash",
+  "warnings": [
+    {
+      "type": "single_wrapper_directory",
+      "message": "Top level has only Kinkoi_R18DLC; strip 1 level."
+    },
+    {
+      "type": "overwrite",
+      "path": "Kinkoi_Data/adult.dat",
+      "message": "Target file already exists."
+    }
+  ],
+  "tree": [
+    {"path": "Kinkoi_R18DLC/", "type": "directory"},
+    {"path": "Kinkoi_R18DLC/Kinkoi_Data/adult.dat", "type": "file", "size": 29779558, "crc": "A1B2C3D4"}
+  ],
+  "dry_run": [
+    {
+      "source": "Kinkoi_R18DLC/Kinkoi_Data/adult.dat",
+      "target": "Kinkoi_Data/adult.dat",
+      "action": "overwrite",
+      "backup_required": true
+    }
+  ]
+}</pre>
+    </section>
+  </main>
+</body>
+</html>
