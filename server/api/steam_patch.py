@@ -5,7 +5,7 @@ Falls back to bare file scanning if no patches.json exists.
 """
 from __future__ import annotations
 
-import asyncio, json, logging
+import asyncio, json, logging, re, shutil, subprocess, tempfile, zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -271,6 +271,313 @@ def _save_type_keywords(patches_dir: Path, keywords: dict[str, list[str]]):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+_MAX_TREE_ENTRIES = 2500
+_MAX_OPENLIST_TREE_SCAN_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _patch_lookup_matches(patch: dict, lookup_key: str) -> bool:
+    if str(patch.get("app_id", "")) == lookup_key:
+        return True
+    if patch.get("file", "") == lookup_key:
+        return True
+    if patch.get("display_file", "") == lookup_key:
+        return True
+    return False
+
+
+def _find_patch_entry(patches_dir: Path, lookup_key: str) -> dict | None:
+    for patch in _load_all_patches(patches_dir):
+        if _patch_lookup_matches(patch, lookup_key):
+            return patch
+    index = _load_patches_index(patches_dir)
+    if index and lookup_key in index:
+        return index[lookup_key]
+    fallback = _find_patch_fallback(patches_dir, lookup_key)
+    if fallback:
+        return {
+            "app_id": lookup_key,
+            "file": fallback.name,
+            "source_type": "local",
+            "source_path": str(fallback),
+            "size": fallback.stat().st_size,
+        }
+    return None
+
+
+def _update_patch_record(
+    patches_dir: Path,
+    lookup_key: str,
+    values: dict,
+    file_hint: str | None = None,
+) -> dict:
+    json_path = patches_dir / "patches.json"
+    if not json_path.is_file():
+        raise HTTPException(status_code=404, detail="patches.json not found")
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=400, detail="patches.json 格式错误")
+
+    patches = data.get("patches", [])
+    for patch in patches:
+        matched = _patch_lookup_matches(patch, lookup_key)
+        if not matched and file_hint and patch.get("file", "") == file_hint:
+            matched = True
+        if not matched:
+            continue
+        for key, value in values.items():
+            if value is None:
+                continue
+            if key == "app_id" and value != "":
+                patch[key] = int(value) if str(value).isdigit() else value
+            elif key != "app_id":
+                patch[key] = value
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return patch
+
+    raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
+
+
+def _is_relative_safe_archive_path(path: str) -> bool:
+    cleaned = path.replace("\\", "/").strip()
+    if not cleaned or cleaned.startswith("/"):
+        return False
+    if re.match(r"^[A-Za-z]:", cleaned):
+        return False
+    return ".." not in [part for part in cleaned.split("/") if part]
+
+
+def _safe_archive_member_path(path: str) -> str:
+    cleaned = path.replace("\\", "/").strip()
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    return cleaned.rstrip("/") if cleaned != "/" else ""
+
+
+def _seven_zip_executable() -> str | None:
+    for name in ("7zz", "7z", "7za"):
+        exe = shutil.which(name)
+        if exe:
+            return exe
+    return None
+
+
+def _parse_7z_slt(output: str, archive_path: Path) -> tuple[list[dict], list[dict]]:
+    raw_entries: list[dict] = []
+    current: dict[str, str] = {}
+
+    def flush():
+        if not current:
+            return
+        path = _safe_archive_member_path(current.get("Path", ""))
+        if not path or path == str(archive_path):
+            current.clear()
+            return
+        size_text = current.get("Size", "0")
+        try:
+            size = int(size_text) if size_text else 0
+        except ValueError:
+            size = 0
+        is_dir = current.get("Folder") == "+" or path.endswith("/")
+        raw_entries.append({"path": path, "type": "dir" if is_dir else "file", "size": size})
+        current.clear()
+
+    for line in output.splitlines():
+        if not line.strip():
+            flush()
+            continue
+        if " = " not in line:
+            continue
+        key, value = line.split(" = ", 1)
+        current[key] = value
+    flush()
+    return _build_archive_tree(raw_entries)
+
+
+def _list_zip_entries(archive_path: Path) -> tuple[list[dict], list[dict]]:
+    raw_entries = []
+    with zipfile.ZipFile(archive_path) as zf:
+        for info in zf.infolist():
+            path = _safe_archive_member_path(info.filename)
+            if not path:
+                continue
+            raw_entries.append({
+                "path": path,
+                "type": "dir" if info.is_dir() else "file",
+                "size": 0 if info.is_dir() else info.file_size,
+            })
+    return _build_archive_tree(raw_entries)
+
+
+def _list_archive_entries(archive_path: Path) -> dict:
+    tree: list[dict]
+    risks: list[dict]
+    exe = _seven_zip_executable()
+    if exe:
+        proc = subprocess.run(
+            [exe, "l", "-slt", "-p-", str(archive_path)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if proc.returncode != 0:
+            message = (proc.stderr or proc.stdout or "Archive listing failed").strip()
+            raise HTTPException(status_code=422, detail=message[-500:])
+        tree, risks = _parse_7z_slt(proc.stdout, archive_path)
+    elif archive_path.suffix.lower() == ".zip":
+        tree, risks = _list_zip_entries(archive_path)
+    else:
+        raise HTTPException(status_code=501, detail="Server archive listing tool is not installed")
+
+    file_count = sum(1 for item in tree if item["type"] == "file")
+    dir_count = sum(1 for item in tree if item["type"] == "dir")
+    total_size = sum(int(item.get("size") or 0) for item in tree if item["type"] == "file")
+    top_dirs = {
+        item["path"].split("/", 1)[0]
+        for item in tree
+        if item["path"] and "/" in item["path"]
+    }
+    top_files = [
+        item
+        for item in tree
+        if item["type"] == "file" and "/" not in item["path"]
+    ]
+    recommended_patch_dir = ""
+    if len(top_dirs) == 1 and not top_files:
+        recommended_patch_dir = next(iter(top_dirs))
+        risks.append({
+            "level": "warning",
+            "code": "single_outer_dir",
+            "message": f"检测到单一外层目录 {recommended_patch_dir}，建议作为补丁内容根目录。",
+        })
+    if len(tree) >= _MAX_TREE_ENTRIES:
+        risks.append({
+            "level": "warning",
+            "code": "tree_truncated",
+            "message": f"目录树仅返回前 {_MAX_TREE_ENTRIES} 项。",
+        })
+    return {
+        "archive_type": archive_path.suffix.lower().lstrip("."),
+        "file_count": file_count,
+        "dir_count": dir_count,
+        "total_uncompressed_size": total_size,
+        "recommended": {
+            "patch_dir": recommended_patch_dir,
+            "target_dir": "",
+            "strip_components": 1 if recommended_patch_dir else 0,
+            "target_mode": "game_root",
+        },
+        "risks": risks,
+        "tree": tree[:_MAX_TREE_ENTRIES],
+        "truncated": len(tree) > _MAX_TREE_ENTRIES,
+    }
+
+
+def _build_archive_tree(raw_entries: list[dict]) -> tuple[list[dict], list[dict]]:
+    nodes: dict[str, dict] = {}
+    risks: list[dict] = []
+    invalid_count = 0
+    for entry in raw_entries:
+        path = _safe_archive_member_path(entry.get("path", ""))
+        if not _is_relative_safe_archive_path(path):
+            invalid_count += 1
+            continue
+        parts = [part for part in path.split("/") if part]
+        for index in range(1, len(parts)):
+            dir_path = "/".join(parts[:index])
+            nodes.setdefault(
+                dir_path,
+                {"path": dir_path, "name": parts[index - 1], "type": "dir", "size": 0, "depth": index - 1},
+            )
+        is_dir = entry.get("type") == "dir"
+        nodes[path] = {
+            "path": path,
+            "name": parts[-1] if parts else path,
+            "type": "dir" if is_dir else "file",
+            "size": 0 if is_dir else int(entry.get("size") or 0),
+            "depth": max(0, len(parts) - 1),
+        }
+    if invalid_count:
+        risks.append({
+            "level": "danger",
+            "code": "unsafe_paths",
+            "message": f"忽略 {invalid_count} 个不安全路径。",
+        })
+    tree = sorted(nodes.values(), key=lambda item: (item["path"].lower(), item["type"] != "dir"))
+    return tree, risks
+
+
+async def _local_patch_file_from_entry(
+    entry: dict,
+    patches_dir: Path,
+    session: AsyncSession,
+) -> Path | None:
+    roots = await _patch_roots(session)
+    allowed_roots = [patches_dir.resolve()]
+    for root in roots:
+        if root.source_type == "local":
+            allowed_roots.append(Path(root.path).resolve())
+
+    for raw in (entry.get("source_path"), entry.get("file")):
+        if not raw:
+            continue
+        candidate = Path(str(raw))
+        if not candidate.is_absolute():
+            candidate = patches_dir / candidate
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if not resolved.is_file():
+            continue
+        for root in allowed_roots:
+            try:
+                resolved.relative_to(root)
+                return resolved
+            except ValueError:
+                continue
+    return None
+
+
+async def _download_openlist_patch_to_temp(entry: dict, session: AsyncSession) -> Path:
+    size = int(entry.get("size") or 0)
+    if size > _MAX_OPENLIST_TREE_SCAN_BYTES:
+        raise HTTPException(status_code=413, detail="Patch archive is too large for server-side tree scan")
+    result = await session.execute(select(FileSource).where(FileSource.id == entry.get("source_id")))
+    source = result.scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail="OpenList source not found")
+    adapter = adapter_from_source(source, "openlist")
+    raw_url = await asyncio.to_thread(adapter.download_url, entry.get("source_path") or entry.get("file", ""))
+    suffix = Path(entry.get("source_path") or entry.get("file") or "patch").suffix
+    fd, temp_name = tempfile.mkstemp(prefix="sena_patch_tree_", suffix=suffix)
+    temp_path = Path(temp_name)
+    bytes_read = 0
+    try:
+        import httpx
+        with open(fd, "wb", closefd=True) as out:
+            try:
+                with httpx.stream("GET", raw_url, follow_redirects=True, timeout=httpx.Timeout(120.0, connect=15.0)) as resp:
+                    if resp.status_code >= 400:
+                        raise HTTPException(status_code=502, detail=f"OpenList download failed: {resp.status_code}")
+                    for chunk in resp.iter_bytes(1024 * 1024):
+                        if not chunk:
+                            continue
+                        bytes_read += len(chunk)
+                        if bytes_read > _MAX_OPENLIST_TREE_SCAN_BYTES:
+                            raise HTTPException(status_code=413, detail="Patch archive is too large for server-side tree scan")
+                        out.write(chunk)
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail="OpenList download request failed") from exc
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+    return temp_path
+
+
 # Models
 
 class SteamGameInfo(BaseModel):
@@ -296,10 +603,23 @@ class ScanRequest(BaseModel):
     games: list[SteamGameInfo]
 
 
+class PatchRuleUpdate(BaseModel):
+    patch_dir: str = ""
+    target_dir: str = ""
+    strip_components: int = Field(default=0, ge=0, le=16)
+    target_mode: str = "game_root"
+    app_id: str | None = None
+    file: str | None = None
+
+
 # Endpoints
 
 @router.post("/scan", response_model=list[PatchMatch])
-async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_user)):
+async def scan_steam_games(
+    body: ScanRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index = _load_patches_index(patches_dir)
@@ -333,7 +653,7 @@ async def scan_steam_games(body: ScanRequest, user: User = Depends(get_current_u
                 match.type = entry.get("type", "misc") or "misc"
                 results.append(match)
                 continue
-            patch_file = _safe_patch_path(patches_dir, entry.get("file", ""))
+            patch_file = await _local_patch_file_from_entry(entry, patches_dir, session)
             if patch_file and patch_file.is_file():
                 match.patch_available = True
                 match.patch_filename = patch_file.name
@@ -410,6 +730,71 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
     }
 
 
+@router.get("/patches/{lookup_key}/tree")
+async def get_patch_tree(
+    lookup_key: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    patches_dir = _get_patches_dir()
+    entry = _find_patch_entry(patches_dir, lookup_key)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
+
+    temp_path: Path | None = None
+    source_type = entry.get("source_type") or "local"
+    try:
+        if source_type == "openlist":
+            temp_path = await _download_openlist_patch_to_temp(entry, session)
+            archive_path = temp_path
+        else:
+            archive_path = await _local_patch_file_from_entry(entry, patches_dir, session)
+            if archive_path is None:
+                raise HTTPException(status_code=404, detail="Patch archive file not found")
+
+        tree_data = await asyncio.to_thread(_list_archive_entries, archive_path)
+        filename = (entry.get("display_file") or entry.get("source_path") or entry.get("file") or archive_path.name).split("/")[-1]
+        return {
+            "lookup_key": lookup_key,
+            "file": entry.get("file") or filename,
+            "display_file": entry.get("display_file") or filename,
+            "source_type": source_type,
+            "size": int(entry.get("size") or (archive_path.stat().st_size if archive_path.exists() else 0)),
+            "app_id": str(entry.get("app_id") or ""),
+            "game_name": entry.get("game_name") or entry.get("label") or "",
+            "patch_dir": entry.get("patch_dir") or "",
+            "target_dir": entry.get("target_dir") or "",
+            "strip_components": int(entry.get("strip_components") or 0),
+            "target_mode": entry.get("target_mode") or "game_root",
+            **tree_data,
+        }
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+@router.put("/patches/{lookup_key}/rules")
+async def update_patch_rules(
+    lookup_key: str,
+    body: PatchRuleUpdate,
+    user: User = Depends(require_admin),
+):
+    patches_dir = _get_patches_dir()
+    updated = _update_patch_record(
+        patches_dir,
+        lookup_key,
+        {
+            "patch_dir": body.patch_dir.strip().strip("/"),
+            "target_dir": body.target_dir.strip().strip("/"),
+            "strip_components": body.strip_components,
+            "target_mode": body.target_mode or "game_root",
+            "app_id": body.app_id,
+        },
+        file_hint=body.file,
+    )
+    return {"message": "Rules updated", "lookup_key": lookup_key, "patch": updated}
+
+
 @router.get("/patches/{app_id}/download")
 async def download_patch(
     app_id: str,
@@ -429,7 +814,7 @@ async def download_patch(
             raw_url = await asyncio.to_thread(adapter.download_url, entry.get("source_path") or entry.get("file", ""))
             from fastapi.responses import RedirectResponse
             return RedirectResponse(raw_url, status_code=302)
-        patch_file = _safe_patch_path(patches_dir, entry.get("file", ""))
+        patch_file = await _local_patch_file_from_entry(entry, patches_dir, session)
         if patch_file and patch_file.is_file():
             return FileResponse(
                 path=str(patch_file),
@@ -455,6 +840,8 @@ class PatchUpdate(BaseModel):
     target_dir: str | None = None
     label: str | None = None
     type: str | None = None
+    strip_components: int | None = Field(default=None, ge=0, le=16)
+    target_mode: str | None = None
     app_id: str | None = None  # new app_id to update
     file: str | None = None    # lookup by file path if app_id is None/unknown
 
@@ -462,43 +849,22 @@ class PatchUpdate(BaseModel):
 @router.put("/patches/{lookup_key}")
 async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(require_admin)):
     """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
-    import json as _json
     patches_dir = _get_patches_dir()
-    json_path = patches_dir / "patches.json"
-
-    if not json_path.is_file():
-        raise HTTPException(status_code=404, detail="patches.json not found")
-
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = _json.load(f)
-    except Exception:
-        raise HTTPException(status_code=400, detail="patches.json 格式错误")
-
-    patches = data.get("patches", [])
-    for p in patches:
-        # Match by app_id OR by file path
-        matched = str(p.get("app_id", "")) == lookup_key
-        if not matched and p.get("file", "") == lookup_key:
-            matched = True
-        if not matched and body.file and p.get("file", "") == body.file:
-            matched = True
-        if matched:
-            if body.patch_dir is not None:
-                p["patch_dir"] = body.patch_dir
-            if body.target_dir is not None:
-                p["target_dir"] = body.target_dir
-            if body.label is not None:
-                p["label"] = body.label
-            if body.type is not None:
-                p["type"] = body.type
-            if body.app_id is not None and body.app_id != "":
-                p["app_id"] = int(body.app_id) if body.app_id.isdigit() else body.app_id
-            with open(json_path, "w", encoding="utf-8") as f:
-                _json.dump(data, f, ensure_ascii=False, indent=2)
-            return {"message": "Updated", "lookup_key": lookup_key}
-
-    raise HTTPException(status_code=404, detail=f"未找到 App ID/File: {lookup_key}")
+    updated = _update_patch_record(
+        patches_dir,
+        lookup_key,
+        {
+            "patch_dir": body.patch_dir,
+            "target_dir": body.target_dir,
+            "label": body.label,
+            "type": body.type,
+            "strip_components": body.strip_components,
+            "target_mode": body.target_mode,
+            "app_id": body.app_id,
+        },
+        file_hint=body.file,
+    )
+    return {"message": "Updated", "lookup_key": lookup_key, "patch": updated}
 
 
 # Patch scan endpoint
@@ -561,18 +927,6 @@ async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(re
     patches_dir = _get_patches_dir()
     _save_type_keywords(patches_dir, body.keywords)
     return {"message": "关键词已更新"}
-
-
-def _safe_patch_path(patches_dir: Path, filename: str) -> Path | None:
-    """Resolve a patch file path and verify it stays within patches_dir."""
-    if not filename:
-        return None
-    resolved = (patches_dir / filename).resolve()
-    try:
-        resolved.relative_to(patches_dir.resolve())
-    except ValueError:
-        return None  # path traversal attempt
-    return resolved
 
 
 def _find_patch_fallback(patches_dir: Path, app_id: str) -> Path | None:

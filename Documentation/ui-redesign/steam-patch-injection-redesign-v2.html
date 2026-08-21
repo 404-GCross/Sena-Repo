@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sena Repo - Steam Patch Injection Redesign v2</title>
+  <style>
+    :root {
+      --bg-a:#f7f8fa;
+      --bg-b:#edf2f7;
+      --surface:rgba(255,255,255,.84);
+      --surface-strong:rgba(255,255,255,.96);
+      --surface-soft:rgba(255,255,255,.62);
+      --border:rgba(196,203,214,.72);
+      --border-soft:rgba(196,203,214,.42);
+      --text:#20242c;
+      --sub:rgba(32,36,44,.70);
+      --hint:rgba(32,36,44,.54);
+      --primary:#6750a4;
+      --primary-soft:rgba(103,80,164,.10);
+      --primary-mid:rgba(103,80,164,.18);
+      --blue:#2f73d2;
+      --blue-soft:rgba(47,115,210,.10);
+      --green:#2f9d55;
+      --green-soft:rgba(47,157,85,.10);
+      --orange:#d98222;
+      --orange-soft:rgba(217,130,34,.12);
+      --red:#c64555;
+      --red-soft:rgba(198,69,85,.11);
+      --shadow:rgba(28,36,50,.08);
+      --radius-sm:9px;
+      --radius-md:13px;
+      --radius-lg:18px;
+      --radius-xl:24px;
+    }
+
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body {
+      margin:0;
+      min-height:100vh;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 12% 2%, rgba(103,80,164,.11), transparent 30%),
+        radial-gradient(circle at 86% 8%, rgba(47,115,210,.10), transparent 26%),
+        linear-gradient(135deg,var(--bg-a),var(--bg-b));
+      font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+      letter-spacing:0;
+    }
+
+    button, input, select { font:inherit; }
+    .top {
+      position:sticky;
+      top:0;
+      z-index:20;
+      display:flex;
+      align-items:center;
+      gap:14px;
+      padding:14px 24px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.68);
+      backdrop-filter:blur(18px);
+    }
+    .logo {
+      width:40px;
+      height:40px;
+      display:grid;
+      place-items:center;
+      border-radius:14px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-weight:900;
+      box-shadow:inset 0 0 0 1px rgba(103,80,164,.14);
+    }
+    .top-title { flex:1; min-width:0; }
+    .top-title h1 { margin:0; font-size:18px; line-height:1.25; }
+    .top-title p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .nav { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+    .pill,
+    .btn,
+    .chip,
+    .icon-btn {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      white-space:nowrap;
+      border:0;
+      text-decoration:none;
+    }
+    .pill {
+      min-height:34px;
+      padding:0 12px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:12px;
+      font-weight:800;
+    }
+    .shell { max-width:1560px; margin:0 auto; padding:22px; }
+    .section-head {
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:18px;
+      margin:30px 0 14px;
+    }
+    .section-head h2 { margin:0; font-size:25px; line-height:1.25; }
+    .section-head p {
+      max-width:980px;
+      margin:7px 0 0;
+      color:var(--sub);
+      font-size:14px;
+      line-height:1.65;
+    }
+    .surface {
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      box-shadow:0 12px 28px var(--shadow);
+      backdrop-filter:blur(14px);
+    }
+    .hero { padding:28px; }
+    .hero-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 420px;
+      gap:22px;
+      align-items:stretch;
+    }
+    .hero h2 { margin:0; font-size:32px; line-height:1.22; letter-spacing:-.02em; }
+    .hero p { margin:12px 0 0; color:var(--sub); font-size:15px; line-height:1.75; }
+    .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:20px; }
+    .metric {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .metric label { display:block; color:var(--hint); font-size:11px; font-weight:900; }
+    .metric strong { display:block; margin-top:7px; font-size:20px; }
+    .summary-card { display:grid; gap:0; overflow:hidden; }
+    .summary-row {
+      display:flex;
+      justify-content:space-between;
+      gap:14px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border-soft);
+    }
+    .summary-row:last-child { border-bottom:0; }
+    .summary-row span { color:var(--hint); font-size:12px; font-weight:900; }
+    .summary-row strong { text-align:right; font-size:13px; }
+    .app {
+      overflow:hidden;
+      background:
+        linear-gradient(135deg,rgba(255,255,255,.50),rgba(255,255,255,.24)),
+        linear-gradient(135deg,var(--bg-a),var(--bg-b));
+    }
+    .appbar {
+      min-height:76px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:18px 22px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.56);
+      backdrop-filter:blur(18px);
+    }
+    .appbar .title { flex:1; min-width:0; }
+    .appbar h3 { margin:0; font-size:19px; line-height:1.25; }
+    .appbar p { margin:3px 0 0; color:var(--hint); font-size:12px; }
+    .icon-btn {
+      width:42px;
+      height:42px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:18px;
+      font-weight:900;
+    }
+    .btn {
+      min-height:38px;
+      gap:7px;
+      padding:0 14px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:13px;
+      font-weight:800;
+      box-shadow:inset 0 0 0 1px rgba(103,80,164,.12);
+    }
+    .btn.fill { color:#fff; background:var(--primary); box-shadow:none; }
+    .btn.green { color:var(--green); background:var(--green-soft); box-shadow:inset 0 0 0 1px rgba(47,157,85,.16); }
+    .btn.orange { color:var(--orange); background:var(--orange-soft); box-shadow:inset 0 0 0 1px rgba(217,130,34,.16); }
+    .btn.red { color:var(--red); background:var(--red-soft); box-shadow:inset 0 0 0 1px rgba(198,69,85,.16); }
+    .chip {
+      min-height:26px;
+      gap:5px;
+      padding:5px 10px;
+      border-radius:999px;
+      border:1px solid rgba(103,80,164,.22);
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:12px;
+      font-weight:800;
+    }
+    .chip.green { color:var(--green); background:var(--green-soft); border-color:rgba(47,157,85,.22); }
+    .chip.blue { color:var(--blue); background:var(--blue-soft); border-color:rgba(47,115,210,.22); }
+    .chip.orange { color:var(--orange); background:var(--orange-soft); border-color:rgba(217,130,34,.22); }
+    .chip.red { color:var(--red); background:var(--red-soft); border-color:rgba(198,69,85,.22); }
+    .chip.gray { color:var(--hint); background:rgba(32,36,44,.04); border-color:rgba(32,36,44,.08); }
+    .panel { padding:18px; }
+    .toolbar {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      margin-bottom:14px;
+    }
+    .toolbar h4 { margin:0; font-size:16px; }
+    .toolbar p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .search {
+      flex:0 0 320px;
+      min-height:40px;
+      padding:0 14px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      outline:none;
+      background:rgba(255,255,255,.74);
+      color:var(--text);
+    }
+    .patch-table {
+      display:grid;
+      grid-template-columns:1.25fr .8fr .8fr .7fr .75fr 150px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.54);
+    }
+    .patch-table > div {
+      min-height:56px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:12px;
+      border-right:1px solid var(--border-soft);
+      border-bottom:1px solid var(--border-soft);
+      font-size:13px;
+      min-width:0;
+    }
+    .patch-table > div:nth-child(6n) { border-right:0; }
+    .patch-table > div:nth-last-child(-n+6) { border-bottom:0; }
+    .patch-table .h {
+      min-height:44px;
+      color:var(--hint);
+      background:rgba(255,255,255,.72);
+      font-size:12px;
+      font-weight:900;
+    }
+    .patch-name { min-width:0; display:block; }
+    .patch-name strong,
+    .patch-name span {
+      display:block;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .patch-name span { margin-top:3px; color:var(--hint); font-size:12px; }
+    .split {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 386px;
+      gap:18px;
+    }
+    .tree-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
+    }
+    .tree-panel {
+      min-width:0;
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.58);
+    }
+    .tree-head {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    .tree-head h4 { margin:0; font-size:16px; }
+    .tree-head p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .tree {
+      display:grid;
+      gap:4px;
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:13px;
+    }
+    .node {
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      align-items:center;
+      gap:8px;
+      min-height:30px;
+      padding:5px 8px;
+      border-radius:var(--radius-sm);
+    }
+    .node:hover,
+    .node.hot { background:var(--primary-soft); }
+    .node.warn { background:var(--orange-soft); }
+    .node.write { background:var(--green-soft); }
+    .node.conflict { background:var(--red-soft); }
+    .node .twisty { width:18px; color:var(--hint); font-weight:900; }
+    .node .name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .node .meta { color:var(--hint); font-size:11px; white-space:nowrap; }
+    .lvl-1 { padding-left:28px; }
+    .lvl-2 { padding-left:56px; }
+    .folder { font-weight:900; }
+    .file { color:var(--sub); }
+    .rule-card,
+    .risk-card {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.58);
+    }
+    .rule-card h4,
+    .risk-card h4 { margin:0 0 10px; font-size:15px; }
+    .field {
+      display:grid;
+      gap:6px;
+      margin-top:12px;
+    }
+    .field label {
+      color:var(--hint);
+      font-size:11px;
+      font-weight:900;
+    }
+    .input-like {
+      min-height:42px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      padding:0 12px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.70);
+      color:var(--text);
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:12px;
+      min-width:0;
+    }
+    .input-like span {
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .risk-list { display:grid; gap:10px; margin-top:14px; }
+    .risk {
+      display:grid;
+      grid-template-columns:38px 1fr;
+      gap:11px;
+      align-items:start;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .risk-icon {
+      width:38px;
+      height:38px;
+      display:grid;
+      place-items:center;
+      border-radius:var(--radius-sm);
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-size:13px;
+      font-weight:900;
+    }
+    .risk.green .risk-icon { background:var(--green-soft); color:var(--green); }
+    .risk.orange .risk-icon { background:var(--orange-soft); color:var(--orange); }
+    .risk.red .risk-icon { background:var(--red-soft); color:var(--red); }
+    .risk strong { display:block; font-size:14px; }
+    .risk span { display:block; margin-top:4px; color:var(--hint); font-size:12px; line-height:1.55; }
+    .compare-list {
+      display:grid;
+      gap:10px;
+      margin-top:14px;
+    }
+    .compare-row {
+      display:grid;
+      grid-template-columns:1fr 1fr 92px;
+      gap:10px;
+      align-items:stretch;
+    }
+    .compare-cell {
+      min-width:0;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.58);
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:12px;
+      line-height:1.45;
+      word-break:break-all;
+    }
+    .compare-cell label {
+      display:block;
+      margin-bottom:5px;
+      color:var(--hint);
+      font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+      font-size:11px;
+      font-weight:900;
+    }
+    .modal-stage {
+      min-height:720px;
+      display:grid;
+      place-items:center;
+      padding:34px;
+      background:
+        radial-gradient(circle at 50% 20%, rgba(103,80,164,.10), transparent 32%),
+        rgba(255,255,255,.25);
+    }
+    .dialog {
+      width:min(960px,100%);
+      overflow:hidden;
+      border-radius:var(--radius-xl);
+    }
+    .dialog-head {
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:20px 22px 16px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.60);
+    }
+    .dialog-head .icon {
+      width:42px;
+      height:42px;
+      display:grid;
+      place-items:center;
+      border-radius:14px;
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-weight:900;
+    }
+    .dialog-head h3 { margin:0; font-size:19px; }
+    .dialog-head p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .dialog-body { padding:18px; }
+    .dialog-actions {
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      padding:14px 18px 18px;
+      border-top:1px solid var(--border);
+      background:rgba(255,255,255,.58);
+    }
+    .confirm-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:12px;
+    }
+    .confirm-card {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.62);
+    }
+    .confirm-card h4 { margin:0; font-size:14px; }
+    .confirm-card p { margin:7px 0 0; color:var(--hint); font-size:12px; line-height:1.55; }
+    .progress-wrap { display:grid; gap:12px; }
+    .progress-card {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.62);
+    }
+    .progress-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      margin-bottom:10px;
+    }
+    .progress-head strong { font-size:14px; }
+    .bar {
+      height:10px;
+      overflow:hidden;
+      border-radius:999px;
+      background:rgba(32,36,44,.08);
+    }
+    .bar span {
+      display:block;
+      height:100%;
+      border-radius:999px;
+      background:linear-gradient(90deg,var(--primary),var(--blue));
+    }
+    .log {
+      margin:0;
+      max-height:172px;
+      overflow:auto;
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:rgba(32,36,44,.04);
+      color:var(--sub);
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:12px;
+      line-height:1.62;
+    }
+    .mobile-frame {
+      width:min(420px,100%);
+      margin:0 auto;
+      overflow:hidden;
+      border-radius:32px;
+      border:1px solid var(--border);
+      background:linear-gradient(135deg,var(--bg-a),var(--bg-b));
+      box-shadow:0 20px 50px rgba(28,36,50,.10);
+    }
+    .mobile-top {
+      padding:18px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.60);
+    }
+    .mobile-top h3 { margin:0; font-size:18px; }
+    .mobile-top p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .mobile-body { padding:18px; }
+    .hidden-card {
+      padding:18px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-xl);
+      background:rgba(255,255,255,.66);
+      text-align:center;
+    }
+    .hidden-card .big {
+      width:64px;
+      height:64px;
+      display:grid;
+      place-items:center;
+      margin:0 auto 14px;
+      border-radius:22px;
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-size:30px;
+      font-weight:900;
+    }
+    .hidden-card h4 { margin:0; font-size:18px; }
+    .hidden-card p { margin:8px 0 0; color:var(--sub); font-size:13px; line-height:1.65; }
+    .contract {
+      margin:0;
+      overflow:auto;
+      padding:16px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(32,36,44,.04);
+      color:var(--sub);
+      font-family:"Cascadia Mono","Consolas",monospace;
+      font-size:12px;
+      line-height:1.6;
+    }
+
+    @media (max-width:1180px) {
+      .hero-grid,
+      .split,
+      .tree-grid { grid-template-columns:1fr; }
+      .patch-table { grid-template-columns:1.2fr .8fr .7fr 140px; }
+      .patch-table .optional { display:none; }
+      .patch-table > div:nth-child(6n) { border-right:1px solid var(--border-soft); }
+      .patch-table > div:nth-child(4n) { border-right:0; }
+    }
+    @media (max-width:760px) {
+      .top { align-items:flex-start; flex-direction:column; }
+      .nav { justify-content:flex-start; }
+      .shell { padding:14px; }
+      .hero { padding:18px; }
+      .hero h2 { font-size:25px; }
+      .metric-grid,
+      .confirm-grid { grid-template-columns:1fr; }
+      .toolbar { align-items:stretch; flex-direction:column; }
+      .search { flex:auto; width:100%; }
+      .appbar { align-items:flex-start; flex-wrap:wrap; padding:14px; }
+      .patch-table { display:block; border-radius:var(--radius-lg); }
+      .patch-table .h { display:none; }
+      .patch-table > div {
+        border-right:0;
+        border-bottom:0;
+        min-height:auto;
+      }
+      .patch-table > div:not(.primary-cell) { display:none; }
+      .compare-row { grid-template-columns:1fr; }
+      .modal-stage { min-height:auto; padding:12px; }
+      .dialog-actions { justify-content:stretch; flex-wrap:wrap; }
+      .dialog-actions .btn { flex:1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="logo">S</div>
+    <div class="top-title">
+      <h1>Steam 补丁注入重做 HTML v2</h1>
+      <p>压缩包目录树预览、注入规则确认、执行进度与回滚；Android / 手机端隐藏该功能。</p>
+    </div>
+    <nav class="nav">
+      <a class="pill" href="#index">补丁首页</a>
+      <a class="pill" href="#tree">目录树配置</a>
+      <a class="pill" href="#confirm">注入确认</a>
+      <a class="pill" href="#progress">进度回滚</a>
+      <a class="pill" href="#mobile">手机隐藏</a>
+      <a class="pill" href="#contract">接口契约</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="surface hero">
+      <div class="hero-grid">
+        <div>
+          <h2>核心改法：注入前先“看见压缩包”，而不是让用户手填目录猜结果。</h2>
+          <p>服务端扫描补丁压缩包内部结构，生成目录树、推荐剥离层级和风险项。客户端展示原始结构与最终写入预览，用户确认后再下载、备份、注入。这样能解决目录重叠、补丁根目录猜错、覆盖风险不透明的问题。</p>
+          <div class="metric-grid">
+            <div class="metric"><label>当前痛点</label><strong>手填路径</strong></div>
+            <div class="metric"><label>新入口</label><strong>目录树选择</strong></div>
+            <div class="metric"><label>注入策略</label><strong>Dry-run 预演</strong></div>
+            <div class="metric"><label>平台策略</label><strong>桌面端专属</strong></div>
+          </div>
+        </div>
+        <aside class="surface summary-card">
+          <div class="summary-row"><span>补丁源</span><strong>服务端本地 / OpenList</strong></div>
+          <div class="summary-row"><span>支持格式</span><strong>zip / rar / 7z</strong></div>
+          <div class="summary-row"><span>扫描方式</span><strong>列目录，不完整解压</strong></div>
+          <div class="summary-row"><span>保存对象</span><strong>patch_dir / strip / target_dir</strong></div>
+          <div class="summary-row"><span>落地原则</span><strong>先配置，后注入</strong></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="index">
+      <div class="section-head">
+        <div>
+          <h2>1. 补丁索引首页</h2>
+          <p>这里不再只是一堆“扫描 / 编辑”按钮，而是把补丁分成可注入、需配置、风险项。用户第一眼就知道哪些能直接用，哪些必须先看目录树。</p>
+        </div>
+        <span class="chip green">Desktop</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>Steam 补丁管理</h3>
+            <p>本地 Steam 库匹配、服务端补丁索引、目录树规则配置</p>
+          </div>
+          <span class="chip green">12 可注入</span>
+          <span class="chip orange">3 需配置</span>
+          <button class="btn">刷新 Steam 库</button>
+          <button class="btn fill">扫描补丁</button>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div>
+              <h4>补丁清单</h4>
+              <p>扫描后按状态排序：可注入 → 需配置 → 风险项 → 未匹配。</p>
+            </div>
+            <input class="search" value="Kinkoi" aria-label="搜索补丁" />
+          </div>
+
+          <div class="patch-table">
+            <div class="h">补丁</div>
+            <div class="h optional">匹配游戏</div>
+            <div class="h optional">结构状态</div>
+            <div class="h">注入规则</div>
+            <div class="h optional">风险</div>
+            <div class="h">操作</div>
+
+            <div class="primary-cell">
+              <span class="patch-name">
+                <strong>Kinkoi_R18DLC.rar</strong>
+                <span>213 MB · RAR5 · OpenList</span>
+              </span>
+            </div>
+            <div class="optional"><span class="chip blue">Kinkoi</span></div>
+            <div class="optional"><span class="chip green">目录树已扫描</span></div>
+            <div><span class="chip orange">剥离 1 层</span></div>
+            <div class="optional"><span class="chip red">1 覆盖</span></div>
+            <div><button class="btn fill">配置 / 注入</button></div>
+
+            <div class="primary-cell">
+              <span class="patch-name">
+                <strong>Atri_Steam_Chinese_Patch.zip</strong>
+                <span>48 MB · ZIP · 本地</span>
+              </span>
+            </div>
+            <div class="optional"><span class="chip blue">ATRI</span></div>
+            <div class="optional"><span class="chip orange">未扫描结构</span></div>
+            <div><span class="chip gray">未配置</span></div>
+            <div class="optional"><span class="chip gray">未知</span></div>
+            <div><button class="btn">查看结构</button></div>
+
+            <div class="primary-cell">
+              <span class="patch-name">
+                <strong>Hoshizora_voice_patch.7z</strong>
+                <span>1.4 GB · 7z · OpenList</span>
+              </span>
+            </div>
+            <div class="optional"><span class="chip gray">未匹配</span></div>
+            <div class="optional"><span class="chip green">目录树已扫描</span></div>
+            <div><span class="chip gray">待匹配 AppID</span></div>
+            <div class="optional"><span class="chip orange">需确认</span></div>
+            <div><button class="btn orange">补全信息</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tree">
+      <div class="section-head">
+        <div>
+          <h2>2. 目录树配置页</h2>
+          <p>用户点“查看结构”后进入这个页。左边是压缩包原始结构，右边是按规则计算后的注入预览，右侧栏保存规则和风险判断。</p>
+        </div>
+        <span class="chip orange">关键页面</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>Kinkoi_R18DLC.rar</h3>
+            <p>巧可甜恋 · R18 DLC 补丁 · 213 MB</p>
+          </div>
+          <span class="chip green">结构有效</span>
+          <span class="chip orange">推荐剥离 1 层</span>
+          <button class="btn">重新扫描结构</button>
+          <button class="btn fill">保存规则</button>
+        </div>
+
+        <div class="panel split">
+          <main>
+            <div class="tree-grid">
+              <section class="tree-panel">
+                <div class="tree-head">
+                  <div>
+                    <h4>原始压缩包结构</h4>
+                    <p>服务端 7z l 扫描结果，不完整解压。</p>
+                  </div>
+                  <span class="chip blue">Raw</span>
+                </div>
+                <div class="tree">
+                  <div class="node hot"><span class="twisty">▾</span><span class="name folder">Kinkoi_R18DLC/</span><span class="meta">单一外层</span></div>
+                  <div class="node lvl-1"><span class="twisty">▾</span><span class="name folder">Kinkoi_Data/</span><span class="meta">3 files</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">adult.dat</span><span class="meta">28.4 MB</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">resources.assets</span><span class="meta">96.2 MB</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">sharedassets0.assets</span><span class="meta">44.1 MB</span></div>
+                  <div class="node lvl-1"><span class="twisty">▾</span><span class="name folder">Movie/</span><span class="meta">12 files</span></div>
+                  <div class="node lvl-2 file"><span class="twisty">·</span><span class="name">op_patch.usm</span><span class="meta">18.8 MB</span></div>
+                  <div class="node lvl-1 file"><span class="twisty">·</span><span class="name">readme_patch.txt</span><span class="meta">2 KB</span></div>
+                </div>
+              </section>
+
+              <section class="tree-panel">
+                <div class="tree-head">
+                  <div>
+                    <h4>注入预览</h4>
+                    <p>剥离 Kinkoi_R18DLC 后写入游戏根目录。</p>
+                  </div>
+                  <span class="chip green">Dry-run</span>
+                </div>
+                <div class="tree">
+                  <div class="node write"><span class="twisty">▾</span><span class="name folder">/SteamLibrary/steamapps/common/Kinkoi/</span><span class="meta">目标根</span></div>
+                  <div class="node lvl-1 write"><span class="twisty">▾</span><span class="name folder">Kinkoi_Data/</span><span class="meta">写入</span></div>
+                  <div class="node lvl-2 conflict"><span class="twisty">·</span><span class="name">adult.dat</span><span class="meta">覆盖</span></div>
+                  <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">resources.assets</span><span class="meta">新增</span></div>
+                  <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">sharedassets0.assets</span><span class="meta">新增</span></div>
+                  <div class="node lvl-1 write"><span class="twisty">▾</span><span class="name folder">Movie/</span><span class="meta">新增目录</span></div>
+                  <div class="node lvl-2 write"><span class="twisty">·</span><span class="name">op_patch.usm</span><span class="meta">新增</span></div>
+                  <div class="node lvl-1 write"><span class="twisty">·</span><span class="name">readme_patch.txt</span><span class="meta">新增</span></div>
+                </div>
+              </section>
+            </div>
+
+            <div class="compare-list">
+              <div class="compare-row">
+                <div class="compare-cell"><label>压缩包路径</label>Kinkoi_R18DLC/Kinkoi_Data/adult.dat</div>
+                <div class="compare-cell"><label>目标路径</label>Kinkoi_Data/adult.dat</div>
+                <div class="compare-cell"><label>动作</label><span class="chip red">覆盖</span></div>
+              </div>
+              <div class="compare-row">
+                <div class="compare-cell"><label>压缩包路径</label>Kinkoi_R18DLC/Movie/op_patch.usm</div>
+                <div class="compare-cell"><label>目标路径</label>Movie/op_patch.usm</div>
+                <div class="compare-cell"><label>动作</label><span class="chip green">新增</span></div>
+              </div>
+            </div>
+          </main>
+
+          <aside>
+            <section class="rule-card">
+              <h4>注入规则</h4>
+              <div class="field">
+                <label>补丁内容根目录</label>
+                <div class="input-like"><span>Kinkoi_R18DLC/</span><span class="chip orange">剥离</span></div>
+              </div>
+              <div class="field">
+                <label>剥离层级</label>
+                <div class="input-like"><span>strip_components = 1</span><span>自动</span></div>
+              </div>
+              <div class="field">
+                <label>注入目标</label>
+                <div class="input-like"><span>游戏根目录 /</span><span class="chip green">推荐</span></div>
+              </div>
+              <div class="field">
+                <label>Steam AppID</label>
+                <div class="input-like"><span>1277940</span><span>已匹配</span></div>
+              </div>
+            </section>
+
+            <div class="risk-list">
+              <section class="risk green">
+                <div class="risk-icon">✓</div>
+                <div><strong>路径安全</strong><span>未发现绝对路径、路径穿越、空路径或非法盘符。</span></div>
+              </section>
+              <section class="risk orange">
+                <div class="risk-icon">1</div>
+                <div><strong>单一外层目录</strong><span>推荐剥离 1 层，避免注入后多套一层 Kinkoi_R18DLC。</span></div>
+              </section>
+              <section class="risk red">
+                <div class="risk-icon">!</div>
+                <div><strong>1 个覆盖文件</strong><span>覆盖前会备份 adult.dat，并写入注入 manifest。</span></div>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="confirm">
+      <div class="section-head">
+        <div>
+          <h2>3. 注入确认弹窗</h2>
+          <p>真正开始下载和解压前，最后一次把游戏目录、补丁规则、覆盖风险讲清楚。这个弹窗替代“点了就开始”的危险体验。</p>
+        </div>
+        <span class="chip red">Safety Gate</span>
+      </div>
+
+      <div class="surface modal-stage">
+        <div class="surface dialog">
+          <div class="dialog-head">
+            <div class="icon">⚠</div>
+            <div class="title">
+              <h3>确认注入 Steam 补丁</h3>
+              <p>请确认目标目录和覆盖风险。注入前会自动创建备份 manifest。</p>
+            </div>
+            <span class="chip orange">1 个覆盖</span>
+          </div>
+          <div class="dialog-body">
+            <div class="confirm-grid">
+              <div class="confirm-card">
+                <h4>补丁包</h4>
+                <p>Kinkoi_R18DLC.rar<br />213 MB · RAR5 · OpenList</p>
+              </div>
+              <div class="confirm-card">
+                <h4>注入目标</h4>
+                <p>/SteamLibrary/steamapps/common/Kinkoi/<br />目标模式：游戏根目录</p>
+              </div>
+              <div class="confirm-card">
+                <h4>规则</h4>
+                <p>剥离 1 层：Kinkoi_R18DLC/<br />写入 127 个新增，覆盖 1 个文件</p>
+              </div>
+            </div>
+            <div class="risk-list">
+              <section class="risk red">
+                <div class="risk-icon">!</div>
+                <div><strong>即将覆盖 adult.dat</strong><span>覆盖前备份到 .sena_patch_backup/20260821-2315/，注入失败时自动回滚。</span></div>
+              </section>
+            </div>
+          </div>
+          <div class="dialog-actions">
+            <button class="btn">取消</button>
+            <button class="btn orange">只下载不注入</button>
+            <button class="btn fill">确认注入</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="progress">
+      <div class="section-head">
+        <div>
+          <h2>4. 注入进度与回滚</h2>
+          <p>进度不只显示下载，还要显示校验、预演、备份、解压、写入阶段。失败时能明确告诉用户卡在哪一步。</p>
+        </div>
+        <span class="chip blue">Runtime</span>
+      </div>
+
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">×</button>
+          <div class="title">
+            <h3>正在注入补丁</h3>
+            <p>Kinkoi_R18DLC.rar → Kinkoi</p>
+          </div>
+          <span class="chip blue">写入中</span>
+          <button class="btn orange">暂停</button>
+          <button class="btn red">取消并回滚</button>
+        </div>
+        <div class="panel progress-wrap">
+          <section class="progress-card">
+            <div class="progress-head">
+              <strong>下载补丁包</strong>
+              <span class="chip green">完成 · 213 MB</span>
+            </div>
+            <div class="bar"><span style="width:100%"></span></div>
+          </section>
+          <section class="progress-card">
+            <div class="progress-head">
+              <strong>校验与目录预演</strong>
+              <span class="chip green">完成 · 0 风险阻断</span>
+            </div>
+            <div class="bar"><span style="width:100%"></span></div>
+          </section>
+          <section class="progress-card">
+            <div class="progress-head">
+              <strong>备份覆盖文件</strong>
+              <span class="chip green">完成 · 1 个文件</span>
+            </div>
+            <div class="bar"><span style="width:100%"></span></div>
+          </section>
+          <section class="progress-card">
+            <div class="progress-head">
+              <strong>解压并写入</strong>
+              <span class="chip blue">83%</span>
+            </div>
+            <div class="bar"><span style="width:83%"></span></div>
+          </section>
+          <pre class="log">[23:15:01] download complete: Kinkoi_R18DLC.rar
+[23:15:02] manifest dry-run complete: 128 files
+[23:15:02] backup created: .sena_patch_backup/20260821-231502/
+[23:15:04] extracting: Kinkoi_Data/resources.assets
+[23:15:09] writing: Movie/op_patch.usm</pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="mobile">
+      <div class="section-head">
+        <div>
+          <h2>5. 手机端隐藏态</h2>
+          <p>Steam 补丁注入是桌面本地文件系统能力，Android 不显示入口；如果用户从深链进入，只显示不可用说明，不提供配置表单。</p>
+        </div>
+        <span class="chip gray">Android Hidden</span>
+      </div>
+
+      <div class="mobile-frame">
+        <div class="mobile-top">
+          <h3>工具</h3>
+          <p>移动端仅保留游戏库、下载和元数据能力</p>
+        </div>
+        <div class="mobile-body">
+          <div class="hidden-card">
+            <div class="big">🖥</div>
+            <h4>Steam 补丁功能仅支持桌面端</h4>
+            <p>该功能需要访问本机 Steam 库、读取压缩包并写入游戏目录。请在 Windows 或 Linux 客户端中使用。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="contract">
+      <div class="section-head">
+        <div>
+          <h2>6. 建议接口契约</h2>
+          <p>HTML 里对应的后端数据结构。这里不是最终代码，只是为了明确 UI 需要什么字段。</p>
+        </div>
+        <span class="chip">API Draft</span>
+      </div>
+      <pre class="contract">GET /api/steam/patches/{patch_id}/tree
+{
+  "patch_id": "path-bound-id",
+  "file": "Kinkoi_R18DLC.rar",
+  "archive_type": "rar5",
+  "size": 222629784,
+  "root_entries": 1,
+  "recommended_rule": {
+    "patch_dir": "Kinkoi_R18DLC",
+    "strip_components": 1,
+    "target_dir": "",
+    "target_mode": "game_root"
+  },
+  "risks": [
+    {"level": "warning", "code": "single_outer_dir", "message": "推荐剥离 1 层"},
+    {"level": "danger", "code": "overwrite", "message": "预计覆盖 1 个文件"}
+  ],
+  "tree": [
+    {"path": "Kinkoi_R18DLC/", "type": "dir", "children": 4},
+    {"path": "Kinkoi_R18DLC/Kinkoi_Data/adult.dat", "type": "file", "size": 29779512}
+  ]
+}
+
+POST /api/steam/patches/{patch_id}/rules
+{
+  "app_id": "1277940",
+  "patch_dir": "Kinkoi_R18DLC",
+  "strip_components": 1,
+  "target_dir": "",
+  "target_mode": "game_root"
+}</pre>
+    </section>
+  </main>
+</body>
+</html>

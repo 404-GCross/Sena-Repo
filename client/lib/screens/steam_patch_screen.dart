@@ -265,7 +265,37 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     }
   }
 
-  Future<void> _startInjection(PatchMatch m) async {
+  Future<void> _showPatchTreeDialog(PatchMatch m, {bool allowInject = false}) async {
+    final api = context.read<GameProvider>().api;
+    final result = await showDialog<_PatchRuleDialogResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _PatchTreeDialog(
+        api: api,
+        match: m,
+        installPath: allowInject ? _gameInstallPath(m) : null,
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (result.saved) {
+      _showMsg("补丁规则已保存");
+      if (_serverLoaded) unawaited(_loadServerPatches());
+      if (_tabIndex == 0 && _commonDir != null) unawaited(_scanAndCheck());
+    }
+    if (result.inject) {
+      await _startInjection(
+        m,
+        patchDirOverride: result.patchDir,
+        targetDirOverride: result.targetDir,
+      );
+    }
+  }
+
+  Future<void> _startInjection(
+    PatchMatch m, {
+    String? patchDirOverride,
+    String? targetDirOverride,
+  }) async {
     final api = context.read<GameProvider>().api;
     final fullPath = _gameInstallPath(m);
     setState(() =>
@@ -276,8 +306,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
         installDir: fullPath,
         patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
-        patchDir: m.patchDir,
-        targetDir: m.targetDir,
+        patchDir: patchDirOverride ?? m.patchDir,
+        targetDir: targetDirOverride ?? m.targetDir,
         onProgress: (p, r, t, s, stage) {
           if (mounted)
             setState(() => _injectState[m.appId] = "$p|$r|$t|$s|$stage");
@@ -630,6 +660,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                       onPressed: () => _openGameDir(m),
                       icon: const Icon(Icons.folder_open, size: 16),
                       label: Text("打开目录",
+                          style: AppText.bodySmall
+                              .copyWith(fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          minimumSize: Size.zero)),
+                  OutlinedButton.icon(
+                      onPressed: () => _showPatchTreeDialog(m, allowInject: true),
+                      icon: const Icon(Icons.account_tree_outlined, size: 16),
+                      label: Text("结构",
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(
@@ -1045,6 +1085,22 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             constraints: const BoxConstraints(),
             onPressed: () => _rescrapeOne(hasAppId ? appId : file)),
         IconButton(
+            icon: const Icon(Icons.account_tree_outlined, size: 16),
+            tooltip: "结构/规则",
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+            onPressed: () => _showPatchTreeDialog(PatchMatch(
+                appId: appId,
+                gameName: label.isNotEmpty ? label : file.split("/").last,
+                installDir: "",
+                patchAvailable: true,
+                patchFilename: file,
+                patchDir: patchDir,
+                targetDir: targetDir,
+                label: label,
+                type: ptype))),
+        IconButton(
             icon: const Icon(Icons.edit, size: 16),
             tooltip: "编辑",
             visualDensity: VisualDensity.compact,
@@ -1257,6 +1313,554 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     if (bytes < 1073741824) return "${(bytes / 1048576).toStringAsFixed(1)} MB";
     return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
   }
+}
+
+
+class _PatchRuleDialogResult {
+  final bool saved;
+  final bool inject;
+  final String patchDir;
+  final String targetDir;
+
+  const _PatchRuleDialogResult({
+    required this.saved,
+    required this.inject,
+    required this.patchDir,
+    required this.targetDir,
+  });
+}
+
+class _PatchTreeDialog extends StatefulWidget {
+  final dynamic api;
+  final PatchMatch match;
+  final String? installPath;
+
+  const _PatchTreeDialog({
+    required this.api,
+    required this.match,
+    this.installPath,
+  });
+
+  @override
+  State<_PatchTreeDialog> createState() => _PatchTreeDialogState();
+}
+
+class _PatchTreeDialogState extends State<_PatchTreeDialog> {
+  final _patchDir = TextEditingController();
+  final _targetDir = TextEditingController();
+  Map<String, dynamic>? _data;
+  String? _error;
+  bool _loading = true;
+  bool _saving = false;
+  int _stripComponents = 0;
+  String _targetMode = "game_root";
+
+  @override
+  void initState() {
+    super.initState();
+    _patchDir.text = widget.match.patchDir ?? "";
+    _targetDir.text = widget.match.targetDir ?? "";
+    _loadTree();
+  }
+
+  @override
+  void dispose() {
+    _patchDir.dispose();
+    _targetDir.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadTree() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await SteamService.getPatchTree(
+        widget.api,
+        appId: widget.match.appId,
+        file: widget.match.patchFilename,
+      );
+      final recommended = Map<String, dynamic>.from(
+        (data["recommended"] as Map?) ?? const {},
+      );
+      final currentPatchDir = (data["patch_dir"] ?? widget.match.patchDir ?? "").toString();
+      final currentTargetDir = (data["target_dir"] ?? widget.match.targetDir ?? "").toString();
+      if (_patchDir.text.trim().isEmpty) {
+        _patchDir.text = currentPatchDir.isNotEmpty
+            ? currentPatchDir
+            : (recommended["patch_dir"] ?? "").toString();
+      }
+      if (_targetDir.text.trim().isEmpty) {
+        _targetDir.text = currentTargetDir.isNotEmpty
+            ? currentTargetDir
+            : (recommended["target_dir"] ?? "").toString();
+      }
+      _stripComponents = int.tryParse(
+            (data["strip_components"] ?? recommended["strip_components"] ?? 0).toString(),
+          ) ??
+          0;
+      if (_stripComponents == 0 && _patchDir.text.trim().isNotEmpty) {
+        _stripComponents = 1;
+      }
+      _targetMode = (data["target_mode"] ?? recommended["target_mode"] ?? "game_root").toString();
+      if (!mounted) return;
+      setState(() {
+        _data = data;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = "$e";
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _save({required bool inject}) async {
+    setState(() => _saving = true);
+    try {
+      final patchDir = _patchDir.text.trim().replaceAll(RegExp(r"^/+|/+$"), "");
+      final targetDir = _targetDir.text.trim().replaceAll(RegExp(r"^/+|/+$"), "");
+      await SteamService.updatePatchRules(
+        api: widget.api,
+        appId: widget.match.appId,
+        file: widget.match.patchFilename,
+        patchDir: patchDir,
+        targetDir: targetDir,
+        stripComponents: patchDir.isEmpty ? 0 : _stripComponents,
+        targetMode: _targetMode,
+      );
+      if (!mounted) return;
+      Navigator.pop(
+        context,
+        _PatchRuleDialogResult(
+          saved: true,
+          inject: inject,
+          patchDir: patchDir,
+          targetDir: targetDir,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = "保存失败: $e";
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> get _tree => ((_data?["tree"] as List?) ?? const [])
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
+
+  List<Map<String, dynamic>> get _risks => ((_data?["risks"] as List?) ?? const [])
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width > 1080 ? 1020.0 : size.width - 32;
+    final height = size.height > 760 ? 700.0 : size.height - 32;
+    final filename = widget.match.patchFilename?.split("/").last ?? widget.match.gameName;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      child: Icon(Icons.account_tree_outlined, color: cs.primary),
+                    ),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("补丁结构 / 注入规则", style: AppText.headline),
+                          const SizedBox(height: 4),
+                          Text(
+                            filename,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.bodySmall.copyWith(color: hintColor(context)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_data != null)
+                      AppStatusPill(
+                        icon: Icons.inventory_2_outlined,
+                        label: "${_data!["file_count"] ?? 0} 文件",
+                        color: cs.primary,
+                      ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Expanded(child: _buildBody(context)),
+              Divider(height: 1, color: cardBorder(context)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    AppActionButton(
+                      icon: Icons.close_rounded,
+                      label: "关闭",
+                      color: hintColor(context),
+                      onPressed: _saving ? null : () => Navigator.pop(context),
+                    ),
+                    const SizedBox(width: AppGap.sm),
+                    AppActionButton(
+                      icon: Icons.save_outlined,
+                      label: "保存规则",
+                      busy: _saving,
+                      onPressed: _loading || _data == null || _saving ? null : () => _save(inject: false),
+                    ),
+                    if (widget.installPath != null) ...[
+                      const SizedBox(width: AppGap.sm),
+                      AppActionButton(
+                        icon: Icons.auto_fix_high,
+                        label: "保存并注入",
+                        filled: true,
+                        busy: _saving,
+                        onPressed: _loading || _data == null || _saving ? null : () => _save(inject: true),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: AppSurface(
+          padding: const EdgeInsets.all(AppGap.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded, color: Colors.red[400], size: 34),
+              const SizedBox(height: AppGap.md),
+              Text("结构扫描失败", style: AppText.title),
+              const SizedBox(height: AppGap.sm),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: AppText.bodySmall.copyWith(color: hintColor(context), height: 1.4),
+                ),
+              ),
+              const SizedBox(height: AppGap.md),
+              AppActionButton(
+                icon: Icons.refresh_rounded,
+                label: "重试扫描",
+                filled: true,
+                onPressed: _loadTree,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 860;
+        final tree = _buildTreePanel(context);
+        final rules = _buildRulePanel(context);
+        if (!wide) {
+          return ListView(
+            padding: const EdgeInsets.all(18),
+            children: [tree, const SizedBox(height: AppGap.md), rules],
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: tree),
+              const SizedBox(width: AppGap.md),
+              SizedBox(width: 340, child: rules),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTreePanel(BuildContext context) {
+    return AppSurface(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              children: [
+                Text("压缩包目录树", style: AppText.title),
+                const Spacer(),
+                AppStatusPill(
+                  icon: Icons.storage_rounded,
+                  label: _formatPatchBytes(int.tryParse((_data?["total_uncompressed_size"] ?? 0).toString()) ?? 0),
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: cardBorder(context)),
+          Expanded(
+            child: _tree.isEmpty
+                ? Center(
+                    child: Text(
+                      "没有读取到目录项",
+                      style: AppText.bodySmall.copyWith(color: hintColor(context)),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _tree.length,
+                    itemBuilder: (context, index) => _PatchTreeNodeRow(node: _tree[index]),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRulePanel(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final recommended = Map<String, dynamic>.from((_data?["recommended"] as Map?) ?? const {});
+    final recommendedPatchDir = (recommended["patch_dir"] ?? "").toString();
+    return AppSurface(
+      padding: const EdgeInsets.all(16),
+      child: ListView(
+        children: [
+          Row(
+            children: [
+              Icon(Icons.rule_rounded, color: cs.primary),
+              const SizedBox(width: AppGap.sm),
+              Text("注入规则", style: AppText.title),
+            ],
+          ),
+          const SizedBox(height: AppGap.md),
+          if (recommendedPatchDir.isNotEmpty)
+            AppSurface(
+              padding: const EdgeInsets.all(12),
+              color: Colors.orange.withValues(alpha: 0.08),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.22)),
+              child: Row(
+                children: [
+                  Icon(Icons.auto_awesome_rounded, size: 18, color: Colors.orange[700]),
+                  const SizedBox(width: AppGap.sm),
+                  Expanded(
+                    child: Text(
+                      "推荐剥离外层目录：$recommendedPatchDir",
+                      style: AppText.bodySmall.copyWith(color: Colors.orange[800], fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: AppGap.md),
+          TextField(
+            controller: _patchDir,
+            decoration: const InputDecoration(
+              labelText: "补丁内容根目录 (patch_dir)",
+              hintText: "例如 Kinkoi_R18DLC；留空则直接解压",
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: AppGap.md),
+          TextField(
+            controller: _targetDir,
+            decoration: const InputDecoration(
+              labelText: "目标子目录 (target_dir)",
+              hintText: "留空表示游戏根目录",
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: AppGap.md),
+          DropdownButtonFormField<int>(
+            value: _stripComponents,
+            decoration: const InputDecoration(labelText: "剥离层级", isDense: true),
+            items: List.generate(5, (index) => DropdownMenuItem(value: index, child: Text("剥离 $index 层"))),
+            onChanged: (value) => setState(() => _stripComponents = value ?? 0),
+          ),
+          const SizedBox(height: AppGap.md),
+          DropdownButtonFormField<String>(
+            value: _targetMode,
+            decoration: const InputDecoration(labelText: "目标模式", isDense: true),
+            items: const [
+              DropdownMenuItem(value: "game_root", child: Text("游戏根目录")),
+              DropdownMenuItem(value: "custom", child: Text("自定义子目录")),
+            ],
+            onChanged: (value) => setState(() => _targetMode = value ?? "game_root"),
+          ),
+          if (widget.installPath != null) ...[
+            const SizedBox(height: AppGap.md),
+            AppSurface(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.folder_open_rounded, size: 18, color: hintColor(context)),
+                  const SizedBox(width: AppGap.sm),
+                  Expanded(
+                    child: Text(
+                      widget.installPath!,
+                      style: AppText.caption.copyWith(color: hintColor(context), height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_risks.isNotEmpty) ...[
+            const SizedBox(height: AppGap.lg),
+            Text("扫描提示", style: AppText.bodyMedium.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: AppGap.sm),
+            ..._risks.map((risk) => _PatchRiskTile(risk: risk)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PatchTreeNodeRow extends StatelessWidget {
+  final Map<String, dynamic> node;
+
+  const _PatchTreeNodeRow({required this.node});
+
+  @override
+  Widget build(BuildContext context) {
+    final type = (node["type"] ?? "file").toString();
+    final isDir = type == "dir";
+    final depth = int.tryParse((node["depth"] ?? 0).toString()) ?? 0;
+    final size = int.tryParse((node["size"] ?? 0).toString()) ?? 0;
+    final name = (node["name"] ?? node["path"] ?? "").toString();
+    return Padding(
+      padding: EdgeInsets.only(left: depth * 18.0, bottom: 3),
+      child: Container(
+        minHeight: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: isDir
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isDir ? Icons.folder_rounded : Icons.insert_drive_file_outlined,
+              size: 16,
+              color: isDir ? Theme.of(context).colorScheme.primary : hintColor(context),
+            ),
+            const SizedBox(width: AppGap.sm),
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.bodySmall.copyWith(
+                  color: isDir ? sectionTextColor(context) : subTextColor(context),
+                  fontWeight: isDir ? FontWeight.w800 : FontWeight.w500,
+                ),
+              ),
+            ),
+            if (!isDir && size > 0)
+              Text(
+                _formatPatchBytes(size),
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PatchRiskTile extends StatelessWidget {
+  final Map<String, dynamic> risk;
+
+  const _PatchRiskTile({required this.risk});
+
+  @override
+  Widget build(BuildContext context) {
+    final level = (risk["level"] ?? "info").toString();
+    final color = level == "danger"
+        ? Colors.red
+        : level == "warning"
+            ? Colors.orange
+            : Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppGap.sm),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            level == "danger" ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: AppGap.sm),
+          Expanded(
+            child: Text(
+              (risk["message"] ?? "").toString(),
+              style: AppText.bodySmall.copyWith(color: color, height: 1.35, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatPatchBytes(int bytes) {
+  if (bytes < 1024) return "$bytes B";
+  if (bytes < 1048576) return "${(bytes / 1024).toStringAsFixed(1)} KB";
+  if (bytes < 1073741824) return "${(bytes / 1048576).toStringAsFixed(1)} MB";
+  return "${(bytes / 1073741824).toStringAsFixed(1)} GB";
 }
 
 class _KeywordMatchDialog extends StatefulWidget {
