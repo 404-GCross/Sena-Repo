@@ -1775,7 +1775,7 @@ class _PatchTreeNodeRow extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(left: depth * 18.0, bottom: 3),
       child: Container(
-        minHeight: 30,
+        constraints: const BoxConstraints(minHeight: 30),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: isDir
