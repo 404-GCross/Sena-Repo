@@ -1066,6 +1066,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
         ),
         if (isDesktop)
           AppActionButton(
+            icon: Icons.merge_outlined,
+            label: "合并游戏",
+            onPressed: _mergeGameDialog,
+          ),
+        if (isDesktop)
+          AppActionButton(
             icon: Icons.delete_outline,
             label: "删除",
             color: Colors.red,
@@ -2047,23 +2053,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
           Text(
             company == null || company.isEmpty ? "无公司信息" : company,
             style: AppText.bodyMedium.copyWith(color: subTextColor(context)),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilledButton.icon(
-                onPressed: _downloadMetadata,
-                icon: const Icon(Icons.cloud_download_outlined),
-                label: const Text("下载元数据"),
-              ),
-              OutlinedButton.icon(
-                onPressed: _mergeGameDialog,
-                icon: const Icon(Icons.merge_outlined),
-                label: const Text("合并游戏"),
-              ),
-            ],
           ),
         ],
       ),
