@@ -1,0 +1,1332 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sena Repo - Metadata Scrape Redesign</title>
+  <style>
+    :root {
+      --bg-a:#f7f8fa;
+      --bg-b:#edf2f7;
+      --surface:rgba(255,255,255,.84);
+      --surface-strong:rgba(255,255,255,.96);
+      --surface-soft:rgba(255,255,255,.62);
+      --border:rgba(196,203,214,.72);
+      --border-soft:rgba(196,203,214,.42);
+      --text:#20242c;
+      --sub:rgba(32,36,44,.70);
+      --hint:rgba(32,36,44,.54);
+      --primary:#007f92;
+      --primary-soft:rgba(0,127,146,.10);
+      --primary-mid:rgba(0,127,146,.18);
+      --blue:#2f73d2;
+      --blue-soft:rgba(47,115,210,.10);
+      --green:#2f9d55;
+      --green-soft:rgba(47,157,85,.10);
+      --orange:#d98222;
+      --orange-soft:rgba(217,130,34,.12);
+      --red:#c64555;
+      --red-soft:rgba(198,69,85,.11);
+      --purple:#6750a4;
+      --purple-soft:rgba(103,80,164,.10);
+      --shadow:rgba(28,36,50,.08);
+      --radius-sm:9px;
+      --radius-md:13px;
+      --radius-lg:18px;
+      --radius-xl:24px;
+    }
+
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body {
+      margin:0;
+      min-height:100vh;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 18% 0%, rgba(0,127,146,.10), transparent 31%),
+        radial-gradient(circle at 82% 6%, rgba(103,80,164,.10), transparent 28%),
+        linear-gradient(135deg,var(--bg-a),var(--bg-b));
+      font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+      letter-spacing:0;
+    }
+
+    button, input, select, textarea { font:inherit; }
+    .top {
+      position:sticky;
+      top:0;
+      z-index:20;
+      display:flex;
+      align-items:center;
+      gap:14px;
+      padding:14px 24px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.68);
+      backdrop-filter:blur(18px);
+    }
+    .logo {
+      width:40px;
+      height:40px;
+      display:grid;
+      place-items:center;
+      border-radius:14px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-weight:900;
+      box-shadow:inset 0 0 0 1px rgba(0,127,146,.14);
+    }
+    .top-title { flex:1; min-width:0; }
+    .top-title h1 { margin:0; font-size:18px; line-height:1.25; }
+    .top-title p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .nav { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+    .pill,
+    .btn,
+    .chip,
+    .icon-btn {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      white-space:nowrap;
+      border:0;
+      text-decoration:none;
+    }
+    .pill {
+      min-height:34px;
+      padding:0 12px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:12px;
+      font-weight:800;
+    }
+    .shell { max-width:1540px; margin:0 auto; padding:22px; }
+    .section-head {
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:18px;
+      margin:30px 0 14px;
+    }
+    .section-head h2 { margin:0; font-size:25px; line-height:1.25; }
+    .section-head p {
+      max-width:980px;
+      margin:7px 0 0;
+      color:var(--sub);
+      font-size:14px;
+      line-height:1.65;
+    }
+    .surface {
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      box-shadow:0 12px 28px var(--shadow);
+      backdrop-filter:blur(14px);
+    }
+    .panel { padding:18px; }
+    .app {
+      overflow:hidden;
+      background:
+        linear-gradient(135deg,rgba(255,255,255,.50),rgba(255,255,255,.24)),
+        linear-gradient(135deg,var(--bg-a),var(--bg-b));
+    }
+    .appbar {
+      min-height:76px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:18px 22px;
+      border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.56);
+      backdrop-filter:blur(18px);
+    }
+    .appbar .title { flex:1; min-width:0; }
+    .appbar h3 { margin:0; font-size:19px; line-height:1.25; }
+    .appbar p { margin:3px 0 0; color:var(--hint); font-size:12px; }
+    .icon-btn {
+      width:42px;
+      height:42px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:18px;
+      font-weight:900;
+    }
+    .btn {
+      min-height:38px;
+      gap:7px;
+      padding:0 14px;
+      border-radius:999px;
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:13px;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .btn.fill { background:var(--primary-mid); }
+    .btn.green { color:var(--green); background:var(--green-soft); }
+    .btn.blue { color:var(--blue); background:var(--blue-soft); }
+    .btn.orange { color:var(--orange); background:var(--orange-soft); }
+    .btn.red { color:var(--red); background:var(--red-soft); }
+    .btn.ghost { color:var(--hint); background:rgba(32,36,44,.05); }
+    .chip {
+      min-height:26px;
+      gap:5px;
+      padding:5px 10px;
+      border-radius:999px;
+      border:1px solid rgba(0,127,146,.22);
+      color:var(--primary);
+      background:var(--primary-soft);
+      font-size:12px;
+      font-weight:800;
+    }
+    .chip.green { color:var(--green); background:var(--green-soft); border-color:rgba(47,157,85,.22); }
+    .chip.blue { color:var(--blue); background:var(--blue-soft); border-color:rgba(47,115,210,.22); }
+    .chip.orange { color:var(--orange); background:var(--orange-soft); border-color:rgba(217,130,34,.22); }
+    .chip.red { color:var(--red); background:var(--red-soft); border-color:rgba(198,69,85,.22); }
+    .chip.purple { color:var(--purple); background:var(--purple-soft); border-color:rgba(103,80,164,.22); }
+    .chip.gray { color:var(--hint); background:rgba(32,36,44,.04); border-color:rgba(32,36,44,.08); }
+
+    .hero { padding:28px; }
+    .hero-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 390px;
+      gap:22px;
+      align-items:stretch;
+    }
+    .hero h2 { margin:0; font-size:32px; line-height:1.22; letter-spacing:-.02em; }
+    .hero p { margin:12px 0 0; color:var(--sub); font-size:15px; line-height:1.75; }
+    .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:20px; }
+    .metric {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:var(--surface-soft);
+    }
+    .metric label { display:block; color:var(--hint); font-size:11px; font-weight:900; }
+    .metric strong { display:block; margin-top:7px; font-size:20px; }
+    .summary-card { display:grid; gap:0; overflow:hidden; }
+    .summary-row {
+      display:flex;
+      justify-content:space-between;
+      gap:14px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border-soft);
+    }
+    .summary-row:last-child { border-bottom:0; }
+    .summary-row span { color:var(--hint); font-size:12px; font-weight:900; }
+    .summary-row strong { text-align:right; font-size:13px; }
+
+    .edit-page { padding:22px; }
+    .edit-grid {
+      display:grid;
+      grid-template-columns:320px minmax(0,1fr);
+      gap:22px;
+      align-items:start;
+    }
+    .media-panel {
+      overflow:hidden;
+      border-radius:var(--radius-lg);
+      border:1px solid var(--border);
+      background:rgba(255,255,255,.68);
+      box-shadow:0 12px 28px var(--shadow);
+    }
+    .hero-img {
+      height:178px;
+      background:url("../gallery/detail-1.png") center/cover no-repeat;
+      border-bottom:1px solid var(--border);
+    }
+    .cover-img {
+      width:190px;
+      height:268px;
+      margin:18px auto 14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:url("../gallery/edit.png") center/cover no-repeat;
+      box-shadow:0 12px 24px rgba(20,24,32,.16);
+    }
+    .media-actions { display:flex; justify-content:center; gap:8px; padding:0 16px 18px; }
+    .edit-stack { display:grid; gap:16px; }
+    .title-panel,
+    .info-panel {
+      padding:18px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.70);
+      box-shadow:0 10px 22px var(--shadow);
+    }
+    .title-input {
+      width:100%;
+      min-height:58px;
+      border:1px solid var(--border-soft);
+      border-radius:var(--radius-md);
+      padding:0 16px;
+      background:rgba(255,255,255,.55);
+      color:var(--text);
+      font-size:24px;
+      font-weight:900;
+    }
+    .studio { margin:12px 0 0; color:var(--hint); font-size:14px; }
+    .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 16px; }
+    .field {
+      display:grid;
+      grid-template-columns:100px 1fr auto;
+      gap:10px;
+      align-items:center;
+      min-height:48px;
+      border-bottom:1px solid var(--border-soft);
+    }
+    .field label { color:var(--hint); font-size:13px; font-weight:800; }
+    .field input {
+      min-width:0;
+      min-height:38px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      padding:0 12px;
+      background:rgba(255,255,255,.58);
+      color:var(--text);
+      font-weight:700;
+    }
+    .textarea {
+      width:100%;
+      min-height:128px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      padding:12px 14px;
+      background:rgba(255,255,255,.58);
+      color:var(--sub);
+      line-height:1.7;
+      resize:none;
+    }
+
+    .flow-grid { display:grid; grid-template-columns:340px minmax(0,1fr); gap:18px; }
+    .source-list { display:grid; gap:10px; }
+    .source-card {
+      display:grid;
+      grid-template-columns:42px 1fr auto;
+      gap:12px;
+      align-items:center;
+      padding:13px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.62);
+    }
+    .source-card.active { border-color:rgba(0,127,146,.40); background:var(--primary-soft); }
+    .source-icon {
+      width:42px;
+      height:42px;
+      display:grid;
+      place-items:center;
+      border-radius:12px;
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-weight:900;
+      font-size:12px;
+    }
+    .source-card strong { display:block; font-size:14px; }
+    .source-card span { display:block; margin-top:3px; color:var(--hint); font-size:12px; line-height:1.45; }
+    .option-panel { display:grid; gap:10px; margin-top:14px; }
+    .option-row {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:11px 12px;
+      border:1px solid var(--border-soft);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.52);
+      color:var(--sub);
+      font-size:13px;
+      font-weight:700;
+    }
+    .option-row input { width:18px; height:18px; accent-color:var(--primary); }
+    .search-line { display:flex; gap:10px; margin-bottom:14px; }
+    .search-line input {
+      flex:1;
+      min-width:0;
+      min-height:42px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      padding:0 12px;
+      background:rgba(255,255,255,.72);
+      color:var(--text);
+      font-weight:700;
+    }
+    .result-list { display:grid; gap:12px; }
+    .result-card {
+      display:grid;
+      grid-template-columns:92px 1fr 112px;
+      gap:14px;
+      align-items:stretch;
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.66);
+    }
+    .result-card.recommended {
+      border-color:rgba(47,157,85,.35);
+      background:linear-gradient(135deg,rgba(47,157,85,.10),rgba(255,255,255,.72));
+    }
+    .thumb {
+      width:92px;
+      min-height:128px;
+      border-radius:var(--radius-md);
+      border:1px solid var(--border);
+      background:url("../gallery/edit.png") center/cover no-repeat;
+    }
+    .thumb.alt { background-image:url("../gallery/detail-1.png"); }
+    .result-main h3 { margin:0; font-size:18px; line-height:1.25; }
+    .result-main p { margin:8px 0 10px; color:var(--sub); font-size:13px; line-height:1.55; }
+    .result-meta { display:flex; flex-wrap:wrap; gap:7px; }
+    .score-box {
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .score {
+      width:72px;
+      height:72px;
+      display:grid;
+      place-items:center;
+      border-radius:999px;
+      color:var(--green);
+      background:var(--green-soft);
+      border:1px solid rgba(47,157,85,.22);
+      font-size:20px;
+      font-weight:900;
+    }
+    .score.warn { color:var(--orange); background:var(--orange-soft); border-color:rgba(217,130,34,.28); }
+
+    .dialog-stage {
+      min-height:760px;
+      display:grid;
+      place-items:center;
+      padding:28px;
+      border-radius:var(--radius-lg);
+      background:
+        linear-gradient(rgba(33,36,43,.42),rgba(33,36,43,.42)),
+        url("../gallery/edit.png") center/cover no-repeat;
+    }
+    .modal {
+      width:min(1120px,100%);
+      overflow:hidden;
+      border-radius:var(--radius-xl);
+      background:rgba(249,252,255,.96);
+      border:1px solid rgba(255,255,255,.66);
+      box-shadow:0 24px 70px rgba(8,12,20,.28);
+      backdrop-filter:blur(18px);
+    }
+    .modal-head {
+      display:flex;
+      gap:12px;
+      align-items:center;
+      padding:20px 22px 16px;
+      border-bottom:1px solid var(--border);
+    }
+    .modal-head h3 { margin:0; font-size:22px; }
+    .modal-head p { margin:4px 0 0; color:var(--hint); font-size:12px; }
+    .modal-head .spacer { flex:1; }
+    .modal-body { padding:18px 22px; }
+    .modal-actions {
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      padding:0 22px 22px;
+      border-top:1px solid transparent;
+    }
+    .apply-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:18px; }
+    .compare-grid {
+      display:grid;
+      grid-template-columns:178px 1fr 1fr 106px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.50);
+    }
+    .compare-cell {
+      min-height:54px;
+      padding:12px;
+      border-right:1px solid var(--border-soft);
+      border-bottom:1px solid var(--border-soft);
+      font-size:13px;
+    }
+    .compare-cell:nth-child(4n) { border-right:0; }
+    .compare-cell:nth-last-child(-n+4) { border-bottom:0; }
+    .compare-cell.head {
+      min-height:42px;
+      background:rgba(255,255,255,.72);
+      font-weight:900;
+      color:var(--text);
+    }
+    .compare-cell.field {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-weight:900;
+    }
+    .compare-cell.old { color:var(--hint); }
+    .compare-cell.new { color:var(--text); font-weight:650; }
+    .compare-cell.apply {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .apply-check {
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      color:var(--green);
+      font-size:13px;
+      font-weight:900;
+    }
+    .apply-check input { width:18px; height:18px; accent-color:var(--green); }
+    .desc-preview {
+      margin-top:8px;
+      padding:9px 10px;
+      border:1px solid var(--border-soft);
+      border-radius:var(--radius-sm);
+      background:rgba(255,255,255,.50);
+      color:var(--sub);
+      font-size:12px;
+      line-height:1.55;
+      font-weight:500;
+    }
+    .desc-trigger {
+      margin-top:8px;
+      min-height:32px;
+      padding:0 12px;
+      border:0;
+      border-radius:999px;
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-size:12px;
+      font-weight:900;
+      cursor:pointer;
+    }
+    .side-stack { display:grid; gap:12px; }
+    .side-card {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.58);
+    }
+    .side-card h4 { margin:0 0 10px; font-size:15px; }
+    .side-card p { margin:0; color:var(--sub); font-size:12px; line-height:1.6; }
+    .tag-flow { display:flex; flex-wrap:wrap; gap:7px; }
+    .media-pair { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px; }
+    .media-box {
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.54);
+    }
+    .media-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .media-title-row strong { font-size:14px; }
+    .media-compare { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    .media-side label { display:block; margin-bottom:7px; color:var(--hint); font-size:11px; font-weight:900; }
+    .media-img {
+      height:174px;
+      border-radius:var(--radius-sm);
+      border:1px solid var(--border);
+      background:url("../gallery/detail-1.png") center/cover no-repeat;
+    }
+    .media-img.current { background-image:url("../gallery/edit.png"); }
+    .media-img.cover-preview {
+      height:240px;
+      background-size:contain;
+      background-color:rgba(255,255,255,.58);
+      background-repeat:no-repeat;
+    }
+    .full-desc {
+      margin-top:16px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      background:rgba(255,255,255,.58);
+      overflow:hidden;
+    }
+    .full-desc-head {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border-soft);
+      background:rgba(255,255,255,.66);
+    }
+    .full-desc-body {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
+      padding:16px;
+    }
+    .full-desc-body label {
+      display:block;
+      margin-bottom:8px;
+      color:var(--hint);
+      font-size:11px;
+      font-weight:900;
+    }
+    .full-desc-body p {
+      margin:0;
+      color:var(--sub);
+      font-size:13px;
+      line-height:1.75;
+    }
+
+    .phone-row {
+      display:grid;
+      grid-auto-flow:column;
+      grid-auto-columns:390px;
+      gap:18px;
+      overflow-x:auto;
+      padding-bottom:8px;
+    }
+    .phone {
+      position:relative;
+      width:390px;
+      height:760px;
+      overflow:hidden;
+      border:10px solid #20242c;
+      border-radius:32px;
+      background:linear-gradient(135deg,var(--bg-a),var(--bg-b));
+      box-shadow:0 20px 44px rgba(20,24,32,.22);
+    }
+    .phone-head {
+      height:58px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      background:rgba(255,255,255,.58);
+      border-bottom:1px solid var(--border);
+      backdrop-filter:blur(18px);
+    }
+    .phone-head .icon-btn { width:36px; height:36px; }
+    .phone-title { flex:1; min-width:0; font-size:14px; font-weight:800; }
+    .phone-body { position:relative; height:calc(100% - 58px); overflow:auto; padding:12px 12px 82px; }
+    .phone-card {
+      padding:12px;
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.74);
+      border:1px solid var(--border);
+      margin-bottom:10px;
+    }
+    .phone-card h3 { margin:0 0 9px; font-size:15px; }
+    .phone-card p { margin:0; color:var(--sub); font-size:12px; line-height:1.5; }
+    .phone-search { display:flex; gap:8px; margin-bottom:10px; }
+    .phone-search input {
+      flex:1;
+      min-width:0;
+      border:1px solid var(--border);
+      border-radius:var(--radius-sm);
+      background:rgba(255,255,255,.72);
+      padding:9px;
+      font-size:13px;
+    }
+    .phone-source {
+      display:grid;
+      grid-template-columns:38px 1fr auto;
+      gap:10px;
+      align-items:center;
+      padding:10px;
+      border:1px solid var(--border-soft);
+      border-radius:var(--radius-md);
+      background:rgba(255,255,255,.50);
+      margin-top:8px;
+    }
+    .phone-source.active { background:var(--primary-soft); border-color:rgba(0,127,146,.28); }
+    .phone-source .source-icon { width:38px; height:38px; }
+    .phone-source strong { display:block; font-size:13px; }
+    .phone-source span { display:block; margin-top:2px; color:var(--hint); font-size:11px; }
+    .phone-result {
+      display:grid;
+      grid-template-columns:64px 1fr;
+      gap:10px;
+      align-items:center;
+    }
+    .phone-result .thumb { width:64px; min-height:90px; }
+    .phone-diff {
+      display:grid;
+      grid-template-columns:1fr auto;
+      gap:8px;
+      align-items:start;
+    }
+    .phone-diff strong { display:block; font-size:13px; }
+    .phone-diff span { display:block; margin-top:4px; color:var(--hint); font-size:11px; line-height:1.35; }
+    .phone-diff input { width:18px; height:18px; accent-color:var(--green); }
+    .phone-desc-preview { display:grid; gap:8px; margin-top:10px; }
+    .phone-desc-preview div {
+      padding:8px 9px;
+      border:1px solid var(--border-soft);
+      border-radius:var(--radius-sm);
+      background:rgba(255,255,255,.52);
+    }
+    .phone-desc-preview label { display:block; margin-bottom:4px; color:var(--hint); font-size:10px; font-weight:900; }
+    .phone-desc-preview p { margin:0; color:var(--sub); font-size:11px; line-height:1.45; }
+    .phone-media-mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+    .phone-media-mini div {
+      height:88px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-sm);
+      background:url("../gallery/detail-1.png") center/cover no-repeat;
+    }
+    .phone-media-mini div:first-child { background-image:url("../gallery/edit.png"); }
+    .bottom-bar {
+      position:absolute;
+      left:12px;
+      right:12px;
+      bottom:12px;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:9px;
+      padding:10px;
+      border-radius:18px;
+      background:rgba(255,255,255,.78);
+      border:1px solid var(--border);
+      backdrop-filter:blur(16px);
+    }
+    .phone-modal-bg {
+      position:absolute;
+      inset:0;
+      background:rgba(20,24,32,.38);
+      backdrop-filter:blur(4px);
+    }
+    .sheet {
+      position:absolute;
+      left:0;
+      right:0;
+      bottom:0;
+      padding:14px 14px 18px;
+      border-radius:22px 22px 0 0;
+      background:rgba(249,252,255,.97);
+      border-top:1px solid rgba(255,255,255,.72);
+      box-shadow:0 -20px 44px rgba(20,24,32,.20);
+    }
+    .grab {
+      width:38px;
+      height:4px;
+      margin:0 auto 14px;
+      border-radius:999px;
+      background:rgba(32,36,44,.18);
+    }
+    .phone-sheet-title {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .phone-sheet-title strong { font-size:15px; }
+    .phone-desc-full {
+      display:grid;
+      gap:8px;
+      max-height:470px;
+      overflow:auto;
+      padding-right:2px;
+    }
+    .phone-desc-full div {
+      padding:9px;
+      border:1px solid var(--border-soft);
+      border-radius:var(--radius-sm);
+      background:rgba(255,255,255,.58);
+    }
+    .phone-desc-full label { display:block; margin-bottom:5px; color:var(--hint); font-size:10px; font-weight:900; }
+    .phone-desc-full p { margin:0; color:var(--sub); font-size:11px; line-height:1.5; }
+
+    .audit {
+      display:grid;
+      grid-template-columns:1fr 1.3fr 1.8fr;
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      overflow:hidden;
+      background:var(--surface);
+    }
+    .audit div {
+      padding:12px 13px;
+      border-bottom:1px solid var(--border-soft);
+      border-right:1px solid var(--border-soft);
+      font-size:13px;
+      line-height:1.5;
+    }
+    .audit div:nth-child(3n) { border-right:0; }
+    .audit div:nth-last-child(-n+3) { border-bottom:0; }
+    .audit .h { background:rgba(255,255,255,.62); font-weight:900; }
+
+    @media(max-width:1120px) {
+      .hero-grid,
+      .edit-grid,
+      .flow-grid,
+      .apply-layout { grid-template-columns:1fr; }
+      .compare-grid { grid-template-columns:140px 1fr 1fr 88px; }
+      .media-pair { grid-template-columns:1fr; }
+    }
+    @media(max-width:760px) {
+      .top { align-items:flex-start; flex-direction:column; }
+      .nav { justify-content:flex-start; }
+      .shell { padding:14px; }
+      .appbar { padding:10px 12px; }
+      .appbar .btn { display:none; }
+      .hero { padding:18px; }
+      .metric-grid,
+      .field-grid,
+      .result-card,
+      .full-desc-body,
+      .audit { grid-template-columns:1fr; }
+      .result-card { align-items:start; }
+      .score-box { align-items:flex-start; }
+      .compare-grid { grid-template-columns:1fr; }
+      .compare-cell { border-right:0; }
+      .compare-cell:nth-last-child(-n+4) { border-bottom:1px solid var(--border-soft); }
+      .phone-row { grid-auto-columns:calc(100vw - 28px); }
+      .phone { width:100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="logo">S</div>
+    <div class="top-title">
+      <h1>Sena Repo · 下载元数据 UI 精修稿</h1>
+      <p>目标：搜索结果更好判断，应用前更清楚，桌面和手机都能完整完成刮削选择。</p>
+    </div>
+    <nav class="nav">
+      <a class="pill" href="#entry">编辑页入口</a>
+      <a class="pill" href="#flow">搜索流程</a>
+      <a class="pill" href="#apply">应用对比</a>
+      <a class="pill" href="#mobile">手机端</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="hero surface">
+      <div class="hero-grid">
+        <div>
+          <h2>下载元数据从“直接套结果”改成“搜索、对比、勾选应用”。</h2>
+          <p>
+            这个稿子保留当前详情页/编辑页的浅蓝玻璃卡片风格，不把编辑页做成详情页。
+            核心变化是：搜索结果展示匹配度和来源能力；应用前对每个字段做当前值 vs 来源值对比；
+            简介只显示预览，点击后弹出完整内容；tags 作为新增项预览，不需要额外“应用简介”这种多余按钮。
+          </p>
+          <div class="metric-grid">
+            <div class="metric"><label>主流程</label><strong>3 步</strong></div>
+            <div class="metric"><label>桌面弹窗</label><strong>对比式</strong></div>
+            <div class="metric"><label>手机策略</label><strong>分步</strong></div>
+            <div class="metric"><label>低分匹配</label><strong>需确认</strong></div>
+          </div>
+        </div>
+        <aside class="summary-card surface">
+          <div class="summary-row"><span>保留</span><strong>右上角“下载元数据”入口</strong></div>
+          <div class="summary-row"><span>新增</span><strong>来源能力说明 / 匹配分</strong></div>
+          <div class="summary-row"><span>新增</span><strong>字段级勾选应用</strong></div>
+          <div class="summary-row"><span>新增</span><strong>简介完整预览弹窗</strong></div>
+          <div class="summary-row"><span>避免</span><strong>低分候选自动覆盖</strong></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="entry">
+      <div class="section-head">
+        <div>
+          <h2>编辑页入口：只保留右上角下载元数据</h2>
+          <p>标题卡片不再放重复按钮。合并游戏继续留在右上角操作区；下载元数据入口明确是页面级操作。</p>
+        </div>
+        <span class="chip green">Desktop Edit</span>
+      </div>
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">←</button>
+          <div class="title">
+            <h3>编辑游戏</h3>
+            <p>猫忍之心2</p>
+          </div>
+          <button class="btn fill">☁ 下载元数据</button>
+          <button class="btn">↥ 合并游戏</button>
+          <button class="btn red">▢ 删除</button>
+          <button class="btn fill">▣ 保存</button>
+        </div>
+        <div class="edit-page">
+          <div class="edit-grid">
+            <aside class="media-panel">
+              <div class="hero-img"></div>
+              <div class="cover-img"></div>
+              <div class="media-actions">
+                <button class="btn">▧ 上传封面</button>
+                <button class="btn">🔗 封面 URL</button>
+              </div>
+            </aside>
+            <div class="edit-stack">
+              <section class="title-panel">
+                <input class="title-input" value="猫忍之心2" />
+                <div class="studio">Whirlpool（漩涡社）</div>
+              </section>
+              <section class="info-panel">
+                <div class="field-grid">
+                  <div class="field"><label>开发商</label><input value="ワールプール" /><span class="chip green">v53385</span></div>
+                  <div class="field"><label>发售日</label><input value="2017-02-24" /><span class="chip green">v53385</span></div>
+                  <div class="field"><label>VNDB ID</label><input value="v53385" /><span class="chip green">✓</span></div>
+                  <div class="field"><label>Steam ID</label><input value="" /><span class="chip gray">空</span></div>
+                  <div class="field"><label>Bangumi ID</label><input value="" /><span class="chip gray">空</span></div>
+                  <div class="field"><label>Hikarinagi ID</label><input value="" /><span class="chip gray">空</span></div>
+                </div>
+              </section>
+              <section class="info-panel">
+                <h3 style="margin:0 0 12px;">简介</h3>
+                <textarea class="textarea">这个日本自古以来，共存著人类，以及拥有特殊力量的非人的存在。拥有特殊力量的他们，有著人类的外貌以及兽类的血统。</textarea>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="flow">
+      <div class="section-head">
+        <div>
+          <h2>搜索流程：来源选择 + 候选结果卡片</h2>
+          <p>用户先选择刮削策略，再看候选结果。结果卡片显示来源、匹配度、标题、会社、日期、简介预览和 tags，低分结果不会混在推荐里误导用户。</p>
+        </div>
+        <span class="chip blue">Search Flow</span>
+      </div>
+      <div class="app surface">
+        <div class="appbar">
+          <button class="icon-btn">×</button>
+          <div class="title">
+            <h3>下载元数据</h3>
+            <p>当前游戏：猫忍之心2 · 已保存 VNDB ID：v53385</p>
+          </div>
+          <span class="chip green">使用已保存 ID 优先</span>
+        </div>
+        <div class="panel">
+          <div class="flow-grid">
+            <aside>
+              <div class="source-list">
+                <div class="source-card active">
+                  <div class="source-icon">HN</div>
+                  <div><strong>Hikarinagi</strong><span>中文资料、tags、NSFW 标记，适合作为主来源。</span></div>
+                  <span class="chip green">推荐</span>
+                </div>
+                <div class="source-card">
+                  <div class="source-icon">VN</div>
+                  <div><strong>VNDB Kana</strong><span>标题别名、时长、tag 权重和 spoiler 标记。</span></div>
+                  <span class="chip">启用</span>
+                </div>
+                <div class="source-card">
+                  <div class="source-icon">BG</div>
+                  <div><strong>Bangumi</strong><span>中文条目、日期和条目 tag。</span></div>
+                  <span class="chip">启用</span>
+                </div>
+                <div class="source-card">
+                  <div class="source-icon">ST</div>
+                  <div><strong>Steam</strong><span>商店图、背景图和 AppID；NSFW 字段忽略。</span></div>
+                  <span class="chip gray">辅助</span>
+                </div>
+              </div>
+              <div class="option-panel">
+                <label class="option-row"><input type="checkbox" checked /> 同时搜索多个来源</label>
+                <label class="option-row"><input type="checkbox" checked /> 低匹配度结果需要确认</label>
+                <label class="option-row"><input type="checkbox" checked /> 只默认勾选有变化字段</label>
+              </div>
+            </aside>
+            <section>
+              <div class="search-line">
+                <input value="猫忍之心2" />
+                <button class="btn fill">搜索</button>
+              </div>
+              <div class="result-list">
+                <article class="result-card recommended">
+                  <div class="thumb"></div>
+                  <div class="result-main">
+                    <div class="result-meta" style="margin-bottom:8px;">
+                      <span class="chip green">推荐结果</span>
+                      <span class="chip">Hikarinagi</span>
+                      <span class="chip blue">中文资料</span>
+                    </div>
+                    <h3>猫忍之心2</h3>
+                    <p>Whirlpool · 2017-02-24 · 这个日本自古以来，共存著人类，以及拥有特殊力量的非人的存在……</p>
+                    <div class="result-meta">
+                      <span class="chip green">猫娘</span>
+                      <span class="chip green">恋爱</span>
+                      <span class="chip green">萌系</span>
+                      <span class="chip orange">NSFW: 是</span>
+                    </div>
+                  </div>
+                  <div class="score-box">
+                    <div class="score">98%</div>
+                    <button class="btn fill">选择</button>
+                  </div>
+                </article>
+                <article class="result-card">
+                  <div class="thumb alt"></div>
+                  <div class="result-main">
+                    <div class="result-meta" style="margin-bottom:8px;">
+                      <span class="chip">VNDB</span>
+                      <span class="chip purple">时长 / Tags</span>
+                    </div>
+                    <h3>Neko-nin exHeart 2</h3>
+                    <p>Whirlpool · 2017-02-24 · Follow the continuing life with cat-eared ninjas and light romance comedy.</p>
+                    <div class="result-meta">
+                      <span class="chip">Kemonomimi</span>
+                      <span class="chip">Romance</span>
+                      <span class="chip">Ninja Heroine</span>
+                    </div>
+                  </div>
+                  <div class="score-box">
+                    <div class="score">94%</div>
+                    <button class="btn">选择</button>
+                  </div>
+                </article>
+                <article class="result-card">
+                  <div class="thumb"></div>
+                  <div class="result-main">
+                    <div class="result-meta" style="margin-bottom:8px;">
+                      <span class="chip">Steam</span>
+                      <span class="chip blue">背景图辅助</span>
+                    </div>
+                    <h3>NEKO-NIN exHeart 2</h3>
+                    <p>Store page matched by title. Steam does not provide NSFW metadata; only images and AppID will be used.</p>
+                    <div class="result-meta">
+                      <span class="chip gray">Visual Novel</span>
+                      <span class="chip gray">Anime</span>
+                      <span class="chip gray">Cute</span>
+                    </div>
+                  </div>
+                  <div class="score-box">
+                    <div class="score warn">82%</div>
+                    <button class="btn ghost">预览</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="apply">
+      <div class="section-head">
+        <div>
+          <h2>应用前对比：字段勾选，不再黑盒覆盖</h2>
+          <p>核心弹窗。简介只展示短预览，点击“查看完整简介”弹出完整内容；图片用左右对比；tags 显示新增内容；NSFW 明确显示来源判断，Steam 不参与 NSFW。</p>
+        </div>
+        <span class="chip green">Apply Dialog</span>
+      </div>
+      <div class="dialog-stage">
+        <div class="modal">
+          <div class="modal-head">
+            <div class="source-icon">HN</div>
+            <div>
+              <h3>应用 Hikarinagi 元数据</h3>
+              <p>猫忍之心2 · 匹配度 98% · 默认只勾选有变化字段</p>
+            </div>
+            <div class="spacer"></div>
+            <span class="chip green">推荐</span>
+            <button class="icon-btn">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="apply-layout">
+              <section>
+                <div class="compare-grid">
+                  <div class="compare-cell head">字段</div>
+                  <div class="compare-cell head">当前</div>
+                  <div class="compare-cell head">来源</div>
+                  <div class="compare-cell head">应用</div>
+
+                  <div class="compare-cell field">标题</div>
+                  <div class="compare-cell old">猫忍之心2</div>
+                  <div class="compare-cell new">猫忍之心2</div>
+                  <div class="compare-cell apply"><label class="apply-check"><input type="checkbox" /> 跳过</label></div>
+
+                  <div class="compare-cell field">开发商</div>
+                  <div class="compare-cell old">ワールプール</div>
+                  <div class="compare-cell new">Whirlpool（漩涡社）</div>
+                  <div class="compare-cell apply"><label class="apply-check"><input type="checkbox" checked /> 应用</label></div>
+
+                  <div class="compare-cell field">发售日</div>
+                  <div class="compare-cell old">2017-02-24</div>
+                  <div class="compare-cell new">2017-02-24</div>
+                  <div class="compare-cell apply"><label class="apply-check"><input type="checkbox" /> 跳过</label></div>
+
+                  <div class="compare-cell field">Hikarinagi ID</div>
+                  <div class="compare-cell old">空</div>
+                  <div class="compare-cell new">hkg_102938</div>
+                  <div class="compare-cell apply"><label class="apply-check"><input type="checkbox" checked /> 应用</label></div>
+
+                  <div class="compare-cell field">NSFW</div>
+                  <div class="compare-cell old">否</div>
+                  <div class="compare-cell new">是 · Hikarinagi 明确标记</div>
+                  <div class="compare-cell apply"><label class="apply-check"><input type="checkbox" checked /> 应用</label></div>
+                </div>
+
+                <div class="compare-grid" style="margin-top:14px;">
+                  <div class="compare-cell head">字段</div>
+                  <div class="compare-cell head">当前预览</div>
+                  <div class="compare-cell head">来源预览</div>
+                  <div class="compare-cell head">应用</div>
+
+                  <div class="compare-cell field">简介</div>
+                  <div class="compare-cell old">
+                    <div class="desc-preview">这个日本自古以来，共存著人类，以及拥有特殊力量的非人的存在……</div>
+                    <button class="desc-trigger">查看完整当前简介</button>
+                  </div>
+                  <div class="compare-cell new">
+                    <div class="desc-preview">猫忍者系列第二作。主人公与猫耳忍者们的同居生活继续展开……</div>
+                    <button class="desc-trigger">查看完整来源简介</button>
+                  </div>
+                  <div class="compare-cell apply"><label class="apply-check"><input type="checkbox" checked /> 应用</label></div>
+                </div>
+
+                <div class="media-pair">
+                  <div class="media-box">
+                    <div class="media-title-row">
+                      <strong>封面对比</strong>
+                      <label class="apply-check"><input type="checkbox" checked /> 应用封面</label>
+                    </div>
+                    <div class="media-compare">
+                      <div class="media-side">
+                        <label>当前封面</label>
+                        <div class="media-img cover-preview current"></div>
+                      </div>
+                      <div class="media-side">
+                        <label>来源封面</label>
+                        <div class="media-img cover-preview"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="media-box">
+                    <div class="media-title-row">
+                      <strong>背景对比</strong>
+                      <label class="apply-check"><input type="checkbox" checked /> 应用背景</label>
+                    </div>
+                    <div class="media-compare">
+                      <div class="media-side">
+                        <label>当前背景</label>
+                        <div class="media-img current"></div>
+                      </div>
+                      <div class="media-side">
+                        <label>来源背景</label>
+                        <div class="media-img"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <aside class="side-stack">
+                <div class="side-card">
+                  <h4>Tags 新增预览</h4>
+                  <div class="tag-flow">
+                    <span class="chip green">猫娘</span>
+                    <span class="chip green">恋爱</span>
+                    <span class="chip green">萌系</span>
+                    <span class="chip green">忍者</span>
+                    <span class="chip green">Whirlpool</span>
+                    <span class="chip gray">已有：兽耳</span>
+                  </div>
+                  <p style="margin-top:10px;">默认只新增缺失 tags，不移除用户手动 tags。</p>
+                </div>
+                <div class="side-card">
+                  <h4>来源 ID</h4>
+                  <p>应用后会保存 Hikarinagi ID；若后续做多来源表，可同时保留 VNDB、Bangumi、Steam 等关联。</p>
+                </div>
+                <div class="side-card">
+                  <h4>覆盖保护</h4>
+                  <p>用户手动编辑过的字段默认不勾选。低匹配度结果不能自动应用，只能手动选择字段。</p>
+                </div>
+              </aside>
+            </div>
+
+            <div class="full-desc">
+              <div class="full-desc-head">
+                <strong>完整简介弹窗样式预览</strong>
+                <button class="btn ghost">关闭</button>
+              </div>
+              <div class="full-desc-body">
+                <div>
+                  <label>当前简介</label>
+                  <p>这个日本自古以来，共存著人类，以及拥有特殊力量的非人的存在。拥有特殊力量的他们，有著人类的外貌以及兽类的血统，而被称呼为「亚人」。故事延续猫忍者们来到主人公身边后的日常。</p>
+                </div>
+                <div>
+                  <label>来源简介</label>
+                  <p>猫忍者系列第二作。主人公与猫耳忍者们的同居生活继续展开，新的事件和角色关系让日常变得更加热闹。来源简介可完整展开查看，但不会在预览区塞满整段文本。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn ghost">取消</button>
+            <button class="btn">只保存来源 ID</button>
+            <button class="btn fill">应用已勾选字段</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="mobile">
+      <div class="section-head">
+        <div>
+          <h2>手机端：分步，不做桌面大弹窗压缩版</h2>
+          <p>手机不左右分栏。第一屏选来源和结果，第二屏勾选字段，第三屏用 bottom sheet 查看完整简介。底部操作栏固定。</p>
+        </div>
+        <span class="chip purple">Mobile Flow</span>
+      </div>
+      <div class="phone-row">
+        <div class="phone">
+          <div class="phone-head">
+            <button class="icon-btn">←</button>
+            <div class="phone-title">下载元数据</div>
+            <button class="icon-btn">×</button>
+          </div>
+          <div class="phone-body">
+            <div class="phone-card">
+              <h3>搜索关键词</h3>
+              <div class="phone-search">
+                <input value="猫忍之心2" />
+                <button class="btn fill">搜索</button>
+              </div>
+              <label class="option-row" style="margin-top:8px;"><input type="checkbox" checked /> 使用已保存 ID 优先</label>
+            </div>
+            <div class="phone-card">
+              <h3>来源</h3>
+              <div class="phone-source active"><div class="source-icon">HN</div><div><strong>Hikarinagi</strong><span>中文资料 / tags / NSFW</span></div><span class="chip green">推荐</span></div>
+              <div class="phone-source"><div class="source-icon">VN</div><div><strong>VNDB</strong><span>时长 / tags / 别名</span></div><span class="chip">启用</span></div>
+              <div class="phone-source"><div class="source-icon">ST</div><div><strong>Steam</strong><span>背景图辅助</span></div><span class="chip gray">辅助</span></div>
+            </div>
+            <div class="phone-card">
+              <h3>推荐结果</h3>
+              <div class="phone-result">
+                <div class="thumb"></div>
+                <div>
+                  <strong>猫忍之心2</strong>
+                  <p>Hikarinagi · 匹配度 98% · Whirlpool · 2017-02-24</p>
+                  <div class="tag-flow">
+                    <span class="chip green">猫娘</span>
+                    <span class="chip green">恋爱</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bottom-bar">
+              <button class="btn ghost">取消</button>
+              <button class="btn fill">下一步</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="phone">
+          <div class="phone-head">
+            <button class="icon-btn">←</button>
+            <div class="phone-title">应用元数据</div>
+            <button class="icon-btn">×</button>
+          </div>
+          <div class="phone-body">
+            <div class="phone-card">
+              <h3>字段对比</h3>
+              <div class="phone-diff">
+                <div><strong>开发商</strong><span>当前：ワールプール<br />来源：Whirlpool（漩涡社）</span></div>
+                <input type="checkbox" checked />
+              </div>
+            </div>
+            <div class="phone-card">
+              <div class="phone-diff">
+                <div><strong>Hikarinagi ID</strong><span>当前：空<br />来源：hkg_102938</span></div>
+                <input type="checkbox" checked />
+              </div>
+            </div>
+            <div class="phone-card">
+              <div class="phone-diff">
+                <div><strong>NSFW</strong><span>当前：否<br />来源：是 · Hikarinagi 明确标记</span></div>
+                <input type="checkbox" checked />
+              </div>
+            </div>
+            <div class="phone-card">
+              <div class="phone-diff">
+                <div><strong>简介</strong><span>显示短预览，点击查看完整内容。</span></div>
+                <input type="checkbox" checked />
+              </div>
+              <div class="phone-desc-preview">
+                <div><label>当前</label><p>这个日本自古以来，共存著人类，以及拥有特殊力量的非人的存在……</p></div>
+                <div><label>来源</label><p>猫忍者系列第二作。主人公与猫耳忍者们的同居生活继续展开……</p></div>
+              </div>
+              <button class="btn" style="width:100%;margin-top:9px;justify-content:space-between;">查看完整简介 <span>›</span></button>
+            </div>
+            <div class="phone-card">
+              <h3>图片对比</h3>
+              <div class="phone-media-mini"><div></div><div></div></div>
+              <label class="option-row" style="margin-top:8px;"><input type="checkbox" checked /> 应用封面和背景</label>
+            </div>
+            <div class="bottom-bar">
+              <button class="btn ghost">上一步</button>
+              <button class="btn fill">应用</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="phone">
+          <div class="phone-head">
+            <button class="icon-btn">←</button>
+            <div class="phone-title">完整简介</div>
+            <button class="icon-btn">×</button>
+          </div>
+          <div class="phone-body">
+            <div class="phone-card">
+              <h3>简介预览入口</h3>
+              <p>简介本身不需要“应用按钮”，应用行为由字段勾选统一控制。</p>
+            </div>
+          </div>
+          <div class="phone-modal-bg"></div>
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="phone-sheet-title">
+              <strong>完整简介对比</strong>
+              <button class="btn ghost">关闭</button>
+            </div>
+            <div class="phone-desc-full">
+              <div>
+                <label>当前简介</label>
+                <p>这个日本自古以来，共存著人类，以及拥有特殊力量的非人的存在。拥有特殊力量的他们，有著人类的外貌以及兽类的血统，而被称呼为「亚人」。</p>
+              </div>
+              <div>
+                <label>来源简介</label>
+                <p>猫忍者系列第二作。主人公与猫耳忍者们的同居生活继续展开，新的事件和角色关系让日常变得更加热闹。来源简介可完整展开查看，但不会在预览区塞满整段文本。</p>
+              </div>
+            </div>
+            <button class="btn fill" style="width:100%;margin-top:12px;">返回字段选择</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="notes">
+      <div class="section-head">
+        <div>
+          <h2>落地清单</h2>
+          <p>这份 HTML 对应后续 Flutter 改造时的组件拆分方向，先保证交互边界正确。</p>
+        </div>
+        <span class="chip gray">Implementation Notes</span>
+      </div>
+      <div class="audit">
+        <div class="h">模块</div>
+        <div class="h">建议组件</div>
+        <div class="h">说明</div>
+        <div>来源选择</div>
+        <div>`MetadataSourcePicker`</div>
+        <div>展示来源能力、启用状态、是否推荐；不要只给一个列表名。</div>
+        <div>结果列表</div>
+        <div>`MetadataResultCard`</div>
+        <div>显示匹配度、来源、标题、会社、日期、简介预览和 tags。</div>
+        <div>字段对比</div>
+        <div>`MetadataApplyFieldRow`</div>
+        <div>当前值/来源值/checkbox 三列逻辑，低风险复用现有 apply dialog。</div>
+        <div>简介完整预览</div>
+        <div>`MetadataDescriptionSheet/Dialog`</div>
+        <div>桌面用 modal，手机用 bottom sheet；不加单独“应用简介”按钮。</div>
+        <div>图片对比</div>
+        <div>`MetadataImageCompareCard`</div>
+        <div>封面、背景分区上下排列，不压在一行里变成小图。</div>
+        <div>Tags 预览</div>
+        <div>`MetadataTagDiffPanel`</div>
+        <div>显示新增/已有/来源，不移除用户手动 tag。</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

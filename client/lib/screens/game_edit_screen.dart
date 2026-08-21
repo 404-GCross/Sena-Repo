@@ -4,6 +4,7 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io" show File;
+import "dart:math" as math;
 import "package:file_picker/file_picker.dart";
 
 import "package:flutter/material.dart";
@@ -2598,6 +2599,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final picked = await showDialog<Object?>(
       context: context,
       builder: (ctx) => _MetadataSearchDialog(
+        sourceKey: src,
         sourceName: sources[src] ?? src,
         initialQuery: _name.text,
         onSearch: (query) => _searchMetadataSource(src, query),
@@ -2703,7 +2705,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "开发商": _dev.text,
       "日期": _date.text,
       "简介": _desc.text,
-      "标签": _tagNames.join("、"),
       if (scrapedNsfw != null) "NSFW": _isNsfw ? "是" : "否",
     };
     final incoming = {
@@ -2711,9 +2712,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "开发商": (r["developer"] ?? "").toString(),
       "日期": (r["release_date"] ?? "").toString(),
       "简介": (r["description"] ?? "").toString(),
-      "标签": incomingTags.join("、"),
       if (scrapedNsfw != null) "NSFW": scrapedNsfw == true ? "是" : "否",
     };
+    final sourceIdLabel = _metadataSourceIdLabel(src);
+    final sourceId = (r["source_id"] ?? "").toString().trim();
+    final sourceFields = {
+      "vndb_kana": _vndb,
+      "bangumi": _bgm,
+      "steam": _steam,
+      "hikarinagi": _hikarinagi,
+    };
+    if (sourceIdLabel != null && sourceId.isNotEmpty) {
+      currentFields[sourceIdLabel] = sourceFields[src]?.text.trim() ?? "";
+      incoming[sourceIdLabel] = sourceId;
+    }
     final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
     final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
@@ -2722,6 +2734,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     for (final f in currentFields.keys) {
       useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != currentFields[f];
     }
+    useSearch["标签"] = _metadataNewTags(_tagNames, incomingTags).isNotEmpty;
     useSearch["封面"] = hasCoverDiff;
     useSearch["背景"] = hasHeroDiff;
 
@@ -2740,6 +2753,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sourceName: sources[src] ?? src,
         currentFields: currentFields,
         incomingFields: incoming,
+        currentTags: List<String>.from(_tagNames),
+        incomingTags: incomingTags,
         initialSelection: useSearch,
         imageComparisons: [
           if (hasCoverDiff)
@@ -2782,21 +2797,18 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       if (apply["标签"] == true) {
-        _tagNames = incomingTags;
+        _tagNames = _normalizeTagNames([..._tagNames, ...incomingTags]);
         _tagsDirty = true;
         _tagSource = src;
       }
       if (apply["NSFW"] == true && scrapedNsfw != null) {
         _isNsfw = scrapedNsfw == true;
       }
-      final sf = {
-        "vndb_kana": _vndb,
-        "bangumi": _bgm,
-        "steam": _steam,
-        "hikarinagi": _hikarinagi,
-      };
-      if (sf.containsKey(src) && (r["source_id"] ?? "").toString().isNotEmpty) {
-        sf[src]!.text = r["source_id"].toString();
+      if (sourceIdLabel != null &&
+          apply[sourceIdLabel] == true &&
+          sourceId.isNotEmpty &&
+          sourceFields.containsKey(src)) {
+        sourceFields[src]!.text = sourceId;
       }
     });
     if (apply["背景"] == true && heroUrl.isNotEmpty) {
@@ -2880,6 +2892,74 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 }
 
+class _MetadataSourceInfo {
+  final String key;
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final List<String> chips;
+
+  const _MetadataSourceInfo({
+    required this.key,
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.chips,
+  });
+}
+
+_MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
+  switch (key) {
+    case "hikarinagi":
+      return _MetadataSourceInfo(
+        key: key,
+        label: fallbackLabel,
+        subtitle: "中文元数据、标签与 NSFW 信息优先，适合补全详情页展示。",
+        icon: Icons.auto_awesome_rounded,
+        color: Colors.pink,
+        chips: const ["中文", "Tag", "NSFW"],
+      );
+    case "vndb_kana":
+      return _MetadataSourceInfo(
+        key: key,
+        label: fallbackLabel,
+        subtitle: "VNDB 条目与视觉小说标签，适合补充时间、简介和题材。",
+        icon: Icons.menu_book_rounded,
+        color: Colors.indigo,
+        chips: const ["VNDB ID", "Tag", "简介"],
+      );
+    case "bangumi":
+      return _MetadataSourceInfo(
+        key: key,
+        label: fallbackLabel,
+        subtitle: "Bangumi 条目资料，适合中文标题、日期与条目 ID 对齐。",
+        icon: Icons.forum_rounded,
+        color: Colors.blue,
+        chips: const ["中文", "条目 ID", "日期"],
+      );
+    case "steam":
+      return _MetadataSourceInfo(
+        key: key,
+        label: fallbackLabel,
+        subtitle: "Steam 商店资料，适合补充 AppID、封面、背景和商店标签。",
+        icon: Icons.sports_esports_rounded,
+        color: Colors.teal,
+        chips: const ["AppID", "图片", "Tag"],
+      );
+    default:
+      return _MetadataSourceInfo(
+        key: key,
+        label: fallbackLabel,
+        subtitle: "从该来源搜索并对比可写入的元数据字段。",
+        icon: Icons.public_rounded,
+        color: Colors.deepPurple,
+        chips: const ["元数据"],
+      );
+  }
+}
+
 class _MetadataSourceDialog extends StatelessWidget {
   final Map<String, String> sources;
 
@@ -2938,7 +3018,7 @@ class _MetadataSourceDialog extends StatelessWidget {
               ),
               Divider(height: 1, color: cardBorder(context)),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 320),
+                constraints: const BoxConstraints(maxHeight: 440),
                 child: ListView.separated(
                   shrinkWrap: true,
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -2947,8 +3027,9 @@ class _MetadataSourceDialog extends StatelessWidget {
                       const SizedBox(height: AppGap.sm),
                   itemBuilder: (context, index) {
                     final entry = sources.entries.elementAt(index);
+                    final info = _metadataSourceInfo(entry.key, entry.value);
                     return _MetadataSourceTile(
-                      label: entry.value,
+                      info: info,
                       selected: false,
                       onTap: () => Navigator.pop<String>(context, entry.key),
                     );
@@ -2979,11 +3060,13 @@ class _MetadataSourceDialog extends StatelessWidget {
 }
 
 class _MetadataSearchDialog extends StatefulWidget {
+  final String sourceKey;
   final String sourceName;
   final String initialQuery;
   final Future<List<Map<String, dynamic>>> Function(String) onSearch;
 
   const _MetadataSearchDialog({
+    required this.sourceKey,
     required this.sourceName,
     required this.initialQuery,
     required this.onSearch,
@@ -3235,6 +3318,9 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
       itemCount: _results.length,
       separatorBuilder: (_, __) => const SizedBox(height: AppGap.sm),
       itemBuilder: (context, index) => _MetadataResultTile(
+        sourceKey: widget.sourceKey,
+        sourceName: widget.sourceName,
+        query: _controller.text.trim(),
         result: _results[index],
         onTap: () => Navigator.pop<Object?>(
           context,
@@ -3246,12 +3332,12 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
 }
 
 class _MetadataSourceTile extends StatelessWidget {
-  final String label;
+  final _MetadataSourceInfo info;
   final bool selected;
   final VoidCallback onTap;
 
   const _MetadataSourceTile({
-    required this.label,
+    required this.info,
     required this.selected,
     required this.onTap,
   });
@@ -3276,12 +3362,49 @@ class _MetadataSourceTile extends StatelessWidget {
               Icon(Icons.public_rounded, size: 20, color: cs.primary),
               const SizedBox(width: AppGap.md),
               Expanded(
-                child: Text(
-                  label,
-                  style: AppText.bodyMedium.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(info.icon, size: 18, color: info.color),
+                        const SizedBox(width: AppGap.xs),
+                        Expanded(
+                          child: Text(
+                            info.label,
+                            style: AppText.bodyMedium.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      info.subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.bodySmall.copyWith(
+                        color: hintColor(context),
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: AppGap.xs,
+                      runSpacing: AppGap.xs,
+                      children: info.chips
+                          .map(
+                            (chip) => _MetadataMiniPill(
+                              icon: Icons.check_circle_outline_rounded,
+                              label: chip,
+                              color: info.color,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
                 ),
               ),
               Icon(
@@ -3297,10 +3420,16 @@ class _MetadataSourceTile extends StatelessWidget {
 }
 
 class _MetadataResultTile extends StatelessWidget {
+  final String sourceKey;
+  final String sourceName;
+  final String query;
   final Map<String, dynamic> result;
   final VoidCallback onTap;
 
   const _MetadataResultTile({
+    required this.sourceKey,
+    required this.sourceName,
+    required this.query,
     required this.result,
     required this.onTap,
   });
@@ -3315,6 +3444,11 @@ class _MetadataResultTile extends StatelessWidget {
       const ["release_date", "date", "released"],
     );
     final coverUrl = _metadataText(result, const ["cover_url", "image", "image_url"]);
+    final description = _metadataText(result, const ["description", "summary"]);
+    final sourceId = _metadataText(result, const ["source_id", "id"]);
+    final tags = _metadataTagNames(result);
+    final sourceInfo = _metadataSourceInfo(sourceKey, sourceName);
+    final score = _metadataMatchScore(query, title);
 
     return Material(
       color: cardBg(context),
@@ -3336,20 +3470,45 @@ class _MetadataResultTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title.isEmpty ? "未命名条目" : title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.bodyMedium.copyWith(
-                        color: cs.onSurface,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title.isEmpty ? "未命名条目" : title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.bodyMedium.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (score != null) ...[
+                          const SizedBox(width: AppGap.sm),
+                          AppStatusPill(
+                            icon: Icons.track_changes_rounded,
+                            label: "$score%",
+                            color: score >= 90 ? Colors.green : sourceInfo.color,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Wrap(
                       spacing: AppGap.sm,
                       runSpacing: AppGap.xs,
                       children: [
+                        _MetadataMiniPill(
+                          icon: sourceInfo.icon,
+                          label: sourceInfo.label,
+                          color: sourceInfo.color,
+                        ),
+                        if (sourceId.isNotEmpty)
+                          _MetadataMiniPill(
+                            icon: Icons.tag_rounded,
+                            label: sourceId,
+                            color: sourceInfo.color,
+                          ),
                         if (developer.isNotEmpty)
                           _MetadataMiniPill(
                             icon: Icons.business_rounded,
@@ -3362,6 +3521,35 @@ class _MetadataResultTile extends StatelessWidget {
                           ),
                       ],
                     ),
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _metadataPreview(description, 88),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.bodySmall.copyWith(
+                          color: hintColor(context),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                    if (tags.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: AppGap.xs,
+                        runSpacing: AppGap.xs,
+                        children: tags
+                            .take(5)
+                            .map(
+                              (tag) => _MetadataMiniPill(
+                                icon: Icons.local_offer_outlined,
+                                label: tag,
+                                color: sourceInfo.color,
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -3411,28 +3599,34 @@ class _MetadataCoverThumb extends StatelessWidget {
 class _MetadataMiniPill extends StatelessWidget {
   final IconData icon;
   final String label;
+  final Color? color;
 
   const _MetadataMiniPill({
     required this.icon,
     required this.label,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
+    final baseColor = color ?? Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+        color: baseColor.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: hintColor(context)),
+          Icon(icon, size: 13, color: baseColor),
           const SizedBox(width: 4),
           Text(
             label,
-            style: AppText.caption.copyWith(color: hintColor(context)),
+            style: AppText.caption.copyWith(
+              color: baseColor,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -3559,6 +3753,70 @@ List<String> _normalizeTagNames(Iterable<String> names) {
   return result;
 }
 
+List<String> _metadataNewTags(
+  Iterable<String> currentTags,
+  Iterable<String> incomingTags,
+) {
+  final currentKeys = currentTags
+      .map((tag) => tag.trim().toLowerCase())
+      .where((tag) => tag.isNotEmpty)
+      .toSet();
+  return _normalizeTagNames(
+    incomingTags.where(
+      (tag) => !currentKeys.contains(tag.trim().toLowerCase()),
+    ),
+  );
+}
+
+String? _metadataSourceIdLabel(String sourceKey) {
+  switch (sourceKey) {
+    case "vndb_kana":
+      return "VNDB ID";
+    case "bangumi":
+      return "Bangumi ID";
+    case "steam":
+      return "Steam ID";
+    case "hikarinagi":
+      return "Hikarinagi ID";
+    default:
+      return null;
+  }
+}
+
+int? _metadataMatchScore(String query, String title) {
+  final normalizedQuery = _metadataSearchKey(query);
+  final normalizedTitle = _metadataSearchKey(title);
+  if (normalizedQuery.isEmpty || normalizedTitle.isEmpty) return null;
+  if (normalizedQuery == normalizedTitle) return 100;
+  if (normalizedTitle.contains(normalizedQuery) ||
+      normalizedQuery.contains(normalizedTitle)) {
+    return 92;
+  }
+
+  final titleRunes = normalizedTitle.runes.toSet();
+  var overlap = 0;
+  for (final rune in normalizedQuery.runes) {
+    if (titleRunes.contains(rune)) overlap += 1;
+  }
+  final base = (overlap / math.max(1, normalizedQuery.runes.length) * 82).round();
+  return math.max(35, math.min(89, base));
+}
+
+String _metadataSearchKey(String text) {
+  final buffer = StringBuffer();
+  for (final rune in text.toLowerCase().runes) {
+    final isDigit = rune >= 0x30 && rune <= 0x39;
+    final isAsciiLetter = rune >= 0x61 && rune <= 0x7a;
+    final isHiragana = rune >= 0x3040 && rune <= 0x309f;
+    final isKatakana = rune >= 0x30a0 && rune <= 0x30ff;
+    final isCjk = rune >= 0x3400 && rune <= 0x9fff;
+    if (isDigit || isAsciiLetter || isHiragana || isKatakana || isCjk) {
+      buffer.writeCharCode(rune);
+    }
+  }
+  return buffer.toString();
+}
+
 class _MetadataApplyImage {
   final String key;
   final String title;
@@ -3589,6 +3847,8 @@ class _MetadataApplyDialog extends StatefulWidget {
   final String sourceName;
   final Map<String, String> currentFields;
   final Map<String, String> incomingFields;
+  final List<String> currentTags;
+  final List<String> incomingTags;
   final Map<String, bool> initialSelection;
   final List<_MetadataApplyImage> imageComparisons;
 
@@ -3596,6 +3856,8 @@ class _MetadataApplyDialog extends StatefulWidget {
     required this.sourceName,
     required this.currentFields,
     required this.incomingFields,
+    required this.currentTags,
+    required this.incomingTags,
     required this.initialSelection,
     required this.imageComparisons,
   });
@@ -3615,11 +3877,14 @@ class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
 
   int get _selectedCount => _selection.values.where((value) => value).length;
 
+  List<String> get _newTags =>
+      _metadataNewTags(widget.currentTags, widget.incomingTags);
+
   bool get _hasChanges {
     for (final key in widget.currentFields.keys) {
       if (_fieldHasDiff(key)) return true;
     }
-    return widget.imageComparisons.isNotEmpty;
+    return _newTags.isNotEmpty || widget.imageComparisons.isNotEmpty;
   }
 
   bool _fieldHasDiff(String key) {
@@ -3752,6 +4017,17 @@ class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
                         onShowDescription: _showFullDescription,
                       ),
                     ),
+                    if (widget.currentTags.isNotEmpty ||
+                        widget.incomingTags.isNotEmpty) ...[
+                      _MetadataTagDiffCard(
+                        sourceName: widget.sourceName,
+                        currentTags: widget.currentTags,
+                        incomingTags: widget.incomingTags,
+                        newTags: _newTags,
+                        selected: _selection["标签"] ?? false,
+                        onChanged: (value) => _setSelected("标签", value),
+                      ),
+                    ],
                     if (widget.imageComparisons.isNotEmpty) ...[
                       const SizedBox(height: AppGap.sm),
                       Text(
@@ -3802,6 +4078,196 @@ class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MetadataTagDiffCard extends StatelessWidget {
+  final String sourceName;
+  final List<String> currentTags;
+  final List<String> incomingTags;
+  final List<String> newTags;
+  final bool selected;
+  final ValueChanged<bool> onChanged;
+
+  const _MetadataTagDiffCard({
+    required this.sourceName,
+    required this.currentTags,
+    required this.incomingTags,
+    required this.newTags,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  bool get _enabled => newTags.isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppGap.md),
+      padding: const EdgeInsets.all(AppGap.md),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: _enabled
+              ? Colors.green.withValues(alpha: 0.25)
+              : cardBorder(context),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.local_offer_outlined, size: 20, color: cs.primary),
+              const SizedBox(width: AppGap.sm),
+              Expanded(
+                child: Text(
+                  "标签",
+                  style: AppText.bodyMedium.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              AppStatusPill(
+                icon: _enabled
+                    ? Icons.add_circle_outline_rounded
+                    : Icons.check_circle_outline_rounded,
+                label: _enabled ? "新增 ${newTags.length} 个" : "无新增",
+                color: _enabled ? Colors.green : hintColor(context),
+              ),
+              const SizedBox(width: AppGap.sm),
+              _MetadataApplyCheckbox(
+                label: "应用",
+                value: selected,
+                enabled: _enabled,
+                onChanged: onChanged,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppGap.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 720;
+              final groups = [
+                _MetadataTagGroup(
+                  title: "当前标签",
+                  tags: currentTags,
+                  emptyText: "当前没有标签",
+                  color: hintColor(context),
+                ),
+                _MetadataTagGroup(
+                  title: "$sourceName 标签",
+                  tags: incomingTags,
+                  emptyText: "来源未提供标签",
+                  color: cs.primary,
+                ),
+                _MetadataTagGroup(
+                  title: "将新增",
+                  tags: newTags,
+                  emptyText: "没有需要新增的标签",
+                  color: Colors.green,
+                  highlighted: true,
+                ),
+              ];
+              if (compact) {
+                return Column(
+                  children: groups
+                      .map(
+                        (group) => Padding(
+                          padding: const EdgeInsets.only(bottom: AppGap.sm),
+                          child: group,
+                        ),
+                      )
+                      .toList(),
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < groups.length; i++) ...[
+                    Expanded(child: groups[i]),
+                    if (i != groups.length - 1)
+                      const SizedBox(width: AppGap.sm),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataTagGroup extends StatelessWidget {
+  final String title;
+  final List<String> tags;
+  final String emptyText;
+  final Color color;
+  final bool highlighted;
+
+  const _MetadataTagGroup({
+    required this.title,
+    required this.tags,
+    required this.emptyText,
+    required this.color,
+    this.highlighted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppGap.md),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? color.withValues(alpha: 0.06)
+            : Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color:
+              highlighted ? color.withValues(alpha: 0.18) : cardBorder(context),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppText.caption.copyWith(
+              color: highlighted ? color : hintColor(context),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppGap.sm),
+          if (tags.isEmpty)
+            Text(
+              emptyText,
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+            )
+          else
+            Wrap(
+              spacing: AppGap.xs,
+              runSpacing: AppGap.xs,
+              children: tags
+                  .map(
+                    (tag) => _MetadataMiniPill(
+                      icon: Icons.local_offer_outlined,
+                      label: tag,
+                      color: highlighted ? color : hintColor(context),
+                    ),
+                  )
+                  .toList(),
+            ),
+        ],
       ),
     );
   }
