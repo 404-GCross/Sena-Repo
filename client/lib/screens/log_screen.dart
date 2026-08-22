@@ -34,6 +34,7 @@ class _LogScreenState extends State<LogScreen> {
   String _module = "全部模块";
   bool _loading = true;
   bool _live = true;
+  bool _mobileFiltersExpanded = false;
   int _visibleLimit = _initialVisibleLimit;
   Timer? _liveTimer;
 
@@ -255,23 +256,143 @@ class _LogScreenState extends State<LogScreen> {
                   ),
                 )
               : LayoutBuilder(
-                  builder: (context, constraints) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildHeading(),
-                      const SizedBox(height: 14),
-                      _buildMetrics(constraints.maxWidth),
-                      const SizedBox(height: 14),
-                      _buildToolbar(constraints.maxWidth),
-                      const SizedBox(height: 14),
-                      Expanded(
-                        child: constraints.maxWidth >= 760
-                            ? _buildDesktopLogView()
-                            : _buildMobileLogView(),
-                      ),
-                    ],
-                  ),
+                  builder: (context, constraints) {
+                    final isDesktop = constraints.maxWidth >= 760;
+                    if (!isDesktop) return _buildMobilePage();
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHeading(),
+                        const SizedBox(height: 14),
+                        _buildMetrics(constraints.maxWidth),
+                        const SizedBox(height: 14),
+                        _buildToolbar(constraints.maxWidth),
+                        const SizedBox(height: 14),
+                        Expanded(child: _buildDesktopLogView()),
+                      ],
+                    );
+                  },
                 ),
+    );
+  }
+
+  Widget _buildMobilePage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildMobileHeader(),
+        const SizedBox(height: 8),
+        _buildMobileToolbar(),
+        const SizedBox(height: 8),
+        Expanded(child: _buildMobileLogView()),
+      ],
+    );
+  }
+
+  Widget _buildMobileHeader() {
+    final cs = Theme.of(context).colorScheme;
+    final summary =
+        "${_entries.length} 条 · INFO ${_count("INFO")} · WARN ${_count("WARN")} · ERROR ${_count("ERROR")}";
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: cs.primary.withValues(alpha: 0.11),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: Icon(Icons.article_outlined, size: 18, color: cs.primary),
+        ),
+        const SizedBox(width: AppGap.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("日志", style: AppText.title.copyWith(fontSize: 20)),
+              Text(
+                summary,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+            ],
+          ),
+        ),
+        TextButton.icon(
+          onPressed: () => setState(
+            () => _mobileFiltersExpanded = !_mobileFiltersExpanded,
+          ),
+          icon: Icon(
+            _mobileFiltersExpanded
+                ? Icons.keyboard_arrow_up_rounded
+                : Icons.tune_rounded,
+            size: 19,
+          ),
+          label: Text(_mobileFiltersExpanded ? "收起" : "筛选"),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileToolbar() {
+    final levels = ["全部", "INFO", "WARN", "ERROR"];
+    return AppSurface(
+      radius: AppRadius.md,
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _searchController,
+            decoration: const InputDecoration(
+              hintText: "搜索日志内容、地址或请求 ID",
+              prefixIcon: Icon(Icons.search_rounded, size: 19),
+              isDense: true,
+            ),
+          ),
+          if (_mobileFiltersExpanded) ...[
+            const SizedBox(height: 8),
+            _buildDropdown(
+              value: _module,
+              items: _modules,
+              onChanged: (value) => setState(() {
+                _module = value!;
+                _visibleLimit = _initialVisibleLimit;
+              }),
+              icon: Icons.category_outlined,
+              width: double.infinity,
+            ),
+            const SizedBox(height: 8),
+            _buildMobileLevelChips(levels),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Switch.adaptive(value: _live, onChanged: _toggleLive),
+                Text(
+                  "实时跟随",
+                  style: AppText.caption.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: "清空筛选",
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _level = "全部";
+                      _module = "全部模块";
+                      _visibleLimit = _initialVisibleLimit;
+                    });
+                  },
+                  icon: const Icon(Icons.filter_alt_off_outlined, size: 19),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -424,6 +545,31 @@ class _LogScreenState extends State<LogScreen> {
             ),
           )
           .toList(),
+    );
+  }
+
+  Widget _buildMobileLevelChips(List<String> levels) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: levels
+            .map(
+              (level) => Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: FilterChip(
+                  label: Text(level),
+                  selected: _level == level,
+                  onSelected: (_) => setState(() {
+                    _level = level;
+                    _visibleLimit = _initialVisibleLimit;
+                  }),
+                  visualDensity: VisualDensity.compact,
+                  showCheckmark: false,
+                ),
+              ),
+            )
+            .toList(),
+      ),
     );
   }
 
