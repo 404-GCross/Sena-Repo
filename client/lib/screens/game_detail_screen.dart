@@ -516,6 +516,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                         ],
                                       ),
                                       const SizedBox(height: 20),
+                                      _section("元数据", Icons.storage_outlined),
+                                      _mobileMetadataCard(game),
+                                      const SizedBox(height: 20),
                                       _section("版本", Icons.folder_outlined),
                                       if (game.versions.isEmpty)
                                         _hintCard("暂无版本信息")
@@ -699,6 +702,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 20),
+                                _section("元数据", Icons.storage_outlined),
+                                _mobileMetadataCard(game),
                                 const SizedBox(height: 20),
                                 _section("版本", Icons.folder_outlined),
                                 if (game.versions.isEmpty)
@@ -1503,6 +1509,18 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         ),
       );
 
+  Widget _mobileMetadataCard(GameDetail game) => _fieldCard(
+        children: [
+          _metadataInfoRow("VNDB", game.vndbId),
+          _divider(),
+          _metadataInfoRow("Steam", game.steamId),
+          _divider(),
+          _metadataInfoRow("Bangumi", game.bangumiId),
+          _divider(),
+          _metadataInfoRow("Hikarinagi", game.hikarinagiId),
+        ],
+      );
+
   Color _platformColor(String platform) {
     switch (platform.toLowerCase()) {
       case "windows":
@@ -1543,6 +1561,39 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               value?.isNotEmpty == true ? value! : "—",
               style: AppText.body.copyWith(
                 color: value?.isNotEmpty == true ? null : Colors.grey[700],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metadataInfoRow(String label, String? value) {
+    final active = value?.trim().isNotEmpty == true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Icon(Icons.tag_outlined, size: 18, color: hintColor(context)),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 84,
+            child: Text(
+              label,
+              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              active ? value!.trim() : "未关联",
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.body.copyWith(
+                color: active
+                    ? Theme.of(context).colorScheme.primary
+                    : hintColor(context),
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),

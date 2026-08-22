@@ -1301,6 +1301,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 icon: Icons.tag_outlined,
                 hintText: "Bangumi subject ID",
               ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "Hikarinagi ID",
+                _hikarinagi,
+                icon: Icons.tag_outlined,
+                hintText: "Hikarinagi game ID",
+              ),
             ],
           ),
         ),
