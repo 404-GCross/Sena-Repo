@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime
 
 import bcrypt
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 
 from database import Base
 
@@ -37,10 +37,21 @@ class User(Base):
     role = Column(String(16), default="user")   # owner | admin | user
     is_admin = Column(Boolean, default=False)   # synced with role for compat
     status = Column(String(16), default="active")   # active, pending, rejected
-    token = Column(String(64), nullable=True, unique=True)
-    token_expires_at = Column(DateTime, nullable=True)
     avatar_path = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    device_name = Column(String(256), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
 
 
 class Notification(Base):

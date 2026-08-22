@@ -76,6 +76,11 @@ class ManagerInstallLinkResponse(BaseModel):
     checksum: str
 
 
+class DownloadLinkResponse(BaseModel):
+    url: str
+    expires_at: int
+
+
 async def _get_game_and_version(
     game_id: int,
     version_id: int,
@@ -562,6 +567,31 @@ async def download_signed_game_version(
     except Exception as e:
         logger.error(f"Signed download failed gid={game_id} vid={version_id}: {e}")
         raise HTTPException(status_code=500, detail="下载失败，请查看服务端日志")
+
+
+@router.post("/{game_id}/{version_id}/link", response_model=DownloadLinkResponse)
+async def create_download_link(
+    game_id: int,
+    version_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a signed download URL for client downloads."""
+    del user
+    game, version = await _get_game_and_version(game_id, version_id, session)
+    size = int(version.file_size or 0)
+    expires_at = int(time.time()) + max(_download_ttl_seconds(size), 24 * 60 * 60)
+    logger.info(
+        "Download link requested gid=%s vid=%s source_type=%s",
+        game.id,
+        version.id,
+        version.source_type or "local",
+    )
+    return DownloadLinkResponse(
+        url=_build_signed_download_url(request, game_id, version_id, expires_at),
+        expires_at=expires_at,
+    )
 
 
 @router.post("/{game_id}/{version_id}/manager-install-link", response_model=ManagerInstallLinkResponse)

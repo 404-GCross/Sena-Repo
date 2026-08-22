@@ -74,6 +74,8 @@ async def create_tables():
     """Create all tables if they don't exist."""
     if _engine is None:
         raise RuntimeError("Database not initialized. Call init_database() first.")
+    import models  # noqa: F401
+
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         game_columns = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(games)")}
@@ -152,10 +154,12 @@ async def create_tables():
                 "UPDATE users SET role = 'owner' WHERE id = "
                 "(SELECT MIN(id) FROM users WHERE is_admin = 1)"
             )
-        if "token_expires_at" not in user_cols:
-            await conn.exec_driver_sql(
-                "ALTER TABLE users ADD COLUMN token_expires_at DATETIME"
-            )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id)"
+        )
+        await conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_sessions_token_hash ON user_sessions (token_hash)"
+        )
 
 
 async def get_engine():

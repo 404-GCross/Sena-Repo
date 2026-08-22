@@ -47,6 +47,20 @@ class ManagerInstallLink {
   }
 }
 
+class DownloadLink {
+  final String url;
+  final int expiresAt;
+
+  DownloadLink({required this.url, required this.expiresAt});
+
+  factory DownloadLink.fromJson(Map<String, dynamic> json) {
+    return DownloadLink(
+      url: json["url"]?.toString() ?? "",
+      expiresAt: json["expires_at"] ?? 0,
+    );
+  }
+}
+
 /// Global access token — always accessible, survives Provider rebuilds.
 String? _accessToken;
 
@@ -55,7 +69,7 @@ String? _cachedUsername;
 bool? _cachedIsAdmin;
 String? _cachedRole;
 
-/// Legacy accessor — maintained for backward compatibility with download_service.
+/// Shared accessor for DownloadService request headers.
 String? get globalToken => _accessToken;
 
 Map<String, String>? get mediaAuthHeaders {
@@ -351,6 +365,22 @@ class ApiClient {
     );
   }
 
+  Future<DownloadLink> createDownloadLink({
+    required int gameId,
+    required int versionId,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/download/$gameId/$versionId/link");
+    final resp = await _execute(
+      () => _client.post(uri, headers: headers),
+      allowRetry: false,
+      method: "POST",
+      uri: uri,
+      label: "create download link gameId=$gameId versionId=$versionId",
+    );
+    checkResponse(resp, fallbackMessage: "生成下载链接失败");
+    return DownloadLink.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
   Future<void> deleteGame(int id) async {
     final uri = Uri.parse("$baseUrl/api/games/$id");
     final resp = await _execute(
@@ -541,13 +571,26 @@ class ApiClient {
   }
 
   Future<bool> logout() async {
+    var success = true;
     try {
+      if (_accessToken != null && _accessToken!.isNotEmpty) {
+        final uri = Uri.parse("$baseUrl/api/auth/logout");
+        final resp = await _execute(
+          () => _client.post(uri, headers: headers),
+          allowRetry: false,
+          method: "POST",
+          uri: uri,
+          label: "auth logout",
+        );
+        success = resp.statusCode >= 200 && resp.statusCode < 300;
+      }
+    } catch (e, stackTrace) {
+      success = false;
+      LoggerService().warn("auth logout request failed", e, stackTrace);
+    } finally {
       await clearTokens();
-      return true;
-    } catch (_) {
-      await clearTokens();
-      return false;
     }
+    return success;
   }
 
   // --- Scraper ---

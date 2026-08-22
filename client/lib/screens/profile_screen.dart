@@ -10,7 +10,6 @@ import "package:shared_preferences/shared_preferences.dart";
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
-import "../services/api_client.dart";
 import "../services/secure_store.dart";
 import "../widgets/app_shell.dart";
 import "settings_screen.dart";
@@ -374,10 +373,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await ApiClient.clearTokens();
+      await context.read<GameProvider>().api.logout();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
-      await SecureStore.delete("auth_token");
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),

@@ -1,17 +1,18 @@
 """Auth API - login, register, user management with owner/admin/user roles."""
 
 from __future__ import annotations
+import hashlib
 import secrets
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import load_config
 from database import get_session
-from models.user import User, Notification, hash_password, verify_password
+from models.user import User, UserSession, Notification, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -21,9 +22,80 @@ def _token_expires_at() -> datetime:
     return datetime.utcnow() + timedelta(days=days)
 
 
-def _issue_token(user: User) -> None:
-    user.token = secrets.token_hex(32)
-    user.token_expires_at = _token_expires_at()
+def _token_lifetime() -> timedelta:
+    days = max(1, load_config().server.token_expire_days)
+    return timedelta(days=days)
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _extract_bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="未登录")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="无效的认证格式")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+    return token
+
+
+def _device_name(request: Request | None) -> str:
+    if request is None:
+        return ""
+    value = request.headers.get("user-agent", "").strip()
+    return value[:256]
+
+
+async def _issue_session_token(
+    user: User,
+    session: AsyncSession,
+    request: Request | None = None,
+) -> str:
+    token = secrets.token_urlsafe(32)
+    now = datetime.utcnow()
+    session.add(
+        UserSession(
+            user_id=user.id,
+            token_hash=_token_hash(token),
+            device_name=_device_name(request),
+            created_at=now,
+            last_seen_at=now,
+            expires_at=_token_expires_at(),
+        )
+    )
+    return token
+
+
+async def _touch_session(auth_session: UserSession, session: AsyncSession) -> None:
+    now = datetime.utcnow()
+    lifetime = _token_lifetime()
+    needs_commit = False
+    if (
+        auth_session.last_seen_at is None
+        or now - auth_session.last_seen_at > timedelta(minutes=5)
+    ):
+        auth_session.last_seen_at = now
+        needs_commit = True
+    if auth_session.expires_at - now < lifetime / 2:
+        auth_session.expires_at = _token_expires_at()
+        needs_commit = True
+    if needs_commit:
+        await session.commit()
+
+
+async def _revoke_user_sessions(user_id: int, session: AsyncSession) -> None:
+    now = datetime.utcnow()
+    result = await session.execute(
+        select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.revoked_at.is_(None),
+        )
+    )
+    for auth_session in result.scalars():
+        auth_session.revoked_at = now
 
 
 # ── Auth dependencies ───────────────────────────────────────────────────────
@@ -32,25 +104,38 @@ async def get_current_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    if not authorization:
-        raise HTTPException(status_code=401, detail="未登录")
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="无效的认证格式")
-    token = authorization.removeprefix("Bearer ")
-    result = await session.execute(
-        select(User).where(User.token == token, User.status == "active"))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+    token = _extract_bearer_token(authorization)
     now = datetime.utcnow()
-    if user.token_expires_at is None:
-        user.token_expires_at = _token_expires_at()
-        await session.commit()
-    elif user.token_expires_at <= now:
-        user.token = None
-        user.token_expires_at = None
+
+    auth_session = (
+        await session.execute(
+            select(UserSession).where(
+                UserSession.token_hash == _token_hash(token),
+                UserSession.revoked_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if auth_session is None:
+        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+    if auth_session.expires_at <= now:
+        auth_session.revoked_at = now
         await session.commit()
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
+
+    user = (
+        await session.execute(
+            select(User).where(
+                User.id == auth_session.user_id,
+                User.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        auth_session.revoked_at = now
+        await session.commit()
+        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+
+    await _touch_session(auth_session, session)
     return user
 
 
@@ -102,7 +187,11 @@ class AdminUserUpdate(BaseModel):
 # ── Auth endpoints ───────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
+async def login(
+    body: LoginRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(select(User).where(User.username == body.username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.salt, user.password_hash):
@@ -113,10 +202,30 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
         raise HTTPException(status_code=403, detail="账户已被拒绝")
     if user.salt != "bcrypt":
         user.password_hash, user.salt = hash_password(body.password)
-    _issue_token(user)
+    token = await _issue_session_token(user, session, request)
     await session.commit()
-    return LoginResponse(token=user.token, is_admin=user.role in ("owner", "admin"),
+    return LoginResponse(token=token, is_admin=user.role in ("owner", "admin"),
                          role=user.role, username=user.username)
+
+
+@router.post("/logout")
+async def logout(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    token = _extract_bearer_token(authorization)
+    auth_session = (
+        await session.execute(
+            select(UserSession).where(
+                UserSession.token_hash == _token_hash(token),
+                UserSession.revoked_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if auth_session is not None:
+        auth_session.revoked_at = datetime.utcnow()
+        await session.commit()
+    return {"message": "已退出登录"}
 
 
 @router.post("/register")
@@ -133,7 +242,6 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         role=role, is_admin=is_first,
         status="active" if is_first else "pending",
     )
-    _issue_token(user)
     session.add(user)
     await session.flush()
     if not is_first:
@@ -187,7 +295,6 @@ async def admin_create_user(body: CreateUserRequest,
     role = body.role if body.role in ("admin", "user") else "user"
     user = User(username=body.username, password_hash=pw_hash, salt=salt,
                 role=role, is_admin=role == "admin", status="active")
-    _issue_token(user)
     session.add(user)
     await session.commit()
     return {"message": "创建成功", "user_id": user.id}
@@ -205,10 +312,6 @@ async def approve_user(body: ApproveRequest,
         raise HTTPException(status_code=400, detail="用户状态不是待审批")
     user.status = "active" if body.approve else "rejected"
     if body.approve:
-        if user.token is None:
-            _issue_token(user)
-        else:
-            user.token_expires_at = _token_expires_at()
         session.add(Notification(
             type="approved", title="账户已通过审批",
             body="你的账户申请已通过", target_user_id=user.id,
@@ -285,6 +388,7 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
         pw_hash, salt = hash_password(body.password)
         user.password_hash = pw_hash
         user.salt = salt
+        await _revoke_user_sessions(user.id, session)
 
     await session.commit()
     return {"message": "更新成功", "role": user.role}
@@ -303,6 +407,7 @@ async def admin_delete_user(user_id: int, current: User = Depends(require_admin)
         raise HTTPException(status_code=403, detail="不能删除服主账户")
     if current.role == "admin" and user.role != "user":
         raise HTTPException(status_code=403, detail="管理员只能删除普通用户")
+    await _revoke_user_sessions(user.id, session)
     await session.delete(user)
     await session.commit()
     return {"message": "用户已删除"}
@@ -389,6 +494,7 @@ async def get_profile(user_id: int, user: User = Depends(get_current_user),
 
 @router.put("/profile/{user_id}")
 async def update_profile(user_id: int, body: ProfileUpdate,
+                          request: Request,
                           current: User = Depends(get_current_user),
                           session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(User).where(User.id == user_id))
@@ -397,6 +503,7 @@ async def update_profile(user_id: int, body: ProfileUpdate,
         raise HTTPException(status_code=404, detail="User not found")
     if current.id != user.id and current.role not in ("owner", "admin"):
         raise HTTPException(status_code=403, detail="只能修改自己的资料")
+    new_token: str | None = None
     if body.new_password:
         if current.id == user.id:
             if not body.current_password:
@@ -408,7 +515,9 @@ async def update_profile(user_id: int, body: ProfileUpdate,
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
-        _issue_token(user)
+        await _revoke_user_sessions(user.id, session)
+        if current.id == user.id:
+            new_token = await _issue_session_token(user, session, request)
     if body.username and body.username != user.username:
         existing = await session.execute(select(User).where(User.username == body.username))
         if existing.scalar_one_or_none():
@@ -416,8 +525,8 @@ async def update_profile(user_id: int, body: ProfileUpdate,
         user.username = body.username
     await session.commit()
     response: dict = {"message": "更新成功", "username": user.username}
-    if body.new_password:
-        response["new_token"] = user.token
+    if new_token:
+        response["new_token"] = new_token
     return response
 
 
