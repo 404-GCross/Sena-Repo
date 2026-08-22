@@ -72,8 +72,8 @@ class ManagerInstallLinkResponse(BaseModel):
     file_name: str
     archive_format: str
     size: int
-    checksum_algo: str
-    checksum: str
+    checksum_algo: str | None = None
+    checksum: str | None = None
 
 
 class DownloadLinkResponse(BaseModel):
@@ -305,17 +305,6 @@ async def _openlist_download_url(version: GameVersion, session: AsyncSession) ->
     )
 
 
-async def _openlist_raw_download_url(version: GameVersion, session: AsyncSession) -> str:
-    adapter = await _openlist_adapter(version, session)
-    raw_download_url = getattr(adapter, "raw_download_url", None)
-    if raw_download_url is None:
-        return await _openlist_download_url(version, session)
-    return await asyncio.to_thread(
-        raw_download_url,
-        version.source_path or version.file_path,
-    )
-
-
 async def _openlist_file_info(version: GameVersion, session: AsyncSession) -> dict:
     adapter = await _openlist_adapter(version, session)
     file_info = getattr(adapter, "file_info", None)
@@ -335,13 +324,13 @@ async def _manager_install_checksum(
     version: GameVersion,
     session: AsyncSession,
     target: str,
-) -> str:
+) -> str | None:
     checksum = _cached_version_sha256(version)
     if checksum:
         return checksum
 
     source_type = version.source_type or "local"
-    if target in {"lunabox", "reinamanager"} and source_type == "openlist":
+    if source_type == "openlist":
         checksum = await _openlist_metadata_sha256(version, session)
         if checksum:
             await _store_version_sha256(version, session, checksum)
@@ -352,16 +341,28 @@ async def _manager_install_checksum(
             )
             return checksum
 
-        target_name = "LunaBox" if target == "lunabox" else "ReinaManager"
+        if target == "reinamanager":
+            logger.info(
+                "ReinaManager install link generated without OpenList SHA256 vid=%s",
+                version.id,
+            )
+            return None
+
         logger.warning(
-            "%s install link blocked because OpenList SHA256 is missing vid=%s",
-            target_name,
+            "LunaBox install link blocked because OpenList SHA256 is missing vid=%s",
             version.id,
         )
         raise HTTPException(
             status_code=409,
-            detail=f"OpenList 资源未提供 SHA256 校验值，{target_name} 推送不能在生成链接时远程整包计算；请在 OpenList 端启用或补全文件哈希后重新扫描资源。",
+            detail="OpenList 资源未提供 SHA256 校验值，LunaBox 推送不能在生成链接时远程整包计算；请在 OpenList 端启用或补全文件哈希后重新扫描资源。",
         )
+
+    if target == "reinamanager":
+        logger.info(
+            "ReinaManager install link generated without cached SHA256 vid=%s",
+            version.id,
+        )
+        return None
 
     return await _ensure_version_checksum(version, session)
 
@@ -627,7 +628,10 @@ async def create_manager_install_link(
         _cached_version_sha256(version) is not None,
     )
     checksum = await _manager_install_checksum(version, session, body.target)
-    expires_at = int(time.time()) + _download_ttl_seconds(size)
+    ttl_seconds = _download_ttl_seconds(size)
+    if body.target == "reinamanager":
+        ttl_seconds = max(ttl_seconds, 24 * 60 * 60)
+    expires_at = int(time.time()) + ttl_seconds
     download_url, url_expires_at = await _manager_download_url(
         request,
         game_id,
@@ -659,9 +663,6 @@ async def create_manager_install_link(
             params["meta_id"] = meta_id
         install_url = "lunabox://install?" + urlencode(params)
     else:
-        if (version.source_type or "local") == "openlist":
-            download_url = await _openlist_raw_download_url(version, session)
-            url_expires_at = None
         params = {
             "v": "1",
             "provider": "sena-repo",
@@ -670,12 +671,11 @@ async def create_manager_install_link(
             "file_name": version.filename,
             "archive_format": archive_format,
             "size": str(size),
-            "checksum_algo": "sha256",
-            "checksum": checksum,
             "title": game.name,
         }
-        # ReinaManager does its own preflight expiry check; rely on Sena's
-        # signed URL validation to avoid rejecting valid tasks on clock skew.
+        if checksum:
+            params["checksum_algo"] = "sha256"
+            params["checksum"] = checksum
         _set_non_empty(params, "bgm_id", game.bangumi_id)
         _set_non_empty(params, "vndb_id", game.vndb_id)
         _set_non_empty(params, "hikarinagi_id", getattr(game, "hikarinagi_id", None))
@@ -688,7 +688,7 @@ async def create_manager_install_link(
         file_name=version.filename,
         archive_format=archive_format,
         size=size,
-        checksum_algo="sha256",
+        checksum_algo="sha256" if checksum else None,
         checksum=checksum,
     )
 
