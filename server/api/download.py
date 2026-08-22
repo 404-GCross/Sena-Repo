@@ -35,6 +35,9 @@ from services.file_source import adapter_from_source
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/download", tags=["download"])
+_OPENLIST_PROXY_LOCKS: dict[str, asyncio.Lock] = {}
+_OPENLIST_PROXY_LOCKS_GUARD = asyncio.Lock()
+_OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS = 0.35
 
 SUPPORTED_MANAGER_ARCHIVE_FORMATS = {
     "7z",
@@ -454,13 +457,125 @@ def _serve_local_file(request: Request, file_path: Path, filename: str):
     )
 
 
+async def _openlist_proxy_lock(version: GameVersion) -> asyncio.Lock:
+    key = f"{version.source_id or 0}:{version.source_path or version.file_path}"
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        lock = _OPENLIST_PROXY_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _OPENLIST_PROXY_LOCKS[key] = lock
+        return lock
+
+
+async def _open_openlist_proxy_stream(
+    version: GameVersion,
+    session: AsyncSession,
+    range_header: str | None,
+) -> tuple[httpx.AsyncClient, httpx.Response]:
+    headers = {"User-Agent": "Mozilla/5.0 Sena-Repo Manager Proxy"}
+    if range_header:
+        headers["Range"] = range_header
+    timeout = httpx.Timeout(None, connect=20.0)
+    last_error: Exception | None = None
+    for attempt in range(3):
+        client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
+        try:
+            raw_url = await _openlist_download_url(version, session)
+            request = client.build_request("GET", raw_url, headers=headers)
+            response = await client.send(request, stream=True)
+            if response.status_code in {401, 403}:
+                await response.aclose()
+                await client.aclose()
+                if attempt < 2:
+                    await asyncio.sleep(0.75 * (attempt + 1))
+                    continue
+                raise HTTPException(
+                    status_code=502,
+                    detail="OpenList 下载直链被上游拒绝，请稍后重试",
+                )
+            if response.status_code >= 400:
+                await response.aclose()
+                await client.aclose()
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"OpenList 下载失败: {response.status_code}",
+                )
+            if range_header and response.status_code != 206:
+                await response.aclose()
+                await client.aclose()
+                raise HTTPException(status_code=502, detail="OpenList 未返回有效分块响应")
+            return client, response
+        except HTTPException:
+            await client.aclose()
+            raise
+        except httpx.HTTPError as exc:
+            await client.aclose()
+            last_error = exc
+            if attempt < 2:
+                await asyncio.sleep(0.75 * (attempt + 1))
+                continue
+    raise HTTPException(status_code=502, detail="OpenList 下载请求失败，请稍后重试") from last_error
+
+
+async def _serve_openlist_proxy_download(
+    request: Request,
+    version: GameVersion,
+    session: AsyncSession,
+):
+    file_size = int(version.file_size or 0)
+    range_header = request.headers.get("range")
+    headers = _download_headers(version.filename)
+    status_code = 200
+    if range_header:
+        start, end = _parse_range_header(range_header, file_size)
+        range_header = f"bytes={start}-{end}"
+        headers.update(
+            {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(end - start + 1),
+            }
+        )
+        status_code = 206
+    elif file_size > 0:
+        headers["Content-Length"] = str(file_size)
+
+    lock = await _openlist_proxy_lock(version)
+    async with lock:
+        client, upstream = await _open_openlist_proxy_stream(
+            version,
+            session,
+            range_header,
+        )
+        await asyncio.sleep(_OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS)
+
+    async def stream_body():
+        try:
+            async for chunk in upstream.aiter_bytes(1024 * 1024):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream_body(),
+        status_code=status_code,
+        media_type="application/octet-stream",
+        headers=headers,
+    )
+
+
 async def _serve_version_download(
     request: Request,
     game: Game,
     version: GameVersion,
     session: AsyncSession,
+    *,
+    proxy_openlist: bool = False,
 ):
+    del game
     if (version.source_type or "local") == "openlist":
+        if proxy_openlist:
+            return await _serve_openlist_proxy_download(request, version, session)
         raw_url = await _openlist_download_url(version, session)
         return RedirectResponse(raw_url, status_code=302)
 
@@ -479,6 +594,8 @@ def _build_signed_download_url(
     game_id: int,
     version_id: int,
     expires_at: int,
+    *,
+    proxy_openlist: bool = False,
 ) -> str:
     base = str(
         request.url_for(
@@ -491,6 +608,8 @@ def _build_signed_download_url(
         "expires_at": str(expires_at),
         "signature": _sign_download(game_id, version_id, expires_at),
     }
+    if proxy_openlist:
+        params["proxy"] = "1"
     query = urlencode(params)
     return f"{base}?{query}"
 
@@ -536,6 +655,8 @@ async def _manager_download_url(
     game_id: int,
     version_id: int,
     expires_at: int,
+    *,
+    proxy_openlist: bool = False,
 ) -> tuple[str, int | None]:
     return (
         _build_signed_download_url(
@@ -543,6 +664,7 @@ async def _manager_download_url(
             game_id,
             version_id,
             expires_at,
+            proxy_openlist=proxy_openlist,
         ),
         expires_at,
     )
@@ -562,7 +684,13 @@ async def download_signed_game_version(
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
     try:
         game, version = await _get_game_and_version(game_id, version_id, session)
-        return await _serve_version_download(request, game, version, session)
+        return await _serve_version_download(
+            request,
+            game,
+            version,
+            session,
+            proxy_openlist=request.query_params.get("proxy") == "1",
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -637,6 +765,7 @@ async def create_manager_install_link(
         game_id,
         version_id,
         expires_at,
+        proxy_openlist=body.target == "reinamanager",
     )
 
     if body.target == "lunabox":
