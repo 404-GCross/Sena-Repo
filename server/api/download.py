@@ -36,9 +36,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/download", tags=["download"])
 _OPENLIST_PROXY_LOCKS: dict[str, asyncio.Lock] = {}
+_OPENLIST_PROXY_SEMAPHORES: dict[str, asyncio.Semaphore] = {}
+_OPENLIST_PROXY_URL_CACHE: dict[str, tuple[str, float]] = {}
 _OPENLIST_PROXY_LOCKS_GUARD = asyncio.Lock()
 _OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS = 0.25
-_OPENLIST_PROXY_SEGMENT_BYTES = 8 * 1024 * 1024
+_OPENLIST_PROXY_MAX_UPSTREAM_STREAMS = 2
+_OPENLIST_PROXY_SEGMENT_BYTES = 4 * 1024 * 1024
+_OPENLIST_PROXY_URL_CACHE_SECONDS = 5 * 60
 _OPENLIST_PROXY_RETRYABLE_STATUSES = {401, 403, 429, 500, 502, 503, 504}
 
 SUPPORTED_MANAGER_ARCHIVE_FORMATS = {
@@ -463,14 +467,50 @@ def _serve_local_file(request: Request, file_path: Path, filename: str):
     )
 
 
+def _openlist_proxy_key(version: GameVersion) -> str:
+    return f"{version.source_id or 0}:{version.source_path or version.file_path}"
+
+
 async def _openlist_proxy_lock(version: GameVersion) -> asyncio.Lock:
-    key = f"{version.source_id or 0}:{version.source_path or version.file_path}"
+    key = _openlist_proxy_key(version)
     async with _OPENLIST_PROXY_LOCKS_GUARD:
         lock = _OPENLIST_PROXY_LOCKS.get(key)
         if lock is None:
             lock = asyncio.Lock()
             _OPENLIST_PROXY_LOCKS[key] = lock
         return lock
+
+
+async def _openlist_proxy_semaphore(version: GameVersion) -> asyncio.Semaphore:
+    key = _openlist_proxy_key(version)
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        semaphore = _OPENLIST_PROXY_SEMAPHORES.get(key)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(_OPENLIST_PROXY_MAX_UPSTREAM_STREAMS)
+            _OPENLIST_PROXY_SEMAPHORES[key] = semaphore
+        return semaphore
+
+
+async def _cached_openlist_proxy_url(
+    adapter,
+    version: GameVersion,
+    *,
+    force_refresh: bool = False,
+) -> str:
+    key = _openlist_proxy_key(version)
+    now = time.monotonic()
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        cached = _OPENLIST_PROXY_URL_CACHE.get(key)
+        if cached and not force_refresh and cached[1] > now:
+            return cached[0]
+
+    raw_url = await _openlist_download_url_from_adapter(adapter, version)
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        _OPENLIST_PROXY_URL_CACHE[key] = (
+            raw_url,
+            time.monotonic() + _OPENLIST_PROXY_URL_CACHE_SECONDS,
+        )
+    return raw_url
 
 
 async def _open_openlist_proxy_stream(
@@ -483,41 +523,92 @@ async def _open_openlist_proxy_stream(
         headers["Range"] = range_header
     timeout = httpx.Timeout(None, connect=20.0)
     last_error: Exception | None = None
+    force_refresh_url = False
     for attempt in range(5):
         client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
         try:
-            raw_url = await _openlist_download_url_from_adapter(adapter, version)
+            raw_url = await _cached_openlist_proxy_url(
+                adapter,
+                version,
+                force_refresh=force_refresh_url,
+            )
             request = client.build_request("GET", raw_url, headers=headers)
             response = await client.send(request, stream=True)
             if response.status_code in _OPENLIST_PROXY_RETRYABLE_STATUSES:
+                status_code = response.status_code
                 await response.aclose()
                 await client.aclose()
+                force_refresh_url = status_code in {401, 403}
                 if attempt < 4:
+                    logger.warning(
+                        "OpenList proxy upstream retry gid=%s vid=%s status=%s range=%s attempt=%s",
+                        version.game_id,
+                        version.id,
+                        status_code,
+                        range_header or "full",
+                        attempt + 1,
+                    )
                     await asyncio.sleep(0.75 * (attempt + 1))
                     continue
                 raise HTTPException(
                     status_code=502,
-                    detail=f"OpenList 上游暂时不可用: {response.status_code}",
+                    detail=f"OpenList 上游暂时不可用: {status_code}",
                 )
             if response.status_code >= 400:
+                status_code = response.status_code
                 await response.aclose()
                 await client.aclose()
+                logger.warning(
+                    "OpenList proxy upstream failed gid=%s vid=%s status=%s range=%s",
+                    version.game_id,
+                    version.id,
+                    status_code,
+                    range_header or "full",
+                )
                 raise HTTPException(
                     status_code=502,
-                    detail=f"OpenList 下载失败: {response.status_code}",
+                    detail=f"OpenList 下载失败: {status_code}",
                 )
             if range_header and response.status_code != 206:
                 await response.aclose()
                 await client.aclose()
+                logger.warning(
+                    "OpenList proxy upstream ignored range gid=%s vid=%s status=%s range=%s",
+                    version.game_id,
+                    version.id,
+                    response.status_code,
+                    range_header,
+                )
                 raise HTTPException(status_code=502, detail="OpenList 未返回有效分块响应")
             return client, response
-        except HTTPException:
+        except HTTPException as exc:
             await client.aclose()
+            last_error = exc
+            if exc.status_code in _OPENLIST_PROXY_RETRYABLE_STATUSES and attempt < 4:
+                logger.warning(
+                    "OpenList proxy URL retry gid=%s vid=%s status=%s range=%s attempt=%s",
+                    version.game_id,
+                    version.id,
+                    exc.status_code,
+                    range_header or "full",
+                    attempt + 1,
+                )
+                force_refresh_url = True
+                await asyncio.sleep(0.75 * (attempt + 1))
+                continue
             raise
         except httpx.HTTPError as exc:
             await client.aclose()
             last_error = exc
             if attempt < 4:
+                logger.warning(
+                    "OpenList proxy transport retry gid=%s vid=%s error=%s range=%s attempt=%s",
+                    version.game_id,
+                    version.id,
+                    type(exc).__name__,
+                    range_header or "full",
+                    attempt + 1,
+                )
                 await asyncio.sleep(0.75 * (attempt + 1))
                 continue
     raise HTTPException(status_code=502, detail="OpenList 下载请求失败，请稍后重试") from last_error
@@ -529,6 +620,7 @@ async def _iter_openlist_proxy_range(
     start: int,
     end: int,
     lock: asyncio.Lock,
+    semaphore: asyncio.Semaphore,
 ):
     cursor = start
     while cursor <= end:
@@ -539,26 +631,44 @@ async def _iter_openlist_proxy_range(
             client: httpx.AsyncClient | None = None
             upstream: httpx.Response | None = None
             try:
-                async with lock:
-                    client, upstream = await _open_openlist_proxy_stream(
-                        adapter,
-                        version,
-                        f"bytes={cursor}-{segment_end}",
-                    )
-                    await asyncio.sleep(_OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS)
+                async with semaphore:
+                    async with lock:
+                        client, upstream = await _open_openlist_proxy_stream(
+                            adapter,
+                            version,
+                            f"bytes={cursor}-{segment_end}",
+                        )
+                        await asyncio.sleep(_OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS)
 
-                async for chunk in upstream.aiter_bytes(1024 * 1024):
-                    if not chunk:
-                        continue
-                    cursor += len(chunk)
-                    yield chunk
+                    async for chunk in upstream.aiter_bytes(1024 * 1024):
+                        if not chunk:
+                            continue
+                        cursor += len(chunk)
+                        yield chunk
 
-                if cursor <= segment_end:
-                    raise httpx.RemoteProtocolError("upstream closed before segment completed")
+                    if cursor <= segment_end:
+                        raise httpx.RemoteProtocolError("upstream closed before segment completed")
             except (HTTPException, httpx.HTTPError) as exc:
                 failures += 1
                 if failures >= 4:
+                    logger.error(
+                        "OpenList proxy segment failed gid=%s vid=%s range=bytes=%s-%s cursor=%s",
+                        version.game_id,
+                        version.id,
+                        start,
+                        end,
+                        cursor,
+                    )
                     raise HTTPException(status_code=502, detail="OpenList 分块代理失败，请稍后重试") from exc
+                logger.warning(
+                    "OpenList proxy segment retry gid=%s vid=%s segment=bytes=%s-%s cursor=%s failure=%s",
+                    version.game_id,
+                    version.id,
+                    before,
+                    segment_end,
+                    cursor,
+                    failures,
+                )
                 if cursor == before:
                     await asyncio.sleep(0.75 * failures)
                 continue
@@ -594,11 +704,19 @@ async def _serve_openlist_proxy_download(
 
     adapter = await _openlist_adapter(version, session)
     lock = await _openlist_proxy_lock(version)
+    semaphore = await _openlist_proxy_semaphore(version)
 
     async def stream_body():
         if file_size <= 0:
             return
-        async for chunk in _iter_openlist_proxy_range(adapter, version, start, end, lock):
+        async for chunk in _iter_openlist_proxy_range(
+            adapter,
+            version,
+            start,
+            end,
+            lock,
+            semaphore,
+        ):
             yield chunk
 
     return StreamingResponse(
