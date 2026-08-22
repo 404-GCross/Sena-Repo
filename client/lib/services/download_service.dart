@@ -736,8 +736,8 @@ class DownloadService with WidgetsBindingObserver {
   Future<int?> _get7zaVersion(String path) async {
     try {
       final r = await Process.run(
-        path,
-        [],
+        Platform.isAndroid ? "/system/bin/linker64" : path,
+        Platform.isAndroid ? [path] : [],
       ).timeout(const Duration(seconds: 3));
       final m = RegExp(r'(\d+)\.(\d+)').firstMatch("${r.stdout}${r.stderr}");
       if (m != null) {
@@ -759,7 +759,10 @@ class DownloadService with WidgetsBindingObserver {
     // Replace old binary (<16.00) or old 7za.exe
     if (await dest.exists()) {
       final v = await _get7zaVersion(dest.path);
-      if (v != null && v < _min7zaVersion) {
+      if (v == null || v < _min7zaVersion) {
+        LoggerService().warn(
+          "Bundled 7zz cache invalid; replacing from assets: version=${v ?? "unknown"}",
+        );
         try {
           await dest.delete();
         } catch (_) {}
@@ -805,8 +808,21 @@ class DownloadService with WidgetsBindingObserver {
             );
           } catch (_) {}
         }
+        final version = await _get7zaVersion(dest.path);
+        if (version == null || version < _min7zaVersion) {
+          throw Exception("解压组件校验失败");
+        }
         if (await dest.exists()) ok = true;
-      } catch (_) {}
+      } catch (e, stackTrace) {
+        LoggerService().warn("Bundled 7zz setup failed", e, stackTrace);
+        try {
+          await dest.delete();
+        } catch (_) {}
+      }
+
+      if (!ok && Platform.isAndroid) {
+        throw Exception("解压组件校验失败，请重新安装应用");
+      }
 
       if (!ok && Platform.isLinux) {
         final systemExe = await _findSystemSevenZip();
@@ -818,7 +834,10 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       // Download fallback
-      if (!ok && onSetupNeeded != null && !_userSkippedSetup) {
+      if (!ok &&
+          !Platform.isAndroid &&
+          onSetupNeeded != null &&
+          !_userSkippedSetup) {
         if (!await onSetupNeeded!()) {
           _userSkippedSetup = true;
           throw Exception("需要 7-Zip 才能解压。请安装后再试。");
@@ -1003,12 +1022,10 @@ class DownloadService with WidgetsBindingObserver {
             return;
           }
           if (t.status == "paused") return;
-          // Encrypted or no-extractor error — throw immediately, don't waste retries
           final errStr = "$e";
           if (_isEncryptedError(errStr)) rethrow;
           if (_isExtractorMissingError(errStr)) rethrow;
-          if (retry < maxExtractRetries) {
-            // Corrupted file — delete and re-download
+          if (_isArchiveIntegrityError(errStr) && retry < maxExtractRetries) {
             try {
               LoggerService().warn("DELETING temp file: $tmp");
               await tmp.delete();
@@ -1082,7 +1099,11 @@ class DownloadService with WidgetsBindingObserver {
     return lower.contains("permission denied") ||
         lower.contains("cannot run") ||
         lower.contains("no such file") ||
-        lower.contains("解压组件未就绪");
+        lower.contains("process exception") ||
+        lower.contains("not executable") ||
+        lower.contains("bad elf") ||
+        lower.contains("解压组件未就绪") ||
+        lower.contains("解压组件校验失败");
   }
 
   bool _isArchiveIntegrityError(String err) {
@@ -1092,6 +1113,9 @@ class DownloadService with WidgetsBindingObserver {
         lower.contains("crc_error") ||
         lower.contains("data error") ||
         lower.contains("checksum") ||
+        lower.contains("压缩包校验失败") ||
+        lower.contains("文件可能已损坏") ||
+        lower.contains("下载不完整") ||
         lower.contains("archive is corrupted") ||
         lower.contains("unexpected end") ||
         lower.contains("headers error");

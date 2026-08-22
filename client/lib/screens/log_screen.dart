@@ -1,7 +1,9 @@
 // Client log viewer with searchable, structured log records.
 
 import "dart:async";
+import "dart:convert";
 import "dart:io";
+import "dart:typed_data";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
@@ -146,6 +148,19 @@ class _LogScreenState extends State<LogScreen> {
     final name = original.endsWith(".log")
         ? original.substring(0, original.length - 4)
         : original;
+    final content = "${visible.map((entry) => entry.raw).join("\n")}\n";
+    if (Platform.isAndroid || Platform.isIOS) {
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: "导出日志",
+        fileName: "${name}_filtered.log",
+        type: FileType.custom,
+        allowedExtensions: ["log", "txt"],
+        bytes: Uint8List.fromList(utf8.encode(content)),
+      );
+      if (path == null || path.isEmpty) return;
+      _message("日志已导出");
+      return;
+    }
     final path = await FilePicker.platform.saveFile(
       dialogTitle: "导出日志",
       fileName: "${name}_filtered.log",
@@ -154,8 +169,7 @@ class _LogScreenState extends State<LogScreen> {
     );
     if (path == null || path.isEmpty) return;
     try {
-      await File(path)
-          .writeAsString("${visible.map((entry) => entry.raw).join("\n")}\n");
+      await File(path).writeAsString(content);
       _message("日志已导出");
     } catch (e) {
       _message("导出失败: $e");
