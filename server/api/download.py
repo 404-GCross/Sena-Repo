@@ -928,7 +928,6 @@ async def create_manager_install_link(
         game_id,
         version_id,
         expires_at,
-        proxy_openlist=body.target == "reinamanager",
     )
 
     if body.target == "lunabox":
