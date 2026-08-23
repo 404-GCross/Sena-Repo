@@ -145,7 +145,9 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE steam_patch_roots ADD COLUMN analysis_mode VARCHAR(32) NOT NULL DEFAULT 'auto'"
             )
-
+            await conn.exec_driver_sql(
+                "UPDATE steam_patch_roots SET analysis_mode = 'manual' WHERE source_type = 'openlist'"
+            )
 
         # ── users.role migration (v2) ──────────────────────────────────────
         user_cols = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(users)")}

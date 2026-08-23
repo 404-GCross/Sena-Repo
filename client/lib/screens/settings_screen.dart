@@ -889,8 +889,11 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
           ? "openlist"
           : "local";
       _sourceId = initial["source_id"] as int?;
-      _analysisMode =
-          initial["analysis_mode"]?.toString() == "manual" ? "manual" : "auto";
+      final initialMode = initial["analysis_mode"]?.toString();
+      _analysisMode = initialMode == "manual" ||
+              (initialMode == null && _sourceType == "openlist")
+          ? "manual"
+          : "auto";
       _pathCtrl.text =
           (initial["source_path"] ?? initial["path"] ?? "").toString();
     }
