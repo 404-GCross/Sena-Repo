@@ -27,11 +27,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/steam", tags=["steam-patch"])
 
+PATCH_ANALYSIS_MODES = {"auto", "manual"}
+
 
 def _get_patches_dir(config=None):
     if config is None:
         config = load_config()
     return Path(config.patch_dir or "/steam_patch")
+
+
+def _normalize_analysis_mode(value: str | None, source_type: str = "local") -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in PATCH_ANALYSIS_MODES:
+        return normalized
+    return "manual" if source_type == "openlist" else "auto"
 
 
 async def _patch_roots(session: AsyncSession) -> list[SteamPatchRoot]:
@@ -41,7 +50,7 @@ async def _patch_roots(session: AsyncSession) -> list[SteamPatchRoot]:
         return roots
     config = load_config()
     default_dir = str(_get_patches_dir(config))
-    return [SteamPatchRoot(id=0, source_type="local", path=default_dir)]
+    return [SteamPatchRoot(id=0, source_type="local", analysis_mode="auto", path=default_dir)]
 
 
 class PatchRootCreate(BaseModel):
@@ -49,6 +58,7 @@ class PatchRootCreate(BaseModel):
     source_type: str = "local"
     source_id: int | None = None
     source_name: str | None = None
+    analysis_mode: str | None = None
     base_url: str | None = None
     username: str | None = None
     password: str | None = None
@@ -60,6 +70,7 @@ class PatchRootOut(BaseModel):
     source_type: str = "local"
     source_id: int | None = None
     source_name: str | None = None
+    analysis_mode: str = "auto"
 
     model_config = {"from_attributes": True}
 
@@ -76,6 +87,7 @@ async def add_patch_root(
     session: AsyncSession = Depends(get_session),
 ):
     source_type = body.source_type if body.source_type in {"local", "openlist"} else "local"
+    analysis_mode = _normalize_analysis_mode(body.analysis_mode, source_type)
     source_id = body.source_id
     source_name = body.source_name
     path = body.path if source_type == "local" else normalize_remote_path(body.path)
@@ -103,7 +115,13 @@ async def add_patch_root(
         if not await asyncio.to_thread(adapter.exists, path):
             raise HTTPException(status_code=404, detail="OpenList path not found")
         source_name = source.name
-    root = SteamPatchRoot(source_type=source_type, source_id=source_id, source_name=source_name, path=path)
+    root = SteamPatchRoot(
+        source_type=source_type,
+        source_id=source_id,
+        source_name=source_name,
+        analysis_mode=analysis_mode,
+        path=path,
+    )
     session.add(root)
     await session.commit()
     await session.refresh(root)
@@ -123,6 +141,7 @@ async def update_patch_root(
         raise HTTPException(status_code=404, detail="Patch root not found")
 
     source_type = body.source_type if body.source_type in {"local", "openlist"} else "local"
+    analysis_mode = _normalize_analysis_mode(body.analysis_mode, source_type)
     source_id = body.source_id
     source_name = body.source_name
     path = body.path if source_type == "local" else normalize_remote_path(body.path)
@@ -154,6 +173,7 @@ async def update_patch_root(
     root.source_type = source_type
     root.source_id = source_id
     root.source_name = source_name
+    root.analysis_mode = analysis_mode
     root.path = path
     await session.commit()
     await session.refresh(root)
@@ -318,6 +338,10 @@ def _enrich_patch_record(patch: dict) -> dict:
     item["manifest_status"] = status
     item["manifest_ready"] = status == "confirmed"
     item["source_type"] = item.get("source_type") or "local"
+    item["analysis_mode"] = _normalize_analysis_mode(
+        item.get("analysis_mode"),
+        item["source_type"],
+    )
     return item
 
 
@@ -415,6 +439,7 @@ def _find_patch_entry(patches_dir: Path, lookup_key: str) -> dict | None:
             "app_id": lookup_key,
             "file": fallback.name,
             "source_type": "local",
+            "analysis_mode": "auto",
             "source_path": str(fallback),
             "size": fallback.stat().st_size,
         }
@@ -718,6 +743,7 @@ class PatchMatch(BaseModel):
     label: str | None = None
     type: str | None = None  # translation/voice/story/extra/misc
     source_type: str | None = None
+    analysis_mode: str = "auto"
     manifest_status: str = "pending"
     manifest_ready: bool = False
 
@@ -784,6 +810,7 @@ async def scan_steam_games(
             match.target_dir = enriched.get("target_dir", "")
             match.label = enriched.get("label", "")
             match.source_type = source_type
+            match.analysis_mode = enriched.get("analysis_mode", "auto")
             match.manifest_status = enriched.get("manifest_status", "pending")
             match.manifest_ready = bool(enriched.get("manifest_ready"))
             if enriched.get("game_name"):
@@ -805,6 +832,7 @@ async def scan_steam_games(
             match.patch_filename = patch_file.name
             match.patch_size = patch_file.stat().st_size
             match.source_type = "local"
+            match.analysis_mode = "auto"
             match.manifest_status = "pending"
             match.manifest_ready = False
             # Keyword guess for bare files
@@ -875,6 +903,8 @@ async def get_patch_tree(
     entry = _enrich_patch_record(entry)
     temp_path: Path | None = None
     source_type = entry.get("source_type") or "local"
+    if entry.get("analysis_mode") == "manual":
+        raise HTTPException(status_code=409, detail="该补丁源使用手动规则模式，不进行服务端压缩包目录扫描")
     try:
         if source_type == "openlist":
             temp_path = await _download_openlist_patch_to_temp(entry, session)
@@ -1029,18 +1059,30 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
         scanned = []
         roots = await _patch_roots(session)
         for root in roots:
+            analysis_mode = _normalize_analysis_mode(
+                getattr(root, "analysis_mode", None),
+                root.source_type,
+            )
             if root.source_type == "openlist":
                 result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
                 source = result.scalar_one_or_none()
                 adapter = adapter_from_source(source, "openlist")
-                scanned.extend(await asyncio.to_thread(scan_patches_source, adapter, root.path, "openlist", root.source_id))
+                scanned.extend(await asyncio.to_thread(
+                    scan_patches_source,
+                    adapter,
+                    root.path,
+                    "openlist",
+                    root.source_id,
+                    analysis_mode,
+                ))
                 continue
 
             root_path = Path(root.path)
-            local_scanned = await asyncio.to_thread(scan_patches_dir, root_path)
+            local_scanned = await asyncio.to_thread(scan_patches_dir, root_path, analysis_mode)
             for item in local_scanned:
                 item["source_type"] = "local"
                 item["source_id"] = None
+                item["analysis_mode"] = analysis_mode
                 item["source_path"] = str(root_path / item["file"])
                 if root_path.resolve() != index_dir.resolve():
                     item["file"] = str(root_path / item["file"])

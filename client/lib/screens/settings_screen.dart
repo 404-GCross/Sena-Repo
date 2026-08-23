@@ -861,10 +861,12 @@ class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
 class _SourceDirectoryDialog extends StatefulWidget {
   final List<Map<String, dynamic>> fileSources;
   final String purposeLabel;
+  final bool patchRoot;
   final Map<String, dynamic>? initial;
   const _SourceDirectoryDialog({
     required this.fileSources,
     required this.purposeLabel,
+    this.patchRoot = false,
     this.initial,
   });
 
@@ -875,6 +877,7 @@ class _SourceDirectoryDialog extends StatefulWidget {
 class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
   String _sourceType = "local";
   int? _sourceId;
+  String _analysisMode = "auto";
   final _pathCtrl = TextEditingController();
 
   @override
@@ -886,6 +889,8 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
           ? "openlist"
           : "local";
       _sourceId = initial["source_id"] as int?;
+      _analysisMode =
+          initial["analysis_mode"]?.toString() == "manual" ? "manual" : "auto";
       _pathCtrl.text =
           (initial["source_path"] ?? initial["path"] ?? "").toString();
     }
@@ -929,6 +934,10 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
                   selected: {_sourceType},
                   onSelectionChanged: (v) => setState(() {
                     _sourceType = v.first;
+                    if (widget.patchRoot) {
+                      _analysisMode =
+                          _sourceType == "openlist" ? "manual" : "auto";
+                    }
                     if (_sourceType == "openlist" &&
                         _sourceId == null &&
                         openListSources.isNotEmpty) {
@@ -977,6 +986,49 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
                       _sourceType == "openlist" ? "/Games" : "/data/games",
                 ),
               ),
+              if (widget.patchRoot) ...[
+                const SizedBox(height: 16),
+                Text(
+                  "补丁规则模式",
+                  style: AppText.bodySmall.copyWith(color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: cardBg(context),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: cardBorder(context)),
+                  ),
+                  child: Column(
+                    children: [
+                      RadioListTile<String>(
+                        value: "auto",
+                        groupValue: _analysisMode,
+                        onChanged: (value) =>
+                            setState(() => _analysisMode = value ?? "auto"),
+                        dense: true,
+                        title: const Text("自动分析压缩包"),
+                        subtitle: Text(
+                          "适合服务端本地目录，可读取目录树并推荐规则。",
+                          style: AppText.bodySmall.copyWith(color: Colors.grey),
+                        ),
+                      ),
+                      RadioListTile<String>(
+                        value: "manual",
+                        groupValue: _analysisMode,
+                        onChanged: (value) =>
+                            setState(() => _analysisMode = value ?? "manual"),
+                        dense: true,
+                        title: const Text("手动配置规则"),
+                        subtitle: Text(
+                          "适合 OpenList/网盘目录，不下载压缩包，只手写注入规则。",
+                          style: AppText.bodySmall.copyWith(color: Colors.grey),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -994,6 +1046,9 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
               "source_type": _sourceType,
               "path": path,
             };
+            if (widget.patchRoot) {
+              payload["analysis_mode"] = _analysisMode;
+            }
             if (_sourceType == "openlist") {
               if (_sourceId == null) return;
               payload["source_id"] = _sourceId;
@@ -1377,6 +1432,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         fileSources: _fileSources,
         purposeLabel:
             patchRoot ? "Steam \u8865\u4e01\u5e93" : "\u6e38\u620f\u5e93",
+        patchRoot: patchRoot,
       ),
     );
     if (payload == null) return;
@@ -1411,6 +1467,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         fileSources: _fileSources,
         purposeLabel:
             patchRoot ? "Steam \u8865\u4e01\u5e93" : "\u6e38\u620f\u5e93",
+        patchRoot: patchRoot,
         initial: item,
       ),
     );
@@ -1644,6 +1701,15 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 14),
                           ),
+                          if (r.containsKey("analysis_mode"))
+                            Text(
+                              r["analysis_mode"] == "manual"
+                                  ? "手动配置规则"
+                                  : "自动分析压缩包",
+                              style: AppText.bodySmall.copyWith(
+                                color: hintColor(context),
+                              ),
+                            ),
                         ],
                       ),
                     ),

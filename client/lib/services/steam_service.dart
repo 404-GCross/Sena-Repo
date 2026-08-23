@@ -37,6 +37,7 @@ class PatchMatch {
   final String? label;
   final String? type;
   final String? sourceType;
+  final String analysisMode;
   final String manifestStatus;
   final bool manifestReady;
 
@@ -53,6 +54,7 @@ class PatchMatch {
     this.label,
     this.type,
     this.sourceType,
+    this.analysisMode = "auto",
     this.manifestStatus = "pending",
     this.manifestReady = false,
   });
@@ -70,6 +72,7 @@ class PatchMatch {
         label: json["label"],
         type: json["type"],
         sourceType: json["source_type"],
+        analysisMode: json["analysis_mode"] ?? "auto",
         manifestStatus: json["manifest_status"] ?? "pending",
         manifestReady: json["manifest_ready"] == true,
       );

@@ -139,6 +139,12 @@ async def create_tables():
             """
         )
 
+        columns = await conn.exec_driver_sql("PRAGMA table_info(steam_patch_roots)")
+        steam_patch_root_columns = {row[1] for row in columns}
+        if "analysis_mode" not in steam_patch_root_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE steam_patch_roots ADD COLUMN analysis_mode VARCHAR(32) NOT NULL DEFAULT 'auto'"
+            )
 
 
         # ── users.role migration (v2) ──────────────────────────────────────

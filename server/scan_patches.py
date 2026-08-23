@@ -147,7 +147,7 @@ def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
     return None
 
 
-def scan_patches_dir(base_dir: Path) -> list[dict]:
+def scan_patches_dir(base_dir: Path, analysis_mode: str = "auto") -> list[dict]:
     """Scan recurisvely for archive files, auto-detect app_id and type from name."""
     base_dir.mkdir(parents=True, exist_ok=True)
     keywords = _load_keywords(base_dir)
@@ -165,6 +165,7 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
                 "app_id": app_id,
                 "file": rel,
                 "size": f.stat().st_size,
+                "analysis_mode": analysis_mode,
                 "patch_dir": "",
                 "target_dir": "",
                 "manifest_status": "pending",
@@ -175,7 +176,13 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
     return archives
 
 
-def scan_patches_source(source, root_path: str, source_type: str = "local", source_id: int | None = None) -> list[dict]:
+def scan_patches_source(
+    source,
+    root_path: str,
+    source_type: str = "local",
+    source_id: int | None = None,
+    analysis_mode: str = "auto",
+) -> list[dict]:
     """Scan a generic file source for patch archive files."""
     from services.file_source import canonical_source_path
 
@@ -205,6 +212,7 @@ def scan_patches_source(source, root_path: str, source_type: str = "local", sour
                 "source_path": entry.path,
                 "display_file": rel,
                 "size": entry.size,
+                "analysis_mode": analysis_mode,
                 "patch_dir": "",
                 "target_dir": "",
                 "manifest_status": "pending",
@@ -248,7 +256,7 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
                 old["game_name"] = s["game_name"]
             if s.get("size") and not old.get("size"):
                 old["size"] = s["size"]
-            for key in ("source_type", "source_id", "source_path", "display_file"):
+            for key in ("source_type", "source_id", "source_path", "display_file", "analysis_mode"):
                 if s.get(key) is not None:
                     old[key] = s[key]
             merged.append(old)

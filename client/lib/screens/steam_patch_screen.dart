@@ -283,7 +283,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
     if (result == null || !mounted) return;
     if (result.saved) {
-      _showMsg("补丁 Manifest 已保存");
+      _showMsg("补丁规则已保存");
       if (_serverLoaded) unawaited(_loadServerPatches());
       if (_tabIndex == 0 && _commonDir != null) unawaited(_scanAndCheck());
     }
@@ -374,7 +374,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               color: Theme.of(context).colorScheme.primary,
             ),
             title: "Steam 补丁注入",
-            subtitle: "客户端负责浏览与注入，服务端负责补丁匹配与 Manifest",
+            subtitle: "客户端负责浏览与注入，服务端负责补丁匹配与规则配置",
             actions: [
               AppSegmentedTabs(
                 selectedIndex: _tabIndex,
@@ -633,6 +633,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _gameCard(PatchMatch m) {
     final state = _injectState[m.appId];
+    final manualRules = m.analysisMode == "manual";
+    final ruleLabel = manualRules
+        ? (m.manifestReady ? "规则" : "配置规则")
+        : (m.manifestReady ? "规则" : "确认规则");
+    final injectLabel = m.manifestReady
+        ? "注入"
+        : (manualRules ? "配置后注入" : "确认后注入");
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
@@ -679,7 +686,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   OutlinedButton.icon(
                       onPressed: () => _showPatchTreeDialog(m, allowInject: true),
                       icon: const Icon(Icons.account_tree_outlined, size: 16),
-                      label: Text(m.manifestReady ? "Manifest" : "确认 Manifest",
+                      label: Text(ruleLabel,
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(
@@ -691,7 +698,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                           ? () => _startInjection(m)
                           : () => _showPatchTreeDialog(m, allowInject: true),
                       icon: const Icon(Icons.auto_fix_high, size: 16),
-                      label: Text(m.manifestReady ? "注入" : "确认后注入",
+                      label: Text(injectLabel,
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
                       style: FilledButton.styleFrom(
@@ -781,7 +788,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               child: Row(children: [
                 _typeBadge(m.type),
                 const SizedBox(width: 6),
-                _manifestBadge(m.manifestStatus),
+                _manifestBadge(
+                  m.manifestStatus,
+                  manualRules: m.analysisMode == "manual",
+                ),
                 const SizedBox(width: 6),
                 Text(m.label ?? m.patchFilename ?? "",
                     style: AppText.bodySmall.copyWith(
@@ -879,7 +889,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       final appId = (p["app_id"] ?? "").toString();
       return appId.isEmpty || appId == "None" || appId == "null";
     }).length;
-    final pendingManifests = _serverPatches
+    final pendingRules = _serverPatches
         .where((p) => (p["manifest_status"] ?? "pending") != "confirmed")
         .length;
     return AppSurface(
@@ -940,16 +950,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 color: missingAppIds > 0 ? Colors.orange : Colors.green,
               ),
               AppMetricCard(
-                label: "待确认 Manifest",
-                value: "$pendingManifests",
+                label: "待配置规则",
+                value: "$pendingRules",
                 icon: Icons.pending_actions_outlined,
-                color: pendingManifests > 0 ? Colors.orange : Colors.green,
+                color: pendingRules > 0 ? Colors.orange : Colors.green,
               ),
             ],
           ),
           const Spacer(),
           Text(
-            "服务端负责扫描补丁、匹配 AppID、确认 Manifest；客户端只负责选择本地库并注入。",
+            "服务端负责扫描补丁、匹配 AppID、配置注入规则；客户端只负责选择本地库并注入。",
             style: AppText.caption
                 .copyWith(color: hintColor(context), height: 1.5),
           ),
@@ -1033,6 +1043,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final matched = (p["matched_game"] ?? "").toString();
     final suggestedAppId = (p["suggested_app_id"] ?? "").toString();
     final manifestStatus = (p["manifest_status"] ?? "pending").toString();
+    final analysisMode = (p["analysis_mode"] ?? "auto").toString();
+    final manualRules = analysisMode == "manual";
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
 
     return AppSurface(
@@ -1065,7 +1077,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             const SizedBox(width: 4),
             _typeBadge(ptype),
             const SizedBox(width: 6),
-            _manifestBadge(manifestStatus),
+            _manifestBadge(manifestStatus, manualRules: manualRules),
           ]),
           const SizedBox(height: 4),
           Row(children: [
@@ -1114,8 +1126,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             constraints: const BoxConstraints(),
             onPressed: () => _rescrapeOne(lookupKey)),
         IconButton(
-            icon: const Icon(Icons.account_tree_outlined, size: 16),
-            tooltip: "目录树 / Manifest",
+            icon: Icon(
+                manualRules ? Icons.rule_folder_outlined : Icons.account_tree_outlined,
+                size: 16),
+            tooltip: manualRules ? "配置规则" : "目录树 / 规则",
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(6),
             constraints: const BoxConstraints(),
@@ -1130,6 +1144,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 targetDir: targetDir,
                 label: label,
                 type: ptype,
+                analysisMode: analysisMode,
                 manifestStatus: manifestStatus,
                 manifestReady: manifestStatus == "confirmed"))),
         IconButton(
@@ -1149,6 +1164,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 targetDir: targetDir,
                 label: label,
                 type: ptype,
+                analysisMode: analysisMode,
                 manifestStatus: manifestStatus,
                 manifestReady: manifestStatus == "confirmed"))),
       ]),
@@ -1277,13 +1293,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 fontSize: 10, fontWeight: FontWeight.w600, color: color[300])));
   }
 
-  Widget _manifestBadge(String? status) {
+  Widget _manifestBadge(String? status, {bool manualRules = false}) {
     final normalized = status == "confirmed" ? "confirmed" : "pending";
     return AppStatusPill(
       icon: normalized == "confirmed"
           ? Icons.verified_outlined
           : Icons.pending_actions_outlined,
-      label: normalized == "confirmed" ? "Manifest 已确认" : "Manifest 待确认",
+      label: normalized == "confirmed"
+          ? (manualRules ? "规则已配置" : "规则已确认")
+          : (manualRules ? "规则待配置" : "规则待确认"),
       color: normalized == "confirmed" ? Colors.green : Colors.orange,
     );
   }
@@ -1382,12 +1400,20 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
   int _stripComponents = 0;
   String _targetMode = "game_root";
 
+  bool get _manualRules => widget.match.analysisMode == "manual";
+
+  bool get _canSave => !_loading && !_saving && (_manualRules || _data != null);
+
   @override
   void initState() {
     super.initState();
     _patchDir.text = widget.match.patchDir ?? "";
     _targetDir.text = widget.match.targetDir ?? "";
-    _loadTree();
+    if (_manualRules) {
+      _loading = false;
+    } else {
+      _loadTree();
+    }
   }
 
   @override
@@ -1398,6 +1424,13 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
   }
 
   Future<void> _loadTree() async {
+    if (_manualRules) {
+      setState(() {
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -1458,7 +1491,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
         lookupKey: widget.match.patchLookupKey,
         patchDir: patchDir,
         targetDir: targetDir,
-        stripComponents: patchDir.isEmpty ? 0 : _stripComponents,
+        stripComponents: _manualRules ? _stripComponents : (patchDir.isEmpty ? 0 : _stripComponents),
         targetMode: _targetMode,
       );
       if (!mounted) return;
@@ -1497,6 +1530,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
     final width = size.width > 1080 ? 1020.0 : size.width - 32;
     final height = size.height > 760 ? 700.0 : size.height - 32;
     final filename = widget.match.patchFilename?.split("/").last ?? widget.match.gameName;
+    final title = _manualRules ? "配置注入规则" : "目录树 / 规则";
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -1520,14 +1554,17 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                         color: cs.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
-                      child: Icon(Icons.account_tree_outlined, color: cs.primary),
+                      child: Icon(
+                        _manualRules ? Icons.rule_folder_outlined : Icons.account_tree_outlined,
+                        color: cs.primary,
+                      ),
                     ),
                     const SizedBox(width: AppGap.md),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("目录树 / Manifest", style: AppText.headline),
+                          Text(title, style: AppText.headline),
                           const SizedBox(height: 4),
                           Text(
                             filename,
@@ -1538,7 +1575,13 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                         ],
                       ),
                     ),
-                    if (_data != null)
+                    if (_manualRules)
+                      AppStatusPill(
+                        icon: Icons.edit_note_rounded,
+                        label: "手动规则",
+                        color: cs.primary,
+                      )
+                    else if (_data != null)
                       AppStatusPill(
                         icon: Icons.inventory_2_outlined,
                         label: "${_data!["file_count"] ?? 0} 文件",
@@ -1564,9 +1607,9 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                     const SizedBox(width: AppGap.sm),
                     AppActionButton(
                       icon: Icons.save_outlined,
-                      label: "保存 Manifest",
+                      label: "保存规则",
                       busy: _saving,
-                      onPressed: _loading || _data == null || _saving ? null : () => _save(inject: false),
+                      onPressed: _canSave ? () => _save(inject: false) : null,
                     ),
                     if (widget.installPath != null) ...[
                       const SizedBox(width: AppGap.sm),
@@ -1575,7 +1618,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                         label: "保存并注入",
                         filled: true,
                         busy: _saving,
-                        onPressed: _loading || _data == null || _saving ? null : () => _save(inject: true),
+                        onPressed: _canSave ? () => _save(inject: true) : null,
                       ),
                     ],
                   ],
@@ -1592,7 +1635,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
+    if (_error != null && !_manualRules) {
       return Center(
         child: AppSurface(
           padding: const EdgeInsets.all(AppGap.lg),
@@ -1623,6 +1666,29 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
         ),
       );
     }
+    if (_manualRules) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: Column(
+                    children: [
+                      _buildManualRuleNotice(context),
+                      const SizedBox(height: AppGap.md),
+                      _buildManifestPanel(context),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 860;
@@ -1631,7 +1697,11 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
         if (!wide) {
           return ListView(
             padding: const EdgeInsets.all(18),
-            children: [tree, const SizedBox(height: AppGap.md), manifest],
+            children: [
+              SizedBox(height: 360, child: tree),
+              const SizedBox(height: AppGap.md),
+              manifest,
+            ],
           );
         }
         return Padding(
@@ -1646,6 +1716,32 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildManualRuleNotice(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AppSurface(
+      padding: const EdgeInsets.all(14),
+      color: cs.primary.withValues(alpha: 0.08),
+      border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.cloud_off_outlined, size: 20, color: cs.primary),
+          const SizedBox(width: AppGap.sm),
+          Expanded(
+            child: Text(
+              "手动规则模式不会下载或探测远程压缩包。适合 OpenList / 网盘补丁库：按补丁说明填写补丁内容根目录、目标目录和剥离层级即可。",
+              style: AppText.bodySmall.copyWith(
+                color: subTextColor(context),
+                height: 1.45,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1691,99 +1787,125 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
 
   Widget _buildManifestPanel(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final recommended = Map<String, dynamic>.from((_data?["recommended"] as Map?) ?? const {});
+    final recommended = _manualRules
+        ? const <String, dynamic>{}
+        : Map<String, dynamic>.from((_data?["recommended"] as Map?) ?? const {});
     final recommendedPatchDir = (recommended["patch_dir"] ?? "").toString();
     return AppSurface(
       padding: const EdgeInsets.all(16),
-      child: ListView(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.rule_rounded, color: cs.primary),
-              const SizedBox(width: AppGap.sm),
-              Text("Manifest 确认", style: AppText.title),
-            ],
-          ),
-          const SizedBox(height: AppGap.md),
-          if (recommendedPatchDir.isNotEmpty)
-            AppSurface(
-              padding: const EdgeInsets.all(12),
-              color: Colors.orange.withValues(alpha: 0.08),
-              border: Border.all(color: Colors.orange.withValues(alpha: 0.22)),
-              child: Row(
-                children: [
-                  Icon(Icons.auto_awesome_rounded, size: 18, color: Colors.orange[700]),
-                  const SizedBox(width: AppGap.sm),
-                  Expanded(
-                    child: Text(
-                      "推荐剥离外层目录：$recommendedPatchDir",
-                      style: AppText.bodySmall.copyWith(color: Colors.orange[800], fontWeight: FontWeight.w700),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.rule_rounded, color: cs.primary),
+                const SizedBox(width: AppGap.sm),
+                Text("注入规则", style: AppText.title),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: AppGap.md),
+              AppSurface(
+                padding: const EdgeInsets.all(12),
+                color: Colors.red.withValues(alpha: 0.08),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.22)),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.error_outline_rounded, size: 18, color: Colors.red[700]),
+                    const SizedBox(width: AppGap.sm),
+                    Expanded(
+                      child: Text(
+                        _error!,
+                        style: AppText.bodySmall.copyWith(color: Colors.red[800], height: 1.35),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          const SizedBox(height: AppGap.md),
-          TextField(
-            controller: _patchDir,
-            decoration: const InputDecoration(
-              labelText: "补丁内容根目录 (patch_dir)",
-              hintText: "例如 Kinkoi_R18DLC；留空则直接解压",
-              isDense: true,
-            ),
-          ),
-          const SizedBox(height: AppGap.md),
-          TextField(
-            controller: _targetDir,
-            decoration: const InputDecoration(
-              labelText: "目标子目录 (target_dir)",
-              hintText: "留空表示游戏根目录",
-              isDense: true,
-            ),
-          ),
-          const SizedBox(height: AppGap.md),
-          DropdownButtonFormField<int>(
-            value: _stripComponents,
-            decoration: const InputDecoration(labelText: "剥离层级", isDense: true),
-            items: List.generate(5, (index) => DropdownMenuItem(value: index, child: Text("剥离 $index 层"))),
-            onChanged: (value) => setState(() => _stripComponents = value ?? 0),
-          ),
-          const SizedBox(height: AppGap.md),
-          DropdownButtonFormField<String>(
-            value: _targetMode,
-            decoration: const InputDecoration(labelText: "目标模式", isDense: true),
-            items: const [
-              DropdownMenuItem(value: "game_root", child: Text("游戏根目录")),
-              DropdownMenuItem(value: "custom", child: Text("自定义子目录")),
             ],
-            onChanged: (value) => setState(() => _targetMode = value ?? "game_root"),
-          ),
-          if (widget.installPath != null) ...[
             const SizedBox(height: AppGap.md),
-            AppSurface(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.folder_open_rounded, size: 18, color: hintColor(context)),
-                  const SizedBox(width: AppGap.sm),
-                  Expanded(
-                    child: Text(
-                      widget.installPath!,
-                      style: AppText.caption.copyWith(color: hintColor(context), height: 1.35),
+            if (recommendedPatchDir.isNotEmpty)
+              AppSurface(
+                padding: const EdgeInsets.all(12),
+                color: Colors.orange.withValues(alpha: 0.08),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.22)),
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, size: 18, color: Colors.orange[700]),
+                    const SizedBox(width: AppGap.sm),
+                    Expanded(
+                      child: Text(
+                        "推荐剥离外层目录：$recommendedPatchDir",
+                        style: AppText.bodySmall.copyWith(color: Colors.orange[800], fontWeight: FontWeight.w700),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+            const SizedBox(height: AppGap.md),
+            TextField(
+              controller: _patchDir,
+              decoration: InputDecoration(
+                labelText: "补丁内容根目录 (patch_dir)",
+                hintText: _manualRules ? "按补丁说明填写；留空表示压缩包根目录" : "例如 Kinkoi_R18DLC；留空则直接解压",
+                isDense: true,
               ),
             ),
+            const SizedBox(height: AppGap.md),
+            TextField(
+              controller: _targetDir,
+              decoration: const InputDecoration(
+                labelText: "目标子目录 (target_dir)",
+                hintText: "留空表示游戏根目录",
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: AppGap.md),
+            DropdownButtonFormField<int>(
+              value: _stripComponents,
+              decoration: const InputDecoration(labelText: "剥离层级", isDense: true),
+              items: List.generate(5, (index) => DropdownMenuItem(value: index, child: Text("剥离 $index 层"))),
+              onChanged: (value) => setState(() => _stripComponents = value ?? 0),
+            ),
+            const SizedBox(height: AppGap.md),
+            DropdownButtonFormField<String>(
+              value: _targetMode,
+              decoration: const InputDecoration(labelText: "目标模式", isDense: true),
+              items: const [
+                DropdownMenuItem(value: "game_root", child: Text("游戏根目录")),
+                DropdownMenuItem(value: "custom", child: Text("自定义子目录")),
+              ],
+              onChanged: (value) => setState(() => _targetMode = value ?? "game_root"),
+            ),
+            if (widget.installPath != null) ...[
+              const SizedBox(height: AppGap.md),
+              AppSurface(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.folder_open_rounded, size: 18, color: hintColor(context)),
+                    const SizedBox(width: AppGap.sm),
+                    Expanded(
+                      child: Text(
+                        widget.installPath!,
+                        style: AppText.caption.copyWith(color: hintColor(context), height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (_risks.isNotEmpty) ...[
+              const SizedBox(height: AppGap.lg),
+              Text("扫描提示", style: AppText.bodyMedium.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: AppGap.sm),
+              ..._risks.map((risk) => _PatchRiskTile(risk: risk)),
+            ],
           ],
-          if (_risks.isNotEmpty) ...[
-            const SizedBox(height: AppGap.lg),
-            Text("扫描提示", style: AppText.bodyMedium.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: AppGap.sm),
-            ..._risks.map((risk) => _PatchRiskTile(risk: risk)),
-          ],
-        ],
+        ),
       ),
     );
   }
