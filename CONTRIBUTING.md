@@ -173,7 +173,7 @@ flutter analyze --no-fatal-infos --no-fatal-warnings
 
 - 不要让 OpenList 大文件默认走 Sena 服务端代理，除非功能明确要求
 - 不要把 Sena Token、OpenList 凭据或签名下载 URL 写入日志
-- LunaBox 推送下载当前需要 `size`、`checksum_algo`、`checksum`、`expires_at`
+- LunaBox 推送下载当前需要 `size`、`expires_at`；`checksum_algo` / `checksum` 有值时必须成对传递，无值时两者都不要传
 - ReinaManager 与 LunaBox 协议不同，不要把两个目标的字段假设为完全一致
 
 ### Steam 补丁

@@ -230,57 +230,6 @@ def _extract_openlist_sha256(file_info: dict) -> str | None:
     return None
 
 
-def _sha256_local_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-async def _sha256_url(url: str) -> str:
-    digest = hashlib.sha256()
-    timeout = httpx.Timeout(None, connect=20.0)
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                async for chunk in response.aiter_bytes(1024 * 1024):
-                    digest.update(chunk)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="计算远程文件校验失败，请检查资源连接状态") from exc
-    return digest.hexdigest()
-
-
-async def _calculate_version_sha256(
-    version: GameVersion,
-    session: AsyncSession,
-) -> str:
-    if (version.source_type or "local") == "openlist":
-        raw_url = await _openlist_download_url(version, session)
-        return await _sha256_url(raw_url)
-
-    file_path = Path(version.file_path).resolve()
-    if not await _is_allowed_local_file(file_path, session):
-        raise HTTPException(status_code=403, detail="File outside games directory")
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-    return await asyncio.to_thread(_sha256_local_file, file_path)
-
-
-async def _ensure_version_checksum(
-    version: GameVersion,
-    session: AsyncSession,
-) -> str:
-    checksum = _cached_version_sha256(version)
-    if checksum:
-        return checksum
-
-    checksum = await _calculate_version_sha256(version, session)
-    await _store_version_sha256(version, session, checksum)
-    return checksum
-
-
 def _cached_version_sha256(version: GameVersion) -> str | None:
     if (version.checksum_algo or "").lower() != "sha256":
         return None
@@ -354,30 +303,19 @@ async def _manager_install_checksum(
             )
             return checksum
 
-        if target == "reinamanager":
-            logger.info(
-                "ReinaManager install link generated without OpenList SHA256 vid=%s",
-                version.id,
-            )
-            return None
-
-        logger.warning(
-            "LunaBox install link blocked because OpenList SHA256 is missing vid=%s",
-            version.id,
-        )
-        raise HTTPException(
-            status_code=409,
-            detail="OpenList 资源未提供 SHA256 校验值，LunaBox 推送不能在生成链接时远程整包计算；请在 OpenList 端启用或补全文件哈希后重新扫描资源。",
-        )
-
-    if target == "reinamanager":
         logger.info(
-            "ReinaManager install link generated without cached SHA256 vid=%s",
+            "%s install link generated without OpenList SHA256 vid=%s",
+            target,
             version.id,
         )
         return None
 
-    return await _ensure_version_checksum(version, session)
+    logger.info(
+        "%s install link generated without cached SHA256 vid=%s",
+        target,
+        version.id,
+    )
+    return None
 
 
 def _download_headers(filename: str) -> dict[str, str]:
@@ -936,12 +874,13 @@ async def create_manager_install_link(
             "file_name": version.filename,
             "archive_format": archive_format,
             "size": str(size),
-            "checksum_algo": "sha256",
-            "checksum": checksum,
             "title": game.name,
             "download_source": "sena-repo",
             "strip_top_level": "true",
         }
+        if checksum:
+            params["checksum_algo"] = "sha256"
+            params["checksum"] = checksum
         install_subdir = _lunabox_install_subdir(game)
         if install_subdir:
             params["install_subdir"] = install_subdir
