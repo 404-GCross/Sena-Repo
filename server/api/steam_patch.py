@@ -5,7 +5,8 @@ Falls back to bare file scanning if no patches.json exists.
 """
 from __future__ import annotations
 
-import asyncio, json, logging, re, shutil, subprocess, tempfile, zipfile
+import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -275,12 +276,128 @@ _MAX_TREE_ENTRIES = 2500
 _MAX_OPENLIST_TREE_SCAN_BYTES = 2 * 1024 * 1024 * 1024
 
 
+def _valid_app_id(value) -> bool:
+    text = str(value or "").strip()
+    return bool(text and text.lower() not in {"none", "null", "0"})
+
+
+def _make_patch_id(patch: dict) -> str:
+    existing = str(patch.get("patch_id") or "").strip()
+    if existing:
+        return existing
+    source_type = str(patch.get("source_type") or "local")
+    source_id = str(patch.get("source_id") or "")
+    path = str(patch.get("source_path") or patch.get("file") or patch.get("display_file") or "")
+    identity = f"{source_type}|{source_id}|{path}"
+    digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
+    return f"sp_{digest}"
+
+
+def _patch_display_file(patch: dict) -> str:
+    value = patch.get("display_file") or patch.get("source_path") or patch.get("file") or ""
+    return str(value)
+
+
+def _patch_lookup_key(patch: dict) -> str:
+    return _make_patch_id(patch)
+
+
+def _manifest_status(patch: dict) -> str:
+    status = str(patch.get("manifest_status") or "").strip().lower()
+    if status in {"confirmed", "pending", "error"}:
+        return status
+    return "pending"
+
+
+def _enrich_patch_record(patch: dict) -> dict:
+    item = dict(patch)
+    item["patch_id"] = _make_patch_id(item)
+    item["lookup_key"] = _patch_lookup_key(item)
+    item["display_file"] = item.get("display_file") or _patch_display_file(item)
+    status = _manifest_status(item)
+    item["manifest_status"] = status
+    item["manifest_ready"] = status == "confirmed"
+    item["source_type"] = item.get("source_type") or "local"
+    return item
+
+
+def _basename_without_archive_ext(value: str) -> str:
+    name = Path(value.replace("\\", "/")).name
+    lower = name.lower()
+    for ext in (".tar.xz", ".tar.gz", ".zip", ".rar", ".7z", ".tar", ".gz", ".xz"):
+        if lower.endswith(ext):
+            return name[: -len(ext)]
+    return name
+
+
+def _normalized_title(value: str) -> str:
+    text = _basename_without_archive_ext(value)
+    try:
+        from scan_patches import _extract_game_name
+
+        text = _extract_game_name(text)
+    except Exception:
+        pass
+    text = text.lower()
+    text = re.sub(r"[_\-\[\]【】()（）+]+", " ", text)
+    text = re.sub(r"\b(steam|patch|chinese|translation|voice|extra|dlc|r18|r18dlc)\b", " ", text)
+    return re.sub(r"\s+", "", text).strip()
+
+
+def _patch_title_candidates(patch: dict) -> set[str]:
+    values = {
+        str(patch.get("label") or ""),
+        str(patch.get("game_name") or ""),
+        _patch_display_file(patch),
+        str(patch.get("file") or ""),
+    }
+    return {normalized for value in values if (normalized := _normalized_title(value))}
+
+
+def _patch_matches_game(patch: dict, game: SteamGameInfo) -> bool:
+    app_id = str(patch.get("app_id") or "")
+    if _valid_app_id(app_id) and app_id == str(game.app_id):
+        return True
+    if _valid_app_id(app_id):
+        return False
+    game_names = {
+        _normalized_title(game.name),
+        _normalized_title(game.install_dir),
+    }
+    candidates = _patch_title_candidates(patch)
+    for game_name in game_names:
+        if len(game_name) < 4:
+            continue
+        for candidate in candidates:
+            if len(candidate) < 4:
+                continue
+            if game_name == candidate or game_name in candidate or candidate in game_name:
+                return True
+    return False
+
+
+def _find_patch_entry_for_game(patches: list[dict], game: SteamGameInfo) -> dict | None:
+    for patch in patches:
+        if str(patch.get("app_id") or "") == str(game.app_id):
+            return patch
+    for patch in patches:
+        if _patch_matches_game(patch, game):
+            return patch
+    return None
+
+
 def _patch_lookup_matches(patch: dict, lookup_key: str) -> bool:
+    if _make_patch_id(patch) == lookup_key:
+        return True
+    if str(patch.get("lookup_key", "")) == lookup_key:
+        return True
     if str(patch.get("app_id", "")) == lookup_key:
         return True
     if patch.get("file", "") == lookup_key:
         return True
     if patch.get("display_file", "") == lookup_key:
+        return True
+    if patch.get("source_path", "") == lookup_key:
         return True
     return False
 
@@ -326,6 +443,8 @@ def _update_patch_record(
             matched = True
         if not matched:
             continue
+        if not patch.get("patch_id"):
+            patch["patch_id"] = _make_patch_id(patch)
         for key, value in values.items():
             if value is None:
                 continue
@@ -591,19 +710,23 @@ class PatchMatch(BaseModel):
     game_name: str
     install_dir: str
     patch_available: bool
+    patch_lookup_key: str | None = None
     patch_filename: str | None = None
     patch_size: int = 0
     patch_dir: str | None = None
     target_dir: str | None = None
     label: str | None = None
     type: str | None = None  # translation/voice/story/extra/misc
+    source_type: str | None = None
+    manifest_status: str = "pending"
+    manifest_ready: bool = False
 
 
 class ScanRequest(BaseModel):
     games: list[SteamGameInfo]
 
 
-class PatchRuleUpdate(BaseModel):
+class PatchManifestUpdate(BaseModel):
     patch_dir: str = ""
     target_dir: str = ""
     strip_components: int = Field(default=0, ge=0, le=16)
@@ -622,8 +745,8 @@ async def scan_steam_games(
 ):
     config = load_config()
     patches_dir = _get_patches_dir(config)
-    index = _load_patches_index(patches_dir)
     keywords = _load_type_keywords(patches_dir)
+    patches = _load_all_patches(patches_dir)
     results = []
 
     for game in body.games:
@@ -638,48 +761,52 @@ async def scan_steam_games(
             results.append(match)
             continue
 
-        # 1. Try patches.json index
-        if index and game.app_id in index:
-            entry = index[game.app_id]
-            if entry.get("source_type") == "openlist":
-                match.patch_available = True
-                match.patch_filename = (entry.get("display_file") or entry.get("source_path") or entry.get("file", "")).split("/")[-1]
-                match.patch_size = int(entry.get("size") or 0)
-                match.patch_dir = entry.get("patch_dir", "")
-                match.target_dir = entry.get("target_dir", "")
-                match.label = entry.get("label", "")
-                if entry.get("game_name"):
-                    match.game_name = entry["game_name"]
-                match.type = entry.get("type", "misc") or "misc"
-                results.append(match)
-                continue
-            patch_file = await _local_patch_file_from_entry(entry, patches_dir, session)
-            if patch_file and patch_file.is_file():
-                match.patch_available = True
-                match.patch_filename = patch_file.name
-                match.patch_size = patch_file.stat().st_size
-                match.patch_dir = entry.get("patch_dir", "")
-                match.target_dir = entry.get("target_dir", "")
-                match.label = entry.get("label", "")
-                # Use game_name from patches.json if available (Chinese name from Steam)
-                if entry.get("game_name"):
-                    match.game_name = entry["game_name"]
-                # Type: keep existing if already set (non-misc), else keyword-guess
-                existing_type = entry.get("type", "misc")
-                if existing_type and existing_type != "misc":
-                    match.type = existing_type
+        entry = _find_patch_entry_for_game(patches, game)
+        if entry is not None:
+            enriched = _enrich_patch_record(entry)
+            source_type = enriched.get("source_type") or "local"
+            filename = Path(_patch_display_file(enriched)).name
+            size = int(enriched.get("size") or 0)
+            if source_type != "openlist":
+                patch_file = await _local_patch_file_from_entry(enriched, patches_dir, session)
+                if patch_file and patch_file.is_file():
+                    filename = patch_file.name
+                    size = patch_file.stat().st_size
                 else:
-                    guessed = _guess_type_by_keywords(match.patch_filename or "", keywords)
-                    match.type = guessed or existing_type or "misc"
-                results.append(match)
-                continue
+                    results.append(match)
+                    continue
 
-        # 2. Fallback: bare file scan
+            match.patch_available = True
+            match.patch_lookup_key = enriched["lookup_key"]
+            match.patch_filename = filename
+            match.patch_size = size
+            match.patch_dir = enriched.get("patch_dir", "")
+            match.target_dir = enriched.get("target_dir", "")
+            match.label = enriched.get("label", "")
+            match.source_type = source_type
+            match.manifest_status = enriched.get("manifest_status", "pending")
+            match.manifest_ready = bool(enriched.get("manifest_ready"))
+            if enriched.get("game_name"):
+                match.game_name = enriched["game_name"]
+            existing_type = enriched.get("type", "misc")
+            if existing_type and existing_type != "misc":
+                match.type = existing_type
+            else:
+                guessed = _guess_type_by_keywords(match.patch_filename or "", keywords)
+                match.type = guessed or existing_type or "misc"
+            results.append(match)
+            continue
+
+        # Fallback: bare local file named by AppID.
         patch_file = _find_patch_fallback(patches_dir, game.app_id)
         if patch_file:
             match.patch_available = True
+            match.patch_lookup_key = game.app_id
             match.patch_filename = patch_file.name
             match.patch_size = patch_file.stat().st_size
+            match.source_type = "local"
+            match.manifest_status = "pending"
+            match.manifest_ready = False
             # Keyword guess for bare files
             guessed = _guess_type_by_keywords(patch_file.name, keywords)
             if guessed:
@@ -697,9 +824,9 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
     patches_dir.mkdir(parents=True, exist_ok=True)
     json_path = patches_dir / "patches.json"
     needs_scan = _patches_index_needs_autoscan(json_path)
-    patches = _load_all_patches(patches_dir)
+    patches = [_enrich_patch_record(p) for p in _load_all_patches(patches_dir)]
 
-    # Match patches without app_id to games in DB by name
+    # Suggest DB matches for display only. Do not write internal game IDs into Steam app_id.
     if patches:
         try:
             from models.game import Game as _Game
@@ -709,15 +836,19 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
             games = result.unique().scalars().all()
 
             for p in patches:
-                aid = p.get("app_id")
-                if aid is not None and str(aid) != "None" and aid != 0:
+                if _valid_app_id(p.get("app_id")):
                     continue
-                filename = p.get("file", "").split("/")[-1]
                 for game in games:
-                    if game.name and game.name.lower() in filename.lower():
-                        p["app_id"] = game.id
+                    pseudo = SteamGameInfo(
+                        app_id=str(game.steam_id or ""),
+                        name=game.name or "",
+                        install_dir=game.folder_path.split("/")[-1] if game.folder_path else "",
+                    )
+                    if _patch_matches_game(p, pseudo):
                         p["matched_game"] = game.name
                         p["matched_company"] = game.company.name if game.company else None
+                        if game.steam_id:
+                            p["suggested_app_id"] = game.steam_id
                         break
         except Exception:
             pass
@@ -741,6 +872,7 @@ async def get_patch_tree(
     if entry is None:
         raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
 
+    entry = _enrich_patch_record(entry)
     temp_path: Path | None = None
     source_type = entry.get("source_type") or "local"
     try:
@@ -755,7 +887,8 @@ async def get_patch_tree(
         tree_data = await asyncio.to_thread(_list_archive_entries, archive_path)
         filename = (entry.get("display_file") or entry.get("source_path") or entry.get("file") or archive_path.name).split("/")[-1]
         return {
-            "lookup_key": lookup_key,
+            "lookup_key": entry["lookup_key"],
+            "patch_id": entry["patch_id"],
             "file": entry.get("file") or filename,
             "display_file": entry.get("display_file") or filename,
             "source_type": source_type,
@@ -766,6 +899,9 @@ async def get_patch_tree(
             "target_dir": entry.get("target_dir") or "",
             "strip_components": int(entry.get("strip_components") or 0),
             "target_mode": entry.get("target_mode") or "game_root",
+            "manifest_status": entry["manifest_status"],
+            "manifest_ready": entry["manifest_ready"],
+            "manifest_updated_at": entry.get("manifest_updated_at"),
             **tree_data,
         }
     finally:
@@ -773,10 +909,10 @@ async def get_patch_tree(
             temp_path.unlink(missing_ok=True)
 
 
-@router.put("/patches/{lookup_key}/rules")
-async def update_patch_rules(
+@router.put("/patches/{lookup_key}/manifest")
+async def update_patch_manifest(
     lookup_key: str,
-    body: PatchRuleUpdate,
+    body: PatchManifestUpdate,
     user: User = Depends(require_admin),
 ):
     patches_dir = _get_patches_dir()
@@ -789,27 +925,31 @@ async def update_patch_rules(
             "strip_components": body.strip_components,
             "target_mode": body.target_mode or "game_root",
             "app_id": body.app_id,
+            "manifest_status": "confirmed",
+            "manifest_updated_at": datetime.now(timezone.utc).isoformat(),
         },
         file_hint=body.file,
     )
-    return {"message": "Rules updated", "lookup_key": lookup_key, "patch": updated}
+    return {"message": "Manifest updated", "lookup_key": lookup_key, "patch": _enrich_patch_record(updated)}
 
 
-@router.get("/patches/{app_id}/download")
+@router.get("/patches/{lookup_key}/download")
 async def download_patch(
-    app_id: str,
+    lookup_key: str,
     request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     patches_dir = _get_patches_dir()
 
-    index = _load_patches_index(patches_dir)
-    if index and app_id in index:
-        entry = index[app_id]
+    entry = _find_patch_entry(patches_dir, lookup_key)
+    if entry is not None:
+        entry = _enrich_patch_record(entry)
         if entry.get("source_type") == "openlist":
             result = await session.execute(select(FileSource).where(FileSource.id == entry.get("source_id")))
             source = result.scalar_one_or_none()
+            if source is None:
+                raise HTTPException(status_code=404, detail="OpenList source not found")
             adapter = adapter_from_source(source, "openlist")
             raw_url = await asyncio.to_thread(adapter.download_url, entry.get("source_path") or entry.get("file", ""))
             from fastapi.responses import RedirectResponse
@@ -825,9 +965,9 @@ async def download_patch(
 
     if not patches_dir.exists():
         raise HTTPException(status_code=404, detail="Patch directory not found")
-    patch_file = _find_patch_fallback(patches_dir, app_id)
+    patch_file = _find_patch_fallback(patches_dir, lookup_key)
     if patch_file is None:
-        raise HTTPException(status_code=404, detail=f"Patch file for App ID {app_id} not found")
+        raise HTTPException(status_code=404, detail=f"Patch file for {lookup_key} not found")
     return FileResponse(
         path=str(patch_file),
         filename=patch_file.name,
@@ -850,21 +990,30 @@ class PatchUpdate(BaseModel):
 async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(require_admin)):
     """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
     patches_dir = _get_patches_dir()
+    values = {
+        "patch_dir": body.patch_dir,
+        "target_dir": body.target_dir,
+        "label": body.label,
+        "type": body.type,
+        "strip_components": body.strip_components,
+        "target_mode": body.target_mode,
+        "app_id": body.app_id,
+    }
+    if (
+        body.patch_dir is not None
+        or body.target_dir is not None
+        or body.strip_components is not None
+        or body.target_mode is not None
+    ):
+        values["manifest_status"] = "confirmed"
+        values["manifest_updated_at"] = datetime.now(timezone.utc).isoformat()
     updated = _update_patch_record(
         patches_dir,
         lookup_key,
-        {
-            "patch_dir": body.patch_dir,
-            "target_dir": body.target_dir,
-            "label": body.label,
-            "type": body.type,
-            "strip_components": body.strip_components,
-            "target_mode": body.target_mode,
-            "app_id": body.app_id,
-        },
+        values,
         file_hint=body.file,
     )
-    return {"message": "Updated", "lookup_key": lookup_key, "patch": updated}
+    return {"message": "Updated", "lookup_key": lookup_key, "patch": _enrich_patch_record(updated)}
 
 
 # Patch scan endpoint
@@ -895,6 +1044,8 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
                 item["source_path"] = str(root_path / item["file"])
                 if root_path.resolve() != index_dir.resolve():
                     item["file"] = str(root_path / item["file"])
+                item.pop("patch_id", None)
+                item["patch_id"] = _make_patch_id(item)
             scanned.extend(local_scanned)
 
         json_path = index_dir / "patches.json"

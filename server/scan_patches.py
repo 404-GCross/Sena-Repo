@@ -6,7 +6,7 @@ Usage:
   python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2" "translation"
                                                         # add one entry
 """
-import argparse, json, re
+import argparse, hashlib, json, re
 from pathlib import Path
 
 # Default keywords for auto type detection (mirrors steam_patch.py)
@@ -63,6 +63,12 @@ def _guess_type(filename: str, keywords: dict[str, list[str]]) -> str:
             if w.lower() in lower:
                 return ptype
     return "misc"
+
+
+def _make_patch_id(source_type: str, source_id: int | None, path: str) -> str:
+    identity = f"{source_type or 'local'}|{source_id or ''}|{path}"
+    digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
+    return f"sp_{digest}"
 
 
 def _extract_game_name(filename: str) -> str:
@@ -155,11 +161,13 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
             # Use extracted game name as label if available
             label = _extract_game_name(f.name) if not app_id else ""
             archives.append({
+                "patch_id": _make_patch_id("local", None, rel),
                 "app_id": app_id,
                 "file": rel,
                 "size": f.stat().st_size,
                 "patch_dir": "",
                 "target_dir": "",
+                "manifest_status": "pending",
                 "label": label,
                 "type": ptype,
                 "game_name": _fetch_game_name(app_id) if app_id else "",
@@ -189,6 +197,7 @@ def scan_patches_source(source, root_path: str, source_type: str = "local", sour
             ptype = _guess_type(entry.name, keywords)
             label = _extract_game_name(entry.name) if not app_id else ""
             archives.append({
+                "patch_id": _make_patch_id(source_type, source_id, entry.path),
                 "app_id": app_id,
                 "file": canonical_source_path(source_type, source_id, entry.path),
                 "source_type": source_type,
@@ -198,6 +207,7 @@ def scan_patches_source(source, root_path: str, source_type: str = "local", sour
                 "size": entry.size,
                 "patch_dir": "",
                 "target_dir": "",
+                "manifest_status": "pending",
                 "label": label,
                 "type": ptype,
                 "game_name": _fetch_game_name(app_id) if app_id else "",
@@ -226,6 +236,8 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
     for s in scanned:
         old = existing_by_file.get(s["file"])
         if old:
+            if not old.get("patch_id") and s.get("patch_id"):
+                old["patch_id"] = s["patch_id"]
             # Keep user's manual entries but update discovered fields
             if not old.get("app_id") and s.get("app_id"):
                 old["app_id"] = s["app_id"]

@@ -89,14 +89,17 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       matches.sort((a, b) {
         if (a.patchAvailable != b.patchAvailable)
           return a.patchAvailable ? -1 : 1;
+        if (a.manifestReady != b.manifestReady)
+          return a.manifestReady ? -1 : 1;
         return a.gameName.compareTo(b.gameName);
       });
       final available = matches.where((m) => m.patchAvailable).length;
+      final ready = matches.where((m) => m.patchAvailable && m.manifestReady).length;
       setState(() {
         _matches = matches;
         _loading = false;
         _status = available > 0
-            ? "扫描完成 — ${matches.length} 个游戏，$available 个有可用补丁"
+            ? "扫描完成 — ${matches.length} 个游戏，$available 个匹配补丁，$ready 个可直接注入"
             : "扫描完成 — ${matches.length} 个游戏，暂无可用补丁";
       });
     } catch (e) {
@@ -117,6 +120,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   List<PatchMatch> get _availablePatches =>
       _matches.where((m) => m.patchAvailable).toList();
+  List<PatchMatch> get _readyPatches =>
+      _matches.where((m) => m.patchAvailable && m.manifestReady).toList();
   List<PatchMatch> get _noPatchGames =>
       _matches.where((m) => !m.patchAvailable).toList();
 
@@ -267,7 +272,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _showPatchTreeDialog(PatchMatch m, {bool allowInject = false}) async {
     final api = context.read<GameProvider>().api;
-    final result = await showDialog<_PatchRuleDialogResult>(
+    final result = await showDialog<_PatchManifestDialogResult>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _PatchTreeDialog(
@@ -278,7 +283,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
     if (result == null || !mounted) return;
     if (result.saved) {
-      _showMsg("补丁规则已保存");
+      _showMsg("补丁 Manifest 已保存");
       if (_serverLoaded) unawaited(_loadServerPatches());
       if (_tabIndex == 0 && _commonDir != null) unawaited(_scanAndCheck());
     }
@@ -298,12 +303,17 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }) async {
     final api = context.read<GameProvider>().api;
     final fullPath = _gameInstallPath(m);
+    final lookupKey = SteamService.patchLookupKey(
+      appId: m.appId,
+      file: m.patchFilename,
+      lookupKey: m.patchLookupKey,
+    );
     setState(() =>
         _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
       final result = await SteamService.injectPatch(
         appId: m.appId,
-        downloadUrl: "${api.baseUrl}/api/steam/patches/${m.appId}/download",
+        downloadUrl: "${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/download",
         installDir: fullPath,
         patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
         patchDir: patchDirOverride ?? m.patchDir,
@@ -363,14 +373,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               size: 24,
               color: Theme.of(context).colorScheme.primary,
             ),
-            title: "Steam 补丁管理",
-            subtitle: "本地补丁注入和服务端补丁索引统一管理",
+            title: "Steam 补丁注入",
+            subtitle: "客户端负责浏览与注入，服务端负责补丁匹配与 Manifest",
             actions: [
               AppSegmentedTabs(
                 selectedIndex: _tabIndex,
                 tabs: const [
-                  AppSegmentedTab(0, Icons.computer, "客户端"),
-                  AppSegmentedTab(1, Icons.dns_outlined, "服务端"),
+                  AppSegmentedTab(0, Icons.computer, "客户端注入"),
+                  AppSegmentedTab(1, Icons.dns_outlined, "服务端补丁库"),
                 ],
                 onChanged: (index) {
                   setState(() => _tabIndex = index);
@@ -471,14 +481,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             runSpacing: AppGap.sm,
             children: [
               AppMetricCard(
-                label: "已匹配游戏",
-                value: "${_matches.length}",
+                label: "已匹配补丁",
+                value: "${_availablePatches.length}",
                 icon: Icons.sports_esports,
                 color: Theme.of(context).colorScheme.primary,
               ),
               AppMetricCard(
-                label: "可用补丁",
-                value: "${_availablePatches.length}",
+                label: "可直接注入",
+                value: "${_readyPatches.length}",
                 icon: Icons.download_done,
                 color: Colors.green,
               ),
@@ -510,8 +520,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 if (_matches.isNotEmpty)
                   AppStatusPill(
                     icon: Icons.check_circle_outline,
-                    label: "${_availablePatches.length}/${_matches.length} 可注入",
-                    color: _availablePatches.isNotEmpty
+                    label: "${_readyPatches.length}/${_availablePatches.length} 可直接注入",
+                    color: _readyPatches.isNotEmpty
                         ? Colors.green
                         : Colors.grey,
                   ),
@@ -529,7 +539,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                 children: [
                   if (_availablePatches.isNotEmpty) ...[
-                    _sectionHeader("可注入 (${_availablePatches.length})",
+                    _sectionHeader("已匹配补丁 (${_availablePatches.length})",
                         Icons.download, Colors.green),
                     ..._availablePatches.map((m) => _gameCard(m)),
                   ],
@@ -669,7 +679,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   OutlinedButton.icon(
                       onPressed: () => _showPatchTreeDialog(m, allowInject: true),
                       icon: const Icon(Icons.account_tree_outlined, size: 16),
-                      label: Text("结构",
+                      label: Text(m.manifestReady ? "Manifest" : "确认 Manifest",
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(
@@ -677,9 +687,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                               horizontal: 12, vertical: 8),
                           minimumSize: Size.zero)),
                   FilledButton.tonalIcon(
-                      onPressed: () => _startInjection(m),
+                      onPressed: m.manifestReady
+                          ? () => _startInjection(m)
+                          : () => _showPatchTreeDialog(m, allowInject: true),
                       icon: const Icon(Icons.auto_fix_high, size: 16),
-                      label: Text("注入",
+                      label: Text(m.manifestReady ? "注入" : "确认后注入",
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
                       style: FilledButton.styleFrom(
@@ -768,6 +780,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               padding: const EdgeInsets.only(top: 6),
               child: Row(children: [
                 _typeBadge(m.type),
+                const SizedBox(width: 6),
+                _manifestBadge(m.manifestStatus),
                 const SizedBox(width: 6),
                 Text(m.label ?? m.patchFilename ?? "",
                     style: AppText.bodySmall.copyWith(
@@ -865,6 +879,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       final appId = (p["app_id"] ?? "").toString();
       return appId.isEmpty || appId == "None" || appId == "null";
     }).length;
+    final pendingManifests = _serverPatches
+        .where((p) => (p["manifest_status"] ?? "pending") != "confirmed")
+        .length;
     return AppSurface(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -875,7 +892,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               Icon(Icons.dns_outlined,
                   color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: AppGap.sm),
-              Text("服务端索引", style: AppText.title),
+              Text("服务端补丁库", style: AppText.title),
             ],
           ),
           const SizedBox(height: AppGap.lg),
@@ -922,11 +939,17 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 icon: Icons.warning_amber,
                 color: missingAppIds > 0 ? Colors.orange : Colors.green,
               ),
+              AppMetricCard(
+                label: "待确认 Manifest",
+                value: "$pendingManifests",
+                icon: Icons.pending_actions_outlined,
+                color: pendingManifests > 0 ? Colors.orange : Colors.green,
+              ),
             ],
           ),
           const Spacer(),
           Text(
-            "服务端页面只在首次切换或手动点击时加载索引，不再每次打开都触发扫描。",
+            "服务端负责扫描补丁、匹配 AppID、确认 Manifest；客户端只负责选择本地库并注入。",
             style: AppText.caption
                 .copyWith(color: hintColor(context), height: 1.5),
           ),
@@ -945,7 +968,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
             child: Row(
               children: [
-                Text("服务端补丁索引", style: AppText.title),
+                Text("服务端补丁库", style: AppText.title),
                 const Spacer(),
                 if (_serverLoaded)
                   AppStatusPill(
@@ -1000,12 +1023,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _serverPatchCard(Map<String, dynamic> p) {
     final file = (p["file"] ?? "").toString();
+    final displayFile = (p["display_file"] ?? file).toString();
+    final lookupKey = (p["lookup_key"] ?? p["patch_id"] ?? file).toString();
     final label = (p["label"] ?? "").toString();
     final ptype = (p["type"] ?? "misc").toString();
     final patchDir = (p["patch_dir"] ?? "").toString();
     final targetDir = (p["target_dir"] ?? "").toString();
     final appId = (p["app_id"] ?? "").toString();
     final matched = (p["matched_game"] ?? "").toString();
+    final suggestedAppId = (p["suggested_app_id"] ?? "").toString();
+    final manifestStatus = (p["manifest_status"] ?? "pending").toString();
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
 
     return AppSurface(
@@ -1030,13 +1057,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
-                child: Text(label.isNotEmpty ? label : file.split("/").last,
+                child: Text(label.isNotEmpty ? label : displayFile.split("/").last,
                     style: AppText.bodyMedium
                         .copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 4),
             _typeBadge(ptype),
+            const SizedBox(width: 6),
+            _manifestBadge(manifestStatus),
           ]),
           const SizedBox(height: 4),
           Row(children: [
@@ -1046,7 +1075,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ] else ...[
               Icon(Icons.warning_amber, size: 12, color: Colors.orange[300]),
               const SizedBox(width: 2),
-              Text("无 AppID",
+              Text(suggestedAppId.isNotEmpty ? "建议 AppID $suggestedAppId" : "无 AppID",
                   style: AppText.caption.copyWith(color: Colors.orange[300])),
               const SizedBox(width: 6)
             ],
@@ -1058,7 +1087,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               const SizedBox(width: 4)
             ],
             Expanded(
-                child: Text(file,
+                child: Text(displayFile,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.caption
@@ -1083,23 +1112,26 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(6),
             constraints: const BoxConstraints(),
-            onPressed: () => _rescrapeOne(hasAppId ? appId : file)),
+            onPressed: () => _rescrapeOne(lookupKey)),
         IconButton(
             icon: const Icon(Icons.account_tree_outlined, size: 16),
-            tooltip: "结构/规则",
+            tooltip: "目录树 / Manifest",
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(6),
             constraints: const BoxConstraints(),
             onPressed: () => _showPatchTreeDialog(PatchMatch(
                 appId: appId,
-                gameName: label.isNotEmpty ? label : file.split("/").last,
+                gameName: label.isNotEmpty ? label : displayFile.split("/").last,
                 installDir: "",
                 patchAvailable: true,
+                patchLookupKey: lookupKey,
                 patchFilename: file,
                 patchDir: patchDir,
                 targetDir: targetDir,
                 label: label,
-                type: ptype))),
+                type: ptype,
+                manifestStatus: manifestStatus,
+                manifestReady: manifestStatus == "confirmed"))),
         IconButton(
             icon: const Icon(Icons.edit, size: 16),
             tooltip: "编辑",
@@ -1108,14 +1140,17 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             constraints: const BoxConstraints(),
             onPressed: () => _showEditDialog(PatchMatch(
                 appId: appId,
-                gameName: label.isNotEmpty ? label : file.split("/").last,
+                gameName: label.isNotEmpty ? label : displayFile.split("/").last,
                 installDir: "",
                 patchAvailable: true,
+                patchLookupKey: lookupKey,
                 patchFilename: file,
                 patchDir: patchDir,
                 targetDir: targetDir,
                 label: label,
-                type: ptype))),
+                type: ptype,
+                manifestStatus: manifestStatus,
+                manifestReady: manifestStatus == "confirmed"))),
       ]),
     );
   }
@@ -1123,8 +1158,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   // ── Edit dialog ──
 
   Future<void> _showEditDialog(PatchMatch m) async {
-    final patchCtrl = TextEditingController(text: m.patchDir ?? "");
-    final targetCtrl = TextEditingController(text: m.targetDir ?? "");
     final labelCtrl = TextEditingController(text: m.label ?? "");
     final appIdCtrl = TextEditingController(
         text: m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty
@@ -1135,7 +1168,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final result = await showDialog<Map<String, String>>(
         context: context,
         builder: (ctx) => AlertDialog(
-              title: Text("编辑补丁 — ${m.gameName}"),
+              title: Text("编辑补丁元数据 — ${m.gameName}"),
               content: SizedBox(
                   width: 380,
                   child: SingleChildScrollView(
@@ -1147,20 +1180,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                             hintText: "Steam 商店游戏ID",
                             isDense: true),
                         keyboardType: TextInputType.number),
-                    const SizedBox(height: 10),
-                    TextField(
-                        controller: patchCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "补丁源目录 (patch_dir)",
-                            hintText: "解压后取此子目录",
-                            isDense: true)),
-                    const SizedBox(height: 10),
-                    TextField(
-                        controller: targetCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "目标目录 (target_dir)",
-                            hintText: "复制到游戏目录下的子路径",
-                            isDense: true)),
                     const SizedBox(height: 10),
                     TextField(
                         controller: labelCtrl,
@@ -1186,8 +1205,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 FilledButton(
                     onPressed: () => Navigator.pop(ctx, {
                           "app_id": appIdCtrl.text.trim(),
-                          "patch_dir": patchCtrl.text.trim(),
-                          "target_dir": targetCtrl.text.trim(),
                           "label": labelCtrl.text.trim(),
                           "type": ptype
                         }),
@@ -1201,8 +1218,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           api: api,
           appId: result["app_id"] ?? m.appId,
           file: m.patchFilename,
-          patchDir: result["patch_dir"] ?? "",
-          targetDir: result["target_dir"] ?? "",
+          lookupKey: m.patchLookupKey,
           label: result["label"] ?? "",
           type: result["type"] ?? "misc");
       _loadServerPatches();
@@ -1261,6 +1277,17 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 fontSize: 10, fontWeight: FontWeight.w600, color: color[300])));
   }
 
+  Widget _manifestBadge(String? status) {
+    final normalized = status == "confirmed" ? "confirmed" : "pending";
+    return AppStatusPill(
+      icon: normalized == "confirmed"
+          ? Icons.verified_outlined
+          : Icons.pending_actions_outlined,
+      label: normalized == "confirmed" ? "Manifest 已确认" : "Manifest 待确认",
+      color: normalized == "confirmed" ? Colors.green : Colors.orange,
+    );
+  }
+
   Widget _appIdChip(String appId) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
@@ -1316,13 +1343,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 }
 
 
-class _PatchRuleDialogResult {
+class _PatchManifestDialogResult {
   final bool saved;
   final bool inject;
   final String patchDir;
   final String targetDir;
 
-  const _PatchRuleDialogResult({
+  const _PatchManifestDialogResult({
     required this.saved,
     required this.inject,
     required this.patchDir,
@@ -1380,6 +1407,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
         widget.api,
         appId: widget.match.appId,
         file: widget.match.patchFilename,
+        lookupKey: widget.match.patchLookupKey,
       );
       final recommended = Map<String, dynamic>.from(
         (data["recommended"] as Map?) ?? const {},
@@ -1423,10 +1451,11 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
     try {
       final patchDir = _patchDir.text.trim().replaceAll(RegExp(r"^/+|/+$"), "");
       final targetDir = _targetDir.text.trim().replaceAll(RegExp(r"^/+|/+$"), "");
-      await SteamService.updatePatchRules(
+      await SteamService.updatePatchManifest(
         api: widget.api,
         appId: widget.match.appId,
         file: widget.match.patchFilename,
+        lookupKey: widget.match.patchLookupKey,
         patchDir: patchDir,
         targetDir: targetDir,
         stripComponents: patchDir.isEmpty ? 0 : _stripComponents,
@@ -1435,7 +1464,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
       if (!mounted) return;
       Navigator.pop(
         context,
-        _PatchRuleDialogResult(
+        _PatchManifestDialogResult(
           saved: true,
           inject: inject,
           patchDir: patchDir,
@@ -1498,7 +1527,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("补丁结构 / 注入规则", style: AppText.headline),
+                          Text("目录树 / Manifest", style: AppText.headline),
                           const SizedBox(height: 4),
                           Text(
                             filename,
@@ -1535,7 +1564,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                     const SizedBox(width: AppGap.sm),
                     AppActionButton(
                       icon: Icons.save_outlined,
-                      label: "保存规则",
+                      label: "保存 Manifest",
                       busy: _saving,
                       onPressed: _loading || _data == null || _saving ? null : () => _save(inject: false),
                     ),
@@ -1598,11 +1627,11 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 860;
         final tree = _buildTreePanel(context);
-        final rules = _buildRulePanel(context);
+        final manifest = _buildManifestPanel(context);
         if (!wide) {
           return ListView(
             padding: const EdgeInsets.all(18),
-            children: [tree, const SizedBox(height: AppGap.md), rules],
+            children: [tree, const SizedBox(height: AppGap.md), manifest],
           );
         }
         return Padding(
@@ -1612,7 +1641,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
             children: [
               Expanded(child: tree),
               const SizedBox(width: AppGap.md),
-              SizedBox(width: 340, child: rules),
+              SizedBox(width: 340, child: manifest),
             ],
           ),
         );
@@ -1660,7 +1689,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
     );
   }
 
-  Widget _buildRulePanel(BuildContext context) {
+  Widget _buildManifestPanel(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final recommended = Map<String, dynamic>.from((_data?["recommended"] as Map?) ?? const {});
     final recommendedPatchDir = (recommended["patch_dir"] ?? "").toString();
@@ -1672,7 +1701,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
             children: [
               Icon(Icons.rule_rounded, color: cs.primary),
               const SizedBox(width: AppGap.sm),
-              Text("注入规则", style: AppText.title),
+              Text("Manifest 确认", style: AppText.title),
             ],
           ),
           const SizedBox(height: AppGap.md),
@@ -2055,8 +2084,8 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
       return _buildStatePane(
         context,
         icon: Icons.sync_rounded,
-        title: "正在加载关键词规则",
-        message: "弹窗已经打开，正在从服务端读取当前匹配规则。",
+        title: "正在加载关键词",
+        message: "弹窗已经打开，正在从服务端读取当前关键词配置。",
         progress: true,
       );
     }
@@ -2064,7 +2093,7 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
       return _buildStatePane(
         context,
         icon: Icons.error_outline_rounded,
-        title: "关键词规则加载失败",
+        title: "关键词加载失败",
         message: "$_loadError",
         action: AppActionButton(
           icon: Icons.refresh_rounded,
@@ -2408,7 +2437,7 @@ class _KeywordMatchDialogState extends State<_KeywordMatchDialog> {
           const SizedBox(width: AppGap.sm),
           AppActionButton(
             icon: Icons.save_rounded,
-            label: "保存规则",
+            label: "保存关键词",
             filled: true,
             onPressed: _ready
                 ? () => Navigator.pop(context, _collectKeywords())

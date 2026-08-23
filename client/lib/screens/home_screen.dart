@@ -932,7 +932,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final gameProvider = context.watch<GameProvider>();
     final theme = context.watch<ThemeProvider>();
     final wide = _isWide(context);
-    final showSteam = !Platform.isAndroid; // Steam patch is PC-only
+    final showSteam = !Platform.isAndroid && !Platform.isIOS; // Steam patch is PC-only
     final cs = Theme.of(context).colorScheme;
 
     // Build page list and nav destinations dynamically
