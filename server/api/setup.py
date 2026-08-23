@@ -158,10 +158,14 @@ async def initialize_setup(
         source_type, source_id, source_name, path = await ensure_source(item)
         if not path:
             continue
+        analysis_mode = str(item.get("analysis_mode") or "").strip().lower()
+        if analysis_mode not in {"auto", "manual"}:
+            analysis_mode = "manual" if source_type == "openlist" else "auto"
         session.add(SteamPatchRoot(
             source_type=source_type,
             source_id=source_id,
             source_name=source_name,
+            analysis_mode=analysis_mode,
             path=path,
         ))
         patch_roots_added += 1

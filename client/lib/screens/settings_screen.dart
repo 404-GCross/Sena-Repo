@@ -905,14 +905,102 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
     super.dispose();
   }
 
+  Widget _analysisModeCard({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppText.bodySmall.copyWith(color: Colors.grey)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+
+  Widget _localPatchAnalysisSelector() {
+    return _analysisModeCard(
+      title: "补丁规则模式",
+      children: [
+        RadioListTile<String>(
+          value: "auto",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "auto"),
+          dense: true,
+          title: const Text("自动分析压缩包"),
+          subtitle: Text(
+            "适合服务端本地目录，可读取目录树并推荐规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+        RadioListTile<String>(
+          value: "manual",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "manual"),
+          dense: true,
+          title: const Text("手动配置规则"),
+          subtitle: Text(
+            "不扫描压缩包目录树，按补丁说明手写注入规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _openListPatchStorageSelector() {
+    return _analysisModeCard(
+      title: "OpenList 存储类型",
+      children: [
+        RadioListTile<String>(
+          value: "auto",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "auto"),
+          dense: true,
+          title: const Text("本地映射"),
+          subtitle: Text(
+            "OpenList 挂载的是服务端本地磁盘，可以读取压缩包目录树并自动推荐规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+        RadioListTile<String>(
+          value: "manual",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "manual"),
+          dense: true,
+          title: const Text("网盘"),
+          subtitle: Text(
+            "OpenList 挂载的是云盘或远程存储，不下载整包探测目录，只手写注入规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final openListSources =
         widget.fileSources.where((s) => s["type"] == "openlist").toList();
     final selectedSourceId =
         openListSources.any((s) => s["id"] == _sourceId) ? _sourceId : null;
+    final localLabel =
+        widget.patchRoot ? "服务端本地补丁库" : "\u672c\u5730\u6587\u4ef6\u6e90";
+    final openListLabel = widget.patchRoot ? "OpenList 补丁库" : "OpenList";
     return AlertDialog(
-      title: Text("\u6dfb\u52a0${widget.purposeLabel}\u76ee\u5f55"),
+      title: Text("${widget.initial == null ? "\u6dfb\u52a0" : "\u7f16\u8f91"}${widget.purposeLabel}\u76ee\u5f55"),
       content: SizedBox(
         width: 380,
         child: SingleChildScrollView(
@@ -922,16 +1010,16 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
             children: [
               Center(
                 child: SegmentedButton<String>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: "local",
-                      label: Text("\u672c\u5730\u6587\u4ef6\u6e90"),
-                      icon: Icon(Icons.folder_outlined),
+                      label: Text(localLabel),
+                      icon: const Icon(Icons.folder_outlined),
                     ),
                     ButtonSegment(
                       value: "openlist",
-                      label: Text("OpenList"),
-                      icon: Icon(Icons.cloud_outlined),
+                      label: Text(openListLabel),
+                      icon: const Icon(Icons.cloud_outlined),
                     ),
                   ],
                   selected: {_sourceType},
@@ -983,54 +1071,19 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
                 controller: _pathCtrl,
                 decoration: InputDecoration(
                   labelText: _sourceType == "openlist"
-                      ? "\u8fdc\u7a0b\u76ee\u5f55"
-                      : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55",
-                  hintText:
-                      _sourceType == "openlist" ? "/Games" : "/data/games",
+                      ? (widget.patchRoot ? "OpenList 补丁目录" : "\u8fdc\u7a0b\u76ee\u5f55")
+                      : (widget.patchRoot ? "服务端本地补丁目录" : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55"),
+                  hintText: _sourceType == "openlist"
+                      ? (widget.patchRoot ? "/Patches" : "/Games")
+                      : (widget.patchRoot ? "/steam_patch" : "/data/games"),
                 ),
               ),
               if (widget.patchRoot) ...[
                 const SizedBox(height: 16),
-                Text(
-                  "补丁规则模式",
-                  style: AppText.bodySmall.copyWith(color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: cardBg(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cardBorder(context)),
-                  ),
-                  child: Column(
-                    children: [
-                      RadioListTile<String>(
-                        value: "auto",
-                        groupValue: _analysisMode,
-                        onChanged: (value) =>
-                            setState(() => _analysisMode = value ?? "auto"),
-                        dense: true,
-                        title: const Text("自动分析压缩包"),
-                        subtitle: Text(
-                          "适合服务端本地目录，可读取目录树并推荐规则。",
-                          style: AppText.bodySmall.copyWith(color: Colors.grey),
-                        ),
-                      ),
-                      RadioListTile<String>(
-                        value: "manual",
-                        groupValue: _analysisMode,
-                        onChanged: (value) =>
-                            setState(() => _analysisMode = value ?? "manual"),
-                        dense: true,
-                        title: const Text("手动配置规则"),
-                        subtitle: Text(
-                          "适合 OpenList/网盘目录，不下载压缩包，只手写注入规则。",
-                          style: AppText.bodySmall.copyWith(color: Colors.grey),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                if (_sourceType == "openlist")
+                  _openListPatchStorageSelector()
+                else
+                  _localPatchAnalysisSelector(),
               ],
             ],
           ),
@@ -1657,11 +1710,20 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     required VoidCallback onAdd,
     required void Function(Map<String, dynamic> item) onEdit,
     required void Function(int id) onDelete,
+    String? description,
+    bool patchRoot = false,
   }) =>
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionHeader(title, Icons.folder_outlined),
+          if (description != null && description.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              description,
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+            ),
+          ],
           const SizedBox(height: 8),
           if (items.isEmpty)
             _hintCard("\u6682\u65e0\u76ee\u5f55")
@@ -1692,8 +1754,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                         children: [
                           Text(
                             (r["source_type"] == "openlist")
-                                ? "OpenList \u6e90"
-                                : "\u672c\u5730\u6587\u4ef6\u6e90",
+                                ? (patchRoot
+                                    ? (r["analysis_mode"] == "auto"
+                                        ? "OpenList 本地映射补丁库"
+                                        : "OpenList 网盘补丁库")
+                                    : "OpenList 游戏库")
+                                : (patchRoot ? "服务端本地补丁库" : "\u672c\u5730\u6587\u4ef6\u6e90"),
                             style: AppText.bodySmall.copyWith(
                               color: hintColor(context),
                             ),
@@ -1859,9 +1925,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   _directorySection(
                     title: "Steam \u8865\u4e01\u5e93\u76ee\u5f55",
                     items: _patchRoots,
+                    description:
+                        "添加补丁目录时选择“服务端本地补丁库”或“OpenList 补丁库”；OpenList 再选择本地映射或网盘，网盘模式不会下载远程压缩包探测目录树。",
                     onAdd: () => _addDirectory(patchRoot: true),
                     onEdit: (item) => _editDirectory(item, patchRoot: true),
                     onDelete: _delPatchRoot,
+                    patchRoot: true,
                   ),
                   // ── Actions ──
                   _sectionHeader("操作", Icons.play_arrow_outlined),

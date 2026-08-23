@@ -99,13 +99,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Future<void> _addDirectory(
     List<Map<String, dynamic>> target,
-    String label,
-  ) async {
+    String label, {
+      bool patchRoot = false,
+    }) async {
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => _SetupDirectoryDialog(
         label: label,
         openListSources: _openListSources,
+        patchRoot: patchRoot,
       ),
     );
     if (payload == null) return;
@@ -115,13 +117,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Future<void> _editDirectory(
     List<Map<String, dynamic>> target,
     int index,
-    String label,
-  ) async {
+    String label, {
+      bool patchRoot = false,
+    }) async {
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => _SetupDirectoryDialog(
         label: label,
         openListSources: _openListSources,
+        patchRoot: patchRoot,
         initial: target[index],
       ),
     );
@@ -543,11 +547,16 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   _librarySection(
                     "Steam 补丁库",
                     _patchLibraries,
-                    () => _addDirectory(_patchLibraries, "Steam 补丁库"),
+                    () => _addDirectory(
+                      _patchLibraries,
+                      "Steam 补丁库",
+                      patchRoot: true,
+                    ),
                     (index) => _editDirectory(
                       _patchLibraries,
                       index,
                       "Steam 补丁库",
+                      patchRoot: true,
                     ),
                   ),
                 ],
@@ -568,11 +577,16 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     child: _librarySection(
                       "Steam 补丁库",
                       _patchLibraries,
-                      () => _addDirectory(_patchLibraries, "Steam 补丁库"),
+                      () => _addDirectory(
+                        _patchLibraries,
+                        "Steam 补丁库",
+                        patchRoot: true,
+                      ),
                       (index) => _editDirectory(
                         _patchLibraries,
                         index,
                         "Steam 补丁库",
+                        patchRoot: true,
                       ),
                     ),
                   ),
@@ -712,6 +726,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               children: items.asMap().entries.map((entry) {
                 final value = entry.value;
                 final openList = value["source_type"] == "openlist";
+                final patchRoot = title.contains("Steam");
                 return Padding(
                   padding: EdgeInsets.only(
                     bottom: entry.key == items.length - 1 ? 0 : AppGap.sm,
@@ -720,7 +735,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     icon: openList
                         ? Icons.cloud_outlined
                         : Icons.folder_outlined,
-                    title: openList ? "OpenList 源" : "本地文件源",
+                    title: openList
+                        ? (patchRoot
+                            ? (value["analysis_mode"] == "auto"
+                                ? "OpenList 本地映射补丁库"
+                                : "OpenList 网盘补丁库")
+                            : "OpenList 源")
+                        : (patchRoot ? "服务端本地补丁库" : "本地文件源"),
                     subtitle: openList
                         ? "${value["source_name"] ?? "OpenList"} / ${value["path"] ?? ""}"
                         : value["path"]?.toString() ?? "",
@@ -1420,10 +1441,12 @@ class _SetupStepItem extends StatelessWidget {
 class _SetupDirectoryDialog extends StatefulWidget {
   final String label;
   final List<Map<String, dynamic>> openListSources;
+  final bool patchRoot;
   final Map<String, dynamic>? initial;
   const _SetupDirectoryDialog({
     required this.label,
     required this.openListSources,
+    this.patchRoot = false,
     this.initial,
   });
 
@@ -1434,6 +1457,7 @@ class _SetupDirectoryDialog extends StatefulWidget {
 class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
   String _sourceType = "local";
   int? _sourceIndex;
+  String _analysisMode = "auto";
   final _pathCtrl = TextEditingController();
 
   @override
@@ -1444,6 +1468,11 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
       _sourceType = initial["source_type"]?.toString() == "openlist"
           ? "openlist"
           : "local";
+      final initialMode = initial["analysis_mode"]?.toString();
+      _analysisMode = initialMode == "manual" ||
+              (initialMode == null && _sourceType == "openlist")
+          ? "manual"
+          : "auto";
       _pathCtrl.text = initial["path"]?.toString() ?? "";
       if (_sourceType == "openlist") {
         final idx = widget.openListSources.indexWhere(
@@ -1462,6 +1491,44 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
     super.dispose();
   }
 
+  Widget _openListPatchStorageSelector() {
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        children: [
+          RadioListTile<String>(
+            value: "auto",
+            groupValue: _analysisMode,
+            onChanged: (value) =>
+                setState(() => _analysisMode = value ?? "auto"),
+            dense: true,
+            title: const Text("本地映射"),
+            subtitle: Text(
+              "OpenList 挂载的是服务端本地磁盘，可以读取压缩包目录树并自动推荐规则。",
+              style: AppText.caption.copyWith(color: hintColor(context)),
+            ),
+          ),
+          RadioListTile<String>(
+            value: "manual",
+            groupValue: _analysisMode,
+            onChanged: (value) =>
+                setState(() => _analysisMode = value ?? "manual"),
+            dense: true,
+            title: const Text("网盘"),
+            subtitle: Text(
+              "OpenList 挂载的是云盘或远程存储，不下载整包探测目录，只手写注入规则。",
+              style: AppText.caption.copyWith(color: hintColor(context)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedSourceIndex = _sourceIndex != null &&
@@ -1469,8 +1536,10 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
             _sourceIndex! < widget.openListSources.length
         ? _sourceIndex
         : null;
+    final localLabel = widget.patchRoot ? "服务端本地补丁库" : "\u672c\u5730\u6587\u4ef6\u6e90";
+    final openListLabel = widget.patchRoot ? "OpenList 补丁库" : "OpenList";
     return AlertDialog(
-      title: Text("\u6dfb\u52a0${widget.label}\u76ee\u5f55"),
+      title: Text("${widget.initial == null ? "\u6dfb\u52a0" : "\u7f16\u8f91"}${widget.label}\u76ee\u5f55"),
       content: SizedBox(
         width: 380,
         child: SingleChildScrollView(
@@ -1480,21 +1549,25 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
             children: [
               Center(
                 child: SegmentedButton<String>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: "local",
-                      icon: Icon(Icons.folder_outlined),
-                      label: Text("\u672c\u5730\u6587\u4ef6\u6e90"),
+                      icon: const Icon(Icons.folder_outlined),
+                      label: Text(localLabel),
                     ),
                     ButtonSegment(
                       value: "openlist",
-                      icon: Icon(Icons.cloud_outlined),
-                      label: Text("OpenList"),
+                      icon: const Icon(Icons.cloud_outlined),
+                      label: Text(openListLabel),
                     ),
                   ],
                   selected: {_sourceType},
                   onSelectionChanged: (v) => setState(() {
                     _sourceType = v.first;
+                    if (widget.patchRoot) {
+                      _analysisMode =
+                          _sourceType == "openlist" ? "manual" : "auto";
+                    }
                     if (_sourceType == "openlist" &&
                         _sourceIndex == null &&
                         widget.openListSources.isNotEmpty) {
@@ -1538,12 +1611,22 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
                 controller: _pathCtrl,
                 decoration: InputDecoration(
                   labelText: _sourceType == "openlist"
-                      ? "\u8fdc\u7a0b\u76ee\u5f55"
-                      : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55",
-                  hintText:
-                      _sourceType == "openlist" ? "/Games" : "/data/games",
+                      ? (widget.patchRoot ? "OpenList 补丁目录" : "\u8fdc\u7a0b\u76ee\u5f55")
+                      : (widget.patchRoot ? "服务端本地补丁目录" : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55"),
+                  hintText: _sourceType == "openlist"
+                      ? (widget.patchRoot ? "/Patches" : "/Games")
+                      : (widget.patchRoot ? "/steam_patch" : "/data/games"),
                 ),
               ),
+              if (widget.patchRoot && _sourceType == "openlist") ...[
+                const SizedBox(height: 16),
+                Text(
+                  "OpenList 存储类型",
+                  style: AppText.caption.copyWith(color: hintColor(context)),
+                ),
+                const SizedBox(height: 8),
+                _openListPatchStorageSelector(),
+              ],
             ],
           ),
         ),
@@ -1561,6 +1644,9 @@ class _SetupDirectoryDialogState extends State<_SetupDirectoryDialog> {
               "source_type": _sourceType,
               "path": path,
             };
+            if (widget.patchRoot) {
+              payload["analysis_mode"] = _analysisMode;
+            }
             if (_sourceType == "openlist") {
               if (_sourceIndex == null ||
                   _sourceIndex! < 0 ||
