@@ -2923,7 +2923,7 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "中文元数据、标签与 NSFW 信息优先，适合补全详情页展示。",
+        subtitle: "Hikarinagi 是面向 Galgame 的中文资料站，收录作品、标签和分级信息。",
         icon: Icons.auto_awesome_rounded,
         color: Colors.pink,
         chips: const ["中文", "Tag", "NSFW"],
@@ -2932,7 +2932,7 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "VNDB 条目与视觉小说标签，适合补充时间、简介和题材。",
+        subtitle: "VNDB 是视觉小说资料库，以维基形式收录作品、发行版本和标签。",
         icon: Icons.menu_book_rounded,
         color: Colors.indigo,
         chips: const ["VNDB ID", "Tag", "简介"],
@@ -2941,7 +2941,7 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "Bangumi 条目资料，适合中文标题、日期与条目 ID 对齐。",
+        subtitle: "Bangumi 是中文 ACG 条目与收藏社区，覆盖动画、游戏、书籍和人物。",
         icon: Icons.forum_rounded,
         color: Colors.blue,
         chips: const ["中文", "条目 ID", "日期"],
@@ -2950,7 +2950,7 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "Steam 商店资料，适合补充 AppID、封面、背景和商店标签。",
+        subtitle: "Steam 是 Valve 的数字游戏商店与社区平台，提供商店页和用户标签。",
         icon: Icons.sports_esports_rounded,
         color: Colors.teal,
         chips: const ["AppID", "图片", "Tag"],
