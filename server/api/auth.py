@@ -3,18 +3,110 @@
 from __future__ import annotations
 import hashlib
 import secrets
+import threading
+import time
+from math import ceil
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from config import load_config
 from database import get_session
 from models.user import User, UserSession, Notification, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+_LOGIN_FAILURE_LIMIT = 5
+_LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
+_LOGIN_BLOCK_SECONDS = 5 * 60
+_LOGIN_FAILURE_MAX_ENTRIES = 10_000
+_login_failure_lock = threading.Lock()
+_login_failures: dict[tuple[str, str], tuple[int, float, float]] = {}
+
+
+def _login_key(body: "LoginRequest", request: Request) -> tuple[str, str]:
+    username = body.username.strip().casefold()[:128]
+    client_host = request.client.host if request.client else "unknown"
+    return username, client_host[:255]
+
+
+def _prune_login_failures(now: float) -> None:
+    stale = [
+        key
+        for key, (_, window_started, blocked_until) in _login_failures.items()
+        if now - window_started >= _LOGIN_FAILURE_WINDOW_SECONDS
+        and blocked_until <= now
+    ]
+    for key in stale:
+        _login_failures.pop(key, None)
+    if len(_login_failures) > _LOGIN_FAILURE_MAX_ENTRIES:
+        excess = len(_login_failures) - _LOGIN_FAILURE_MAX_ENTRIES
+        oldest = sorted(
+            _login_failures.items(),
+            key=lambda item: max(item[1][1], item[1][2]),
+        )[:excess]
+        for key, _ in oldest:
+            _login_failures.pop(key, None)
+
+
+def _login_retry_after(key: tuple[str, str]) -> int:
+    now = time.monotonic()
+    with _login_failure_lock:
+        _prune_login_failures(now)
+        state = _login_failures.get(key)
+        if state is None:
+            return 0
+        _, window_started, blocked_until = state
+        if now - window_started >= _LOGIN_FAILURE_WINDOW_SECONDS:
+            _login_failures.pop(key, None)
+            return 0
+        if blocked_until > now:
+            return max(1, ceil(blocked_until - now))
+        return 0
+
+
+def _record_login_failure(key: tuple[str, str]) -> int:
+    now = time.monotonic()
+    with _login_failure_lock:
+        _prune_login_failures(now)
+        failures, window_started, blocked_until = _login_failures.get(
+            key, (0, now, 0.0)
+        )
+        if now - window_started >= _LOGIN_FAILURE_WINDOW_SECONDS:
+            failures, window_started, blocked_until = 0, now, 0.0
+        failures += 1
+        if failures >= _LOGIN_FAILURE_LIMIT:
+            blocked_until = max(blocked_until, now + _LOGIN_BLOCK_SECONDS)
+        _login_failures[key] = (failures, window_started, blocked_until)
+        return max(0, ceil(blocked_until - now))
+
+
+def _clear_login_failures(key: tuple[str, str]) -> None:
+    with _login_failure_lock:
+        _login_failures.pop(key, None)
+
+
+def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
+    message = str(exc).lower()
+    if "users.role" in message or "uq_users_owner_role" in message:
+        return "服务器已完成初始化，请重试注册"
+    if "users.username" in message:
+        return "用户名已存在"
+    return None
+
+
+def _ensure_profile_edit_access(current: User, target: User) -> None:
+    if current.id == target.id:
+        return
+    if current.role == "owner":
+        return
+    if current.role == "admin" and target.role == "user":
+        return
+    raise HTTPException(status_code=403, detail="管理员只能修改自己的资料或普通用户资料")
 
 
 def _token_expires_at() -> datetime:
@@ -192,10 +284,26 @@ async def login(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
+    login_key = _login_key(body, request)
+    retry_after = _login_retry_after(login_key)
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail="登录尝试过于频繁，请稍后再试",
+            headers={"Retry-After": str(retry_after)},
+        )
     result = await session.execute(select(User).where(User.username == body.username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.salt, user.password_hash):
+        retry_after = _record_login_failure(login_key)
+        if retry_after:
+            raise HTTPException(
+                status_code=429,
+                detail="登录尝试过于频繁，请稍后再试",
+                headers={"Retry-After": str(retry_after)},
+            )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    _clear_login_failures(login_key)
     if user.status == "pending":
         raise HTTPException(status_code=403, detail="账户等待管理员审批中")
     if user.status == "rejected":
@@ -242,20 +350,27 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
         role=role, is_admin=is_first,
         status="active" if is_first else "pending",
     )
-    session.add(user)
-    await session.flush()
-    if not is_first:
-        admins = await session.execute(
-            select(User).where(User.role.in_(("owner", "admin")))
-        )
-        for admin in admins.scalars():
-            session.add(Notification(
-                type="approval_request",
-                title=f"新用户注册: {body.username}",
-                body=f"用户 {body.username} 申请普通用户账户，等待审批",
-                target_user_id=user.id,
-            ))
-    await session.commit()
+    try:
+        session.add(user)
+        await session.flush()
+        if not is_first:
+            admins = await session.execute(
+                select(User).where(User.role.in_(("owner", "admin")))
+            )
+            for admin in admins.scalars():
+                session.add(Notification(
+                    type="approval_request",
+                    title=f"新用户注册: {body.username}",
+                    body=f"用户 {body.username} 申请普通用户账户，等待审批",
+                    target_user_id=user.id,
+                ))
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        detail = _integrity_conflict_detail(exc)
+        if detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise
     if is_first:
         return {"message": "注册成功，首个用户已成为服主", "user_id": user.id, "auto_approved": True}
     return {"message": "注册成功，等待管理员审批", "user_id": user.id, "pending": True}
@@ -365,6 +480,7 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
             # Transfer ownership: current owner steps down to admin
             current.role = "admin"
             current.is_admin = True
+            await session.flush()
             user.role = "owner"
             user.is_admin = True
         elif desired_role == "admin":
@@ -441,7 +557,10 @@ async def unread_notification_count(current: User = Depends(get_current_user),
 @router.put("/notifications/{notif_id}/read")
 async def mark_notification_read(notif_id: int, current: User = Depends(get_current_user),
                                    session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Notification).where(Notification.id == notif_id))
+    query = select(Notification).where(Notification.id == notif_id)
+    if current.role not in ("owner", "admin"):
+        query = query.where(Notification.target_user_id == current.id)
+    result = await session.execute(query)
     notif = result.scalar_one_or_none()
     if notif is None:
         raise HTTPException(status_code=404, detail="通知不存在")
@@ -501,8 +620,7 @@ async def update_profile(user_id: int, body: ProfileUpdate,
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    if current.id != user.id and current.role not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="只能修改自己的资料")
+    _ensure_profile_edit_access(current, user)
     new_token: str | None = None
     if body.new_password:
         if current.id == user.id:
@@ -510,8 +628,6 @@ async def update_profile(user_id: int, body: ProfileUpdate,
                 raise HTTPException(status_code=400, detail="需要当前密码")
             if not verify_password(body.current_password, user.salt, user.password_hash):
                 raise HTTPException(status_code=403, detail="当前密码错误")
-        elif current.role not in ("owner", "admin"):
-            raise HTTPException(status_code=403, detail="无权修改他人密码")
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
@@ -540,8 +656,7 @@ async def upload_avatar(user_id: int, file: UploadFile = File(...),
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    if current.id != user.id and current.role not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="只能修改自己的头像")
+    _ensure_profile_edit_access(current, user)
     contents = await file.read()
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="文件过大，最大5MB")

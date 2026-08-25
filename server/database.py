@@ -162,6 +162,23 @@ async def create_tables():
                 "UPDATE users SET role = 'owner' WHERE id = "
                 "(SELECT MIN(id) FROM users WHERE is_admin = 1)"
             )
+        # Keep the oldest owner when upgrading databases created before the
+        # owner uniqueness guard was added.
+        await conn.exec_driver_sql(
+            """
+            UPDATE users
+            SET role = 'admin', is_admin = 1
+            WHERE role = 'owner'
+              AND id != (SELECT MIN(id) FROM users WHERE role = 'owner')
+            """
+        )
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_users_owner_role
+            ON users (role)
+            WHERE role = 'owner'
+            """
+        )
         await conn.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id)"
         )

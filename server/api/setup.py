@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from config import (
     DEFAULT_ENABLED_SCRAPERS,
@@ -234,7 +235,16 @@ async def initialize_setup(
         logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        message = str(exc).lower()
+        if "users.role" in message or "uq_users_owner_role" in message:
+            raise HTTPException(status_code=409, detail="服务器已完成初始化，请重新登录") from exc
+        if "users.username" in message:
+            raise HTTPException(status_code=409, detail="用户名已存在") from exc
+        raise
 
     # Fire background scans (don't block response — user enters main page immediately)
     asyncio.create_task(_background_scan(config))
