@@ -14,6 +14,7 @@ from database import get_session
 from models.file_source import FileSource
 from models.user import User
 from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
+from utils.secrets import encrypt_secret
 
 router = APIRouter(prefix="/api/file-sources", tags=["file-sources"])
 
@@ -68,7 +69,7 @@ async def create_source(
         type="openlist",
         base_url=normalize_base_url(body.base_url),
         username=body.username,
-        password=body.password or "",
+        password=encrypt_secret(body.password),
     )
     adapter = adapter_from_source(source, source.type)
     await asyncio.to_thread(adapter.list, "/")
@@ -99,7 +100,7 @@ async def update_source(
     source.base_url = normalize_base_url(body.base_url)
     source.username = body.username
     if body.password is not None:
-        source.password = body.password
+        source.password = encrypt_secret(body.password)
     adapter = adapter_from_source(source, source.type)
     await asyncio.to_thread(adapter.list, "/")
     await session.commit()

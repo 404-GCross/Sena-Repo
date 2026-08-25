@@ -13,6 +13,7 @@ import httpx
 from fastapi import HTTPException
 
 from models.file_source import FileSource
+from utils.secrets import decrypt_secret
 
 
 @dataclass(frozen=True)
@@ -100,7 +101,7 @@ class OpenListFileSource:
         self.source = source
         self.base_url = normalize_base_url(source.base_url)
         self.username = source.username or ""
-        self.password = source.password or ""
+        self.password = decrypt_secret(source.password)
         self._token: str | None = None
 
     @property

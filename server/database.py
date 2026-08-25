@@ -179,6 +179,17 @@ async def create_tables():
             WHERE role = 'owner'
             """
         )
+        from utils.secrets import encrypt_secret, is_encrypted
+
+        source_rows = await conn.exec_driver_sql(
+            "SELECT id, password FROM file_sources WHERE password IS NOT NULL AND password != ''"
+        )
+        for source_id, password in source_rows:
+            if not is_encrypted(password):
+                await conn.exec_driver_sql(
+                    "UPDATE file_sources SET password = ? WHERE id = ?",
+                    (encrypt_secret(password), source_id),
+                )
         await conn.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id)"
         )

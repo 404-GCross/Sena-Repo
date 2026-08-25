@@ -2372,6 +2372,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       versionId: v.id,
       fileName: v.filename,
       downloadUrl: downloadUrl,
+      expiresAt: link.expiresAt,
       gameName: game.name,
       companyName: game.companyName ?? "",
       coverUrl: coverUrl,

@@ -22,6 +22,7 @@ from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from services.scanner import normalize_game_depth, structure_from_depth
+from utils.secrets import encrypt_secret
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -116,7 +117,7 @@ async def initialize_setup(
                         type="openlist",
                         base_url=base_url,
                         username=username,
-                        password=item.get("password") or "",
+                        password=encrypt_secret(item.get("password")),
                     )
                     session.add(source)
                     await session.flush()

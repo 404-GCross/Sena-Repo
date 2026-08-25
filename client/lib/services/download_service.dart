@@ -21,6 +21,21 @@ import "package:permission_handler/permission_handler.dart";
 import "api_client.dart" show ApiClient, globalToken;
 import "notification_service.dart";
 
+class DownloadHttpException implements Exception {
+  final int statusCode;
+  final String message;
+  final int? retryAfterSeconds;
+
+  DownloadHttpException(
+    this.statusCode,
+    this.message, {
+    this.retryAfterSeconds,
+  });
+
+  @override
+  String toString() => message;
+}
+
 // ────────────────────────────────────────────────────
 // DownloadTask
 // ────────────────────────────────────────────────────
@@ -29,7 +44,9 @@ class DownloadTask {
   final int gameId;
   final int versionId;
   final String fileName;
-  final String downloadUrl;
+  String downloadUrl;
+  int expiresAt;
+  String? serverBaseUrl;
   final String gameName;
   final String companyName;
 
@@ -61,6 +78,8 @@ class DownloadTask {
     required this.versionId,
     required this.fileName,
     required this.downloadUrl,
+    this.expiresAt = 0,
+    this.serverBaseUrl,
     required this.gameName,
     required this.companyName,
     this.status = "pending",
@@ -76,6 +95,8 @@ class DownloadTask {
     "versionId": versionId,
     "fileName": fileName,
     "downloadUrl": downloadUrl,
+    "expiresAt": expiresAt,
+    "serverBaseUrl": serverBaseUrl,
     "gameName": gameName,
     "companyName": companyName,
     "status": status,
@@ -161,6 +182,8 @@ class DownloadService with WidgetsBindingObserver {
                 versionId: m["versionId"] ?? 0,
                 fileName: m["fileName"] ?? "",
                 downloadUrl: m["downloadUrl"] ?? "",
+                expiresAt: m["expiresAt"] ?? 0,
+                serverBaseUrl: m["serverBaseUrl"],
                 gameName: m["gameName"] ?? "",
                 companyName: m["companyName"] ?? "",
               )
@@ -196,6 +219,8 @@ class DownloadService with WidgetsBindingObserver {
               "versionId": t.versionId,
               "fileName": t.fileName,
               "downloadUrl": t.downloadUrl,
+              "expiresAt": t.expiresAt,
+              "serverBaseUrl": t.serverBaseUrl,
               "gameName": t.gameName,
               "companyName": t.companyName,
               "status": t.status,
@@ -393,6 +418,7 @@ class DownloadService with WidgetsBindingObserver {
     );
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
+    String? patchExtractDir;
     try {
       // Download via proven stream pipeline
       StreamSubscription<List<DownloadTask>>? sub;
@@ -443,89 +469,80 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
-      if ((patchDir == null || patchDir.isEmpty) &&
-          (targetDir == null || targetDir.isEmpty)) {
-        LoggerService().info(
-          "patch extract: $exe x -y -p- -o$destDir ${tmp.path}",
-        );
-        await _runTool(
-          exe,
-          ["x", "-y", "-p-", "-o$destDir", tmp.path],
-          timeout: 1800,
-          injectionAppId: appId,
-          onProgress: (p) {
-            if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
-          },
-        );
-        if (_stopped(task)) {
-          if (task.status != "paused") {
-            try {
-              await tmp.delete();
-            } catch (_) {}
-          }
-          return (task.status == "paused" ? "已暂停" : "已取消", null);
-        }
-        LoggerService().info("patch extract done: $destDir");
-      } else {
-        final tmpExtract =
-            "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
-        LoggerService().info(
-          "patch extract: $exe x -y -p- -o$tmpExtract ${tmp.path}",
-        );
-        await Directory(tmpExtract).create(recursive: true);
-        await _runTool(
-          exe,
-          ["x", "-y", "-p-", "-o$tmpExtract", tmp.path],
-          timeout: 1800,
-          injectionAppId: appId,
-          onProgress: (p) {
-            if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
-          },
-        );
-        if (_stopped(task)) {
+      final tmpExtract =
+          "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      patchExtractDir = tmpExtract;
+      LoggerService().info(
+        "patch extract: $exe x -y -p- -o$tmpExtract ${tmp.path}",
+      );
+      await Directory(tmpExtract).create(recursive: true);
+      await _runTool(
+        exe,
+        ["x", "-y", "-p-", "-o$tmpExtract", tmp.path],
+        timeout: 1800,
+        injectionAppId: appId,
+        onProgress: (p) {
+          if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
+        },
+      );
+      if (_stopped(task)) {
+        try {
+          await Directory(tmpExtract).delete(recursive: true);
+        } catch (_) {}
+        if (task.status != "paused") {
           try {
-            await Directory(tmpExtract).delete(recursive: true);
+            await tmp.delete();
           } catch (_) {}
-          if (task.status != "paused") {
-            try {
-              await tmp.delete();
-            } catch (_) {}
-          }
-          return (task.status == "paused" ? "已暂停" : "已取消", null);
         }
-        LoggerService().info(
-          "patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir",
-        );
-        String sourceDir = tmpExtract;
-        if (patchDir != null && patchDir.isNotEmpty) {
-          String pd;
-          try {
-            pd = _resolveSafeRelativePath(tmpExtract, patchDir);
-          } catch (e) {
-            try {
-              await Directory(tmpExtract).delete(recursive: true);
-            } catch (_) {}
-            return ("补丁源目录非法: $patchDir", null);
-          }
-          LoggerService().info("patch resolve: looking for $pd");
-          if (await Directory(pd).exists()) {
-            sourceDir = pd;
-          } else {
-            try {
-              await Directory(tmpExtract).delete(recursive: true);
-            } catch (_) {}
-            return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
-          }
-        } else {
-          final entries = Directory(tmpExtract).listSync();
-          if (entries.length == 1 && entries.first is Directory)
-            sourceDir = entries.first.path;
-        }
-        LoggerService().info("patch merge: $sourceDir -> $destDir");
-        await _copyMerge(sourceDir, destDir);
-        LoggerService().info("patch merge done");
-        await Directory(tmpExtract).delete(recursive: true);
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
+      LoggerService().info(
+        "patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir",
+      );
+      String sourceDir = tmpExtract;
+      if (patchDir != null && patchDir.isNotEmpty) {
+        String pd;
+        try {
+          pd = _resolveSafeRelativePath(tmpExtract, patchDir);
+        } catch (e) {
+          await Directory(tmpExtract).delete(recursive: true);
+          return ("补丁源目录非法: $patchDir", null);
+        }
+        LoggerService().info("patch resolve: looking for $pd");
+        if (await Directory(pd).exists()) {
+          sourceDir = pd;
+        } else {
+          await Directory(tmpExtract).delete(recursive: true);
+          return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
+        }
+      } else {
+        final entries = Directory(tmpExtract).listSync();
+        if (entries.length == 1 && entries.first is Directory) {
+          sourceDir = entries.first.path;
+        }
+      }
+      final backupDir =
+          "${installDir}${Platform.pathSeparator}.sena${Platform.pathSeparator}backups${Platform.pathSeparator}${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      await Directory(backupDir).create(recursive: true);
+      LoggerService().info("patch merge with rollback: $sourceDir -> $destDir");
+      final changed = await _copyMergeWithRollback(
+        task,
+        sourceDir,
+        destDir,
+        backupDir,
+      );
+      await File(
+        "$backupDir${Platform.pathSeparator}transaction.json",
+      ).writeAsString(
+        jsonEncode({
+          "app_id": safeAppId,
+          "destination_dir": destDir,
+          "added_files": changed.added,
+          "replaced_files": changed.backedUp,
+        }),
+      );
+      await Directory(tmpExtract).delete(recursive: true);
+      LoggerService().info("patch merge done; backup=$backupDir");
       if (_stopped(task)) {
         if (task.status != "paused") {
           try {
@@ -550,6 +567,11 @@ class DownloadService with WidgetsBindingObserver {
       try {
         await tmp.delete();
       } catch (_) {}
+      if (patchExtractDir != null) {
+        try {
+          await Directory(patchExtractDir!).delete(recursive: true);
+        } catch (_) {}
+      }
       return ("$e", null);
     } finally {
       _patchInjections.remove(appId);
@@ -563,6 +585,7 @@ class DownloadService with WidgetsBindingObserver {
     required int versionId,
     required String fileName,
     required String downloadUrl,
+    int expiresAt = 0,
     required String gameName,
     required String companyName,
     String? coverUrl,
@@ -575,6 +598,8 @@ class DownloadService with WidgetsBindingObserver {
             versionId: versionId,
             fileName: fileName,
             downloadUrl: downloadUrl,
+            expiresAt: expiresAt,
+            serverBaseUrl: _serverOrigin(downloadUrl),
             gameName: gameName,
             companyName: companyName,
           )
@@ -1158,7 +1183,73 @@ class DownloadService with WidgetsBindingObserver {
   static const _parallelDownloadMinPartSize = 8 * 1024 * 1024;
   static const _parallelDownloadMaxParts = 8;
 
+  Future<void> _refreshSignedDownloadLink(DownloadTask task) async {
+    final original = Uri.tryParse(task.downloadUrl);
+    final origin = task.serverBaseUrl ??
+        (original == null
+            ? null
+            : Uri(
+                scheme: original.scheme,
+                host: original.host,
+                port: original.hasPort ? original.port : null,
+              ).toString().replaceFirst(RegExp(r"/$"), ""));
+    if (origin == null || task.gameId <= 0 || task.versionId <= 0) {
+      throw DownloadHttpException(401, "下载链接已过期，无法刷新");
+    }
+    final client = http.Client();
+    try {
+      final uri = Uri.parse(
+        "$origin/api/download/${task.gameId}/${task.versionId}/link",
+      );
+      final response = await client
+          .post(uri, headers: _downloadAuthHeaders())
+          .timeout(_downloadConnectTimeout);
+      if (response.statusCode != 200) {
+        throw DownloadHttpException(
+          response.statusCode,
+          "刷新下载链接失败: HTTP ${response.statusCode}",
+          retryAfterSeconds: _retryAfterSeconds(response.headers["retry-after"]),
+        );
+      }
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final url = payload["url"]?.toString() ?? "";
+      if (url.isEmpty) throw DownloadHttpException(502, "服务器返回空下载链接");
+      task.downloadUrl = url;
+      task.expiresAt = int.tryParse("${payload["expires_at"] ?? 0}") ?? 0;
+      task.serverBaseUrl = origin;
+      LoggerService().info(
+        "download link refreshed gameId=${task.gameId} versionId=${task.versionId}",
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Map<String, String> _downloadAuthHeaders() {
+    final token = globalToken;
+    return token == null || token.isEmpty
+        ? {}
+        : {"Authorization": "Bearer $token"};
+  }
+
+  static String? _serverOrigin(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) return null;
+    return Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+    ).toString().replaceFirst(RegExp(r"/$"), "");
+  }
+
+  static int? _retryAfterSeconds(String? value) {
+    if (value == null) return null;
+    final seconds = int.tryParse(value.trim());
+    return seconds != null && seconds >= 0 ? seconds : null;
+  }
+
   Future<void> _download(DownloadTask t, File dest) async {
+    var refreshedLink = false;
     for (int attempt = 0; attempt <= _maxRetries; attempt++) {
       if (_stopped(t)) return;
 
@@ -1201,6 +1292,21 @@ class DownloadService with WidgetsBindingObserver {
           await _attempt(t, dest);
         }
         return; // success
+      } on DownloadHttpException catch (e) {
+        if (_stopped(t)) return;
+        if ((e.statusCode == 401 || e.statusCode == 403) && !refreshedLink) {
+          refreshedLink = true;
+          await _refreshSignedDownloadLink(t);
+          continue;
+        }
+        if (attempt >= _maxRetries) {
+          throw Exception("HTTP ${e.statusCode}: ${e.message}");
+        }
+        _setStatus(t, "retrying");
+        final delay = e.retryAfterSeconds ?? _retryDelays[attempt];
+        await Future.delayed(Duration(seconds: delay.clamp(1, 120).toInt()));
+        if (_stopped(t)) return;
+        _setStatus(t, "downloading");
       } on http.ClientException catch (e) {
         if (_stopped(t)) return;
         if (attempt >= _maxRetries)
@@ -1452,7 +1558,11 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       if (resp.statusCode != 200 && resp.statusCode != 206) {
-        throw Exception("HTTP ${resp.statusCode}");
+        throw DownloadHttpException(
+          resp.statusCode,
+          "HTTP ${resp.statusCode}",
+          retryAfterSeconds: _retryAfterSeconds(resp.headers["retry-after"]),
+        );
       }
 
       // Server doesn't support Range → reset
@@ -1848,8 +1958,10 @@ class DownloadService with WidgetsBindingObserver {
             "range ignored for part=${part.index}",
           );
         }
-        throw http.ClientException(
+        throw DownloadHttpException(
+          resp.statusCode,
           "parallel part ${part.index} failed: HTTP ${resp.statusCode}",
+          retryAfterSeconds: _retryAfterSeconds(resp.headers["retry-after"]),
         );
       }
 
@@ -2181,6 +2293,95 @@ class DownloadService with WidgetsBindingObserver {
           throw Exception("无法覆盖 $rel: $e");
         }
       }
+    }
+  }
+
+  Future<({List<String> added, List<String> backedUp})> _copyMergeWithRollback(
+    DownloadTask task,
+    String from,
+    String to,
+    String backupDir,
+  ) async {
+    final added = <String>[];
+    final backedUp = <String>[];
+    try {
+      await for (final child in Directory(from).list(recursive: true)) {
+        if (_stopped(task)) {
+          throw Exception("补丁注入已停止");
+        }
+        final rel = child.path
+            .substring(from.length)
+            .replaceFirst(RegExp(r"^[/\\]"), "");
+        final dest = "$to${Platform.pathSeparator}$rel";
+        if (child is Directory) {
+          await Directory(dest).create(recursive: true);
+          continue;
+        }
+        if (child is! File) continue;
+        final target = File(dest);
+        if (await target.exists()) {
+          final backup = File("$backupDir${Platform.pathSeparator}$rel");
+          await backup.parent.create(recursive: true);
+          await target.copy(backup.path);
+          backedUp.add(rel);
+        } else {
+          added.add(rel);
+        }
+        await target.parent.create(recursive: true);
+        await child.copy(dest);
+      }
+      return (added: added, backedUp: backedUp);
+    } catch (error) {
+      for (final rel in added.reversed) {
+        try {
+          await File("$to${Platform.pathSeparator}$rel").delete();
+        } catch (_) {}
+      }
+      for (final rel in backedUp) {
+        try {
+          await File("$backupDir${Platform.pathSeparator}$rel")
+              .copy("$to${Platform.pathSeparator}$rel");
+        } catch (_) {}
+      }
+      throw Exception("补丁写入失败，已回滚: $error");
+    }
+  }
+
+  Future<void> rollbackPatch({
+    required String installDir,
+    required String appId,
+    required String backupId,
+  }) async {
+    final safeAppId = appId.replaceAll(RegExp(r"[^A-Za-z0-9_-]"), "_");
+    if (!RegExp(r"^[A-Za-z0-9_-]+$").hasMatch(backupId)) {
+      throw ArgumentError("非法的补丁备份标识");
+    }
+    final backupDir = Directory(
+      "$installDir${Platform.pathSeparator}.sena${Platform.pathSeparator}backups${Platform.pathSeparator}${safeAppId}_$backupId",
+    );
+    final transaction = File(
+      "${backupDir.path}${Platform.pathSeparator}transaction.json",
+    );
+    if (!await transaction.exists()) {
+      throw Exception("找不到补丁事务记录");
+    }
+    final data = jsonDecode(await transaction.readAsString());
+    final added = (data["added_files"] as List? ?? []).cast<String>();
+    final replaced = (data["replaced_files"] as List? ?? []).cast<String>();
+    final destination = data["destination_dir"]?.toString();
+    final targetDir = destination == null || destination.isEmpty
+        ? installDir
+        : destination;
+    for (final rel in added) {
+      try {
+        await File("$targetDir${Platform.pathSeparator}$rel").delete();
+      } catch (_) {}
+    }
+    for (final rel in replaced) {
+      final source = File("${backupDir.path}${Platform.pathSeparator}$rel");
+      final target = File("$targetDir${Platform.pathSeparator}$rel");
+      await target.parent.create(recursive: true);
+      await source.copy(target.path);
     }
   }
 

@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -44,6 +45,14 @@ _OPENLIST_PROXY_MAX_UPSTREAM_STREAMS = 2
 _OPENLIST_PROXY_SEGMENT_BYTES = 4 * 1024 * 1024
 _OPENLIST_PROXY_URL_CACHE_SECONDS = 5 * 60
 _OPENLIST_PROXY_RETRYABLE_STATUSES = {401, 403, 429, 500, 502, 503, 504}
+
+
+def _openlist_proxy_enabled() -> bool:
+    return os.environ.get("SENA_ALLOW_OPENLIST_PROXY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 SUPPORTED_MANAGER_ARCHIVE_FORMATS = {
     "7z",
@@ -117,6 +126,9 @@ async def _get_game_and_version(
 
 
 def _signature_secret() -> bytes:
+    configured = os.environ.get("SENA_MANAGER_SIGNING_KEY", "").strip()
+    if configured:
+        return configured.encode("utf-8")
     config = load_config()
     secret_path = Path(config.data_path) / ".manager_install_secret"
     secret_path.parent.mkdir(parents=True, exist_ok=True)
@@ -790,7 +802,10 @@ async def download_signed_game_version(
             game,
             version,
             session,
-            proxy_openlist=request.query_params.get("proxy") == "1",
+            proxy_openlist=(
+                request.query_params.get("proxy") == "1"
+                and _openlist_proxy_enabled()
+            ),
         )
     except HTTPException:
         raise

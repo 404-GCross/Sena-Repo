@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import ipaddress
+import socket
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
@@ -33,9 +34,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["scraper"])
 
 
-def _validate_public_url(url: str) -> None:
+_MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024
+
+
+def _is_blocked_address(value: str) -> bool:
+    address = ipaddress.ip_address(value)
+    return (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+        or address.is_multicast
+    )
+
+
+def _validate_public_url(url: str) -> set[str]:
     """Reject non-HTTP(S) and internal/private URLs (SSRF prevention)."""
-    import socket
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -44,9 +59,9 @@ def _validate_public_url(url: str) -> None:
         raise HTTPException(status_code=400, detail="URL 缺少主机名")
     try:
         ip = ipaddress.ip_address(parsed.hostname)
-        if ip.is_loopback or ip.is_private or ip.is_link_local:
+        if _is_blocked_address(str(ip)):
             raise HTTPException(status_code=400, detail="不允许使用内网地址")
-        return
+        return {str(parsed.hostname)}
     except ValueError:
         pass
 
@@ -61,17 +76,24 @@ def _validate_public_url(url: str) -> None:
 
     for addr in addrs:
         ip_str = addr[4][0]
-        ip = ipaddress.ip_address(ip_str)
-        if ip.is_loopback or ip.is_private or ip.is_link_local:
+        if _is_blocked_address(ip_str):
             raise HTTPException(status_code=400, detail="不允许使用内网地址")
+    return {addr[4][0] for addr in addrs}
 
 
 async def _safe_get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
     """Fetch a public URL and re-check every redirect target."""
     current = url
     for _ in range(6):
-        _validate_public_url(current)
+        allowed_addresses = _validate_public_url(current)
         resp = await client.get(current, follow_redirects=False, **kwargs)
+        if len(resp.content) > _MAX_REMOTE_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="远程图片过大")
+        # Resolve immediately before every request and reject a changed answer.
+        # This closes the common DNS-rebinding window without trusting proxy headers.
+        parsed = urlparse(current)
+        if parsed.hostname and not _validate_public_url(current).intersection(allowed_addresses):
+            raise HTTPException(status_code=400, detail="URL 主机解析发生变化")
         if resp.status_code not in {301, 302, 303, 307, 308}:
             return resp
         location = resp.headers.get("location")
@@ -164,7 +186,7 @@ async def scrape_apply(
         raise HTTPException(status_code=404, detail="Game not found")
 
     config = load_config()
-    client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
     if config.proxy:
         client_kwargs["proxy"] = config.proxy
     if cover_url or hero_url:
@@ -254,7 +276,7 @@ async def scrape_game_cover(
     covers_dir = config.covers_path
     found_results = []
 
-    client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
     if config.proxy:
         client_kwargs["proxy"] = config.proxy
     async with httpx.AsyncClient(**client_kwargs) as client:
@@ -460,7 +482,7 @@ async def update_game_cover(
         ext = ".jpg"
         cover_path = covers_dir / f"{game_id}_manual{ext}"
 
-        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+        client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
         if config.proxy:
             client_kwargs["proxy"] = config.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -574,7 +596,7 @@ async def update_game_background(
         ext = next((v for k, v in _ext_map.items() if _bg_url_path.endswith(k)), ".jpg")
         bg_path = bg_dir / f"{game_id}_bg{ext}"
 
-        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+        client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
         if config.proxy:
             client_kwargs["proxy"] = config.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:

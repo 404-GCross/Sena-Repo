@@ -21,6 +21,7 @@ from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from services.importer import cleanup_empty_companies, import_from_root
+from utils.secrets import encrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ async def add_root(
                 type="openlist",
                 base_url=normalize_base_url(body.base_url),
                 username=body.username,
-                password=body.password or "",
+                password=encrypt_secret(body.password),
             )
             session.add(source)
             await session.flush()
@@ -156,7 +157,7 @@ async def update_root(
                 type="openlist",
                 base_url=normalize_base_url(body.base_url),
                 username=body.username,
-                password=body.password or "",
+                password=encrypt_secret(body.password),
             )
             session.add(source)
             await session.flush()
