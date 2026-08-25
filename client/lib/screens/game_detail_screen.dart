@@ -2342,14 +2342,13 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       }
     }
 
-    final String downloadUrl;
+    late final DownloadLink link;
     try {
-      final link = await _api.createDownloadLink(
+      link = await _api.createDownloadLink(
         gameId: game.id,
         versionId: v.id,
       );
       if (link.url.isEmpty) throw Exception("服务器返回的下载链接为空");
-      downloadUrl = link.url;
     } catch (e, stackTrace) {
       LoggerService().warn("create signed download link failed", e, stackTrace);
       if (mounted) _showDialog(context, "下载失败", _cleanErrorMessage(e));
@@ -2371,7 +2370,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       gameId: game.id,
       versionId: v.id,
       fileName: v.filename,
-      downloadUrl: downloadUrl,
+      downloadUrl: link.url,
       expiresAt: link.expiresAt,
       gameName: game.name,
       companyName: game.companyName ?? "",
