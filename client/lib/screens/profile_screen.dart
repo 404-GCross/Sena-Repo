@@ -11,7 +11,6 @@ import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
-import "../services/secure_store.dart";
 import "../widgets/app_shell.dart";
 import "settings_screen.dart";
 import "connect_screen.dart";
@@ -75,27 +74,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
-    final settings = context.read<SettingsProvider>();
-    final token = await SecureStore.getString("auth_token");
-    _userId = int.tryParse(token ?? "") ?? 0;
+    await ApiClient.restoreToken();
+    final api = context.read<GameProvider>().api;
+    _userId = prefs.getInt("user_id") ?? api.cachedUserId ?? 0;
     if (mounted) {
       setState(() {
         _username = prefs.getString("username") ?? "Sena Repo";
       });
     }
-    // Try loading avatar from server
     try {
       final resp = await http.get(
-        Uri.parse(
-          "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/me",
-        ),
-        headers: {"Authorization": "Bearer ${token ?? ""}"},
+        Uri.parse("${api.baseUrl}/api/auth/profile/me"),
+        headers: api.headers,
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final userId = data["id"] is int
+            ? data["id"] as int
+            : int.tryParse(data["id"]?.toString() ?? "") ?? 0;
+        await ApiClient.persistSessionInfo(
+          userId: userId,
+          username: data["username"]?.toString(),
+          isAdmin: data["is_admin"] == true,
+          role: data["role"]?.toString(),
+        );
         if (mounted)
           setState(() {
-            _userId = data["id"] ?? 0;
+            _userId = userId;
+            _username = data["username"]?.toString() ?? _username;
             _avatarPath = data["avatar_path"];
             _avatarVersion = DateTime.now().millisecondsSinceEpoch;
             _lastLoadTime = DateTime.now().millisecondsSinceEpoch;

@@ -66,8 +66,14 @@ String? _accessToken;
 
 /// Cached user info from the last login.
 String? _cachedUsername;
+int? _cachedUserId;
 bool? _cachedIsAdmin;
 String? _cachedRole;
+
+int? _parseUserId(Object? value) {
+  final id = value is int ? value : int.tryParse(value?.toString() ?? "");
+  return id != null && id > 0 ? id : null;
+}
 
 /// Shared accessor for DownloadService request headers.
 String? get globalToken => _accessToken;
@@ -96,6 +102,7 @@ class ApiClient {
 
   String? get accessToken => _accessToken;
   String? get cachedUsername => _cachedUsername;
+  int? get cachedUserId => _cachedUserId;
   bool? get cachedIsAdmin => _cachedIsAdmin;
   String? get cachedRole => _cachedRole;
 
@@ -112,6 +119,7 @@ class ApiClient {
     final prefs = await SharedPreferences.getInstance();
     _accessToken = await SecureStore.getString("auth_token");
     _cachedUsername = prefs.getString("username");
+    _cachedUserId = prefs.getInt("user_id");
     _cachedIsAdmin = prefs.getBool("is_admin");
     _cachedRole = prefs.getString("role");
     if (_accessToken != null && _accessToken!.isNotEmpty) {
@@ -123,6 +131,7 @@ class ApiClient {
 
   static Future<void> _persistTokens({
     String? accessToken,
+    int? userId,
     String? username,
     bool? isAdmin,
     String? role,
@@ -134,6 +143,10 @@ class ApiClient {
     if (username != null) {
       await prefs.setString("username", username);
       _cachedUsername = username;
+    }
+    if (userId != null && userId > 0) {
+      await prefs.setInt("user_id", userId);
+      _cachedUserId = userId;
     }
     if (isAdmin != null) {
       await prefs.setBool("is_admin", isAdmin);
@@ -147,6 +160,7 @@ class ApiClient {
 
   static Future<void> persistSessionInfo({
     String? accessToken,
+    int? userId,
     String? username,
     bool? isAdmin,
     String? role,
@@ -156,6 +170,7 @@ class ApiClient {
     }
     await _persistTokens(
       accessToken: accessToken,
+      userId: userId,
       username: username,
       isAdmin: isAdmin,
       role: role,
@@ -165,11 +180,13 @@ class ApiClient {
   static Future<void> clearTokens() async {
     _accessToken = null;
     _cachedUsername = null;
+    _cachedUserId = null;
     _cachedIsAdmin = null;
     _cachedRole = null;
     final prefs = await SharedPreferences.getInstance();
     await SecureStore.delete("auth_token");
     await prefs.remove("username");
+    await prefs.remove("user_id");
     await prefs.remove("is_admin");
     await prefs.remove("role");
   }
@@ -497,6 +514,7 @@ class ApiClient {
         }
 
         var username = data["username"]?.toString();
+        var userId = _parseUserId(data["id"]);
         var isAdmin = data["is_admin"] == true;
         var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
         try {
@@ -525,9 +543,11 @@ class ApiClient {
                 ),
               );
             }
+            userId = _parseUserId(me["id"]) ?? userId;
             username = me["username"]?.toString() ?? username;
             isAdmin = me["is_admin"] == true;
             role = me["role"]?.toString() ?? role;
+            if (userId != null) data["id"] = userId;
             data["username"] = username;
             data["is_admin"] = isAdmin;
             data["role"] = role;
@@ -539,6 +559,7 @@ class ApiClient {
         }
         await _persistTokens(
           accessToken: _accessToken,
+          userId: userId,
           username: username,
           isAdmin: isAdmin,
           role: role,

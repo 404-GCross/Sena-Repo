@@ -370,6 +370,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final loggedInUsername = loginResult == null
           ? username
           : loginResult["username"]?.toString() ?? username;
+      final loggedInUserId = loginResult == null
+          ? 0
+          : parseProfileUserId(loginResult["id"]);
       final loggedInIsAdmin =
           loginResult != null && loginResult["is_admin"] == true;
       final updated = UserProfile(
@@ -377,6 +380,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         host: profile.host,
         port: profile.port,
         authToken: token,
+        userId: loggedInUserId,
         username: loggedInUsername,
         isAdmin: loggedInIsAdmin,
         useHttps: profile.useHttps,
@@ -473,6 +477,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
     if (data == null) {
       throw const FormatException("用户资料响应不是 JSON");
     }
+    final userId = parseProfileUserId(data["id"]);
+    if (userId > 0) profile.userId = userId;
     profile.username = data["username"]?.toString() ?? profile.username;
     profile.isAdmin = data["is_admin"] == true;
 
@@ -496,8 +502,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
     await ps.applyProfile(profile);
     await ApiClient.persistSessionInfo(
       accessToken: profile.authToken,
+      userId: profile.userId,
       username: profile.username,
       isAdmin: profile.isAdmin,
+      role: data["role"]?.toString(),
     );
   }
 
@@ -567,6 +575,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     if (result != null && mounted) {
       profile.authToken = result["token"]?.toString() ?? "";
+      final resultUserId = parseProfileUserId(result["id"]);
+      if (resultUserId > 0) profile.userId = resultUserId;
       profile.username = result["username"]?.toString() ?? profile.username;
       profile.isAdmin = result["is_admin"] == true;
       // profile.refreshToken = result["refresh_token"]?.toString() ?? "";
@@ -882,6 +892,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   host: hostCtrl.text.trim(),
                   port: port,
                   authToken: passCtrl.text.isNotEmpty ? "" : profile.authToken,
+                  userId: profile.userId,
                   username: userCtrl.text.trim().isEmpty
                       ? profile.username
                       : userCtrl.text.trim(),
@@ -890,11 +901,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 );
                 final ps = ProfileService();
                 final profiles = await ps.loadProfiles();
-                final idx = profiles.indexWhere((p) => p.name == profile.name);
-                if (idx >= 0)
-                  profiles[idx] = newProfile;
-                else
+                var saveIndex = profiles.indexWhere((p) => p.name == profile.name);
+                if (saveIndex >= 0) {
+                  profiles[saveIndex] = newProfile;
+                } else {
                   profiles.add(newProfile);
+                  saveIndex = profiles.length - 1;
+                }
                 await ps.saveProfiles(profiles);
 
                 if (passCtrl.text.isNotEmpty) {
@@ -914,11 +927,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       final data = tryDecodeJsonMap(resp.body);
                       if (data != null && data["token"] != null) {
                         newProfile.authToken = data["token"]?.toString() ?? "";
+                        final userId = parseProfileUserId(data["id"]);
+                        if (userId > 0) newProfile.userId = userId;
                         newProfile.username = data["username"]?.toString() ??
                             userCtrl.text.trim();
                         newProfile.isAdmin = data["is_admin"] == true;
                         // newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
-                        profiles[idx] = newProfile;
+                        profiles[saveIndex] = newProfile;
                         await ps.saveProfiles(profiles);
                         await ps.applyProfile(newProfile);
                       }

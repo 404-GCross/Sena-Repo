@@ -77,8 +77,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         isAdmin = data["is_admin"] == true;
         await ApiClient.persistSessionInfo(
+          userId: data["id"] is int
+              ? data["id"] as int
+              : int.tryParse(data["id"]?.toString() ?? "") ?? 0,
           username: data["username"]?.toString(),
           isAdmin: isAdmin,
+          role: data["role"]?.toString(),
         );
       }
     } catch (_) {}

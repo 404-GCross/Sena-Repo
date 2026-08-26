@@ -71,14 +71,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final username = data["username"]?.toString();
         isAdmin = data["is_admin"] == true;
         await ApiClient.persistSessionInfo(
+          userId: parseProfileUserId(data["id"]),
           username: username,
           isAdmin: isAdmin,
+          role: data["role"]?.toString(),
         );
         final ps = ProfileService();
         final profiles = await ps.loadProfiles();
         final index = await ps.getActiveIndex();
         if (index >= 0 && index < profiles.length) {
           profiles[index].username = username ?? profiles[index].username;
+          final userId = parseProfileUserId(data["id"]);
+          if (userId > 0) profiles[index].userId = userId;
           profiles[index].isAdmin = isAdmin;
           await ps.saveProfiles(profiles);
         }

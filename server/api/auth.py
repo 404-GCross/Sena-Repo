@@ -254,6 +254,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     token: str
+    id: int
     is_admin: bool
     role: str
     username: str
@@ -312,7 +313,7 @@ async def login(
         user.password_hash, user.salt = hash_password(body.password)
     token = await _issue_session_token(user, session, request)
     await session.commit()
-    return LoginResponse(token=token, is_admin=user.role in ("owner", "admin"),
+    return LoginResponse(token=token, id=user.id, is_admin=user.role in ("owner", "admin"),
                          role=user.role, username=user.username)
 
 

@@ -7,7 +7,6 @@ import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "../services/logged_http.dart" as http;
 import "package:provider/provider.dart";
-import "package:shared_preferences/shared_preferences.dart";
 
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
@@ -37,6 +36,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   /// Resolve avatar URL from any path format (server filesystem path, API path, or filename).
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+
+  int _parseUserId(Object? value) {
+    final id = value is int ? value : int.tryParse(value?.toString() ?? "");
+    return id != null && id > 0 ? id : 0;
+  }
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
@@ -74,14 +78,23 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final userId = _parseUserId(data["id"]);
+        await ApiClient.persistSessionInfo(
+          userId: userId,
+          username: data["username"]?.toString(),
+          isAdmin: data["is_admin"] == true,
+          role: data["role"]?.toString(),
+        );
         if (mounted)
           setState(() {
             _userCtrl.text = data["username"] ?? "";
             _avatarPath = data["avatar_path"];
             _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-            _userId = data["id"] ?? 0;
+            _userId = userId;
             _loading = false;
           });
+      } else if (mounted) {
+        setState(() => _loading = false);
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -96,6 +109,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     });
 
     try {
+      if (_userId <= 0) {
+        setState(() {
+          _error = "未获取到用户 ID，请重新进入个人信息页";
+          _saving = false;
+        });
+        return;
+      }
       final body = <String, dynamic>{};
       final newName = _userCtrl.text.trim();
       if (newName.isNotEmpty) body["username"] = newName;
@@ -112,17 +132,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         );
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         if (resp.statusCode == 200) {
-          // Update saved username
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString("username", data["username"] ?? newName);
-          // If password was changed the server issues a new token; persist it
           final newToken = data["new_token"]?.toString();
-          if (newToken != null && newToken.isNotEmpty) {
-            await ApiClient.persistSessionInfo(
-              accessToken: newToken,
-              username: data["username"]?.toString() ?? newName,
-            );
-          }
+          await ApiClient.persistSessionInfo(
+            accessToken: newToken,
+            userId: _userId,
+            username: data["username"]?.toString() ?? newName,
+          );
           _msg = "个人信息更新成功";
           _currentPassCtrl.clear();
           _newPassCtrl.clear();
@@ -141,6 +156,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   Future<void> _pickAvatar() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result == null || result.files.single.path == null) return;
+
+    if (_userId <= 0) {
+      setState(() => _error = "未获取到用户 ID，请重新进入个人信息页");
+      return;
+    }
 
     setState(() {
       _saving = true;
