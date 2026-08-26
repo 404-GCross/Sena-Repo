@@ -23,6 +23,7 @@ from models.game import Game
 from models.ignore_list import IgnoreList
 from schemas.common import MessageResponse
 from services.scanner import normalize_game_depth, structure_from_depth
+from utils.secrets import encryption_key_status
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -144,6 +145,14 @@ class HikarinagiTestRequest(BaseModel):
     scope: str = "catalog:full"
 
 
+class SecretKeyStatusOut(BaseModel):
+    source: str
+    available: bool
+    valid: bool
+    key_file_exists: bool
+    detail: str
+
+
 @router.get("/scraper", response_model=ScraperConfigOut)
 async def get_scraper_config(user: User = Depends(get_current_user)):
     """Get current scraper configuration (API keys masked)."""
@@ -236,6 +245,13 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     data["enabled_scrapers"] = config.scrapers.enabled_scrapers
     _write_scraper_config(data)
     return {"message": "已保存"}
+
+
+@router.get("/security/secrets", response_model=SecretKeyStatusOut)
+async def get_secret_key_status(user: User = Depends(require_admin)):
+    """Return encryption key health without exposing key material."""
+    del user
+    return SecretKeyStatusOut(**encryption_key_status())
 
 
 @router.post("/hikarinagi-test")

@@ -221,9 +221,24 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
     try:
         with open(idx_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data.get("patches", [])
+        return [_normalize_patch_record(p) for p in data.get("patches", [])]
     except Exception:
         return []
+
+
+def _normalize_patch_record(patch: dict) -> dict:
+    item = dict(patch)
+    source_type = str(item.get("source_type") or "local")
+    item["source_type"] = source_type
+    item["analysis_mode"] = _normalize_analysis_mode(
+        item.get("analysis_mode"),
+        source_type,
+    )
+    return item
+
+
+def _normalize_patch_records(patches: list[dict]) -> list[dict]:
+    return [_normalize_patch_record(patch) for patch in patches]
 
 
 def _patches_index_needs_autoscan(json_path: Path) -> bool:
@@ -234,7 +249,7 @@ def _patches_index_needs_autoscan(json_path: Path) -> bool:
             data = json.load(f)
     except Exception:
         return False
-    for patch in data.get("patches", []):
+    for patch in _normalize_patch_records(data.get("patches", [])):
         if patch.get("source_type") == "openlist" and not patch.get("size"):
             return True
     return False
@@ -333,18 +348,13 @@ def _manifest_status(patch: dict) -> str:
 
 
 def _enrich_patch_record(patch: dict) -> dict:
-    item = dict(patch)
+    item = _normalize_patch_record(patch)
     item["patch_id"] = _make_patch_id(item)
     item["lookup_key"] = _patch_lookup_key(item)
     item["display_file"] = item.get("display_file") or _patch_display_file(item)
     status = _manifest_status(item)
     item["manifest_status"] = status
     item["manifest_ready"] = status == "confirmed"
-    item["source_type"] = item.get("source_type") or "local"
-    item["analysis_mode"] = _normalize_analysis_mode(
-        item.get("analysis_mode"),
-        item["source_type"],
-    )
     return item
 
 
@@ -480,6 +490,9 @@ def _update_patch_record(
                 patch[key] = int(value) if str(value).isdigit() else value
             elif key != "app_id":
                 patch[key] = value
+        normalized = _normalize_patch_record(patch)
+        patch.clear()
+        patch.update(normalized)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return patch
@@ -1096,7 +1109,7 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
         json_path = index_dir / "patches.json"
         existing = load_existing(json_path)
         existing_list = existing.get("patches", []) if existing else []
-        merged_patches = merge(existing_list, scanned)
+        merged_patches = _normalize_patch_records(merge(existing_list, scanned))
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}

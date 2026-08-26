@@ -35,6 +35,54 @@ def _fernet() -> Fernet:
     return Fernet(key)
 
 
+def encryption_key_status() -> dict:
+    configured = os.environ.get("SENA_ENCRYPTION_KEY", "").strip()
+    path = _key_path()
+    if configured:
+        try:
+            Fernet(configured.encode("ascii"))
+            return {
+                "source": "environment",
+                "available": True,
+                "valid": True,
+                "key_file_exists": path.is_file(),
+                "detail": "SENA_ENCRYPTION_KEY is configured",
+            }
+        except (ValueError, TypeError):
+            return {
+                "source": "environment",
+                "available": True,
+                "valid": False,
+                "key_file_exists": path.is_file(),
+                "detail": "SENA_ENCRYPTION_KEY is not a valid Fernet key",
+            }
+    if not path.is_file():
+        return {
+            "source": "file",
+            "available": False,
+            "valid": False,
+            "key_file_exists": False,
+            "detail": "Encryption key file is missing and will be generated when first needed",
+        }
+    try:
+        Fernet(path.read_text(encoding="ascii").strip().encode("ascii"))
+        return {
+            "source": "file",
+            "available": True,
+            "valid": True,
+            "key_file_exists": True,
+            "detail": "Encryption key file is present",
+        }
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return {
+            "source": "file",
+            "available": True,
+            "valid": False,
+            "key_file_exists": True,
+            "detail": "Encryption key file is not readable or invalid",
+        }
+
+
 def is_encrypted(value: str | None) -> bool:
     return bool(value and value.startswith(_PREFIX))
 
