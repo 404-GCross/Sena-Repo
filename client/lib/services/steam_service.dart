@@ -301,18 +301,6 @@ class SteamService {
     }
   }
 
-  static Future<void> rollbackPatch({
-    required String installDir,
-    required String appId,
-    required String backupId,
-  }) {
-    return DownloadService().rollbackPatch(
-      installDir: installDir,
-      appId: appId,
-      backupId: backupId,
-    );
-  }
-
   /// Resume a paused injection by restarting the download.
   /// The caller should re-invoke [injectPatch] with the same parameters.
   static void resumeInjection(String appId) {

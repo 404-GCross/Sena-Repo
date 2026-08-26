@@ -419,6 +419,20 @@ class DownloadService with WidgetsBindingObserver {
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
     String? patchExtractDir;
+    String? patchBackupDir;
+    Future<void> cleanupPatchTempDirs() async {
+      if (patchExtractDir != null) {
+        try {
+          await Directory(patchExtractDir!).delete(recursive: true);
+        } catch (_) {}
+      }
+      if (patchBackupDir != null) {
+        try {
+          await Directory(patchBackupDir!).delete(recursive: true);
+        } catch (_) {}
+      }
+    }
+
     try {
       // Download via proven stream pipeline
       StreamSubscription<List<DownloadTask>>? sub;
@@ -450,6 +464,7 @@ class DownloadService with WidgetsBindingObserver {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       if (task.status == "failed") return (task.error ?? "下载失败", null);
@@ -494,6 +509,7 @@ class DownloadService with WidgetsBindingObserver {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       LoggerService().info(
@@ -522,33 +538,29 @@ class DownloadService with WidgetsBindingObserver {
         }
       }
       final backupDir =
-          "${installDir}${Platform.pathSeparator}.sena${Platform.pathSeparator}backups${Platform.pathSeparator}${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+          "${dir}${Platform.pathSeparator}.patch_backup_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      patchBackupDir = backupDir;
       await Directory(backupDir).create(recursive: true);
       LoggerService().info("patch merge with rollback: $sourceDir -> $destDir");
-      final changed = await _copyMergeWithRollback(
+      await _copyMergeWithRollback(
         task,
         sourceDir,
         destDir,
         backupDir,
       );
-      await File(
-        "$backupDir${Platform.pathSeparator}transaction.json",
-      ).writeAsString(
-        jsonEncode({
-          "app_id": safeAppId,
-          "destination_dir": destDir,
-          "added_files": changed.added,
-          "replaced_files": changed.backedUp,
-        }),
-      );
       await Directory(tmpExtract).delete(recursive: true);
-      LoggerService().info("patch merge done; backup=$backupDir");
+      try {
+        await Directory(backupDir).delete(recursive: true);
+      } catch (_) {}
+      patchBackupDir = null;
+      LoggerService().info("patch merge done");
       if (_stopped(task)) {
         if (task.status != "paused") {
           try {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       try {
@@ -562,16 +574,13 @@ class DownloadService with WidgetsBindingObserver {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       try {
         await tmp.delete();
       } catch (_) {}
-      if (patchExtractDir != null) {
-        try {
-          await Directory(patchExtractDir!).delete(recursive: true);
-        } catch (_) {}
-      }
+      await cleanupPatchTempDirs();
       return ("$e", null);
     } finally {
       _patchInjections.remove(appId);
@@ -2296,7 +2305,7 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  Future<({List<String> added, List<String> backedUp})> _copyMergeWithRollback(
+  Future<void> _copyMergeWithRollback(
     DownloadTask task,
     String from,
     String to,
@@ -2330,7 +2339,6 @@ class DownloadService with WidgetsBindingObserver {
         await target.parent.create(recursive: true);
         await child.copy(dest);
       }
-      return (added: added, backedUp: backedUp);
     } catch (error) {
       for (final rel in added.reversed) {
         try {
@@ -2344,44 +2352,6 @@ class DownloadService with WidgetsBindingObserver {
         } catch (_) {}
       }
       throw Exception("补丁写入失败，已回滚: $error");
-    }
-  }
-
-  Future<void> rollbackPatch({
-    required String installDir,
-    required String appId,
-    required String backupId,
-  }) async {
-    final safeAppId = appId.replaceAll(RegExp(r"[^A-Za-z0-9_-]"), "_");
-    if (!RegExp(r"^[A-Za-z0-9_-]+$").hasMatch(backupId)) {
-      throw ArgumentError("非法的补丁备份标识");
-    }
-    final backupDir = Directory(
-      "$installDir${Platform.pathSeparator}.sena${Platform.pathSeparator}backups${Platform.pathSeparator}${safeAppId}_$backupId",
-    );
-    final transaction = File(
-      "${backupDir.path}${Platform.pathSeparator}transaction.json",
-    );
-    if (!await transaction.exists()) {
-      throw Exception("找不到补丁事务记录");
-    }
-    final data = jsonDecode(await transaction.readAsString());
-    final added = (data["added_files"] as List? ?? []).cast<String>();
-    final replaced = (data["replaced_files"] as List? ?? []).cast<String>();
-    final destination = data["destination_dir"]?.toString();
-    final targetDir = destination == null || destination.isEmpty
-        ? installDir
-        : destination;
-    for (final rel in added) {
-      try {
-        await File("$targetDir${Platform.pathSeparator}$rel").delete();
-      } catch (_) {}
-    }
-    for (final rel in replaced) {
-      final source = File("${backupDir.path}${Platform.pathSeparator}$rel");
-      final target = File("$targetDir${Platform.pathSeparator}$rel");
-      await target.parent.create(recursive: true);
-      await source.copy(target.path);
     }
   }
 
