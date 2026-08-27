@@ -1,8 +1,10 @@
 /// Client-side direct scraper — calls external APIs without going through the server.
 /// Used for single-game editing. Batch scraping still uses the server-side scraper.
 
-import "logged_http.dart" as http;
 import "dart:convert";
+import "dart:math" as math;
+
+import "logged_http.dart" as http;
 
 class ScrapeService {
   static const int _maxScrapedTags = 20;
@@ -105,7 +107,7 @@ class ScrapeService {
           "tags": tags,
         });
       }
-      return results;
+      return _rankMetadataResults(query, results);
     } catch (_) {
       return [];
     }
@@ -201,9 +203,10 @@ class ScrapeService {
       if (resp.statusCode != 200) return [];
       final data = jsonDecode(resp.body);
       final list = data["list"] as List? ?? [];
-      return list.map<Map<String, dynamic>>((item) {
+      final results = list.map<Map<String, dynamic>>((item) {
         return _parseBangumiSubject(item as Map<String, dynamic>);
       }).toList();
+      return _rankMetadataResults(query, results);
     } catch (_) {
       return [];
     }
@@ -302,30 +305,28 @@ class ScrapeService {
     return _steamDetails(appid, query);
   }
 
-  /// Name similarity matching — exact > contains > prefix > reverse contains.
+  /// Name similarity matching with sequel-number mismatch protection.
   static Map<String, dynamic>? _pickBestSteam(
     List<Map<String, dynamic>> items,
     String title,
   ) {
-    final norm = title.toLowerCase();
-    // Exact match
-    for (final a in items) {
-      if ((a["name"] ?? "").toString().toLowerCase() == norm) return a;
-    }
-    // Contains match
-    for (final a in items) {
-      if ((a["name"] ?? "").toString().toLowerCase().contains(norm)) return a;
-    }
-    // Prefix match
-    for (final a in items) {
-      if ((a["name"] ?? "").toString().toLowerCase().startsWith(norm)) return a;
-    }
-    // Reverse contains
-    for (final a in items) {
-      final n = (a["name"] ?? "").toString().toLowerCase();
-      if (n.isNotEmpty && norm.contains(n)) return a;
-    }
-    return null;
+    final ranked = items.asMap().entries.toList()
+      ..sort((a, b) {
+        final aScore = _metadataTitleMatchScore(
+          title,
+          (a.value["name"] ?? "").toString(),
+        );
+        final bScore = _metadataTitleMatchScore(
+          title,
+          (b.value["name"] ?? "").toString(),
+        );
+        final scoreCompare = bScore.compareTo(aScore);
+        return scoreCompare != 0 ? scoreCompare : a.key.compareTo(b.key);
+      });
+    if (ranked.isEmpty) return null;
+    final best = ranked.first.value;
+    final score = _metadataTitleMatchScore(title, (best["name"] ?? "").toString());
+    return score >= 70 ? best : null;
   }
 
   /// Fetch full details for an App ID, with Chinese-first cover and hero banner.
@@ -431,5 +432,151 @@ class ScrapeService {
     }
 
     return tags.take(_maxScrapedTags).toList();
+  }
+
+  static List<Map<String, dynamic>> _rankMetadataResults(
+    String query,
+    List<Map<String, dynamic>> results,
+  ) {
+    final indexed = results.asMap().entries.toList()
+      ..sort((a, b) {
+        final aScore = _metadataTitleMatchScore(
+          query,
+          (a.value["title"] ?? a.value["name"] ?? "").toString(),
+        );
+        final bScore = _metadataTitleMatchScore(
+          query,
+          (b.value["title"] ?? b.value["name"] ?? "").toString(),
+        );
+        final scoreCompare = bScore.compareTo(aScore);
+        return scoreCompare != 0 ? scoreCompare : a.key.compareTo(b.key);
+      });
+    return indexed.map((entry) => entry.value).toList();
+  }
+
+  static int _metadataTitleMatchScore(String query, String title) {
+    final queryKey = _normalizeSearchKeyNumbers(
+      _metadataSearchKey(_cleanSearchTitle(query)),
+    );
+    final titleKey = _normalizeSearchKeyNumbers(_metadataSearchKey(title));
+    if (queryKey.isEmpty || titleKey.isEmpty) return 0;
+
+    final queryNumbers = _metadataNumberGroups(queryKey);
+    final titleNumbers = _metadataNumberGroups(titleKey);
+    if (queryNumbers.isNotEmpty &&
+        titleNumbers.isNotEmpty &&
+        !_sameStringList(queryNumbers, titleNumbers)) {
+      return 0;
+    }
+
+    var score = 0;
+    if (queryKey == titleKey) {
+      score = 100;
+    } else if (titleKey.startsWith(queryKey) || queryKey.startsWith(titleKey)) {
+      score = 92;
+    } else if (titleKey.contains(queryKey) || queryKey.contains(titleKey)) {
+      score = 88;
+    } else {
+      final titleRunes = titleKey.runes.toSet();
+      var overlap = 0;
+      for (final rune in queryKey.runes) {
+        if (titleRunes.contains(rune)) overlap += 1;
+      }
+      score = (overlap / math.max(1, queryKey.runes.length) * 86).round();
+    }
+
+    if (queryNumbers.isNotEmpty && titleNumbers.isEmpty) {
+      score = math.min(score, 62);
+    } else if (titleNumbers.isNotEmpty && queryNumbers.isEmpty) {
+      score = math.min(score, 66);
+    }
+    return math.max(0, math.min(100, score));
+  }
+
+  static String _cleanSearchTitle(String title) {
+    var result = title.trim();
+    if (RegExp(r'^\d+$').hasMatch(result)) return result;
+    result = result
+        .replaceFirst(RegExp(r'^[\[\(（][A-Za-z]+[\]\)）]'), "")
+        .trim();
+    result = result
+        .replaceFirst(RegExp(r'^直装[_ ]', caseSensitive: false), "")
+        .trim();
+    result = result
+        .replaceFirst(
+          RegExp(
+            r'[-_ ]?(?:v|ver|version)\s*\d+(?:\.\d+)*$',
+            caseSensitive: false,
+          ),
+          "",
+        )
+        .trim();
+    result = result.replaceFirst(RegExp(r'[-_ ]?\d+\.\d+(?:\.\d+)*$'), "").trim();
+    result = result
+        .replaceFirst(
+          RegExp(
+            r'[-_ ]?(汉化|中文|官方中文|完全版|DL版|体験版|体験版Ver[\d.]+).*$',
+            caseSensitive: false,
+          ),
+          "",
+        )
+        .trim();
+    result = result
+        .replaceFirst(
+          RegExp(
+            r'[-_ ]?[（(](?:pc|krkr|ons|ty|android|直装|汉化|中文|官方中文|dl版|'
+            r'r18|r-18|成人|全年龄|全年齡|ver[\d.]+|v[\d.]+)[)）]$',
+            caseSensitive: false,
+          ),
+          "",
+        )
+        .trim();
+    return result;
+  }
+
+  static String _metadataSearchKey(String text) {
+    final buffer = StringBuffer();
+    for (final rune in text.toLowerCase().runes) {
+      final isDigit = rune >= 0x30 && rune <= 0x39;
+      final isFullWidthDigit = rune >= 0xff10 && rune <= 0xff19;
+      final isAsciiLetter = rune >= 0x61 && rune <= 0x7a;
+      final isHiragana = rune >= 0x3040 && rune <= 0x309f;
+      final isKatakana = rune >= 0x30a0 && rune <= 0x30ff;
+      final isCjk = rune >= 0x3400 && rune <= 0x9fff;
+      if (isDigit || isAsciiLetter || isHiragana || isKatakana || isCjk) {
+        buffer.writeCharCode(rune);
+      } else if (isFullWidthDigit) {
+        buffer.writeCharCode(0x30 + rune - 0xff10);
+      }
+    }
+    return buffer.toString();
+  }
+
+  static List<String> _metadataNumberGroups(String normalized) {
+    return RegExp(r'\d+')
+        .allMatches(normalized)
+        .map((match) => _normalizeNumberGroup(match.group(0) ?? ""))
+        .where((value) => value.isNotEmpty)
+        .toList();
+  }
+
+  static String _normalizeSearchKeyNumbers(String value) {
+    return value.replaceAllMapped(
+      RegExp(r'\d+'),
+      (match) => _normalizeNumberGroup(match.group(0) ?? ""),
+    );
+  }
+
+  static String _normalizeNumberGroup(String value) {
+    final normalized = value.replaceFirst(RegExp(r'^0+'), "");
+    return normalized.isEmpty ? "0" : normalized;
+  }
+
+  static bool _sameStringList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i += 1) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 }

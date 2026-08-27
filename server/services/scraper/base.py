@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from difflib import SequenceMatcher
 import logging
 import re
 import time
+import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -143,7 +145,9 @@ class BaseScraper(ABC):
     ) -> ScraperResult | None:
         """Search and return the best (first) match, or None."""
         results = await self.search(name, company_hint)
-        return results[0] if results else None
+        if _looks_like_source_id(name):
+            return results[0] if results else None
+        return pick_best_scraper_result(name, results)
 
 
 # ── Title cleaning utilities ──
@@ -163,8 +167,118 @@ def clean_title(title: str) -> str:
     # Strip platform markers: [PC], (KRKR), 【Ty】, 直装_, etc.
     t = re.sub(r"^[\[\(（][A-Za-z]+[\]\)）]", "", t).strip()
     t = re.sub(r"^直装[_ ]", "", t, flags=re.IGNORECASE).strip()
-    # Strip common version/edition suffixes
-    t = re.sub(r"[-_ ]?v?\d+\.?\d*$", "", t)
-    t = re.sub(r"[-_ ]?(汉化|中文|官方中文|完全版|DL版|体験版|体験版Ver[\d.]+).*$", "", t)
-    t = re.sub(r"[-_ ]?[（(][^)）]*[)）]$", "", t)
+    # Strip common version/edition suffixes. Do not remove plain trailing
+    # digits: they are often sequel numbers, e.g. 猫忍えくすはーと2.
+    t = re.sub(
+        r"[-_ ]?(?:v|ver|version)\s*\d+(?:\.\d+)*$",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(r"[-_ ]?\d+\.\d+(?:\.\d+)*$", "", t)
+    t = re.sub(
+        r"[-_ ]?(汉化|中文|官方中文|完全版|DL版|体験版|体験版Ver[\d.]+).*$",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(
+        r"[-_ ]?[（(](?:pc|krkr|ons|ty|android|直装|汉化|中文|官方中文|dl版|"
+        r"r18|r-18|成人|全年龄|全年齡|ver[\d.]+|v[\d.]+)[)）]$",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
     return t.strip()
+
+
+def title_search_key(title: str) -> str:
+    normalized = unicodedata.normalize("NFKC", title).casefold()
+    return "".join(ch for ch in normalized if ch.isalnum())
+
+
+def normalized_title_search_key(title: str) -> str:
+    return re.sub(
+        r"\d+",
+        lambda match: _normalize_number_group(match.group(0)),
+        title_search_key(title),
+    )
+
+
+def title_number_groups(title: str) -> tuple[str, ...]:
+    return tuple(
+        _normalize_number_group(value)
+        for value in re.findall(r"\d+", title_search_key(title))
+    )
+
+
+def title_match_score(query: str, title: str) -> int:
+    query_key = normalized_title_search_key(clean_title(query))
+    title_key = normalized_title_search_key(title)
+    if not query_key or not title_key:
+        return 0
+
+    query_numbers = title_number_groups(query_key)
+    title_numbers = title_number_groups(title_key)
+    if query_numbers and title_numbers and query_numbers != title_numbers:
+        return 0
+
+    if query_key == title_key:
+        score = 100
+    elif title_key.startswith(query_key) or query_key.startswith(title_key):
+        score = 92
+    elif query_key in title_key or title_key in query_key:
+        score = 88
+    else:
+        score = round(SequenceMatcher(None, query_key, title_key).ratio() * 86)
+
+    if query_numbers and not title_numbers:
+        score = min(score, 62)
+    elif title_numbers and not query_numbers:
+        score = min(score, 66)
+    return max(0, min(100, score))
+
+
+def pick_best_scraper_result(
+    query: str,
+    results: list[ScraperResult],
+    *,
+    min_score: int = 70,
+) -> ScraperResult | None:
+    if not results:
+        return None
+    ranked = sorted(
+        (
+            (title_match_score(query, result.title), index, result)
+            for index, result in enumerate(results)
+        ),
+        key=lambda item: (-item[0], item[1]),
+    )
+    score, _, result = ranked[0]
+    return result if score >= min_score else None
+
+
+def rank_scraper_results(
+    query: str,
+    results: list[ScraperResult],
+) -> list[ScraperResult]:
+    return [
+        result
+        for _, _, result in sorted(
+            (
+                (title_match_score(query, result.title), index, result)
+                for index, result in enumerate(results)
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+    ]
+
+
+def _looks_like_source_id(value: str) -> bool:
+    query = value.strip().lower()
+    return bool(re.fullmatch(r"(?:v|bgm|steam|hn)?\d+", query))
+
+
+def _normalize_number_group(value: str) -> str:
+    normalized = value.lstrip("0")
+    return normalized or "0"

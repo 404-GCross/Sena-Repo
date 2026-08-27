@@ -7,7 +7,13 @@ import re
 
 import httpx
 
-from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult
+from .base import (
+    MAX_SCRAPED_TAGS,
+    BaseScraper,
+    ScrapedTag,
+    ScraperResult,
+    pick_best_scraper_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +73,11 @@ class VndbKanaScraper(BaseScraper):
         name: str,
         company_hint: str | None = None,
     ) -> ScraperResult | None:
-        results = await self._search(name, results=1)
-        return results[0] if results else None
+        if _normalize_vndb_id(name):
+            results = await self._search(name, results=1)
+            return results[0] if results else None
+        results = await self._search(name, results=5)
+        return pick_best_scraper_result(name, results)
 
     async def _search(self, name: str, *, results: int) -> list[ScraperResult]:
         client = await self._get_client()

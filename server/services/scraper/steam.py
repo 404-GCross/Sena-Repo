@@ -7,7 +7,14 @@ from urllib.parse import quote as url_encode
 
 import httpx
 
-from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult, clean_title
+from .base import (
+    MAX_SCRAPED_TAGS,
+    BaseScraper,
+    ScrapedTag,
+    ScraperResult,
+    clean_title,
+    title_match_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,28 +116,18 @@ class SteamScraper(BaseScraper):
 
     @staticmethod
     def _pick_best(items: list[dict], title: str) -> dict | None:
-        """Pick best match by name similarity. Only returns results that
-        contain or start with the search title — no blind fallback to first."""
-        norm = title.lower()
-        # Exact match
-        exact = next((a for a in items if str(a.get("name", "")).lower() == norm), None)
-        if exact:
-            return exact
-        # Contains match (handles different language / subtitle variations)
-        contains = next((a for a in items if norm in str(a.get("name", "")).lower()), None)
-        if contains:
-            return contains
-        # Prefix match
-        starts = next((a for a in items if str(a.get("name", "")).lower().startswith(norm)), None)
-        if starts:
-            return starts
-        # Search term is contained in item name (reverse contains — handles
-        # cases where store name is longer / has extra info)
-        for a in items:
-            item_name = str(a.get("name", "")).lower()
-            if item_name and item_name in norm:
-                return a
-        return None
+        """Pick best match by title score without blindly accepting sequels."""
+        ranked = sorted(
+            (
+                (title_match_score(title, str(item.get("name", ""))), index, item)
+                for index, item in enumerate(items)
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        if not ranked:
+            return None
+        score, _, item = ranked[0]
+        return item if score >= 70 else None
 
     async def _get_details(self, appid: str, search_title: str = "") -> list[ScraperResult]:
         """Fetch game details, cover, and vendors from App ID.

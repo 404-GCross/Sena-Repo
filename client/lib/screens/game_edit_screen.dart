@@ -3791,37 +3791,92 @@ String? _metadataSourceIdLabel(String sourceKey) {
 }
 
 int? _metadataMatchScore(String query, String title) {
-  final normalizedQuery = _metadataSearchKey(query);
-  final normalizedTitle = _metadataSearchKey(title);
+  final normalizedQuery = _normalizeMetadataSearchKeyNumbers(
+    _metadataSearchKey(query),
+  );
+  final normalizedTitle = _normalizeMetadataSearchKeyNumbers(
+    _metadataSearchKey(title),
+  );
   if (normalizedQuery.isEmpty || normalizedTitle.isEmpty) return null;
-  if (normalizedQuery == normalizedTitle) return 100;
-  if (normalizedTitle.contains(normalizedQuery) ||
-      normalizedQuery.contains(normalizedTitle)) {
-    return 92;
+
+  final queryNumbers = _metadataNumberGroups(normalizedQuery);
+  final titleNumbers = _metadataNumberGroups(normalizedTitle);
+  if (queryNumbers.isNotEmpty &&
+      titleNumbers.isNotEmpty &&
+      !_sameStringList(queryNumbers, titleNumbers)) {
+    return 0;
   }
 
-  final titleRunes = normalizedTitle.runes.toSet();
-  var overlap = 0;
-  for (final rune in normalizedQuery.runes) {
-    if (titleRunes.contains(rune)) overlap += 1;
+  var score = 0;
+  if (normalizedQuery == normalizedTitle) {
+    score = 100;
+  } else if (normalizedTitle.startsWith(normalizedQuery) ||
+      normalizedQuery.startsWith(normalizedTitle)) {
+    score = 92;
+  } else if (normalizedTitle.contains(normalizedQuery) ||
+      normalizedQuery.contains(normalizedTitle)) {
+    score = 88;
+  } else {
+    final titleRunes = normalizedTitle.runes.toSet();
+    var overlap = 0;
+    for (final rune in normalizedQuery.runes) {
+      if (titleRunes.contains(rune)) overlap += 1;
+    }
+    score = (overlap / math.max(1, normalizedQuery.runes.length) * 82).round();
   }
-  final base = (overlap / math.max(1, normalizedQuery.runes.length) * 82).round();
-  return math.max(35, math.min(89, base));
+
+  if (queryNumbers.isNotEmpty && titleNumbers.isEmpty) {
+    score = math.min(score, 62);
+  } else if (titleNumbers.isNotEmpty && queryNumbers.isEmpty) {
+    score = math.min(score, 66);
+  }
+  return math.max(0, math.min(100, score));
 }
 
 String _metadataSearchKey(String text) {
   final buffer = StringBuffer();
   for (final rune in text.toLowerCase().runes) {
     final isDigit = rune >= 0x30 && rune <= 0x39;
+    final isFullWidthDigit = rune >= 0xff10 && rune <= 0xff19;
     final isAsciiLetter = rune >= 0x61 && rune <= 0x7a;
     final isHiragana = rune >= 0x3040 && rune <= 0x309f;
     final isKatakana = rune >= 0x30a0 && rune <= 0x30ff;
     final isCjk = rune >= 0x3400 && rune <= 0x9fff;
     if (isDigit || isAsciiLetter || isHiragana || isKatakana || isCjk) {
       buffer.writeCharCode(rune);
+    } else if (isFullWidthDigit) {
+      buffer.writeCharCode(0x30 + rune - 0xff10);
     }
   }
   return buffer.toString();
+}
+
+List<String> _metadataNumberGroups(String normalized) {
+  return RegExp(r'\d+')
+      .allMatches(normalized)
+      .map((match) => _normalizeNumberGroup(match.group(0) ?? ""))
+      .where((value) => value.isNotEmpty)
+      .toList();
+}
+
+String _normalizeMetadataSearchKeyNumbers(String value) {
+  return value.replaceAllMapped(
+    RegExp(r'\d+'),
+    (match) => _normalizeNumberGroup(match.group(0) ?? ""),
+  );
+}
+
+String _normalizeNumberGroup(String value) {
+  final normalized = value.replaceFirst(RegExp(r'^0+'), "");
+  return normalized.isEmpty ? "0" : normalized;
+}
+
+bool _sameStringList(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i += 1) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 class _MetadataApplyImage {

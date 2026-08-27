@@ -8,7 +8,14 @@ from datetime import datetime
 
 import httpx
 
-from .base import MAX_SCRAPED_TAGS, BaseScraper, ScrapedTag, ScraperResult, clean_title
+from .base import (
+    MAX_SCRAPED_TAGS,
+    BaseScraper,
+    ScrapedTag,
+    ScraperResult,
+    clean_title,
+    pick_best_scraper_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -179,10 +186,12 @@ class HikarinagiScraper(BaseScraper):
                 if normalized_id:
                     return await self._get_detail(client, normalized_id)
 
-                hits = await self._search_hits(client, keyword, page_size=5)
-                if not hits:
-                    return None
-                fallback = self._parse_hit(hits[0])
+                fallbacks = [
+                    fallback
+                    for hit in await self._search_hits(client, keyword, page_size=5)
+                    if (fallback := self._parse_hit(hit))
+                ]
+                fallback = pick_best_scraper_result(keyword, fallbacks)
                 if not fallback:
                     return None
                 return await self._get_detail(client, fallback.source_id, fallback)

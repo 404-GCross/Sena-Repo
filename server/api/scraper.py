@@ -28,6 +28,7 @@ from services.scraper.orchestrator import (
     _build_scrapers,
     run_batch_scrape,
 )
+from services.scraper.base import rank_scraper_results
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ async def search_candidates(
         raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
 
     try:
-        results = await scraper.search(q)
+        results = rank_scraper_results(q, await scraper.search(q))
         return {
             "source": source,
             "query": q,
