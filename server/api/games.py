@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
+from uuid import uuid4
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from api.auth import get_current_user, require_admin
+from config import load_config
 from database import get_session
 from models.user import User
 from models.game import Company, Game, GameVersion, GameTag, Platform
@@ -17,8 +23,49 @@ from models.tag import Tag
 from schemas.common import MessageResponse
 from schemas.game import GameDetail, GameSummary
 from services.importer import cleanup_empty_companies
+from services.scraper.base import ScrapedTag, ScraperResult
+from services.scraper.orchestrator import _apply_result
 
 router = APIRouter(prefix="/api/games", tags=["games"])
+
+
+_ENTRY_SOURCES = {"library", "manual", "metadata"}
+_CREATE_ENTRY_SOURCES = {"manual", "metadata"}
+_SOURCE_ID_FIELDS = {
+    "vndb_kana": "vndb_id",
+    "vndb": "vndb_id",
+    "bangumi": "bangumi_id",
+    "steam": "steam_id",
+    "hikarinagi": "hikarinagi_id",
+}
+
+
+def _entry_source(game: Game) -> str:
+    source = (getattr(game, "entry_source", None) or "library").strip()
+    return source if source in _ENTRY_SOURCES else "library"
+
+
+def _is_virtual_game_path(path: str | None) -> bool:
+    value = (path or "").strip()
+    return value.startswith(("manual://", "metadata://", "/virtual/"))
+
+
+def _should_ignore_game_path(game: Game) -> bool:
+    return (
+        _entry_source(game) == "library"
+        and bool(game.folder_path)
+        and not _is_virtual_game_path(game.folder_path)
+    )
+
+
+async def _add_ignore_path_once(session: AsyncSession, game: Game) -> None:
+    if not _should_ignore_game_path(game):
+        return
+    existing = await session.execute(
+        select(IgnoreList).where(IgnoreList.path == game.folder_path)
+    )
+    if existing.scalar_one_or_none() is None:
+        session.add(IgnoreList(path=game.folder_path))
 
 
 def _game_to_summary(game: Game) -> GameSummary:
@@ -31,6 +78,7 @@ def _game_to_summary(game: Game) -> GameSummary:
         company_name=game.company.name if game.company else None,
         developer=game.developer,
         folder_path=game.folder_path,
+        entry_source=_entry_source(game),
         cover_path=game.cover_path,
         is_nsfw=bool(game.is_nsfw),
         platform_summary=", ".join(platforms),
@@ -194,6 +242,7 @@ async def get_game(
         company_name=game.company.name if game.company else None,
         root_id=game.root_id,
         folder_path=game.folder_path,
+        entry_source=_entry_source(game),
         cover_path=game.cover_path,
         bg_path=game.bg_path,
         is_nsfw=bool(game.is_nsfw),
@@ -267,19 +316,12 @@ async def delete_game(
     game.is_deleted = True
     game.updated_at = datetime.utcnow()
 
-    # Add to ignore list
-    existing = await session.execute(
-        select(IgnoreList).where(IgnoreList.path == game.folder_path)
-    )
-    if existing.scalar_one_or_none() is None:
-        session.add(IgnoreList(path=game.folder_path))
+    await _add_ignore_path_once(session, game)
 
     await cleanup_empty_companies(session)
     await session.commit()
     return MessageResponse(message=f"Game '{game.name}' removed")
 
-
-from pydantic import BaseModel
 
 class BatchDeleteRequest(BaseModel):
     game_ids: list[int]
@@ -297,7 +339,7 @@ async def batch_delete_games(
     result = await session.execute(
         select(Game).where(Game.id.in_(body.game_ids)))
     games = result.scalars().all()
-    paths = {g.folder_path for g in games if g.folder_path}
+    paths = {g.folder_path for g in games if _should_ignore_game_path(g)}
     # Batch check ignore list
     if paths:
         ignored = await session.execute(
@@ -309,7 +351,7 @@ async def batch_delete_games(
     for game in games:
         game.is_deleted = True
         game.updated_at = datetime.utcnow()
-        if game.folder_path and game.folder_path not in ignored_paths:
+        if _should_ignore_game_path(game) and game.folder_path not in ignored_paths:
             session.add(IgnoreList(path=game.folder_path))
             ignored_paths.add(game.folder_path)
         deleted += 1
@@ -318,22 +360,220 @@ async def batch_delete_games(
     return MessageResponse(message=f"已删除 {deleted} 个游戏")
 
 
-class QuickCreate(BaseModel):
+class GameCreateTag(BaseModel):
     name: str
+    rating: float = 0.0
+    is_spoiler: bool = False
 
 
-@router.put("/quick-create")
-async def quick_create_game(
-    body: QuickCreate,
+class GameCreate(BaseModel):
+    name: str
+    entry_source: str | None = None
+    source: str | None = None
+    source_id: str | None = None
+    developer: str | None = None
+    description: str | None = None
+    release_date: str | None = None
+    cover_url: str | None = None
+    hero_url: str | None = None
+    is_nsfw: bool | None = None
+    length: int | None = None
+    length_minutes: int | None = None
+    tags: list[GameCreateTag] = Field(default_factory=list)
+
+
+def _clean_create_text(value: str | None, max_length: int | None = None) -> str:
+    text = (value or "").strip()
+    return text[:max_length] if max_length is not None else text
+
+
+def _normalize_create_source(body: GameCreate) -> str:
+    requested = (body.entry_source or "").strip().lower()
+    if requested in _CREATE_ENTRY_SOURCES:
+        return requested
+    if body.source or body.source_id or body.cover_url or body.hero_url or body.tags:
+        return "metadata"
+    return "manual"
+
+
+def _source_id_field(source: str | None) -> str | None:
+    return _SOURCE_ID_FIELDS.get((source or "").strip().lower())
+
+
+def _safe_virtual_path_part(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    text = text.strip("._-")
+    return text[:160] or "item"
+
+
+def _virtual_folder_path(entry_source: str, source: str, source_id: str) -> str:
+    if entry_source == "metadata" and source and source_id:
+        return f"metadata://{_safe_virtual_path_part(source)}/{_safe_virtual_path_part(source_id)}"
+    return f"manual://game/{uuid4().hex}"
+
+
+async def _get_or_create_company(
+    session: AsyncSession,
+    name: str,
+) -> Company | None:
+    company_name = _clean_create_text(name, 255)
+    if not company_name:
+        return None
+    result = await session.execute(select(Company).where(Company.name == company_name))
+    company = result.scalar_one_or_none()
+    if company is None:
+        company = Company(name=company_name)
+        session.add(company)
+        await session.flush()
+    return company
+
+
+async def _apply_create_payload(
+    session: AsyncSession,
+    game: Game,
+    body: GameCreate,
+    entry_source: str,
+) -> None:
+    name = _clean_create_text(body.name, 512)
+    source = (body.source or "").strip().lower()
+    source_id = _clean_create_text(body.source_id, 64)
+    developer = _clean_create_text(body.developer, 512)
+
+    game.name = name
+    if _entry_source(game) != "library" or entry_source == "library":
+        game.entry_source = entry_source
+    if developer:
+        game.developer = developer
+        company = await _get_or_create_company(session, developer)
+        if company is not None:
+            game.company_id = company.id
+    if body.description is not None:
+        game.description = _clean_create_text(body.description, 2000)
+    if body.release_date is not None:
+        game.release_date = _clean_create_text(body.release_date, 64)
+    if body.is_nsfw is not None:
+        game.is_nsfw = bool(body.is_nsfw)
+    if body.length is not None:
+        game.length = max(0, body.length)
+    if body.length_minutes is not None:
+        game.length_minutes = max(0, body.length_minutes)
+
+    id_field = _source_id_field(source)
+    if id_field and source_id:
+        setattr(game, id_field, source_id)
+
+    tags = [
+        ScrapedTag(
+            name=_clean_create_text(tag.name, 128),
+            rating=tag.rating,
+            is_spoiler=tag.is_spoiler,
+        )
+        for tag in body.tags
+        if _clean_create_text(tag.name)
+    ]
+    scraper_result = ScraperResult(
+        title=name,
+        developer=developer,
+        description=_clean_create_text(body.description, 2000),
+        release_date=_clean_create_text(body.release_date, 64),
+        cover_url=_clean_create_text(body.cover_url),
+        hero_url=_clean_create_text(body.hero_url),
+        source_id=source_id,
+        source_name=source,
+        length=body.length or 0,
+        length_minutes=body.length_minutes or 0,
+        is_nsfw=body.is_nsfw,
+        tags=tags,
+    )
+
+    config = load_config()
+    client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    async with httpx.AsyncClient(**client_kwargs) as client:
+        await _apply_result(
+            scraper_result,
+            source or entry_source,
+            game,
+            client,
+            config.covers_path,
+            session,
+            config,
+            mode="overwrite",
+        )
+    game.updated_at = datetime.utcnow()
+
+
+async def _create_game_from_payload(
+    body: GameCreate,
+    session: AsyncSession,
+) -> tuple[Game, bool]:
+    name = _clean_create_text(body.name, 512)
+    if not name:
+        raise HTTPException(status_code=400, detail="游戏名称不能为空")
+
+    entry_source = _normalize_create_source(body)
+    source = (body.source or "").strip().lower()
+    source_id = _clean_create_text(body.source_id, 64)
+    id_field = _source_id_field(source)
+    if source and id_field is None:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
+
+    if id_field and source_id:
+        existing = await session.execute(
+            select(Game).where(getattr(Game, id_field) == source_id)
+        )
+        game = existing.scalar_one_or_none()
+        if game is not None:
+            game.is_deleted = False
+            await _apply_create_payload(session, game, body, entry_source)
+            await session.commit()
+            await session.refresh(game)
+            return game, True
+
+    folder_path = _virtual_folder_path(entry_source, source, source_id)
+    existing_path = await session.execute(
+        select(Game).where(Game.folder_path == folder_path)
+    )
+    game = existing_path.scalar_one_or_none()
+    if game is not None:
+        game.is_deleted = False
+        await _apply_create_payload(session, game, body, entry_source)
+        await session.commit()
+        await session.refresh(game)
+        return game, True
+
+    game = Game(
+        name=name,
+        root_id=0,
+        folder_path=folder_path,
+        entry_source=entry_source,
+        is_deleted=False,
+        imported_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    session.add(game)
+    await session.flush()
+    await _apply_create_payload(session, game, body, entry_source)
+    await session.commit()
+    await session.refresh(game)
+    return game, False
+
+
+@router.post("")
+async def create_game(
+    body: GameCreate,
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Quick-create a minimal game entry for version moving (admin only)."""
-    game = Game(name=body.name, root_id=0, folder_path=f"/virtual/{body.name}")
-    session.add(game)
-    await session.commit()
-    await session.refresh(game)
-    return {"id": game.id, "name": game.name}
+    """Create a manual or metadata-backed game entry."""
+    game, existing = await _create_game_from_payload(body, session)
+    return {
+        "id": game.id,
+        "name": game.name,
+        "entry_source": _entry_source(game),
+        "existing": existing,
+    }
 
 
 class GameUpdate(BaseModel):
@@ -500,10 +740,10 @@ async def move_version(
         remaining = await session.execute(
             select(func.count(GameVersion.id)).where(GameVersion.game_id == game_id)
         )
-        if remaining.scalar() == 0:
+        if remaining.scalar() == 0 and _entry_source(from_g) == "library":
             from_g.is_deleted = True
             from_g.updated_at = datetime.utcnow()
-            session.add(IgnoreList(path=from_g.folder_path))
+            await _add_ignore_path_once(session, from_g)
 
     await cleanup_empty_companies(session)
     await session.commit()
@@ -533,7 +773,7 @@ async def merge_games(
     # Soft delete source game
     from_g.is_deleted = True
     from_g.updated_at = datetime.utcnow()
-    session.add(IgnoreList(path=from_g.folder_path))
+    await _add_ignore_path_once(session, from_g)
 
     await cleanup_empty_companies(session)
     await session.commit()

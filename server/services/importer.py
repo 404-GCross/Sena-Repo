@@ -147,7 +147,11 @@ async def import_from_root(
         for c in scan_result.companies for g in c.games
     }
     all_games = await session.execute(
-        select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
+        select(Game).where(
+            Game.root_id == root_id,
+            Game.entry_source == "library",
+            Game.is_deleted == False,
+        )
     )
     orphans = 0
     for game in all_games.scalars().all():
@@ -163,7 +167,11 @@ async def import_from_root(
 
     # Count total games from this root
     count_result = await session.execute(
-        select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
+        select(Game).where(
+            Game.root_id == root_id,
+            Game.entry_source == "library",
+            Game.is_deleted == False,
+        )
     )
     stats["total_games"] = len(count_result.scalars().all())
     stats["orphaned"] = orphans
@@ -239,6 +247,7 @@ async def _upsert_game(
             company_id=company_id,
             root_id=root_id,
             folder_path=folder_path,
+            entry_source="library",
             developer=developer,
         )
         session.add(game)
@@ -247,6 +256,7 @@ async def _upsert_game(
         # Update fields if changed, restore if previously deleted
         game.name = clean_name
         game.company_id = company_id
+        game.entry_source = "library"
         game.is_deleted = False
         if game.developer is None and developer:
             game.developer = developer

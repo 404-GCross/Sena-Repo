@@ -48,6 +48,7 @@ class Game(Base):
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     root_id = Column(Integer, ForeignKey("root_directories.id"), nullable=False)
     folder_path = Column(String(1024), nullable=False, unique=True)
+    entry_source = Column(String(32), nullable=False, default="library")
 
     # Metadata (populated by scrapers in Phase 2)
     cover_path = Column(String(1024), nullable=True)

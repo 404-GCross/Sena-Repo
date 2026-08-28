@@ -19,6 +19,7 @@ import "../widgets/app_shell.dart";
 import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
+import "../widgets/new_game_dialog.dart";
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
@@ -420,62 +421,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addNewGame(BuildContext ctx, GameProvider provider) async {
-    final nameCtrl = TextEditingController();
-    final folderCtrl = TextEditingController();
-    final result = await showDialog<bool>(
-      context: ctx,
-      builder: (c) => AlertDialog(
-        title: const Text("新建条目"),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: "游戏名"),
-              autofocus: true),
-          const SizedBox(height: 8),
-          TextField(
-              controller: folderCtrl,
-              decoration: const InputDecoration(labelText: "路径（可选）")),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c), child: const Text("取消")),
-          FilledButton(
-              onPressed: () => Navigator.pop(c, true), child: const Text("创建")),
-        ],
-      ),
+    final createdId = await showNewGameDialog(
+      ctx,
+      api: provider.api,
+      initialQuery: _searchController.text.trim(),
     );
-    if (result == true) {
-      try {
-        await http.put(
-          Uri.parse("${provider.api.baseUrl}/api/games/quick-create"),
-          headers: {
-            "Content-Type": "application/json",
-            ...provider.api.headers
-          },
-          body: jsonEncode({"name": nameCtrl.text.trim()}),
-        );
-        await provider.loadGames();
-        if (ctx.mounted)
-          showDialog(
-              context: ctx,
-              builder: (d) => AlertDialog(content: const Text("已创建"), actions: [
-                    FilledButton(
-                        onPressed: () => Navigator.pop(d),
-                        child: const Text("确定"))
-                  ]));
-      } catch (e) {
-        if (ctx.mounted)
-          showDialog(
-              context: ctx,
-              builder: (d) => AlertDialog(
-                      title: const Text("错误"),
-                      content: Text("创建失败: $e"),
-                      actions: [
-                        FilledButton(
-                            onPressed: () => Navigator.pop(d),
-                            child: const Text("确定"))
-                      ]));
-      }
+    if (createdId == null) return;
+    await provider.loadGames();
+    if (ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(content: Text("条目已创建")),
+      );
     }
   }
 

@@ -18,6 +18,7 @@ import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/new_game_dialog.dart";
 import "../widgets/nsfw_image.dart";
 
 class GameEditScreen extends StatefulWidget {
@@ -415,49 +416,15 @@ class _GameEditScreenState extends State<GameEditScreen> {
               icon: const Icon(Icons.add, size: 16),
               label: const Text("创建新条目并移入"),
               onPressed: () async {
-                final nameCtrl = TextEditingController();
-                final newName = await showDialog<String>(
-                  context: ctx,
-                  builder: (c) => AlertDialog(
-                    title: const Text("新建游戏条目"),
-                    content: TextField(
-                      controller: nameCtrl,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: "游戏名称",
-                        hintText: "输入新游戏名称",
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(c),
-                        child: const Text("取消"),
-                      ),
-                      FilledButton(
-                        onPressed: () {
-                          final name = nameCtrl.text.trim();
-                          if (name.isEmpty) return;
-                          Navigator.pop(c, name);
-                        },
-                        child: const Text("创建"),
-                      ),
-                    ],
-                  ),
+                final newId = await showNewGameDialog(
+                  ctx,
+                  api: context.read<GameProvider>().api,
+                  title: "创建目标条目",
+                  initialQuery: searchCtrl.text.trim().isNotEmpty
+                      ? searchCtrl.text.trim()
+                      : widget.game.name,
                 );
-                if (newName == null || newName.isEmpty) return;
-                try {
-                  final r = await http.put(
-                    Uri.parse("$_baseUrl/api/games/quick-create"),
-                    headers: {
-                      "Content-Type": "application/json",
-                      ..._authHeaders,
-                    },
-                    body: jsonEncode({"name": newName}),
-                  );
-                  if (r.statusCode == 200) {
-                    Navigator.pop(ctx, jsonDecode(r.body)["id"] as int);
-                  }
-                } catch (_) {}
+                if (newId != null && ctx.mounted) Navigator.pop(ctx, newId);
               },
             ),
           ],
@@ -686,20 +653,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text("创建新条目并合并"),
                 onPressed: () async {
-                  try {
-                    final r = await http.put(
-                      Uri.parse("$_baseUrl/api/games/quick-create"),
-                      headers: {
-                        "Content-Type": "application/json",
-                        ..._authHeaders,
-                      },
-                      body: jsonEncode({"name": searchCtrl.text.trim()}),
-                    );
-                    if (r.statusCode == 200) {
-                      final newId = jsonDecode(r.body)["id"] as int;
-                      Navigator.pop(ctx, newId);
-                    }
-                  } catch (_) {}
+                  final newId = await showNewGameDialog(
+                    ctx,
+                    api: context.read<GameProvider>().api,
+                    title: "创建合并目标",
+                    initialQuery: searchCtrl.text.trim(),
+                  );
+                  if (newId != null && ctx.mounted) Navigator.pop(ctx, newId);
                 },
               ),
           ],

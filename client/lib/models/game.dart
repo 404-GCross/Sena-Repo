@@ -89,6 +89,7 @@ class GameSummary {
   final String? companyName;
   final String? developer;
   final String folderPath;
+  final String entrySource;
   final String? coverPath;
   final bool isNsfw;
   final String platformSummary;
@@ -103,6 +104,7 @@ class GameSummary {
     this.companyName,
     this.developer,
     required this.folderPath,
+    this.entrySource = "library",
     this.coverPath,
     this.isNsfw = false,
     required this.platformSummary,
@@ -119,6 +121,7 @@ class GameSummary {
       companyName: json["company_name"],
       developer: json["developer"],
       folderPath: json["folder_path"] ?? "",
+      entrySource: json["entry_source"]?.toString() ?? "library",
       coverPath: json["cover_path"],
       isNsfw: json["is_nsfw"] == true,
       platformSummary: json["platform_summary"] ?? "",
@@ -136,6 +139,7 @@ class GameDetail {
   final String? companyName;
   final int rootId;
   final String folderPath;
+  final String entrySource;
   final String? coverPath;
   final String? bgPath;
   final bool isNsfw;
@@ -160,6 +164,7 @@ class GameDetail {
     this.companyName,
     required this.rootId,
     required this.folderPath,
+    this.entrySource = "library",
     this.coverPath,
     this.bgPath,
     this.isNsfw = false,
@@ -186,6 +191,7 @@ class GameDetail {
       companyName: json["company_name"],
       rootId: json["root_id"] ?? 0,
       folderPath: json["folder_path"] ?? "",
+      entrySource: json["entry_source"]?.toString() ?? "library",
       coverPath: json["cover_path"],
       bgPath: json["bg_path"],
       isNsfw: json["is_nsfw"] == true,

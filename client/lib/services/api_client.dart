@@ -357,6 +357,45 @@ class ApiClient {
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
+  Future<List<Map<String, dynamic>>> searchMetadataCandidates({
+    required String source,
+    required String query,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/scrape/search").replace(
+      queryParameters: {"q": query, "source": source},
+    );
+    final resp = await _execute(
+      () => _client.get(uri, headers: headers),
+      allowRetry: false,
+      method: "GET",
+      uri: uri,
+      label: "search metadata source=$source",
+    );
+    checkResponse(resp, fallbackMessage: "搜索元数据失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return ((data["results"] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> createGame(Map<String, dynamic> body) async {
+    final uri = Uri.parse("$baseUrl/api/games");
+    final resp = await _execute(
+      () => _client.post(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode(body),
+      ),
+      allowRetry: false,
+      method: "POST",
+      uri: uri,
+      label: "create game entry",
+    );
+    checkResponse(resp, fallbackMessage: "创建游戏条目失败");
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
   Future<ManagerInstallLink> createManagerInstallLink({
     required int gameId,
     required int versionId,

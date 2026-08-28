@@ -30,6 +30,7 @@ class GameSummary(BaseModel):
     company_name: str | None = None
     developer: str | None = None
     folder_path: str
+    entry_source: str = "library"
     cover_path: str | None = None
     is_nsfw: bool = False
     platform_summary: str = ""  # e.g. "PC, KRKR"
@@ -48,6 +49,7 @@ class GameDetail(BaseModel):
     company_name: str | None = None
     root_id: int
     folder_path: str
+    entry_source: str = "library"
     cover_path: str | None = None
     bg_path: str | None = None
     is_nsfw: bool = False

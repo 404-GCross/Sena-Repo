@@ -87,6 +87,19 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN hikarinagi_id VARCHAR(64)"
             )
+        if "entry_source" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN entry_source VARCHAR(32) NOT NULL DEFAULT 'library'"
+            )
+            await conn.exec_driver_sql(
+                """
+                UPDATE games
+                SET entry_source = 'manual'
+                WHERE folder_path LIKE '/virtual/%'
+                   OR folder_path LIKE 'manual://%'
+                   OR folder_path LIKE 'metadata://%'
+                """
+            )
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
         if "extract_password" not in version_columns:
