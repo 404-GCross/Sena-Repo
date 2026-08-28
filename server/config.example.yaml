@@ -36,13 +36,13 @@ custom_regex:
 # Scraper API keys (optional, fill in to enable)
 # Bangumi Token: https://bgm.tv/dev/app
 # VNDB Token: https://vndb.org/u/tokens
-# Hikarinagi OAuth app: https://www.hikarinagi.org/developers
+# Hikarinagi native/public OAuth app: https://www.hikarinagi.org/developers
 scrapers:
   bangumi_token: ""
   vndb_token: ""
   hikarinagi_client_id: ""
-  hikarinagi_client_secret: ""
-  hikarinagi_scope: "catalog:full"
+  hikarinagi_redirect_uri: "com.github.senarepo:/oauth/hikarinagi"
+  hikarinagi_scope: "openid profile catalog:full user:read status:read offline_access"
   scraper_order:
     - hikarinagi
     - vndb_kana

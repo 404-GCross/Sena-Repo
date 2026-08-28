@@ -1,9 +1,9 @@
-"""Hikarinagi scraper — OAuth2 client_credentials public catalog API."""
+"""Hikarinagi scraper using a bound user OAuth token."""
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import logging
-import time
 from datetime import datetime
 
 import httpx
@@ -19,9 +19,10 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-HIKARINAGI_BASE = "https://www.hikarinagi.org/api/v3/open"
+AccessTokenProvider = Callable[[httpx.AsyncClient], Awaitable[str]]
+
+HIKARINAGI_BASE = "https://api.hikarinagi.org/v3"
 HIKARINAGI_CDN_BASE = "https://images.yurari.moe/"
-HIKARINAGI_TOKEN_URL = "https://id.hikarinagi.org/oidc/token"
 
 
 class HikarinagiScraper(BaseScraper):
@@ -36,47 +37,21 @@ class HikarinagiScraper(BaseScraper):
         self,
         proxy: str = "",
         client: httpx.AsyncClient | None = None,
-        client_id: str = "",
-        client_secret: str = "",
-        scope: str = "catalog:full",
+        access_token_provider: AccessTokenProvider | None = None,
     ):
         super().__init__(proxy=proxy, client=client)
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._scope = scope or "catalog:full"
+        self._access_token_provider = access_token_provider
         self._token = ""
-        self._token_expires = 0.0
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
-        if not self._client_id or not self._client_secret:
-            raise RuntimeError("Hikarinagi client_id/client_secret 未配置")
-
-        now = time.monotonic()
-        if self._token and now < self._token_expires:
+        if self._token:
             return self._token
-
-        resp = await self._request_with_retry(
-            client,
-            "POST",
-            HIKARINAGI_TOKEN_URL,
-            data={
-                "grant_type": "client_credentials",
-                "scope": self._scope,
-            },
-            auth=httpx.BasicAuth(self._client_id, self._client_secret),
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        data = resp.json()
-        token = data.get("access_token", "")
+        if self._access_token_provider is None:
+            raise RuntimeError("Hikarinagi 账号未绑定，请先在设置中完成授权")
+        token = await self._access_token_provider(client)
         if not token:
             raise RuntimeError("Hikarinagi Token 响应为空")
-        expires_in = int(data.get("expires_in") or 3600)
         self._token = token
-        refresh_before = 60 if expires_in > 60 else 0
-        self._token_expires = now + max(0, expires_in - refresh_before)
         return token
 
     async def _api_get(

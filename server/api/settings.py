@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth import get_current_user, require_admin
 from config import (
     DEFAULT_ENABLED_SCRAPERS,
+    DEFAULT_HIKARINAGI_REDIRECT_URI,
+    DEFAULT_HIKARINAGI_SCOPE,
     SCRAPER_SOURCE_ORDER,
     load_config,
     normalize_scraper_config,
@@ -117,8 +119,8 @@ class ScraperConfigOut(BaseModel):
     bangumi_token: str = ""
     vndb_token: str = ""
     hikarinagi_client_id: str = ""
-    hikarinagi_client_secret: str = ""
-    hikarinagi_scope: str = "catalog:full"
+    hikarinagi_redirect_uri: str = DEFAULT_HIKARINAGI_REDIRECT_URI
+    hikarinagi_scope: str = DEFAULT_HIKARINAGI_SCOPE
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -132,17 +134,11 @@ class ScraperConfigUpdate(BaseModel):
     bangumi_token: str | None = None
     vndb_token: str | None = None
     hikarinagi_client_id: str | None = None
-    hikarinagi_client_secret: str | None = None
+    hikarinagi_redirect_uri: str | None = None
     hikarinagi_scope: str | None = None
     scraper_order: list[str] | None = None
     enabled_scrapers: list[str] | None = None
     proxy: str | None = None
-
-
-class HikarinagiTestRequest(BaseModel):
-    client_id: str = ""
-    client_secret: str = ""
-    scope: str = "catalog:full"
 
 
 class SecretKeyStatusOut(BaseModel):
@@ -170,8 +166,8 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         bangumi_token=_mask(s.bangumi_token),
         vndb_token=_mask(s.vndb_token),
         hikarinagi_client_id=_mask(s.hikarinagi_client_id),
-        hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
-        hikarinagi_scope=s.hikarinagi_scope,
+        hikarinagi_redirect_uri=s.hikarinagi_redirect_uri or DEFAULT_HIKARINAGI_REDIRECT_URI,
+        hikarinagi_scope=s.hikarinagi_scope or DEFAULT_HIKARINAGI_SCOPE,
         scraper_order=s.scraper_order,
         enabled_scrapers=s.enabled_scrapers,
         proxy=_mask(config.proxy),
@@ -211,12 +207,13 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     from config import load_config
     config = load_config()
     data = _read_scraper_config()
+    data.pop("hikarinagi_client_secret", None)
 
     for key in (
         "bangumi_token",
         "vndb_token",
         "hikarinagi_client_id",
-        "hikarinagi_client_secret",
+        "hikarinagi_redirect_uri",
         "hikarinagi_scope",
         "scraper_order",
         "enabled_scrapers",
@@ -229,7 +226,9 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
             if isinstance(val, str):
                 val = val.strip()
             if key == "hikarinagi_scope" and not val:
-                val = "catalog:full"
+                val = DEFAULT_HIKARINAGI_SCOPE
+            if key == "hikarinagi_redirect_uri" and not val:
+                val = DEFAULT_HIKARINAGI_REDIRECT_URI
             if key in {"scraper_order", "enabled_scrapers"}:
                 if not isinstance(val, list):
                     continue
@@ -252,71 +251,6 @@ async def get_secret_key_status(user: User = Depends(require_admin)):
     """Return encryption key health without exposing key material."""
     del user
     return SecretKeyStatusOut(**encryption_key_status())
-
-
-@router.post("/hikarinagi-test")
-async def test_hikarinagi(
-    body: HikarinagiTestRequest,
-    user: User = Depends(require_admin),
-):
-    """Validate Hikarinagi OAuth credentials and catalog access without saving them."""
-    import time
-    import httpx
-    from services.scraper.hikarinagi import HikarinagiScraper
-
-    config = load_config()
-    configured_id = config.scrapers.hikarinagi_client_id
-    configured_secret = config.scrapers.hikarinagi_client_secret
-    client_id = body.client_id.strip()
-    client_secret = body.client_secret.strip()
-    if not client_id or "****" in client_id:
-        client_id = configured_id
-    if not client_secret or "****" in client_secret:
-        client_secret = configured_secret
-    scope = body.scope.strip() or "catalog:full"
-    if not client_id or not client_secret:
-        return {"ok": False, "error": "请填写 Client ID 和 Client Secret"}
-
-    client_kwargs = {"timeout": httpx.Timeout(15.0)}
-    if config.proxy:
-        client_kwargs["proxy"] = config.proxy
-    started = time.monotonic()
-    scraper = HikarinagiScraper(
-        proxy=config.proxy,
-        client_id=client_id,
-        client_secret=client_secret,
-        scope=scope,
-    )
-    try:
-        async with httpx.AsyncClient(**client_kwargs) as client:
-            await scraper._ensure_token(client)
-            await scraper._api_get(
-                client,
-                "/search",
-                params=[
-                    ("q", "test"),
-                    ("types", "galgame"),
-                    ("page", "1"),
-                    ("page_size", "1"),
-                ],
-                use_auth=True,
-            )
-        return {
-            "ok": True,
-            "scope": scope,
-            "latency_ms": round((time.monotonic() - started) * 1000),
-        }
-    except httpx.HTTPStatusError as exc:
-        return {
-            "ok": False,
-            "error": f"Hikarinagi 返回 HTTP {exc.response.status_code}，请检查凭据和 Scope",
-        }
-    except httpx.TimeoutException:
-        return {"ok": False, "error": "Hikarinagi 连接超时，请检查网络或代理"}
-    except Exception:
-        return {"ok": False, "error": "Hikarinagi 连接失败，请检查凭据、Scope 和网络"}
-    finally:
-        await scraper.close()
 
 
 @router.post("/proxy-test")

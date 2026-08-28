@@ -5,3 +5,4 @@ from .file_source import FileSource, SteamPatchRoot
 from .ignore_list import IgnoreList
 from .scrape_job import ScrapeJob, JobStatus
 from .user import User, UserSession, Notification, hash_password, verify_password
+from .hikarinagi import HikarinagiAccount

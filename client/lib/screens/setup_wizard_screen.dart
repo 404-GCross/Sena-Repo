@@ -19,7 +19,8 @@ class SetupWizardScreen extends StatefulWidget {
 }
 
 class _SetupWizardScreenState extends State<SetupWizardScreen> {
-  static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
+  static const _defaultHikarinagiScope =
+      "openid profile catalog:full user:read status:read offline_access";
   static const _scraperLabels = {
     "hikarinagi": "Hikarinagi",
     "vndb_kana": "VNDB Kana v2",
@@ -60,8 +61,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   final _vndbCtrl = TextEditingController();
   final _hikarinagiClientIdCtrl = TextEditingController();
-  final _hikarinagiClientSecretCtrl = TextEditingController();
-  final _hikarinagiScopeCtrl = TextEditingController(text: "catalog:full");
+  final _hikarinagiScopeCtrl =
+      TextEditingController(text: _defaultHikarinagiScope);
 
   static const _titles = [
     "\u521b\u5efa\u670d\u4e3b\u8d26\u6237",
@@ -76,7 +77,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     _passConfirmCtrl.dispose();
     _vndbCtrl.dispose();
     _hikarinagiClientIdCtrl.dispose();
-    _hikarinagiClientSecretCtrl.dispose();
     _hikarinagiScopeCtrl.dispose();
     super.dispose();
   }
@@ -172,9 +172,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "scan_depth": _scanDepth,
           "vndb_token": _vndbCtrl.text.trim(),
           "hikarinagi_client_id": _hikarinagiClientIdCtrl.text.trim(),
-          "hikarinagi_client_secret": _hikarinagiClientSecretCtrl.text.trim(),
           "hikarinagi_scope": _hikarinagiScopeCtrl.text.trim().isEmpty
-              ? "catalog:full"
+              ? _defaultHikarinagiScope
               : _hikarinagiScopeCtrl.text.trim(),
           "scraper_order": _scraperOrder,
           "enabled_scrapers": _scraperOrder
@@ -858,10 +857,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           stats: {
             "启用来源": "$enabledCount",
             "主来源": _scraperLabels[_scraperOrder.first] ?? _scraperOrder.first,
-            "凭据": _hikarinagiClientIdCtrl.text.trim().isEmpty &&
-                    _hikarinagiClientSecretCtrl.text.trim().isEmpty
-                ? "未填"
-                : "已填",
+            "Hikarinagi": _hikarinagiClientIdCtrl.text.trim().isEmpty
+                ? "待设置"
+                : "Client ID 已填",
             "Scope": _hikarinagiScopeCtrl.text.trim().isEmpty
                 ? "full"
                 : _hikarinagiScopeCtrl.text.trim(),
@@ -874,11 +872,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           child: Column(
             children: [
               _setupNotice(
-                icon: Icons.lock_outline,
-                title: _hikarinagiClientSecretCtrl.text.trim().isEmpty
-                    ? "Hikarinagi Secret 未填写"
-                    : "Hikarinagi 凭据已填写",
-                message: "日志只记录已填写状态，不输出 Secret。",
+                icon: Icons.open_in_browser_rounded,
+                title: "Hikarinagi 初始化后绑定",
+                message: "初始化完成并登录后，在设置页使用浏览器授权账号。",
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(height: AppGap.sm),
@@ -906,7 +902,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Widget _hikarinagiCredentialsCard() {
     return _setupCard(
-      title: "Hikarinagi 凭据",
+      title: "Hikarinagi 授权",
       icon: Icons.key_outlined,
       child: Column(
         children: [
@@ -919,35 +915,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
           const SizedBox(height: AppGap.sm),
           TextField(
-            controller: _hikarinagiClientSecretCtrl,
-            obscureText: true,
+            controller: _hikarinagiScopeCtrl,
             decoration: const InputDecoration(
-              labelText: "Client Secret（可选）",
+              labelText: "Hikarinagi Scope",
+              helperText: "保持默认即可，账号绑定在设置页完成。",
             ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: AppGap.sm),
-          DropdownButtonFormField<String>(
-            value: _hikarinagiScopes.contains(_hikarinagiScopeCtrl.text)
-                ? _hikarinagiScopeCtrl.text
-                : "catalog:full",
-            decoration: const InputDecoration(
-              labelText: "Hikarinagi Scope",
-              helperText: "catalog:full 包含 NSFW 与乙女向条目",
-            ),
-            items: _hikarinagiScopes
-                .map(
-                  (scope) => DropdownMenuItem<String>(
-                    value: scope,
-                    child: Text(scope),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _hikarinagiScopeCtrl.text = value);
-              }
-            },
+          _setupNotice(
+            icon: Icons.link_rounded,
+            title: "使用原生应用 OAuth",
+            message: "Sena-Repo 不再保存 Hikarinagi 应用密钥。",
+            color: Theme.of(context).colorScheme.primary,
           ),
         ],
       ),
@@ -1337,7 +1317,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   String _scraperSubtitle(String source) {
     switch (source) {
       case "hikarinagi":
-        return "主数据源 · Client ID / Secret / catalog:full";
+        return "主数据源 · 原生应用 OAuth + PKCE";
       case "vndb_kana":
         return "中文标题、标签、平均时长，可选 Token。";
       case "bangumi":

@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from config import (
     DEFAULT_ENABLED_SCRAPERS,
+    DEFAULT_HIKARINAGI_SCOPE,
     SCRAPER_SOURCE_ORDER,
     load_config,
     normalize_scraper_config,
@@ -48,8 +49,7 @@ class InitRequest(BaseModel):
     steam_patch_libraries: list[dict] = Field(default_factory=list)
     vndb_token: str = ""
     hikarinagi_client_id: str = ""
-    hikarinagi_client_secret: str = ""
-    hikarinagi_scope: str = "catalog:full"
+    hikarinagi_scope: str = DEFAULT_HIKARINAGI_SCOPE
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -207,22 +207,19 @@ async def initialize_setup(
 
     vndb_token = body.vndb_token.strip()
     hikarinagi_client_id = body.hikarinagi_client_id.strip()
-    hikarinagi_client_secret = body.hikarinagi_client_secret.strip()
-    hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:full"
+    hikarinagi_scope = body.hikarinagi_scope.strip() or DEFAULT_HIKARINAGI_SCOPE
     try:
         from api.settings import _read_scraper_config, _write_scraper_config
 
         scraper_config = _read_scraper_config()
+        scraper_config.pop("hikarinagi_client_secret", None)
         if vndb_token:
             config.scrapers.vndb_token = vndb_token
             scraper_config["vndb_token"] = vndb_token
         if hikarinagi_client_id:
             config.scrapers.hikarinagi_client_id = hikarinagi_client_id
             scraper_config["hikarinagi_client_id"] = hikarinagi_client_id
-        if hikarinagi_client_secret:
-            config.scrapers.hikarinagi_client_secret = hikarinagi_client_secret
-            scraper_config["hikarinagi_client_secret"] = hikarinagi_client_secret
-        if hikarinagi_client_id or hikarinagi_client_secret:
+        if hikarinagi_client_id:
             config.scrapers.hikarinagi_scope = hikarinagi_scope
             scraper_config["hikarinagi_scope"] = hikarinagi_scope
         config.scrapers.scraper_order = body.scraper_order
