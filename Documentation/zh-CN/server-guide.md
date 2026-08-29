@@ -203,7 +203,7 @@ sudo bash install.sh --update
 卸载程序文件：
 
 ```bash
-sudo bash /opt/sena-repo/server/install.sh --uninstall
+sudo bash /opt/sena-repo/server/uninstall.sh
 ```
 
 卸载会保留 `/var/lib/sena-repo` 和 `/etc/sena-repo/sena-repo.env`，避免误删数据库和配置。
