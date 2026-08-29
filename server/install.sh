@@ -42,6 +42,10 @@ Usage:
   sudo bash server/install.sh --update
   sudo bash server/install.sh --uninstall [--keep-data|--purge-data]
 
+Update behavior:
+  --update      Fetch the latest source from SENA_REPO_URL/SENA_REPO_REF,
+                keep existing data and configuration, then restart the service.
+
 Environment overrides:
   SENA_INSTALL_ROOT=/opt/sena-repo
   SENA_DATA_PATH=/var/lib/sena-repo
