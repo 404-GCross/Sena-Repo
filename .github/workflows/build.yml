@@ -472,13 +472,17 @@ jobs:
 
       - name: Build and export AMD64 tarball
         run: |
-          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --build-arg SENA_VERSION=${VERSION} --load
+          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --build-arg SENA_VERSION=${VERSION} --build-arg SENA_HIKARINAGI_CLIENT_ID="${HIKARINAGI_CLIENT_ID}" --load
           docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
+        env:
+          HIKARINAGI_CLIENT_ID: ${{ vars.HIKARINAGI_CLIENT_ID }}
 
       - name: Build and export ARM64 tarball
         run: |
-          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --load
+          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --build-arg SENA_HIKARINAGI_CLIENT_ID="${HIKARINAGI_CLIENT_ID}" --load
           docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
+        env:
+          HIKARINAGI_CLIENT_ID: ${{ vars.HIKARINAGI_CLIENT_ID }}
 
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
@@ -502,7 +506,9 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/404-gcross/sena-repo:${DOCKER_TAG} \
             -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${DOCKER_TAG} \
-            server/ --build-arg SENA_VERSION=${VERSION} --push
+            server/ --build-arg SENA_VERSION=${VERSION} --build-arg SENA_HIKARINAGI_CLIENT_ID="${HIKARINAGI_CLIENT_ID}" --push
+        env:
+          HIKARINAGI_CLIENT_ID: ${{ vars.HIKARINAGI_CLIENT_ID }}
 
       - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4

@@ -58,7 +58,7 @@ python main.py
 - `SENA_PATCH_DIR`：Steam 补丁库路径
 - `SENA_PROXY`：刮削代理
 - `SENA_BANGUMI_TOKEN` / `SENA_VNDB_TOKEN`：可选刮削 Token
-- Hikarinagi 默认使用项目作者内置的原生/Public OAuth 应用 ID；fork 或特殊部署才需要通过 `SENA_HIKARINAGI_CLIENT_ID` 覆盖
+- 官方 Docker 镜像通过 GitHub Actions 仓库变量 `HIKARINAGI_CLIENT_ID` 注入 Hikarinagi 原生/Public OAuth 应用 ID；源码运行、fork 或特殊部署可通过 `SENA_HIKARINAGI_CLIENT_ID` 覆盖
 - `SENA_HIKARINAGI_REDIRECT_URI`：Hikarinagi 回调 URI 覆盖项，默认 `com.github.senarepo:/oauth/hikarinagi`
 
 ### 客户端
