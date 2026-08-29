@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import require_admin
+from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
 from models.game import Game, GameTag, GameVersion
@@ -27,6 +27,28 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/roots", tags=["roots"])
 _scan_lock = asyncio.Lock()
+_scan_state = {
+    "status": "idle",
+    "roots_total": 0,
+    "roots_completed": 0,
+    "current_root": None,
+    "started_at": None,
+    "finished_at": None,
+    "message": None,
+}
+
+
+def _set_scan_state(**updates):
+    _scan_state.update(updates)
+
+
+def _scan_state_response():
+    return dict(_scan_state)
+
+
+def _scan_active() -> bool:
+    """Return whether a scan is queued or currently holding the scan lock."""
+    return _scan_state["status"] in {"pending", "running"} or _scan_lock.locked()
 
 
 class RootCreate(BaseModel):
@@ -213,6 +235,12 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
                 logger.info("Background scan skipped: scan already running")
         except Exception:
             logger.exception("Background scan failed")
+            _set_scan_state(
+                status="failed",
+                current_root=None,
+                finished_at=time.time(),
+                message="扫描失败，请查看服务端日志",
+            )
     asyncio.create_task(_run())
 
 
@@ -222,13 +250,30 @@ async def refresh_all_roots(
     session: AsyncSession = Depends(get_session),
 ):
     """Trigger re-scan of ALL root directories in background. Returns immediately."""
+    if _scan_active():
+        raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再试")
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
     config = load_config()
     from api.settings import _load_scan_settings
     _load_scan_settings(config)
+    _set_scan_state(
+        status="pending",
+        roots_total=len(roots),
+        roots_completed=0,
+        current_root=None,
+        started_at=time.time(),
+        finished_at=None,
+        message="扫描任务正在排队",
+    )
     _bg_scan(config, [r.id for r in roots], update_last=True)
     return {"message": "扫描已在后台启动", "roots": len(roots)}
+
+
+@router.get("/scan-status")
+async def get_scan_status(user: User = Depends(get_current_user)):
+    """Return the current background game-library scan state."""
+    return _scan_state_response()
 
 
 @router.post("/clear-and-refresh")
@@ -237,7 +282,7 @@ async def clear_and_refresh_roots(
     session: AsyncSession = Depends(get_session),
 ):
     """Clear imported game library records, then re-scan all root directories."""
-    if _scan_lock.locked():
+    if _scan_active():
         raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
 
     count_result = await session.execute(select(func.count()).select_from(Game))
@@ -253,6 +298,15 @@ async def clear_and_refresh_roots(
     config = load_config()
     from api.settings import _load_scan_settings
     _load_scan_settings(config)
+    _set_scan_state(
+        status="pending",
+        roots_total=len(roots),
+        roots_completed=0,
+        current_root=None,
+        started_at=time.time(),
+        finished_at=None,
+        message="扫描任务正在排队",
+    )
     _bg_scan(config, [r.id for r in roots], update_last=True)
     return {
         "message": "游戏库已清空，重新扫描已在后台启动",
@@ -268,6 +322,8 @@ async def refresh_root(
     session: AsyncSession = Depends(get_session),
 ):
     """Re-scan a root directory and import/update games, then auto-scrape."""
+    if _scan_active():
+        raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再试")
     result = await session.execute(
         select(RootDirectory).where(RootDirectory.id == root_id)
     )
@@ -278,6 +334,15 @@ async def refresh_root(
     config = load_config()
     from api.settings import _load_scan_settings
     _load_scan_settings(config)
+    _set_scan_state(
+        status="pending",
+        roots_total=1,
+        roots_completed=0,
+        current_root=root.source_path or root.path,
+        started_at=time.time(),
+        finished_at=None,
+        message="扫描任务正在排队",
+    )
     _bg_scan(config, [root_id], update_last=True)
     return {"message": "扫描已在后台启动", "root_id": root_id}
 
@@ -298,12 +363,27 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                 query = query.where(RootDirectory.id.in_(root_ids))
             result = await session.execute(query)
             roots = result.scalars().all()
+            _set_scan_state(
+                status="running",
+                roots_total=len(roots),
+                roots_completed=0,
+                current_root=None,
+                started_at=time.time(),
+                finished_at=None,
+                message=None,
+            )
             for root in roots:
+                _set_scan_state(
+                    current_root=root.source_path or root.path,
+                    roots_completed=_scan_state["roots_completed"],
+                )
                 try:
                     stats = await import_from_root(root.id, config, session)
                     total_games += stats.get("total_games", 0)
                 except Exception:
                     logger.exception("Scan root %s failed", root.id)
+                finally:
+                    _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
         if update_last:
             try:
                 _mark_auto_scan(config, time.time())
@@ -312,6 +392,12 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
         # Auto-scrape games without metadata after scan
         asyncio.create_task(_auto_scrape(config, "metadata"))
         asyncio.create_task(_auto_scrape(config, "missing"))
+        _set_scan_state(
+            status="completed",
+            current_root=None,
+            finished_at=time.time(),
+            message=f"扫描完成，共处理 {len(roots)} 个目录",
+        )
         return {"total_games": total_games, "roots_scanned": len(roots)}
 
 

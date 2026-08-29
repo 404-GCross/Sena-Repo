@@ -1270,6 +1270,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _autoScan = false;
   int _interval = 24;
   bool _loading = false;
+  Map<String, dynamic>? _scanStatus;
+  Timer? _scanStatusTimer;
+  bool _scanStatusRequestInFlight = false;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   bool _bindingHikarinagi = false;
@@ -1300,6 +1303,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadHikarinagiAuthStatus();
     _initHikarinagiLinkListener();
     _checkActiveJob();
+    _startScanStatusPolling();
   }
 
   Future<void> _loadRoots() async {
@@ -1577,12 +1581,22 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   Future<void> _scanNow() async {
     setState(() => _loading = true);
-    await http.post(
-      Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"),
-      headers: widget.api.headers,
-    );
-    _loadRoots();
-    if (mounted) _toast(context, "扫描已触发");
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception(_responseMessage(resp));
+      }
+      await _loadRoots();
+      _startScanStatusPolling();
+      if (mounted) _toast(context, "扫描已触发");
+    } catch (e) {
+      if (mounted) _toast(context, "扫描启动失败: $e");
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _clearAndRescan() async {
@@ -1618,6 +1632,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         throw Exception(_responseMessage(resp));
       }
       await _loadRoots();
+      _startScanStatusPolling();
       if (mounted) _toast(context, "游戏库已清空，重新扫描已触发");
     } catch (e) {
       if (!mounted) return;
@@ -1634,6 +1649,44 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           ],
         ),
       );
+    }
+  }
+
+  void _startScanStatusPolling() {
+    _scanStatusTimer?.cancel();
+    unawaited(_loadScanStatus());
+    _scanStatusTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _loadScanStatus(),
+    );
+  }
+
+  Future<void> _loadScanStatus() async {
+    if (_scanStatusRequestInFlight || !mounted) return;
+    _scanStatusRequestInFlight = true;
+    try {
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/roots/scan-status"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode != 200 || !mounted) {
+        if (resp.statusCode >= 400 && mounted) {
+          _scanStatusTimer?.cancel();
+          _scanStatusTimer = null;
+        }
+        return;
+      }
+      final status = jsonDecode(resp.body) as Map<String, dynamic>;
+      setState(() => _scanStatus = status);
+      final state = status["status"]?.toString();
+      if (state != "pending" && state != "running") {
+        _scanStatusTimer?.cancel();
+        _scanStatusTimer = null;
+      }
+    } catch (_) {
+      // The settings page can still be used when an older server lacks this endpoint.
+    } finally {
+      _scanStatusRequestInFlight = false;
     }
   }
 
@@ -1952,6 +2005,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                       final width = narrow
                           ? constraints.maxWidth
                           : (constraints.maxWidth - 24) / 3;
+                      final scanActive = _scanStatus?["status"] == "pending" ||
+                          _scanStatus?["status"] == "running";
                       return Wrap(
                         spacing: 12,
                         runSpacing: 12,
@@ -1959,9 +2014,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           SizedBox(
                             width: width,
                             child: FilledButton.tonalIcon(
-                              onPressed: _scanNow,
-                              icon: const Icon(Icons.refresh, size: 18),
-                              label: const Text("开始扫描"),
+                              onPressed: scanActive ? null : _scanNow,
+                              icon: scanActive
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.refresh, size: 18),
+                              label: Text(scanActive ? "扫描中..." : "开始扫描"),
                               style: FilledButton.styleFrom(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
@@ -2007,6 +2070,18 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                       );
                     },
                   ),
+
+                  // ── Scan progress ──
+                  if (_scanStatus != null &&
+                      (_scanStatus!["status"] == "pending" ||
+                          _scanStatus!["status"] == "running" ||
+                          _scanStatus!["status"] == "completed" ||
+                          _scanStatus!["status"] == "failed")) ...[
+                    const SizedBox(height: 20),
+                    _sectionHeader("扫描进度", Icons.sync),
+                    const SizedBox(height: 8),
+                    _buildScanStatusCard(),
+                  ],
 
                   // ── Scrape job progress ──
                   if (_scrapeJob != null) ...[
@@ -2536,6 +2611,89 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
+  Widget _buildScanStatusCard() {
+    final status = _scanStatus!["status"]?.toString() ?? "idle";
+    final total = (_scanStatus!["roots_total"] as num?)?.toInt() ?? 0;
+    final completed = (_scanStatus!["roots_completed"] as num?)?.toInt() ?? 0;
+    final progress = total > 0
+        ? (completed / total).clamp(0.0, 1.0).toDouble()
+        : null;
+    final isActive = status == "pending" || status == "running";
+    final title = switch (status) {
+      "pending" => "扫描排队中...",
+      "running" => "正在扫描...",
+      "completed" => "扫描完成",
+      "failed" => "扫描失败",
+      _ => "扫描状态未知",
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isActive
+                    ? Icons.sync
+                    : (status == "failed" ? Icons.error : Icons.check_circle),
+                size: 24,
+                color: isActive
+                    ? Colors.blue[300]
+                    : (status == "failed" ? Colors.red[300] : Colors.green[300]),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppText.body.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          if (_scanStatus!["current_root"] != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              "正在处理: ${_scanStatus!["current_root"]}",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.label.copyWith(color: hintColor(context)),
+            ),
+          ],
+          if (_scanStatus!["message"] != null && !isActive) ...[
+            const SizedBox(height: 4),
+            Text(
+              _scanStatus!["message"].toString(),
+              style: AppText.label.copyWith(color: hintColor(context)),
+            ),
+          ],
+          if (progress != null && isActive) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: cardBorder(context),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "$completed / $total 个目录",
+              style: AppText.label.copyWith(color: hintColor(context)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Future<void> _cancelJob(int jobId) async {
     try {
       await http.post(
@@ -2863,6 +3021,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   @override
   void dispose() {
+    _scanStatusTimer?.cancel();
     _hikarinagiLinkSub?.cancel();
     for (final c in _keys.values) {
       c.dispose();
