@@ -196,17 +196,30 @@ sudo bash install.sh
 更新：
 
 ```bash
-cd Sena-Repo/server
-sudo bash install.sh --update
+sudo bash /opt/sena-repo/install.sh --update
 ```
+
+更新会从配置的远程仓库和分支拉取最新服务端代码，不使用当前目录中的旧代码；数据库、游戏目录、补丁目录和环境配置会保留。
 
 卸载程序文件：
 
 ```bash
-sudo bash /opt/sena-repo/server/uninstall.sh
+sudo bash /opt/sena-repo/uninstall.sh
 ```
 
-卸载会保留 `/var/lib/sena-repo` 和 `/etc/sena-repo/sena-repo.env`，避免误删数据库和配置。
+默认卸载会保留 `/var/lib/sena-repo` 和 `/etc/sena-repo/sena-repo.env`，避免误删数据库和配置。需要连数据库与配置一起清除时：
+
+```bash
+sudo bash /opt/sena-repo/uninstall.sh --purge-data
+```
+
+也可以明确保留数据：
+
+```bash
+sudo bash /opt/sena-repo/uninstall.sh --keep-data
+```
+
+不带选项且在交互终端执行时，脚本会询问是否删除；如果程序目录已经被删除但数据库或配置仍在，也会先询问。非交互执行默认保留数据，并提示使用 `--purge-data`。
 
 ---
 

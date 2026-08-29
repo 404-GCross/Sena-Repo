@@ -6,6 +6,8 @@ DEFAULT_REPO_URL="https://github.com/404-GCross/Sena-Repo.git"
 DEFAULT_REPO_REF="dev"
 
 ACTION="install"
+DATA_ACTION="ask"
+REQUESTED_DATA_PATH="${SENA_DATA_PATH:-}"
 for arg in "$@"; do
   case "$arg" in
     --install)
@@ -17,6 +19,20 @@ for arg in "$@"; do
     --uninstall)
       ACTION="uninstall"
       ;;
+    --purge-data)
+      [ "$DATA_ACTION" != "keep" ] || {
+        printf '[sena-repo] ERROR: --keep-data and --purge-data cannot be used together\n' >&2
+        exit 2
+      }
+      DATA_ACTION="purge"
+      ;;
+    --keep-data)
+      [ "$DATA_ACTION" != "purge" ] || {
+        printf '[sena-repo] ERROR: --keep-data and --purge-data cannot be used together\n' >&2
+        exit 2
+      }
+      DATA_ACTION="keep"
+      ;;
     -h|--help)
       cat <<'EOF'
 Sena Repo server bare-metal installer.
@@ -24,7 +40,7 @@ Sena Repo server bare-metal installer.
 Usage:
   sudo bash server/install.sh
   sudo bash server/install.sh --update
-  sudo bash server/install.sh --uninstall
+  sudo bash server/install.sh --uninstall [--keep-data|--purge-data]
 
 Environment overrides:
   SENA_INSTALL_ROOT=/opt/sena-repo
@@ -36,6 +52,11 @@ Environment overrides:
   SENA_REPO_URL=https://github.com/404-GCross/Sena-Repo.git
   SENA_REPO_REF=dev
   SENA_HIKARINAGI_CLIENT_ID=...
+
+Uninstall data options:
+  --keep-data   Keep the database, generated data, and server configuration.
+  --purge-data  Remove the database, generated data, and server configuration.
+  If neither is provided, the script asks when an interactive terminal is available.
 EOF
       exit 0
       ;;
@@ -50,6 +71,8 @@ INSTALL_ROOT="${SENA_INSTALL_ROOT:-/opt/sena-repo}"
 APP_DIR="$INSTALL_ROOT/server"
 VENV_DIR="$INSTALL_ROOT/venv"
 REPO_CACHE_DIR="$INSTALL_ROOT/repo"
+CONTROL_INSTALLER="$INSTALL_ROOT/install.sh"
+CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
 ENV_DIR="/etc/sena-repo"
 ENV_FILE="$ENV_DIR/sena-repo.env"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
@@ -92,16 +115,51 @@ require_systemd() {
 }
 
 validate_paths() {
+  local normalized_install_root normalized_data_path
   case "$INSTALL_ROOT" in
+    /*) ;;
+    *) die "SENA_INSTALL_ROOT must be an absolute path: $INSTALL_ROOT" ;;
+  esac
+  case "$DATA_PATH" in
+    /*) ;;
+    *) die "SENA_DATA_PATH must be an absolute path: $DATA_PATH" ;;
+  esac
+
+  normalized_install_root="$(realpath -m -- "$INSTALL_ROOT")"
+  normalized_data_path="$(realpath -m -- "$DATA_PATH")"
+  case "$normalized_install_root" in
     ""|"/"|"/opt"|"/usr"|"/usr/local"|"/var"|"/srv"|"/etc")
       die "unsafe SENA_INSTALL_ROOT: $INSTALL_ROOT"
       ;;
   esac
-  case "$DATA_PATH" in
+  case "$normalized_data_path" in
     ""|"/"|"/opt"|"/usr"|"/usr/local"|"/var"|"/srv"|"/etc")
       die "unsafe SENA_DATA_PATH: $DATA_PATH"
       ;;
   esac
+
+  INSTALL_ROOT="$normalized_install_root"
+  DATA_PATH="$normalized_data_path"
+  APP_DIR="$INSTALL_ROOT/server"
+  VENV_DIR="$INSTALL_ROOT/venv"
+  REPO_CACHE_DIR="$INSTALL_ROOT/repo"
+  CONTROL_INSTALLER="$INSTALL_ROOT/install.sh"
+  CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
+}
+
+data_exists() {
+  [ -d "$DATA_PATH" ] || [ -f "$DATA_PATH" ] || [ -d "$ENV_DIR" ] || [ -f "$ENV_FILE" ]
+}
+
+load_existing_data_path() {
+  local saved_data_path
+  if [ -n "$REQUESTED_DATA_PATH" ] || [ ! -f "$ENV_FILE" ]; then
+    return
+  fi
+  saved_data_path="$(sed -n 's/^SENA_DATA_PATH=//p' "$ENV_FILE" | head -n 1)"
+  if [ -n "$saved_data_path" ]; then
+    DATA_PATH="$saved_data_path"
+  fi
 }
 
 detect_arch() {
@@ -180,7 +238,10 @@ remote_server_dir() {
 }
 
 resolve_source_server_dir() {
-  if local_server_dir >/dev/null 2>&1; then
+  if [ "$ACTION" = "update" ]; then
+    log "update requested; ignoring local source tree and fetching the latest remote source"
+    remote_server_dir
+  elif local_server_dir >/dev/null 2>&1; then
     local_server_dir
   else
     remote_server_dir
@@ -204,6 +265,13 @@ copy_server_files() {
   cp -a "$source_dir/." "$next_dir/"
   rm -rf "$APP_DIR"
   mv "$next_dir" "$APP_DIR"
+}
+
+install_control_scripts() {
+  log "installing persistent control scripts to $INSTALL_ROOT"
+  cp "$APP_DIR/install.sh" "$CONTROL_INSTALLER"
+  cp "$APP_DIR/uninstall.sh" "$CONTROL_UNINSTALLER"
+  chmod 0755 "$CONTROL_INSTALLER" "$CONTROL_UNINSTALLER"
 }
 
 write_environment_file() {
@@ -271,8 +339,14 @@ install_or_update() {
   detect_arch
   install_system_dependencies
   source_dir="$(resolve_source_server_dir)"
+  if [ "$ACTION" = "update" ]; then
+    log "updating Sena Repo server from $REPO_URL ($REPO_REF)"
+  else
+    log "installing Sena Repo server"
+  fi
   stop_service_if_exists
   copy_server_files "$source_dir"
+  install_control_scripts
   write_environment_file
   install_python_dependencies
   write_systemd_service
@@ -285,20 +359,75 @@ install_or_update() {
 
 uninstall_service() {
   require_root
+  load_existing_data_path
+  validate_paths
+  local program_exists="false"
+  if [ -e "$APP_DIR" ] || [ -e "$VENV_DIR" ] || [ -e "$SERVICE_FILE" ]; then
+    program_exists="true"
+  fi
+
+  if [ "$program_exists" = "false" ] && data_exists; then
+    log "server program files are already absent, but database or configuration data remain"
+  fi
+
   log "stopping $SERVICE_NAME"
   systemctl stop "$SERVICE_NAME.service" >/dev/null 2>&1 || true
   systemctl disable "$SERVICE_NAME.service" >/dev/null 2>&1 || true
   rm -f "$SERVICE_FILE"
   systemctl daemon-reload >/dev/null 2>&1 || true
   rm -rf "$APP_DIR" "$VENV_DIR" "$REPO_CACHE_DIR"
-  rmdir "$INSTALL_ROOT" >/dev/null 2>&1 || true
-  log "uninstalled server program files; data and config were kept"
-  log "kept data: $DATA_PATH"
-  log "kept config: $ENV_FILE"
+
+  case "$DATA_ACTION" in
+    ask)
+      if data_exists; then
+        if [ -t 0 ] && [ -t 1 ]; then
+          printf '[sena-repo] Delete database, generated data, and server configuration? [y/N] '
+          local answer
+          read -r answer
+          case "$answer" in
+            y|Y|yes|YES|Yes)
+              DATA_ACTION="purge"
+              ;;
+            *)
+              DATA_ACTION="keep"
+              ;;
+          esac
+        else
+          log "non-interactive uninstall: keeping database and configuration"
+          log "run again with --purge-data to remove them"
+          DATA_ACTION="keep"
+        fi
+      else
+        DATA_ACTION="keep"
+      fi
+      ;;
+  esac
+
+  if [ "$DATA_ACTION" = "purge" ]; then
+    case "$DATA_PATH" in
+      ""|"/"|"/opt"|"/usr"|"/usr/local"|"/var"|"/srv"|"/etc")
+        die "refusing to remove unsafe data path: $DATA_PATH"
+        ;;
+    esac
+    log "removing database and generated data: $DATA_PATH"
+    rm -rf -- "$DATA_PATH"
+    log "removing server configuration: $ENV_DIR"
+    rm -rf -- "$ENV_DIR"
+    rm -f -- "$CONTROL_INSTALLER" "$CONTROL_UNINSTALLER"
+    rmdir "$INSTALL_ROOT" >/dev/null 2>&1 || true
+  else
+    log "uninstalled server program files; data and config were kept"
+    log "kept data: $DATA_PATH"
+    log "kept config: $ENV_FILE"
+    log "uninstaller kept at: $CONTROL_UNINSTALLER"
+  fi
 }
 
 case "$ACTION" in
   install|update)
+    if [ "$DATA_ACTION" != "ask" ]; then
+      die "--keep-data and --purge-data can only be used with --uninstall"
+    fi
     install_or_update
     ;;
   uninstall)
