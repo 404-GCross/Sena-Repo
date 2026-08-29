@@ -182,6 +182,8 @@ sudo bash install.sh
 
 脚本当前支持 Debian / Ubuntu / Armbian 一类带 `apt` 与 `systemd` 的系统，会自动安装 Python 编译依赖、创建 venv、写入 systemd 服务并启动服务。
 
+如果服务端已经安装，再次直接运行安装脚本时会先检查远程提交版本：已是最新则不重复安装；检测到新提交才会更新依赖并重启服务。需要强制更新可使用 `--update`，只检查而不更新可使用 `--check`。
+
 默认路径：
 
 | 路径 | 说明 |

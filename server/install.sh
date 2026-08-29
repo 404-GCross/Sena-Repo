@@ -539,6 +539,7 @@ case "$ACTION" in
     fi
     if [ "$ACTION" = "install" ] && deployment_exists; then
       require_root
+      load_existing_source_config
       validate_paths
       local_check_status=0
       check_remote_update || local_check_status=$?
