@@ -234,7 +234,7 @@ def account_status_payload(account: HikarinagiAccount | None) -> dict[str, Any]:
     config = load_config()
     payload: dict[str, Any] = {
         "bound": account is not None,
-        "client_id": config.scrapers.hikarinagi_client_id,
+        "client_id_configured": bool(config.scrapers.hikarinagi_client_id.strip()),
         "redirect_uri": configured_redirect_uri(),
         "scope": configured_scope(),
     }

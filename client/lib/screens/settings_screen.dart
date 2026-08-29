@@ -1260,8 +1260,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "steam": "免认证，Steam 商店元数据",
     "hikarinagi": "需要绑定 Hikarinagi 账号",
   };
-  static const _defaultHikarinagiScope =
-      "openid profile catalog:full user:read status:read offline_access";
   static const _defaultHikarinagiRedirectUri =
       "com.github.senarepo:/oauth/hikarinagi";
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
@@ -1288,8 +1286,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   };
   final _keys = {
     "vndb_token": TextEditingController(),
-    "hikarinagi_client_id": TextEditingController(),
-    "hikarinagi_scope": TextEditingController(text: _defaultHikarinagiScope),
     "proxy": TextEditingController(),
   };
 
@@ -2310,6 +2306,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Widget _hikarinagiCredentialSettings() {
     final status = _hikarinagiAuthStatus;
     final bound = status?["bound"] == true;
+    final clientConfigured = status?["client_id_configured"] != false;
     final displayName =
         status?["display_name"]?.toString().trim().isNotEmpty == true
             ? status!["display_name"].toString()
@@ -2335,28 +2332,49 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ),
           ),
           Text(
-            "使用授权码 + PKCE 绑定账号，不再保存应用密钥",
+            "应用 ID 由 Sena-Repo 内置，用户只需要登录绑定账号",
             style: AppText.label.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _keys["hikarinagi_client_id"],
-            decoration: InputDecoration(
-              labelText: "Client ID",
-              isDense: true,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: clientConfigured
+                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
+                  : Theme.of(context).colorScheme.error.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: clientConfigured
+                    ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.22)
+                    : Theme.of(context).colorScheme.error.withValues(alpha: 0.25),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _keys["hikarinagi_scope"],
-            decoration: InputDecoration(
-              labelText: "Scope",
-              helperText: "需要 offline_access 才能长期刷新授权",
-              isDense: true,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                Icon(
+                  clientConfigured
+                      ? Icons.admin_panel_settings_outlined
+                      : Icons.warning_amber_rounded,
+                  color: clientConfigured
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.error,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    clientConfigured
+                        ? "Hikarinagi 应用 ID 已由项目作者内置"
+                        : "项目尚未内置 Hikarinagi 应用 ID，暂时无法绑定账号",
+                    style: AppText.label.copyWith(
+                      color: clientConfigured
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
@@ -2443,7 +2461,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: _bindingHikarinagi ? null : _bindHikarinagi,
+                onPressed: _bindingHikarinagi || !clientConfigured
+                    ? null
+                    : _bindHikarinagi,
                 icon: _bindingHikarinagi
                     ? const SizedBox(
                       width: 16,
@@ -2570,10 +2590,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         for (final k in _keys.keys) {
-          final value = data[k]?.toString() ?? "";
-          _keys[k]?.text = k == "hikarinagi_scope" && value.trim().isEmpty
-              ? _defaultHikarinagiScope
-              : value;
+          _keys[k]?.text = data[k]?.toString() ?? "";
         }
         _hikarinagiRedirectUri =
             data["hikarinagi_redirect_uri"]?.toString().trim().isNotEmpty == true
@@ -2669,11 +2686,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<bool> _saveScraperConfig({bool showToast = true}) async {
     final body = <String, dynamic>{};
     for (final k in _keys.keys) {
-      final value = _keys[k]!.text.trim();
-      body[k] =
-          k == "hikarinagi_scope" && value.isEmpty
-              ? _defaultHikarinagiScope
-              : value;
+      body[k] = _keys[k]!.text.trim();
     }
     body["scraper_order"] = _scraperOrder;
     body["enabled_scrapers"] =
@@ -2715,17 +2728,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _bindHikarinagi() async {
     setState(() => _bindingHikarinagi = true);
     try {
-      if (!await _saveScraperConfig(showToast: false)) {
-        if (mounted) _toast(context, "请先保存有效的 Hikarinagi 配置");
-        return;
-      }
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi/auth/start"),
         headers: {"Content-Type": "application/json", ...widget.api.headers},
-        body: jsonEncode({
-          "client_id": _keys["hikarinagi_client_id"]!.text.trim(),
-          "scope": _keys["hikarinagi_scope"]!.text.trim(),
-        }),
+        body: jsonEncode({}),
       );
       if (!mounted) return;
       if (resp.statusCode < 200 || resp.statusCode >= 300) {

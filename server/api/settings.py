@@ -118,7 +118,7 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
 class ScraperConfigOut(BaseModel):
     bangumi_token: str = ""
     vndb_token: str = ""
-    hikarinagi_client_id: str = ""
+    hikarinagi_client_id_configured: bool = False
     hikarinagi_redirect_uri: str = DEFAULT_HIKARINAGI_REDIRECT_URI
     hikarinagi_scope: str = DEFAULT_HIKARINAGI_SCOPE
     scraper_order: list[str] = Field(
@@ -133,9 +133,6 @@ class ScraperConfigOut(BaseModel):
 class ScraperConfigUpdate(BaseModel):
     bangumi_token: str | None = None
     vndb_token: str | None = None
-    hikarinagi_client_id: str | None = None
-    hikarinagi_redirect_uri: str | None = None
-    hikarinagi_scope: str | None = None
     scraper_order: list[str] | None = None
     enabled_scrapers: list[str] | None = None
     proxy: str | None = None
@@ -165,7 +162,7 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
     return ScraperConfigOut(
         bangumi_token=_mask(s.bangumi_token),
         vndb_token=_mask(s.vndb_token),
-        hikarinagi_client_id=_mask(s.hikarinagi_client_id),
+        hikarinagi_client_id_configured=bool(s.hikarinagi_client_id.strip()),
         hikarinagi_redirect_uri=s.hikarinagi_redirect_uri or DEFAULT_HIKARINAGI_REDIRECT_URI,
         hikarinagi_scope=s.hikarinagi_scope or DEFAULT_HIKARINAGI_SCOPE,
         scraper_order=s.scraper_order,
@@ -208,13 +205,13 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     config = load_config()
     data = _read_scraper_config()
     data.pop("hikarinagi_client_secret", None)
+    data.pop("hikarinagi_client_id", None)
+    data.pop("hikarinagi_redirect_uri", None)
+    data.pop("hikarinagi_scope", None)
 
     for key in (
         "bangumi_token",
         "vndb_token",
-        "hikarinagi_client_id",
-        "hikarinagi_redirect_uri",
-        "hikarinagi_scope",
         "scraper_order",
         "enabled_scrapers",
         "proxy",
@@ -225,10 +222,6 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
                 continue
             if isinstance(val, str):
                 val = val.strip()
-            if key == "hikarinagi_scope" and not val:
-                val = DEFAULT_HIKARINAGI_SCOPE
-            if key == "hikarinagi_redirect_uri" and not val:
-                val = DEFAULT_HIKARINAGI_REDIRECT_URI
             if key in {"scraper_order", "enabled_scrapers"}:
                 if not isinstance(val, list):
                     continue

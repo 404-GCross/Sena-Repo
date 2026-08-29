@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import require_admin
-from config import DEFAULT_HIKARINAGI_SCOPE, load_config, normalize_scraper_config
+from config import load_config, normalize_scraper_config
 from database import get_session
 from models.user import User
 from services.hikarinagi_oauth import (
@@ -33,11 +33,6 @@ router = APIRouter(
 )
 
 
-class HikarinagiAuthStartRequest(BaseModel):
-    client_id: str = ""
-    scope: str = ""
-
-
 class HikarinagiAuthCompleteRequest(BaseModel):
     code: str
     state: str
@@ -55,23 +50,20 @@ async def hikarinagi_auth_status(
 
 @router.post("/auth/start")
 async def start_hikarinagi_auth(
-    body: HikarinagiAuthStartRequest,
     user: User = Depends(require_admin),
 ):
     config = load_config()
     normalize_scraper_config(config.scrapers)
-    client_id = body.client_id.strip()
-    if not client_id or "****" in client_id:
-        client_id = config.scrapers.hikarinagi_client_id.strip()
-    scope = body.scope.strip() or configured_scope()
+    client_id = config.scrapers.hikarinagi_client_id.strip()
+    scope = configured_scope()
     redirect_uri = configured_redirect_uri()
     if not client_id:
-        raise HTTPException(status_code=400, detail="请先配置 Hikarinagi Public Client ID")
+        raise HTTPException(status_code=400, detail="项目尚未内置 Hikarinagi 应用 ID")
 
     authorization_url, state = create_authorization_url(
         user_id=user.id,
         client_id=client_id,
-        scope=scope or DEFAULT_HIKARINAGI_SCOPE,
+        scope=scope,
         redirect_uri=redirect_uri,
     )
     return {

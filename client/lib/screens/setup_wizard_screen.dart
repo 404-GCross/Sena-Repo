@@ -19,8 +19,6 @@ class SetupWizardScreen extends StatefulWidget {
 }
 
 class _SetupWizardScreenState extends State<SetupWizardScreen> {
-  static const _defaultHikarinagiScope =
-      "openid profile catalog:full user:read status:read offline_access";
   static const _scraperLabels = {
     "hikarinagi": "Hikarinagi",
     "vndb_kana": "VNDB Kana v2",
@@ -60,9 +58,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   int _scanInterval = 24;
 
   final _vndbCtrl = TextEditingController();
-  final _hikarinagiClientIdCtrl = TextEditingController();
-  final _hikarinagiScopeCtrl =
-      TextEditingController(text: _defaultHikarinagiScope);
 
   static const _titles = [
     "\u521b\u5efa\u670d\u4e3b\u8d26\u6237",
@@ -76,8 +71,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     _passCtrl.dispose();
     _passConfirmCtrl.dispose();
     _vndbCtrl.dispose();
-    _hikarinagiClientIdCtrl.dispose();
-    _hikarinagiScopeCtrl.dispose();
     super.dispose();
   }
 
@@ -171,10 +164,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           "scan_structure": _structureFromDepth(_scanDepth),
           "scan_depth": _scanDepth,
           "vndb_token": _vndbCtrl.text.trim(),
-          "hikarinagi_client_id": _hikarinagiClientIdCtrl.text.trim(),
-          "hikarinagi_scope": _hikarinagiScopeCtrl.text.trim().isEmpty
-              ? _defaultHikarinagiScope
-              : _hikarinagiScopeCtrl.text.trim(),
           "scraper_order": _scraperOrder,
           "enabled_scrapers": _scraperOrder
               .where((source) => _scraperEnabled[source] ?? false)
@@ -857,12 +846,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           stats: {
             "启用来源": "$enabledCount",
             "主来源": _scraperLabels[_scraperOrder.first] ?? _scraperOrder.first,
-            "Hikarinagi": _hikarinagiClientIdCtrl.text.trim().isEmpty
-                ? "待设置"
-                : "Client ID 已填",
-            "Scope": _hikarinagiScopeCtrl.text.trim().isEmpty
-                ? "full"
-                : _hikarinagiScopeCtrl.text.trim(),
+            "Hikarinagi": "初始化后绑定",
           },
         ),
         const SizedBox(height: AppGap.md),
@@ -906,28 +890,18 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       icon: Icons.key_outlined,
       child: Column(
         children: [
-          TextField(
-            controller: _hikarinagiClientIdCtrl,
-            decoration: const InputDecoration(
-              labelText: "Client ID（可选）",
-            ),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: AppGap.sm),
-          TextField(
-            controller: _hikarinagiScopeCtrl,
-            decoration: const InputDecoration(
-              labelText: "Hikarinagi Scope",
-              helperText: "保持默认即可，账号绑定在设置页完成。",
-            ),
-            onChanged: (_) => setState(() {}),
+          _setupNotice(
+            icon: Icons.link_rounded,
+            title: "应用 ID 已由项目内置",
+            message: "初始化完成后，在设置页点击绑定并登录 Hikarinagi 即可。",
+            color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: AppGap.sm),
           _setupNotice(
-            icon: Icons.link_rounded,
-            title: "使用原生应用 OAuth",
-            message: "Sena-Repo 不再保存 Hikarinagi 应用密钥。",
-            color: Theme.of(context).colorScheme.primary,
+            icon: Icons.security_outlined,
+            title: "原生应用 OAuth",
+            message: "客户端使用授权码 + PKCE，不再要求用户填写 Client ID。",
+            color: Colors.green,
           ),
         ],
       ),

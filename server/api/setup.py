@@ -12,7 +12,6 @@ from sqlalchemy.exc import IntegrityError
 
 from config import (
     DEFAULT_ENABLED_SCRAPERS,
-    DEFAULT_HIKARINAGI_SCOPE,
     SCRAPER_SOURCE_ORDER,
     load_config,
     normalize_scraper_config,
@@ -48,8 +47,6 @@ class InitRequest(BaseModel):
     game_libraries: list[dict] = Field(default_factory=list)
     steam_patch_libraries: list[dict] = Field(default_factory=list)
     vndb_token: str = ""
-    hikarinagi_client_id: str = ""
-    hikarinagi_scope: str = DEFAULT_HIKARINAGI_SCOPE
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -206,22 +203,17 @@ async def initialize_setup(
         raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
 
     vndb_token = body.vndb_token.strip()
-    hikarinagi_client_id = body.hikarinagi_client_id.strip()
-    hikarinagi_scope = body.hikarinagi_scope.strip() or DEFAULT_HIKARINAGI_SCOPE
     try:
         from api.settings import _read_scraper_config, _write_scraper_config
 
         scraper_config = _read_scraper_config()
         scraper_config.pop("hikarinagi_client_secret", None)
+        scraper_config.pop("hikarinagi_client_id", None)
+        scraper_config.pop("hikarinagi_redirect_uri", None)
+        scraper_config.pop("hikarinagi_scope", None)
         if vndb_token:
             config.scrapers.vndb_token = vndb_token
             scraper_config["vndb_token"] = vndb_token
-        if hikarinagi_client_id:
-            config.scrapers.hikarinagi_client_id = hikarinagi_client_id
-            scraper_config["hikarinagi_client_id"] = hikarinagi_client_id
-        if hikarinagi_client_id:
-            config.scrapers.hikarinagi_scope = hikarinagi_scope
-            scraper_config["hikarinagi_scope"] = hikarinagi_scope
         config.scrapers.scraper_order = body.scraper_order
         config.scrapers.enabled_scrapers = body.enabled_scrapers
         normalize_scraper_config(config.scrapers)
