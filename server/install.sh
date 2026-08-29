@@ -8,6 +8,9 @@ DEFAULT_REPO_REF="dev"
 ACTION="install"
 DATA_ACTION="ask"
 REQUESTED_DATA_PATH="${SENA_DATA_PATH:-}"
+REQUESTED_REPO_URL="${SENA_REPO_URL:-}"
+REQUESTED_REPO_REF="${SENA_REPO_REF:-}"
+CHECK_ONLY="false"
 for arg in "$@"; do
   case "$arg" in
     --install)
@@ -15,6 +18,9 @@ for arg in "$@"; do
       ;;
     --update)
       ACTION="update"
+      ;;
+    --check)
+      CHECK_ONLY="true"
       ;;
     --uninstall)
       ACTION="uninstall"
@@ -40,11 +46,13 @@ Sena Repo server bare-metal installer.
 Usage:
   sudo bash server/install.sh
   sudo bash server/install.sh --update
+  sudo bash server/install.sh --check
   sudo bash server/install.sh --uninstall [--keep-data|--purge-data]
 
 Update behavior:
   --update      Fetch the latest source from SENA_REPO_URL/SENA_REPO_REF,
                 keep existing data and configuration, then restart the service.
+  --check       Check the remote source revision without installing or updating.
 
 Environment overrides:
   SENA_INSTALL_ROOT=/opt/sena-repo
@@ -77,6 +85,7 @@ VENV_DIR="$INSTALL_ROOT/venv"
 REPO_CACHE_DIR="$INSTALL_ROOT/repo"
 CONTROL_INSTALLER="$INSTALL_ROOT/install.sh"
 CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
+VERSION_FILE="$INSTALL_ROOT/.version"
 ENV_DIR="/etc/sena-repo"
 ENV_FILE="$ENV_DIR/sena-repo.env"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
@@ -149,6 +158,7 @@ validate_paths() {
   REPO_CACHE_DIR="$INSTALL_ROOT/repo"
   CONTROL_INSTALLER="$INSTALL_ROOT/install.sh"
   CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
+  VERSION_FILE="$INSTALL_ROOT/.version"
 }
 
 data_exists() {
@@ -164,6 +174,79 @@ load_existing_data_path() {
   if [ -n "$saved_data_path" ]; then
     DATA_PATH="$saved_data_path"
   fi
+}
+
+load_existing_source_config() {
+  local saved_repo_url saved_repo_ref
+  if [ -n "$REQUESTED_REPO_URL" ] || [ -n "$REQUESTED_REPO_REF" ] || [ ! -f "$VERSION_FILE" ]; then
+    return
+  fi
+  saved_repo_url="$(sed -n 's/^SOURCE_URL=//p' "$VERSION_FILE" | head -n 1)"
+  saved_repo_ref="$(sed -n 's/^SOURCE_REF=//p' "$VERSION_FILE" | head -n 1)"
+  if [ -n "$saved_repo_url" ]; then
+    REPO_URL="$saved_repo_url"
+  fi
+  if [ -n "$saved_repo_ref" ]; then
+    REPO_REF="$saved_repo_ref"
+  fi
+}
+
+deployment_exists() {
+  [ -e "$APP_DIR" ] || [ -e "$VENV_DIR" ] || [ -e "$SERVICE_FILE" ] || [ -f "$VERSION_FILE" ]
+}
+
+installed_source_sha() {
+  [ -f "$VERSION_FILE" ] || return 0
+  sed -n 's/^SOURCE_SHA=//p' "$VERSION_FILE" | head -n 1
+}
+
+remote_source_sha() {
+  command -v git >/dev/null 2>&1 || return 1
+  git ls-remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+}
+
+check_remote_update() {
+  local current_sha remote_sha
+  current_sha="$(installed_source_sha)"
+  if [ -z "$current_sha" ]; then
+    log "installed source revision is unknown; update is required to record it"
+    return 1
+  fi
+
+  remote_sha="$(remote_source_sha || true)"
+  if [ -z "$remote_sha" ]; then
+    log "unable to check the remote source revision"
+    return 2
+  fi
+  if [ "$current_sha" = "$remote_sha" ]; then
+    log "Sena Repo server is already up to date ($current_sha)"
+    return 0
+  fi
+
+  log "update available: $current_sha -> $remote_sha"
+  return 1
+}
+
+check_installation() {
+  require_root
+  load_existing_source_config
+  validate_paths
+  if ! deployment_exists; then
+    log "Sena Repo server is not installed at $INSTALL_ROOT"
+    log "run install.sh without --check to install it"
+    return 1
+  fi
+
+  local check_status=0
+  check_remote_update || check_status=$?
+  case "$check_status" in
+    0|1)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 detect_arch() {
@@ -278,6 +361,22 @@ install_control_scripts() {
   chmod 0755 "$CONTROL_INSTALLER" "$CONTROL_UNINSTALLER"
 }
 
+write_version_metadata() {
+  local source_dir="$1"
+  local source_sha metadata_tmp
+  source_sha="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
+  [ -n "$source_sha" ] || return 0
+
+  metadata_tmp="$VERSION_FILE.tmp"
+  umask 022
+  {
+    printf 'SOURCE_SHA=%s\n' "$source_sha"
+    printf 'SOURCE_URL=%s\n' "$REPO_URL"
+    printf 'SOURCE_REF=%s\n' "$REPO_REF"
+  } > "$metadata_tmp"
+  mv -f -- "$metadata_tmp" "$VERSION_FILE"
+}
+
 write_environment_file() {
   mkdir -p "$ENV_DIR" "$DATA_PATH" "$GAMES_PATH" "$PATCH_DIR"
 
@@ -339,6 +438,7 @@ install_or_update() {
   local source_dir
   require_root
   require_systemd
+  load_existing_source_config
   validate_paths
   detect_arch
   install_system_dependencies
@@ -355,6 +455,7 @@ install_or_update() {
   install_python_dependencies
   write_systemd_service
   start_service
+  write_version_metadata "$source_dir"
 
   log "done"
   log "server URL: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT_VALUE"
@@ -364,6 +465,7 @@ install_or_update() {
 uninstall_service() {
   require_root
   load_existing_data_path
+  load_existing_source_config
   validate_paths
   local program_exists="false"
   if [ -e "$APP_DIR" ] || [ -e "$VENV_DIR" ] || [ -e "$SERVICE_FILE" ]; then
@@ -429,12 +531,31 @@ uninstall_service() {
 
 case "$ACTION" in
   install|update)
+    if [ "$CHECK_ONLY" = "true" ]; then
+      [ "$ACTION" = "install" ] || die "--check cannot be combined with --update"
+      [ "$DATA_ACTION" = "ask" ] || die "--check cannot be combined with uninstall data options"
+      check_installation
+      exit $?
+    fi
+    if [ "$ACTION" = "install" ] && deployment_exists; then
+      require_root
+      validate_paths
+      local_check_status=0
+      check_remote_update || local_check_status=$?
+      if [ "$local_check_status" -eq 0 ]; then
+        exit 0
+      elif [ "$local_check_status" -eq 2 ]; then
+        die "version check failed; use --update to force an update"
+      fi
+      ACTION="update"
+    fi
     if [ "$DATA_ACTION" != "ask" ]; then
       die "--keep-data and --purge-data can only be used with --uninstall"
     fi
     install_or_update
     ;;
   uninstall)
+    [ "$CHECK_ONLY" = "false" ] || die "--check cannot be combined with --uninstall"
     uninstall_service
     ;;
 esac

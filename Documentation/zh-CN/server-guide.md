@@ -201,6 +201,14 @@ sudo bash /opt/sena-repo/install.sh --update
 
 更新会从配置的远程仓库和分支拉取最新服务端代码，不使用当前目录中的旧代码；数据库、游戏目录、补丁目录和环境配置会保留。
 
+只检查是否有更新、不执行安装：
+
+```bash
+sudo bash /opt/sena-repo/install.sh --check
+```
+
+安装脚本会记录上次使用的仓库地址和分支；未显式设置 `SENA_REPO_URL` / `SENA_REPO_REF` 时，后续检查会继续使用该记录。
+
 卸载程序文件：
 
 ```bash
