@@ -170,18 +170,43 @@ docker run -d \
   sena-repo:latest
 ```
 
-### 方式三：直接部署
+### 方式三：安装脚本直接部署
 
-> 此方式未经充分测试，建议优先使用 Docker。
+> 适合没有 Docker 的设备，例如部分 arm32 NAS、盒子或 Armbian 设备。amd64 / arm64 仍建议优先使用 Docker。
 
 ```bash
-git clone https://github.com/404-GCross/Sena-Repo.git
+git clone -b dev https://github.com/404-GCross/Sena-Repo.git
 cd Sena-Repo/server
-pip install -r requirements.txt
-python main.py --host 0.0.0.0 --port 11451 \
-  --games-path /path/to/games \
-  --data-path /path/to/data
+sudo bash install.sh
 ```
+
+脚本当前支持 Debian / Ubuntu / Armbian 一类带 `apt` 与 `systemd` 的系统，会自动安装 Python 编译依赖、创建 venv、写入 systemd 服务并启动服务。
+
+默认路径：
+
+| 路径 | 说明 |
+|------|------|
+| `/opt/sena-repo/server` | 服务端程序 |
+| `/opt/sena-repo/venv` | Python 虚拟环境 |
+| `/etc/sena-repo/sena-repo.env` | 服务端环境变量 |
+| `/var/lib/sena-repo` | 数据库、封面、配置数据 |
+| `/srv/sena-repo/games` | 本地游戏库目录 |
+| `/srv/sena-repo/steam_patch` | Steam 补丁目录 |
+
+更新：
+
+```bash
+cd Sena-Repo/server
+sudo bash install.sh --update
+```
+
+卸载程序文件：
+
+```bash
+sudo bash /opt/sena-repo/server/install.sh --uninstall
+```
+
+卸载会保留 `/var/lib/sena-repo` 和 `/etc/sena-repo/sena-repo.env`，避免误删数据库和配置。
 
 ---
 
