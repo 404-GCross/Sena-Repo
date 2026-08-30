@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sena Repo - Steam 补丁注入规则设计稿</title>
+  <style>
+    :root {
+      --bg: #eef3f6;
+      --panel: #f7fafc;
+      --panel-2: #ffffff;
+      --border: #d4dfe6;
+      --text: #17222d;
+      --muted: #63717f;
+      --primary: #147c95;
+      --primary-soft: rgba(20, 124, 149, 0.12);
+      --accent: #4d8cff;
+      --warn: #d98a10;
+      --shadow: 0 20px 50px rgba(11, 27, 42, 0.16);
+      --radius: 22px;
+      --radius-sm: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(20, 124, 149, 0.12), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(77, 140, 255, 0.10), transparent 32%),
+        var(--bg);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 32px;
+    }
+
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.25);
+      border: 1px solid rgba(255,255,255,0.55);
+      border-radius: 28px;
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      background: rgba(255,255,255,0.9);
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+      font-size: 18px;
+      letter-spacing: 0.4px;
+    }
+
+    .topbar .controls {
+      position: absolute;
+      right: 18px;
+      display: flex;
+      gap: 14px;
+      color: #55626f;
+      font-size: 22px;
+      user-select: none;
+    }
+
+    .page {
+      padding: 28px;
+    }
+
+    .dialog {
+      max-width: 1220px;
+      margin: 0 auto;
+      border-radius: 30px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(242,246,249,0.92));
+      border: 1px solid rgba(255,255,255,0.7);
+      box-shadow: 0 28px 80px rgba(10, 25, 40, 0.14);
+      overflow: hidden;
+    }
+
+    .dialog-header {
+      padding: 26px 28px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .badge-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 18px;
+      background: var(--primary-soft);
+      display: grid;
+      place-items: center;
+      font-size: 28px;
+      color: var(--primary);
+      flex: none;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .ghost-btn, .primary-btn, .secondary-btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 14px 20px;
+      font-size: 16px;
+      cursor: default;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+    }
+
+    .ghost-btn {
+      background: rgba(20, 124, 149, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(20, 124, 149, 0.24);
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: 1.1fr 1.2fr;
+      gap: 18px;
+      padding: 24px;
+    }
+
+    .panel {
+      border-radius: 24px;
+      background: rgba(255,255,255,0.78);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .panel-body {
+      padding: 18px 20px 20px;
+    }
+
+    .notice {
+      margin-bottom: 18px;
+      padding: 18px 18px;
+      border-radius: 18px;
+      background: rgba(20, 124, 149, 0.08);
+      border: 1px solid rgba(20, 124, 149, 0.18);
+      color: #2c4f5a;
+      font-weight: 600;
+    }
+
+    .section {
+      border-radius: 22px;
+      background: linear-gradient(180deg, #fff, #f8fbfd);
+      border: 1px solid var(--border);
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .section h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0 0 8px;
+      font-weight: 600;
+    }
+
+    input, select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #fff;
+      padding: 16px 18px;
+      font: inherit;
+      color: var(--text);
+      outline: none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.85);
+    }
+
+    input::placeholder {
+      color: #97a6b3;
+    }
+
+    .path-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px dashed #c8d5df;
+      background: #f9fcfe;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .path-row .path {
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mini-btn {
+      border: 1px solid rgba(20, 124, 149, 0.22);
+      background: rgba(20, 124, 149, 0.10);
+      color: var(--primary);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+
+    .section-inline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .foot {
+      padding: 0 24px 24px;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 18px 20px 22px;
+      border-top: 1px solid var(--border);
+      background: rgba(247, 250, 252, 0.8);
+    }
+
+    .secondary-btn {
+      background: #dbe2e8;
+      color: #5b6875;
+    }
+
+    .primary-btn {
+      background: #c6dce4;
+      color: #0c6076;
+      font-weight: 700;
+    }
+
+    .primary-btn.hot {
+      background: linear-gradient(180deg, #d6ecf2, #bedde7);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+    }
+
+    .split-note {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(77, 140, 255, 0.08);
+      border: 1px solid rgba(77, 140, 255, 0.16);
+      color: #35597e;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    @media (max-width: 1080px) {
+      body { padding: 18px; }
+      .content { grid-template-columns: 1fr; }
+      .section-inline { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      Sena-Repo,bye~bye~
+      <div class="controls">˅ ˄ ×</div>
+    </div>
+
+    <div class="page">
+      <div class="dialog">
+        <div class="dialog-header">
+          <div class="title-row">
+            <div class="badge-icon">🧩</div>
+            <div>
+              <h1>配置注入规则</h1>
+              <div class="subtitle">Dracu-Riot_Steam_extra_Patch.zip</div>
+            </div>
+          </div>
+          <button class="ghost-btn">≡ 手动规则</button>
+        </div>
+
+        <div class="content">
+          <div class="panel">
+            <div class="panel-header">补丁来源 / 规则</div>
+            <div class="panel-body">
+              <div class="notice">
+                手动规则模式不会下载或探测远程压缩包。适合 OpenList / 网盘补丁库。
+                但目标游戏目录仍然可以本地选择。
+              </div>
+
+              <div class="section">
+                <h2>注入规则</h2>
+                <div class="grid">
+                  <div>
+                    <label>补丁内容根目录 (patch_dir)</label>
+                    <input type="text" placeholder="例如 patch / update / root" />
+                  </div>
+
+                  <div>
+                    <label>剥离层级</label>
+                    <select>
+                      <option>剥离 0 层</option>
+                      <option>剥离 1 层</option>
+                      <option>剥离 2 层</option>
+                      <option>剥离 3 层</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label>目标模式</label>
+                    <select>
+                      <option>游戏根目录</option>
+                      <option>自定义子目录</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="split-note">
+                这一侧只管“补丁怎么识别、怎么展开”。
+                即使补丁源来自网盘，下面的目标游戏目录仍然可以是本地目录。
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">目标游戏目录</div>
+            <div class="panel-body">
+              <div class="section">
+                <h2>本地注入位置</h2>
+                <div class="grid">
+                  <div>
+                    <label>目标子目录 (target_dir)</label>
+                    <input type="text" placeholder="留空表示游戏根目录" />
+                  </div>
+
+                  <div>
+                    <label>当前本地游戏目录</label>
+                    <div class="path-row">
+                      <span>📁</span>
+                      <span class="path">/home/gcross/.steam/steam/steamapps/common/Dracu-Riot</span>
+                      <button class="mini-btn">选择目录</button>
+                    </div>
+                  </div>
+
+                  <div class="section-inline">
+                    <div>
+                      <label>注入目标</label>
+                      <select>
+                        <option>游戏根目录</option>
+                        <option>自定义子目录</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label>说明</label>
+                      <input type="text" value="本地目录可选，和补丁来源无关" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="split-note" style="background: rgba(20,124,149,0.06); border-color: rgba(20,124,149,0.14); color: #32535f;">
+                本地游戏可以手动选择目录；网盘补丁只是来源不同，不影响最终注入到哪里。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="secondary-btn">关闭</button>
+          <button class="primary-btn">保存规则</button>
+          <button class="primary-btn hot">保存并注入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
