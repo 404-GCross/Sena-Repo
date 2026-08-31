@@ -2806,15 +2806,39 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       uri.scheme == "com.github.senarepo" &&
       uri.path == "/oauth/hikarinagi";
 
+  Map<String, String> _hikarinagiCallbackParams(Uri uri) {
+    final params = Map<String, String>.from(uri.queryParameters);
+    final fragment = uri.fragment.trim();
+    if (fragment.isEmpty) return params;
+    final query = fragment.startsWith("?") ? fragment.substring(1) : fragment;
+    try {
+      params.addAll(Uri.splitQueryString(query));
+    } catch (_) {}
+    return params;
+  }
+
+  String _hikarinagiCallbackErrorMessage(Map<String, String> params) {
+    final error = params["error"]?.trim() ?? "";
+    final description = params["error_description"]?.trim() ?? "";
+    final parts = <String>[];
+    if (error.isNotEmpty) parts.add(error);
+    if (description.isNotEmpty && description != error) parts.add(description);
+    return parts.isEmpty ? "未知错误" : parts.join(": ");
+  }
+
   Future<void> _handleHikarinagiCallback(Uri uri) async {
     if (!_isHikarinagiCallback(uri) || !mounted) return;
-    final error = uri.queryParameters["error"];
+    final params = _hikarinagiCallbackParams(uri);
+    final error = params["error"];
     if (error != null && error.isNotEmpty) {
-      _toast(context, "Hikarinagi 授权取消或失败: $error");
+      _toast(
+        context,
+        "Hikarinagi 授权取消或失败: ${_hikarinagiCallbackErrorMessage(params)}",
+      );
       return;
     }
-    final code = uri.queryParameters["code"] ?? "";
-    final state = uri.queryParameters["state"] ?? "";
+    final code = params["code"] ?? "";
+    final state = params["state"] ?? "";
     if (code.isEmpty || state.isEmpty) {
       _toast(context, "Hikarinagi 回调缺少 code 或 state");
       return;
@@ -2907,7 +2931,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         mode: LaunchMode.externalApplication,
       );
       if (mounted) {
-        _toast(context, opened ? "已打开 Hikarinagi 授权页" : "无法打开授权页");
+        if (opened) {
+          _snack(context, "已打开 Hikarinagi 授权页，请在浏览器完成登录授权");
+        } else {
+          _toast(context, "无法打开 Hikarinagi 授权页");
+        }
       }
     } catch (e) {
       if (mounted) _toast(context, "Hikarinagi 授权启动失败: $e");
@@ -3801,6 +3829,14 @@ class _UserManagePageState extends State<_UserManagePage> {
 }
 
 // ── Download Settings Sub-Page ──
+void _snack(BuildContext ctx, String msg) {
+  final messenger = ScaffoldMessenger.maybeOf(ctx);
+  if (messenger == null) return;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(msg)));
+}
+
 void _toast(BuildContext ctx, String msg) {
   showDialog(
     context: ctx,
