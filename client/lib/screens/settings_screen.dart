@@ -2885,21 +2885,19 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     return parts.isEmpty ? "未知错误" : parts.join(": ");
   }
 
-  void _setHikarinagiAuthDiagnostic(
+  Future<void> _setHikarinagiAuthDiagnostic(
     String message, {
     bool isError = false,
-  }) {
+  }) async {
     if (!mounted) return;
     setState(() {
       _hikarinagiAuthDiagnostic = message;
       _hikarinagiAuthDiagnosticIsError = isError;
     });
-    final logMessage = "Hikarinagi OAuth: $message";
-    if (isError) {
-      LoggerService().warn(logMessage);
-    } else {
-      LoggerService().info(logMessage);
-    }
+    await LoggerService().log(
+      isError ? "WARN" : "INFO",
+      "Hikarinagi OAuth: $message",
+    );
   }
 
   Future<void> _handleHikarinagiCallback(Uri uri) async {
@@ -2908,7 +2906,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     final error = params["error"];
     if (error != null && error.isNotEmpty) {
       final message = _hikarinagiCallbackErrorMessage(params);
-      _setHikarinagiAuthDiagnostic("回调返回错误：$message", isError: true);
+      await _setHikarinagiAuthDiagnostic("回调返回错误：$message", isError: true);
       _toast(
         context,
         "Hikarinagi 授权取消或失败: $message",
@@ -2918,14 +2916,14 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     final code = params["code"] ?? "";
     final state = params["state"] ?? "";
     if (code.isEmpty || state.isEmpty) {
-      _setHikarinagiAuthDiagnostic(
+      await _setHikarinagiAuthDiagnostic(
         "回调缺少必要参数：code=${code.isNotEmpty ? "有" : "无"}，state=${state.isNotEmpty ? "有" : "无"}",
         isError: true,
       );
       _toast(context, "Hikarinagi 回调缺少 code 或 state");
       return;
     }
-    _setHikarinagiAuthDiagnostic("收到 Hikarinagi 回调，正在向服务端完成绑定");
+    await _setHikarinagiAuthDiagnostic("收到 Hikarinagi 回调，正在向服务端完成绑定");
     setState(() => _bindingHikarinagi = true);
     try {
       final resp = await http.post(
@@ -2937,16 +2935,19 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         setState(() => _hikarinagiAuthStatus = data);
-        _setHikarinagiAuthDiagnostic("授权完成，Hikarinagi 账号已绑定");
+        await _setHikarinagiAuthDiagnostic("授权完成，Hikarinagi 账号已绑定");
         _toast(context, "Hikarinagi 账号已绑定");
       } else {
         final message = _responseMessage(resp);
-        _setHikarinagiAuthDiagnostic("服务端完成授权失败：$message", isError: true);
+        await _setHikarinagiAuthDiagnostic(
+          "服务端完成授权失败：$message",
+          isError: true,
+        );
         _toast(context, "Hikarinagi 授权失败: $message");
       }
     } catch (e) {
       if (mounted) {
-        _setHikarinagiAuthDiagnostic("授权完成请求异常：$e", isError: true);
+        await _setHikarinagiAuthDiagnostic("授权完成请求异常：$e", isError: true);
         _toast(context, "Hikarinagi 授权失败: $e");
       }
     } finally {
@@ -2997,12 +2998,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _bindHikarinagi() async {
-    setState(() {
-      _bindingHikarinagi = true;
-      _hikarinagiAuthDiagnostic = "正在向服务端请求 Hikarinagi 授权地址";
-      _hikarinagiAuthDiagnosticIsError = false;
-    });
-    LoggerService().info("Hikarinagi OAuth: auth start requested");
+    setState(() => _bindingHikarinagi = true);
+    await _setHikarinagiAuthDiagnostic("正在向服务端请求 Hikarinagi 授权地址");
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi/auth/start"),
@@ -3012,37 +3009,40 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (!mounted) return;
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         final message = _responseMessage(resp);
-        _setHikarinagiAuthDiagnostic("授权启动失败：$message", isError: true);
+        await _setHikarinagiAuthDiagnostic("授权启动失败：$message", isError: true);
         _toast(context, "Hikarinagi 授权启动失败: $message");
         return;
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final url = data["authorization_url"]?.toString() ?? "";
       if (url.isEmpty) {
-        _setHikarinagiAuthDiagnostic(
+        await _setHikarinagiAuthDiagnostic(
           "授权启动失败：服务端没有返回授权地址",
           isError: true,
         );
         _toast(context, "Hikarinagi 授权启动失败: 缺少授权地址");
         return;
       }
-      _setHikarinagiAuthDiagnostic("授权地址已生成，正在打开系统浏览器");
+      await _setHikarinagiAuthDiagnostic("授权地址已生成，正在打开系统浏览器");
       final opened = await launchUrl(
         Uri.parse(url),
         mode: LaunchMode.externalApplication,
       );
       if (mounted) {
         if (opened) {
-          _setHikarinagiAuthDiagnostic("已打开浏览器，等待 Hikarinagi 回调");
+          await _setHikarinagiAuthDiagnostic("已打开浏览器，等待 Hikarinagi 回调");
           _snack(context, "已打开 Hikarinagi 授权页，请在浏览器完成登录授权");
         } else {
-          _setHikarinagiAuthDiagnostic("系统未能打开 Hikarinagi 授权页", isError: true);
+          await _setHikarinagiAuthDiagnostic(
+            "系统未能打开 Hikarinagi 授权页",
+            isError: true,
+          );
           _toast(context, "无法打开 Hikarinagi 授权页");
         }
       }
     } catch (e) {
       if (mounted) {
-        _setHikarinagiAuthDiagnostic("授权启动异常：$e", isError: true);
+        await _setHikarinagiAuthDiagnostic("授权启动异常：$e", isError: true);
         _toast(context, "Hikarinagi 授权启动失败: $e");
       }
     } finally {
