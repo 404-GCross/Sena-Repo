@@ -19,8 +19,10 @@ from services.hikarinagi_oauth import (
     configured_scope,
     consume_pending_auth,
     create_authorization_url,
+    discard_pending_auth,
     exchange_authorization_code,
     get_active_account,
+    inspect_authorization_request,
     revoke_active_accounts,
     save_authorized_account,
 )
@@ -66,6 +68,27 @@ async def start_hikarinagi_auth(
         scope=scope,
         redirect_uri=redirect_uri,
     )
+    client_kwargs = {"timeout": httpx.Timeout(12.0, connect=5.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    try:
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            preflight_error = await inspect_authorization_request(
+                client,
+                authorization_url,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "Hikarinagi OAuth authorization preflight failed: %s",
+            exc.__class__.__name__,
+        )
+        preflight_error = None
+    if preflight_error:
+        discard_pending_auth(state)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hikarinagi 授权请求被拒绝: {preflight_error}",
+        )
     return {
         "authorization_url": authorization_url,
         "state": state,

@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from sqlalchemy import select
@@ -52,6 +52,41 @@ def _b64url(raw: bytes) -> str:
 
 def _code_challenge(verifier: str) -> str:
     return _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+
+
+def _single_query_params(value: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, values in parse_qs(value, keep_blank_values=True).items():
+        if values:
+            result[key] = values[-1]
+    return result
+
+
+def oauth_error_message_from_uri(uri: str) -> str | None:
+    parsed = urlparse(uri)
+    params = _single_query_params(parsed.query)
+    fragment = parsed.fragment[1:] if parsed.fragment.startswith("?") else parsed.fragment
+    if fragment:
+        params.update(_single_query_params(fragment))
+    return oauth_error_message_from_payload(params)
+
+
+def oauth_error_message_from_payload(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    error = str(payload.get("error") or "").strip()
+    description = str(
+        payload.get("error_description")
+        or payload.get("detail")
+        or payload.get("message")
+        or ""
+    ).strip()
+    parts = [part for part in (error, description) if part]
+    if not parts:
+        return None
+    if len(parts) == 2 and parts[0] == parts[1]:
+        return parts[0]
+    return ": ".join(parts)
 
 
 def _prune_pending_auth() -> None:
@@ -97,6 +132,38 @@ def create_authorization_url(
     return f"{HIKARINAGI_AUTH_URL}?{urlencode(params)}", state
 
 
+def discard_pending_auth(state: str) -> None:
+    with _pending_lock:
+        _pending_auth.pop(state, None)
+
+
+async def inspect_authorization_request(
+    client: httpx.AsyncClient,
+    authorization_url: str,
+) -> str | None:
+    resp = await client.get(
+        authorization_url,
+        follow_redirects=False,
+        headers={"Accept": "text/html,application/json;q=0.9,*/*;q=0.8"},
+    )
+    location = resp.headers.get("location", "")
+    if location:
+        message = oauth_error_message_from_uri(location)
+        if message:
+            return message
+    if resp.status_code < 400:
+        return None
+    content_type = resp.headers.get("content-type", "")
+    if "json" in content_type.lower():
+        try:
+            message = oauth_error_message_from_payload(resp.json())
+            if message:
+                return message
+        except ValueError:
+            pass
+    return f"授权入口返回 HTTP {resp.status_code}"
+
+
 def consume_pending_auth(state: str, user_id: int) -> dict[str, Any]:
     with _pending_lock:
         _prune_pending_auth()
@@ -130,7 +197,14 @@ async def exchange_authorization_code(
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )
-    resp.raise_for_status()
+    if resp.status_code < 200 or resp.status_code >= 300:
+        try:
+            message = oauth_error_message_from_payload(resp.json())
+        except ValueError:
+            message = None
+        if message:
+            raise RuntimeError(f"Hikarinagi Token 交换失败: {message}")
+        raise RuntimeError(f"Hikarinagi Token 交换失败: HTTP {resp.status_code}")
     payload = resp.json()
     if not isinstance(payload, dict) or not payload.get("access_token"):
         raise RuntimeError("Hikarinagi Token 响应为空")

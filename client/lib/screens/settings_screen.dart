@@ -19,6 +19,7 @@ import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
+import "../services/logger_service.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/secure_store.dart";
@@ -1278,6 +1279,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _bindingHikarinagi = false;
   Map<String, dynamic>? _hikarinagiAuthStatus;
   String _hikarinagiRedirectUri = _defaultHikarinagiRedirectUri;
+  String _hikarinagiAuthDiagnostic = "";
+  bool _hikarinagiAuthDiagnosticIsError = false;
   StreamSubscription<Uri>? _hikarinagiLinkSub;
   final Set<int> _testingOpenListSources = {};
   // Scraper sources
@@ -2531,6 +2534,62 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ),
           ),
           const SizedBox(height: 8),
+          if (_hikarinagiAuthDiagnostic.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _hikarinagiAuthDiagnosticIsError
+                    ? Theme.of(context).colorScheme.error.withValues(alpha: 0.06)
+                    : Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _hikarinagiAuthDiagnosticIsError
+                      ? Theme.of(context).colorScheme.error.withValues(alpha: 0.25)
+                      : Theme.of(context).colorScheme.primary.withValues(alpha: 0.22),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    _hikarinagiAuthDiagnosticIsError
+                        ? Icons.error_outline_rounded
+                        : Icons.info_outline_rounded,
+                    color: _hikarinagiAuthDiagnosticIsError
+                        ? Theme.of(context).colorScheme.error
+                        : Theme.of(context).colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "最近一次授权诊断",
+                          style: AppText.label.copyWith(
+                            color: hintColor(context),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        SelectableText(
+                          _hikarinagiAuthDiagnostic,
+                          style: AppText.label.copyWith(
+                            color: _hikarinagiAuthDiagnosticIsError
+                                ? Theme.of(context).colorScheme.error
+                                : subTextColor(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -2826,23 +2885,47 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     return parts.isEmpty ? "未知错误" : parts.join(": ");
   }
 
+  void _setHikarinagiAuthDiagnostic(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _hikarinagiAuthDiagnostic = message;
+      _hikarinagiAuthDiagnosticIsError = isError;
+    });
+    final logMessage = "Hikarinagi OAuth: $message";
+    if (isError) {
+      LoggerService().warn(logMessage);
+    } else {
+      LoggerService().info(logMessage);
+    }
+  }
+
   Future<void> _handleHikarinagiCallback(Uri uri) async {
     if (!_isHikarinagiCallback(uri) || !mounted) return;
     final params = _hikarinagiCallbackParams(uri);
     final error = params["error"];
     if (error != null && error.isNotEmpty) {
+      final message = _hikarinagiCallbackErrorMessage(params);
+      _setHikarinagiAuthDiagnostic("回调返回错误：$message", isError: true);
       _toast(
         context,
-        "Hikarinagi 授权取消或失败: ${_hikarinagiCallbackErrorMessage(params)}",
+        "Hikarinagi 授权取消或失败: $message",
       );
       return;
     }
     final code = params["code"] ?? "";
     final state = params["state"] ?? "";
     if (code.isEmpty || state.isEmpty) {
+      _setHikarinagiAuthDiagnostic(
+        "回调缺少必要参数：code=${code.isNotEmpty ? "有" : "无"}，state=${state.isNotEmpty ? "有" : "无"}",
+        isError: true,
+      );
       _toast(context, "Hikarinagi 回调缺少 code 或 state");
       return;
     }
+    _setHikarinagiAuthDiagnostic("收到 Hikarinagi 回调，正在向服务端完成绑定");
     setState(() => _bindingHikarinagi = true);
     try {
       final resp = await http.post(
@@ -2854,12 +2937,18 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         setState(() => _hikarinagiAuthStatus = data);
+        _setHikarinagiAuthDiagnostic("授权完成，Hikarinagi 账号已绑定");
         _toast(context, "Hikarinagi 账号已绑定");
       } else {
-        _toast(context, "Hikarinagi 授权失败: ${_responseMessage(resp)}");
+        final message = _responseMessage(resp);
+        _setHikarinagiAuthDiagnostic("服务端完成授权失败：$message", isError: true);
+        _toast(context, "Hikarinagi 授权失败: $message");
       }
     } catch (e) {
-      if (mounted) _toast(context, "Hikarinagi 授权失败: $e");
+      if (mounted) {
+        _setHikarinagiAuthDiagnostic("授权完成请求异常：$e", isError: true);
+        _toast(context, "Hikarinagi 授权失败: $e");
+      }
     } finally {
       if (mounted) setState(() => _bindingHikarinagi = false);
     }
@@ -2908,7 +2997,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _bindHikarinagi() async {
-    setState(() => _bindingHikarinagi = true);
+    setState(() {
+      _bindingHikarinagi = true;
+      _hikarinagiAuthDiagnostic = "正在向服务端请求 Hikarinagi 授权地址";
+      _hikarinagiAuthDiagnosticIsError = false;
+    });
+    LoggerService().info("Hikarinagi OAuth: auth start requested");
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi/auth/start"),
@@ -2917,28 +3011,40 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       );
       if (!mounted) return;
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        _toast(context, "Hikarinagi 授权启动失败: ${_responseMessage(resp)}");
+        final message = _responseMessage(resp);
+        _setHikarinagiAuthDiagnostic("授权启动失败：$message", isError: true);
+        _toast(context, "Hikarinagi 授权启动失败: $message");
         return;
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final url = data["authorization_url"]?.toString() ?? "";
       if (url.isEmpty) {
+        _setHikarinagiAuthDiagnostic(
+          "授权启动失败：服务端没有返回授权地址",
+          isError: true,
+        );
         _toast(context, "Hikarinagi 授权启动失败: 缺少授权地址");
         return;
       }
+      _setHikarinagiAuthDiagnostic("授权地址已生成，正在打开系统浏览器");
       final opened = await launchUrl(
         Uri.parse(url),
         mode: LaunchMode.externalApplication,
       );
       if (mounted) {
         if (opened) {
+          _setHikarinagiAuthDiagnostic("已打开浏览器，等待 Hikarinagi 回调");
           _snack(context, "已打开 Hikarinagi 授权页，请在浏览器完成登录授权");
         } else {
+          _setHikarinagiAuthDiagnostic("系统未能打开 Hikarinagi 授权页", isError: true);
           _toast(context, "无法打开 Hikarinagi 授权页");
         }
       }
     } catch (e) {
-      if (mounted) _toast(context, "Hikarinagi 授权启动失败: $e");
+      if (mounted) {
+        _setHikarinagiAuthDiagnostic("授权启动异常：$e", isError: true);
+        _toast(context, "Hikarinagi 授权启动失败: $e");
+      }
     } finally {
       if (mounted) setState(() => _bindingHikarinagi = false);
     }
