@@ -242,9 +242,9 @@ class LoggerService {
       (match) => "${match.group(1)}[REDACTED]",
     );
     redacted = redacted.replaceAllMapped(
-      RegExp("((?:$sensitiveKeys)\\s*[:=]\\s*)[^,\\s}]+",
+      RegExp("(^|[^A-Za-z0-9_])((?:$sensitiveKeys)\\s*[:=]\\s*)[^,\\s}]+",
           caseSensitive: false),
-      (match) => "${match.group(1)}[REDACTED]",
+      (match) => "${match.group(1)}${match.group(2)}[REDACTED]",
     );
     return redacted.replaceAllMapped(
       RegExp("([\"'](?:$sensitiveKeys)[\"']\\s*:\\s*)([\"'])[^\"']*([\"'])",
