@@ -3,6 +3,7 @@
 /// Cross-platform client for Windows, Android, and Linux.
 
 import "dart:async";
+import "dart:convert" show base64Url, utf8;
 import "dart:io"
     show
         HttpClient,
@@ -32,6 +33,7 @@ import "services/tray_service.dart";
 import "services/logger_service.dart";
 import "services/notification_service.dart";
 import "services/download_service.dart";
+import "services/deep_link_service.dart";
 
 Future<bool> _check7zAvailable() async {
   try {
@@ -47,10 +49,11 @@ final trayService = TrayService();
 
 ServerSocket? _lockServer;
 const _instancePort = 11452;
+const _instanceUriPrefix = "uri ";
 
 /// Acquire single-instance lock. If already running, signal the existing
 /// instance to show itself and return false.
-Future<bool> _acquireSingleInstanceLock() async {
+Future<bool> _acquireSingleInstanceLock(List<String> args) async {
   try {
     _lockServer =
         await ServerSocket.bind(InternetAddress.loopbackIPv4, _instancePort);
@@ -58,14 +61,54 @@ Future<bool> _acquireSingleInstanceLock() async {
   } catch (_) {
     // Another instance is already running — tell it to come to front
     try {
+      final uri = DeepLinkService.firstSupportedUri(args);
       final s = await Socket.connect(
         InternetAddress.loopbackIPv4,
         _instancePort,
         timeout: const Duration(milliseconds: 500),
       );
+      if (uri != null) {
+        final encoded = base64Url.encode(utf8.encode(uri.toString()));
+        s.write("$_instanceUriPrefix$encoded\n");
+        await LoggerService().log(
+          "INFO",
+          "desktop deep link forwarded to active instance",
+        );
+      } else {
+        s.write("show\n");
+      }
+      await s.flush();
       await s.close();
     } catch (_) {}
     return false;
+  }
+}
+
+void _publishLaunchDeepLink(List<String> args) {
+  final uri = DeepLinkService.firstSupportedUri(args);
+  if (uri == null) return;
+  DeepLinkService().publish(uri);
+  LoggerService().info("desktop deep link received from launch arguments");
+}
+
+void _handleInstancePayload(List<int> bytes) {
+  if (bytes.isEmpty) return;
+  final message = utf8.decode(bytes, allowMalformed: true).trim();
+  if (!message.startsWith(_instanceUriPrefix)) return;
+  final encoded = message.substring(_instanceUriPrefix.length).trim();
+  try {
+    final raw = utf8.decode(base64Url.decode(encoded));
+    final uri = Uri.tryParse(raw);
+    if (uri != null && DeepLinkService.isSupportedUri(uri)) {
+      DeepLinkService().publish(uri);
+      LoggerService().info("desktop deep link received from instance signal");
+    }
+  } catch (e, stackTrace) {
+    LoggerService().warn(
+      "desktop deep link signal could not be parsed",
+      e,
+      stackTrace,
+    );
   }
 }
 
@@ -73,9 +116,20 @@ Future<bool> _acquireSingleInstanceLock() async {
 /// Must be called AFTER windowManager.ensureInitialized().
 void _startInstanceListener() {
   _lockServer?.listen((Socket s) {
-    s.destroy();
-    windowManager.show();
-    windowManager.focus();
+    final bytes = <int>[];
+    s.listen(
+      bytes.addAll,
+      onDone: () {
+        _handleInstancePayload(bytes);
+        windowManager.show();
+        windowManager.focus();
+      },
+      onError: (_) {
+        s.destroy();
+        windowManager.show();
+        windowManager.focus();
+      },
+    );
   });
 }
 
@@ -89,7 +143,7 @@ class _AllowAllCertificates extends HttpOverrides {
   }
 }
 
-void main() {
+void main(List<String> args) {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     FlutterError.onError = (details) {
@@ -121,10 +175,11 @@ void main() {
     LoggerService().info("client startup: platform=${Platform.operatingSystem}");
 
     if (Platform.isWindows || Platform.isLinux) {
-      if (!await _acquireSingleInstanceLock()) {
+      if (!await _acquireSingleInstanceLock(args)) {
         LoggerService().warn("client startup blocked: another instance is active");
         exit(0);
       }
+      _publishLaunchDeepLink(args);
       await windowManager.ensureInitialized();
       windowManager.setTitle("Sena-Repo,bye~bye~");
       _startInstanceListener();

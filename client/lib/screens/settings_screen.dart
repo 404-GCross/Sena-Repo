@@ -19,6 +19,7 @@ import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
+import "../services/deep_link_service.dart";
 import "../services/logger_service.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
@@ -1282,6 +1283,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   String _hikarinagiAuthDiagnostic = "";
   bool _hikarinagiAuthDiagnosticIsError = false;
   StreamSubscription<Uri>? _hikarinagiLinkSub;
+  StreamSubscription<Uri>? _desktopDeepLinkSub;
+  final Set<String> _handledHikarinagiCallbackStates = {};
   final Set<int> _testingOpenListSources = {};
   // Scraper sources
   final _sources = {
@@ -2849,6 +2852,19 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   void _initHikarinagiLinkListener() {
+    final deepLinks = DeepLinkService();
+    _desktopDeepLinkSub = deepLinks.uriStream.listen(
+      _handleHikarinagiCallback,
+      onError: (_) {},
+    );
+    final pending = deepLinks.takePending();
+    if (pending.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        for (final uri in pending) {
+          _handleHikarinagiCallback(uri);
+        }
+      });
+    }
     try {
       final appLinks = AppLinks();
       _hikarinagiLinkSub = appLinks.uriLinkStream.listen(
@@ -2903,6 +2919,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Future<void> _handleHikarinagiCallback(Uri uri) async {
     if (!_isHikarinagiCallback(uri) || !mounted) return;
     final params = _hikarinagiCallbackParams(uri);
+    final callbackState = params["state"]?.trim() ?? "";
+    if (callbackState.isNotEmpty &&
+        !_handledHikarinagiCallbackStates.add(callbackState)) {
+      return;
+    }
     final error = params["error"];
     if (error != null && error.isNotEmpty) {
       final message = _hikarinagiCallbackErrorMessage(params);
@@ -3157,6 +3178,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   void dispose() {
     _scanStatusTimer?.cancel();
     _hikarinagiLinkSub?.cancel();
+    _desktopDeepLinkSub?.cancel();
     for (final c in _keys.values) {
       c.dispose();
     }

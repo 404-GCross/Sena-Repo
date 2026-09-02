@@ -279,11 +279,12 @@ jobs:
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
-          Exec=sena_repo
+          Exec=sena_repo %u
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
           StartupWMClass=sena_repo
+          MimeType=x-scheme-handler/com.github.senarepo;
           EOF
           cat > "$APPDIR/AppRun" << 'EOF'
           #!/bin/bash
@@ -320,11 +321,12 @@ jobs:
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
-          Exec=/opt/sena-repo/sena_repo
+          Exec=/opt/sena-repo/sena_repo %u
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
           StartupWMClass=sena_repo
+          MimeType=x-scheme-handler/com.github.senarepo;
           EOF
           DEB_VERSION="${VERSION#v}"
           RPM_VERSION="${DEB_VERSION//[^A-Za-z0-9_.]/.}"
