@@ -36,15 +36,13 @@ custom_regex:
 # Scraper API keys (optional, fill in to enable)
 # Bangumi Token: https://bgm.tv/dev/app
 # VNDB Token: https://vndb.org/u/tokens
-# Official Docker builds receive the project author's Hikarinagi native/public
-# OAuth Client ID from the GitHub Actions repository variable HIKARINAGI_CLIENT_ID.
-# Only override these fields when running from source or using your own Hikarinagi app.
+# Hikarinagi developer credentials: https://www.hikarinagi.org/developers
 scrapers:
   bangumi_token: ""
   vndb_token: ""
   hikarinagi_client_id: ""
-  hikarinagi_redirect_uri: "com.github.senarepo:/oauth/hikarinagi"
-  hikarinagi_scope: "openid profile catalog:full user:read status:read offline_access"
+  hikarinagi_client_secret: ""
+  hikarinagi_scope: "catalog:full"
   scraper_order:
     - hikarinagi
     - vndb_kana

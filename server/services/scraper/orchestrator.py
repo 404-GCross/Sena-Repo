@@ -25,7 +25,6 @@ from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
 from .hikarinagi import HikarinagiScraper
-from services.hikarinagi_oauth import get_default_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,9 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
     builders = {
         "hikarinagi": lambda: HikarinagiScraper(
             proxy=config.proxy,
-            access_token_provider=get_default_access_token,
+            client_id=s.hikarinagi_client_id,
+            client_secret=s.hikarinagi_client_secret,
+            scope=s.hikarinagi_scope,
         ),
         "vndb_kana": lambda: VndbKanaScraper(proxy=config.proxy),
         "bangumi": lambda: BangumiScraper(proxy=config.proxy, token=s.bangumi_token),

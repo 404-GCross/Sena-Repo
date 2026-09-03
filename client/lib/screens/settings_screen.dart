@@ -2,15 +2,12 @@
 
 import "dart:async";
 import "package:flutter/material.dart";
-import "package:flutter/services.dart";
-import "package:app_links/app_links.dart";
 import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 import "dart:io" show Platform;
-import "package:url_launcher/url_launcher.dart";
 
 import "../providers/game_provider.dart";
 import "../providers/settings_provider.dart";
@@ -19,8 +16,6 @@ import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
-import "../services/deep_link_service.dart";
-import "../services/logger_service.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/secure_store.dart";
@@ -1260,10 +1255,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "vndb_kana": "中文标题、平均游戏时长",
     "bangumi": "免认证，填 Token 可提高速率",
     "steam": "免认证，Steam 商店元数据",
-    "hikarinagi": "需要绑定 Hikarinagi 账号",
+    "hikarinagi": "需要 Client ID / Secret",
   };
-  static const _defaultHikarinagiRedirectUri =
-      "com.github.senarepo:/oauth/hikarinagi";
+  static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
   List<Map<String, dynamic>> _roots = [];
   List<Map<String, dynamic>> _patchRoots = [];
@@ -1277,14 +1271,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _scanStatusRequestInFlight = false;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
-  bool _bindingHikarinagi = false;
-  Map<String, dynamic>? _hikarinagiAuthStatus;
-  String _hikarinagiRedirectUri = _defaultHikarinagiRedirectUri;
-  String _hikarinagiAuthDiagnostic = "";
-  bool _hikarinagiAuthDiagnosticIsError = false;
-  StreamSubscription<Uri>? _hikarinagiLinkSub;
-  StreamSubscription<Uri>? _desktopDeepLinkSub;
-  final Set<String> _handledHikarinagiCallbackStates = {};
+  bool _testingHikarinagi = false;
   final Set<int> _testingOpenListSources = {};
   // Scraper sources
   final _sources = {
@@ -1295,6 +1282,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   };
   final _keys = {
     "vndb_token": TextEditingController(),
+    "hikarinagi_client_id": TextEditingController(),
+    "hikarinagi_client_secret": TextEditingController(),
+    "hikarinagi_scope": TextEditingController(text: "catalog:full"),
     "proxy": TextEditingController(),
   };
 
@@ -1306,8 +1296,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadFileSources();
     _loadScanSettings();
     _loadScraperSettings();
-    _loadHikarinagiAuthStatus();
-    _initHikarinagiLinkListener();
     _checkActiveJob();
     _startScanStatusPolling();
   }
@@ -2385,16 +2373,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       );
 
   Widget _hikarinagiCredentialSettings() {
-    final status = _hikarinagiAuthStatus;
-    final bound = status?["bound"] == true;
-    final clientConfigured = status?["client_id_configured"] != false;
-    final displayName =
-        status?["display_name"]?.toString().trim().isNotEmpty == true
-            ? status!["display_name"].toString()
-            : status?["subject"]?.toString().trim().isNotEmpty == true
-                ? status!["subject"].toString()
-                : "Hikarinagi 账号";
-    final expiresAt = status?["expires_at"]?.toString() ?? "";
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -2406,217 +2384,77 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "Hikarinagi OAuth",
+            "Hikarinagi 凭据",
             style: AppText.bodySmall.copyWith(
               fontWeight: FontWeight.w600,
               color: subTextColor(context),
             ),
           ),
           Text(
-            "应用 ID 由 Sena-Repo 内置，用户只需要登录绑定账号",
+            "使用 Client ID / Secret 获取 catalog API token，密钥保存在服务端配置中",
             style: AppText.label.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: clientConfigured
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
-                  : Theme.of(context).colorScheme.error.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: clientConfigured
-                    ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.22)
-                    : Theme.of(context).colorScheme.error.withValues(alpha: 0.25),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  clientConfigured
-                      ? Icons.admin_panel_settings_outlined
-                      : Icons.warning_amber_rounded,
-                  color: clientConfigured
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.error,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    clientConfigured
-                        ? "Hikarinagi 应用 ID 已由项目作者内置"
-                        : "项目尚未内置 Hikarinagi 应用 ID，暂时无法绑定账号",
-                    style: AppText.label.copyWith(
-                      color: clientConfigured
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              ],
+          TextField(
+            controller: _keys["hikarinagi_client_id"],
+            decoration: InputDecoration(
+              labelText: "Client ID",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
           ),
           const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "回调地址",
-                        style: AppText.label.copyWith(color: hintColor(context)),
-                      ),
-                      const SizedBox(height: 4),
-                      SelectableText(
-                        _hikarinagiRedirectUri,
-                        style: AppText.label.copyWith(
-                          fontFamily: "monospace",
-                          color: subTextColor(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: "复制回调地址",
-                  onPressed: _copyHikarinagiRedirectUri,
-                  icon: const Icon(Icons.copy_rounded, size: 18),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: bound
-                  ? Colors.green.withValues(alpha: 0.08)
-                  : Theme.of(context).colorScheme.error.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: bound
-                    ? Colors.green.withValues(alpha: 0.35)
-                    : Theme.of(context).colorScheme.error.withValues(alpha: 0.25),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  bound ? Icons.verified_user_outlined : Icons.link_off_rounded,
-                  color: bound ? Colors.green : Theme.of(context).colorScheme.error,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    bound
-                        ? "已绑定 $displayName${expiresAt.isNotEmpty ? " · $expiresAt 过期" : ""}"
-                        : "尚未绑定账号，Hikarinagi 刮削会等待授权",
-                    style: AppText.label.copyWith(
-                      color: bound
-                          ? Colors.green.shade700
-                          : Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              ],
+          TextField(
+            controller: _keys["hikarinagi_client_secret"],
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: "Client Secret",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
           ),
           const SizedBox(height: 8),
-          if (_hikarinagiAuthDiagnostic.isNotEmpty) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _hikarinagiAuthDiagnosticIsError
-                    ? Theme.of(context).colorScheme.error.withValues(alpha: 0.06)
-                    : Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _hikarinagiAuthDiagnosticIsError
-                      ? Theme.of(context).colorScheme.error.withValues(alpha: 0.25)
-                      : Theme.of(context).colorScheme.primary.withValues(alpha: 0.22),
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    _hikarinagiAuthDiagnosticIsError
-                        ? Icons.error_outline_rounded
-                        : Icons.info_outline_rounded,
-                    color: _hikarinagiAuthDiagnosticIsError
-                        ? Theme.of(context).colorScheme.error
-                        : Theme.of(context).colorScheme.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "最近一次授权诊断",
-                          style: AppText.label.copyWith(
-                            color: hintColor(context),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SelectableText(
-                          _hikarinagiAuthDiagnostic,
-                          style: AppText.label.copyWith(
-                            color: _hikarinagiAuthDiagnosticIsError
-                                ? Theme.of(context).colorScheme.error
-                                : subTextColor(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          DropdownButtonFormField<String>(
+            value: _hikarinagiScopes.contains(_keys["hikarinagi_scope"]!.text)
+                ? _keys["hikarinagi_scope"]!.text
+                : "catalog:full",
+            decoration: InputDecoration(
+              labelText: "Scope",
+              helperText: "catalog:full 包含 NSFW 与乙女向条目",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            const SizedBox(height: 8),
-          ],
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: _bindingHikarinagi || !clientConfigured
-                    ? null
-                    : _bindHikarinagi,
-                icon: _bindingHikarinagi
-                    ? const SizedBox(
+            items: _hikarinagiScopes
+                .map(
+                  (scope) => DropdownMenuItem<String>(
+                    value: scope,
+                    child: Text(scope),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _keys["hikarinagi_scope"]!.text = value);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _testingHikarinagi ? null : _testHikarinagi,
+              icon: _testingHikarinagi
+                  ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                    : const Icon(Icons.open_in_browser_rounded, size: 17),
-                label: Text(bound ? "重新绑定" : "绑定 Hikarinagi"),
-              ),
-              if (bound)
-                OutlinedButton.icon(
-                  onPressed: _bindingHikarinagi ? null : _disconnectHikarinagi,
-                  icon: const Icon(Icons.link_off_rounded, size: 17),
-                  label: const Text("解除绑定"),
-                ),
-            ],
+                  : const Icon(Icons.wifi_tethering_outlined, size: 17),
+              label: const Text("测试连接"),
+            ),
           ),
         ],
       ),
@@ -2812,10 +2650,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         for (final k in _keys.keys) {
           _keys[k]?.text = data[k]?.toString() ?? "";
         }
-        _hikarinagiRedirectUri =
-            data["hikarinagi_redirect_uri"]?.toString().trim().isNotEmpty == true
-                ? data["hikarinagi_redirect_uri"].toString()
-                : _defaultHikarinagiRedirectUri;
         final serverOrder = data["scraper_order"];
         if (serverOrder is List) {
           _scraperOrder = _normalizeScraperOrder(serverOrder);
@@ -2830,150 +2664,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       }
     } catch (_) {}
     if (mounted) setState(() {});
-  }
-
-  Future<void> _loadHikarinagiAuthStatus() async {
-    try {
-      final resp = await http.get(
-        Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi/status"),
-        headers: widget.api.headers,
-      );
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        if (!mounted) return;
-        setState(() {
-          _hikarinagiAuthStatus = data;
-          if (data["redirect_uri"]?.toString().trim().isNotEmpty == true) {
-            _hikarinagiRedirectUri = data["redirect_uri"].toString();
-          }
-        });
-      }
-    } catch (_) {}
-  }
-
-  void _initHikarinagiLinkListener() {
-    final deepLinks = DeepLinkService();
-    _desktopDeepLinkSub = deepLinks.uriStream.listen(
-      _handleHikarinagiCallback,
-      onError: (_) {},
-    );
-    final pending = deepLinks.takePending();
-    if (pending.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        for (final uri in pending) {
-          _handleHikarinagiCallback(uri);
-        }
-      });
-    }
-    try {
-      final appLinks = AppLinks();
-      _hikarinagiLinkSub = appLinks.uriLinkStream.listen(
-        _handleHikarinagiCallback,
-        onError: (_) {},
-      );
-      appLinks.getInitialLink().then((uri) {
-        if (uri != null) _handleHikarinagiCallback(uri);
-      }).catchError((_) {});
-    } catch (_) {}
-  }
-
-  bool _isHikarinagiCallback(Uri uri) =>
-      uri.scheme == "com.github.senarepo" &&
-      uri.path == "/oauth/hikarinagi";
-
-  Map<String, String> _hikarinagiCallbackParams(Uri uri) {
-    final params = Map<String, String>.from(uri.queryParameters);
-    final fragment = uri.fragment.trim();
-    if (fragment.isEmpty) return params;
-    final query = fragment.startsWith("?") ? fragment.substring(1) : fragment;
-    try {
-      params.addAll(Uri.splitQueryString(query));
-    } catch (_) {}
-    return params;
-  }
-
-  String _hikarinagiCallbackErrorMessage(Map<String, String> params) {
-    final error = params["error"]?.trim() ?? "";
-    final description = params["error_description"]?.trim() ?? "";
-    final parts = <String>[];
-    if (error.isNotEmpty) parts.add(error);
-    if (description.isNotEmpty && description != error) parts.add(description);
-    return parts.isEmpty ? "未知错误" : parts.join(": ");
-  }
-
-  Future<void> _setHikarinagiAuthDiagnostic(
-    String message, {
-    bool isError = false,
-  }) async {
-    if (!mounted) return;
-    setState(() {
-      _hikarinagiAuthDiagnostic = message;
-      _hikarinagiAuthDiagnosticIsError = isError;
-    });
-    await LoggerService().log(
-      isError ? "WARN" : "INFO",
-      "Hikarinagi OAuth: $message",
-    );
-  }
-
-  Future<void> _handleHikarinagiCallback(Uri uri) async {
-    if (!_isHikarinagiCallback(uri) || !mounted) return;
-    final params = _hikarinagiCallbackParams(uri);
-    final callbackState = params["state"]?.trim() ?? "";
-    if (callbackState.isNotEmpty &&
-        !_handledHikarinagiCallbackStates.add(callbackState)) {
-      return;
-    }
-    final error = params["error"];
-    if (error != null && error.isNotEmpty) {
-      final message = _hikarinagiCallbackErrorMessage(params);
-      await _setHikarinagiAuthDiagnostic("回调返回错误：$message", isError: true);
-      _toast(
-        context,
-        "Hikarinagi 授权取消或失败: $message",
-      );
-      return;
-    }
-    final code = params["code"] ?? "";
-    final state = params["state"] ?? "";
-    if (code.isEmpty || state.isEmpty) {
-      await _setHikarinagiAuthDiagnostic(
-        "回调缺少必要参数：code=${code.isNotEmpty ? "有" : "无"}，state=${state.isNotEmpty ? "有" : "无"}",
-        isError: true,
-      );
-      _toast(context, "Hikarinagi 回调缺少 code 或 state");
-      return;
-    }
-    await _setHikarinagiAuthDiagnostic("收到 Hikarinagi 回调，正在向服务端完成绑定");
-    setState(() => _bindingHikarinagi = true);
-    try {
-      final resp = await http.post(
-        Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi/auth/complete"),
-        headers: {"Content-Type": "application/json", ...widget.api.headers},
-        body: jsonEncode({"code": code, "state": state}),
-      );
-      if (!mounted) return;
-      if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        setState(() => _hikarinagiAuthStatus = data);
-        await _setHikarinagiAuthDiagnostic("授权完成，Hikarinagi 账号已绑定");
-        _toast(context, "Hikarinagi 账号已绑定");
-      } else {
-        final message = _responseMessage(resp);
-        await _setHikarinagiAuthDiagnostic(
-          "服务端完成授权失败：$message",
-          isError: true,
-        );
-        _toast(context, "Hikarinagi 授权失败: $message");
-      }
-    } catch (e) {
-      if (mounted) {
-        await _setHikarinagiAuthDiagnostic("授权完成请求异常：$e", isError: true);
-        _toast(context, "Hikarinagi 授权失败: $e");
-      }
-    } finally {
-      if (mounted) setState(() => _bindingHikarinagi = false);
-    }
   }
 
   Future<bool> _saveScraperConfig({bool showToast = true}) async {
@@ -2999,6 +2689,36 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
+  Future<void> _testHikarinagi() async {
+    setState(() => _testingHikarinagi = true);
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/settings/hikarinagi-test"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({
+          "client_id": _keys["hikarinagi_client_id"]!.text.trim(),
+          "client_secret": _keys["hikarinagi_client_secret"]!.text.trim(),
+          "scope": _keys["hikarinagi_scope"]!.text.trim().isEmpty
+              ? "catalog:full"
+              : _keys["hikarinagi_scope"]!.text.trim(),
+        }),
+      );
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        _toast(
+          context,
+          data["ok"] == true
+              ? "Hikarinagi 连接正常（${data["latency_ms"]}ms）"
+              : "Hikarinagi 连接失败: ${data["error"]}",
+        );
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "Hikarinagi 连接失败: $e");
+    } finally {
+      if (mounted) setState(() => _testingHikarinagi = false);
+    }
+  }
+
   Future<void> _testProxy() async {
     try {
       final resp = await http.post(
@@ -3016,85 +2736,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } catch (e) {
       if (mounted) _toast(context, "$e");
     }
-  }
-
-  Future<void> _bindHikarinagi() async {
-    setState(() => _bindingHikarinagi = true);
-    await _setHikarinagiAuthDiagnostic("正在向服务端请求 Hikarinagi 授权地址");
-    try {
-      final resp = await http.post(
-        Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi/auth/start"),
-        headers: {"Content-Type": "application/json", ...widget.api.headers},
-        body: jsonEncode({}),
-      );
-      if (!mounted) return;
-      if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        final message = _responseMessage(resp);
-        await _setHikarinagiAuthDiagnostic("授权启动失败：$message", isError: true);
-        _toast(context, "Hikarinagi 授权启动失败: $message");
-        return;
-      }
-      final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      final url = data["authorization_url"]?.toString() ?? "";
-      if (url.isEmpty) {
-        await _setHikarinagiAuthDiagnostic(
-          "授权启动失败：服务端没有返回授权地址",
-          isError: true,
-        );
-        _toast(context, "Hikarinagi 授权启动失败: 缺少授权地址");
-        return;
-      }
-      await _setHikarinagiAuthDiagnostic("授权地址已生成，正在打开系统浏览器");
-      final opened = await launchUrl(
-        Uri.parse(url),
-        mode: LaunchMode.externalApplication,
-      );
-      if (mounted) {
-        if (opened) {
-          await _setHikarinagiAuthDiagnostic("已打开浏览器，等待 Hikarinagi 回调");
-          _snack(context, "已打开 Hikarinagi 授权页，请在浏览器完成登录授权");
-        } else {
-          await _setHikarinagiAuthDiagnostic(
-            "系统未能打开 Hikarinagi 授权页",
-            isError: true,
-          );
-          _toast(context, "无法打开 Hikarinagi 授权页");
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        await _setHikarinagiAuthDiagnostic("授权启动异常：$e", isError: true);
-        _toast(context, "Hikarinagi 授权启动失败: $e");
-      }
-    } finally {
-      if (mounted) setState(() => _bindingHikarinagi = false);
-    }
-  }
-
-  Future<void> _disconnectHikarinagi() async {
-    setState(() => _bindingHikarinagi = true);
-    try {
-      final resp = await http.delete(
-        Uri.parse("${widget.api.baseUrl}/api/integrations/hikarinagi"),
-        headers: widget.api.headers,
-      );
-      if (!mounted) return;
-      if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        setState(() => _hikarinagiAuthStatus = {"bound": false});
-        _toast(context, "Hikarinagi 绑定已解除");
-      } else {
-        _toast(context, "解除绑定失败: ${_responseMessage(resp)}");
-      }
-    } catch (e) {
-      if (mounted) _toast(context, "解除绑定失败: $e");
-    } finally {
-      if (mounted) setState(() => _bindingHikarinagi = false);
-    }
-  }
-
-  Future<void> _copyHikarinagiRedirectUri() async {
-    await Clipboard.setData(ClipboardData(text: _hikarinagiRedirectUri));
-    if (mounted) _toast(context, "回调地址已复制");
   }
 
   List<String> _normalizeScraperOrder(Iterable values) {
@@ -3177,8 +2818,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   @override
   void dispose() {
     _scanStatusTimer?.cancel();
-    _hikarinagiLinkSub?.cancel();
-    _desktopDeepLinkSub?.cancel();
     for (final c in _keys.values) {
       c.dispose();
     }
@@ -3954,15 +3593,6 @@ class _UserManagePageState extends State<_UserManagePage> {
                 ),
     );
   }
-}
-
-// ── Download Settings Sub-Page ──
-void _snack(BuildContext ctx, String msg) {
-  final messenger = ScaffoldMessenger.maybeOf(ctx);
-  if (messenger == null) return;
-  messenger
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(msg)));
 }
 
 void _toast(BuildContext ctx, String msg) {

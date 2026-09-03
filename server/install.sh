@@ -64,6 +64,8 @@ Environment overrides:
   SENA_REPO_URL=https://github.com/404-GCross/Sena-Repo.git
   SENA_REPO_REF=dev
   SENA_HIKARINAGI_CLIENT_ID=...
+  SENA_HIKARINAGI_CLIENT_SECRET=...
+  SENA_HIKARINAGI_SCOPE=catalog:full
 
 Uninstall data options:
   --keep-data   Keep the database, generated data, and server configuration.
@@ -97,6 +99,8 @@ PORT_VALUE="${SENA_PORT:-11451}"
 REPO_URL="${SENA_REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_REF="${SENA_REPO_REF:-$DEFAULT_REPO_REF}"
 HIKARINAGI_CLIENT_ID="${SENA_HIKARINAGI_CLIENT_ID:-}"
+HIKARINAGI_CLIENT_SECRET="${SENA_HIKARINAGI_CLIENT_SECRET:-}"
+HIKARINAGI_SCOPE="${SENA_HIKARINAGI_SCOPE:-}"
 
 TEMP_DIR=""
 
@@ -395,6 +399,12 @@ write_environment_file() {
     printf 'SENA_PATCH_DIR=%s\n' "$PATCH_DIR"
     if [ -n "$HIKARINAGI_CLIENT_ID" ]; then
       printf 'SENA_HIKARINAGI_CLIENT_ID=%s\n' "$HIKARINAGI_CLIENT_ID"
+    fi
+    if [ -n "$HIKARINAGI_CLIENT_SECRET" ]; then
+      printf 'SENA_HIKARINAGI_CLIENT_SECRET=%s\n' "$HIKARINAGI_CLIENT_SECRET"
+    fi
+    if [ -n "$HIKARINAGI_SCOPE" ]; then
+      printf 'SENA_HIKARINAGI_SCOPE=%s\n' "$HIKARINAGI_SCOPE"
     fi
   } > "$ENV_FILE"
 }

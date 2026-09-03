@@ -343,12 +343,11 @@ jobs:
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
-          Exec=sena_repo %u
+          Exec=sena_repo
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
           StartupWMClass=sena_repo
-          MimeType=x-scheme-handler/com.github.senarepo;
           DESKTOP
 
       # ── AppImage (universal) ──
@@ -375,12 +374,11 @@ jobs:
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
-          Exec=sena_repo %u
+          Exec=sena_repo
           Icon=sena-repo
           Type=Application
           Categories=Utility;
           StartupWMClass=sena_repo
-          MimeType=x-scheme-handler/com.github.senarepo;
           DESKTOP
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
@@ -418,12 +416,11 @@ jobs:
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
-          Exec=/opt/sena-repo/sena_repo %u
+          Exec=/opt/sena-repo/sena_repo
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
           StartupWMClass=sena_repo
-          MimeType=x-scheme-handler/com.github.senarepo;
           DESKTOP
           DEB_VERSION="0.0.0+${VERSION//-/.}"
           RPM_RELEASE="0.${VERSION//[^A-Za-z0-9_+.]/.}"
@@ -475,17 +472,13 @@ jobs:
 
       - name: Build and export AMD64 tarball
         run: |
-          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --build-arg SENA_VERSION=${VERSION} --build-arg SENA_HIKARINAGI_CLIENT_ID="${HIKARINAGI_CLIENT_ID}" --load
+          docker buildx build --platform linux/amd64 -t sena-repo:amd64 server/ --build-arg SENA_VERSION=${VERSION} --load
           docker save sena-repo:amd64 | gzip > "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
-        env:
-          HIKARINAGI_CLIENT_ID: ${{ vars.HIKARINAGI_CLIENT_ID }}
 
       - name: Build and export ARM64 tarball
         run: |
-          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --build-arg SENA_HIKARINAGI_CLIENT_ID="${HIKARINAGI_CLIENT_ID}" --load
+          docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --load
           docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
-        env:
-          HIKARINAGI_CLIENT_ID: ${{ vars.HIKARINAGI_CLIENT_ID }}
 
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
@@ -509,9 +502,7 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/404-gcross/sena-repo:${DOCKER_TAG} \
             -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${DOCKER_TAG} \
-            server/ --build-arg SENA_VERSION=${VERSION} --build-arg SENA_HIKARINAGI_CLIENT_ID="${HIKARINAGI_CLIENT_ID}" --push
-        env:
-          HIKARINAGI_CLIENT_ID: ${{ vars.HIKARINAGI_CLIENT_ID }}
+            server/ --build-arg SENA_VERSION=${VERSION} --push
 
       - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4

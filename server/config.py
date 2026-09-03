@@ -31,12 +31,6 @@ def _parse_positive_int(value, default: int) -> int:
 
 SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
 DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
-# Public native OAuth app ID owned by the project author; end users do not edit this.
-DEFAULT_HIKARINAGI_CLIENT_ID = ""
-DEFAULT_HIKARINAGI_REDIRECT_URI = "com.github.senarepo:/oauth/hikarinagi"
-DEFAULT_HIKARINAGI_SCOPE = (
-    "openid profile catalog:full user:read status:read offline_access"
-)
 
 
 def _normalize_source_list(value, default: list[str]) -> list[str]:
@@ -52,12 +46,8 @@ def _normalize_source_list(value, default: list[str]) -> list[str]:
 
 
 def normalize_scraper_config(config: "ScraperConfig") -> None:
-    if not config.hikarinagi_client_id.strip():
-        config.hikarinagi_client_id = DEFAULT_HIKARINAGI_CLIENT_ID
-    if not config.hikarinagi_redirect_uri.strip():
-        config.hikarinagi_redirect_uri = DEFAULT_HIKARINAGI_REDIRECT_URI
     if not config.hikarinagi_scope.strip():
-        config.hikarinagi_scope = DEFAULT_HIKARINAGI_SCOPE
+        config.hikarinagi_scope = "catalog:full"
     order = _normalize_source_list(
         config.scraper_order, SCRAPER_SOURCE_ORDER
     )
@@ -100,9 +90,9 @@ class CustomRegex:
 class ScraperConfig:
     bangumi_token: str = ""
     vndb_token: str = ""
-    hikarinagi_client_id: str = DEFAULT_HIKARINAGI_CLIENT_ID
-    hikarinagi_redirect_uri: str = DEFAULT_HIKARINAGI_REDIRECT_URI
-    hikarinagi_scope: str = DEFAULT_HIKARINAGI_SCOPE
+    hikarinagi_client_id: str = ""
+    hikarinagi_client_secret: str = ""
+    hikarinagi_scope: str = "catalog:full"
     scraper_order: list[str] = field(default_factory=lambda: list(SCRAPER_SOURCE_ORDER))
     enabled_scrapers: list[str] = field(
         default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
@@ -167,6 +157,9 @@ def _apply_persisted_scraper_config(config: Config) -> None:
     fields = {
         "bangumi_token": ("scrapers", "SENA_BANGUMI_TOKEN"),
         "vndb_token": ("scrapers", "SENA_VNDB_TOKEN"),
+        "hikarinagi_client_id": ("scrapers", "SENA_HIKARINAGI_CLIENT_ID"),
+        "hikarinagi_client_secret": ("scrapers", "SENA_HIKARINAGI_CLIENT_SECRET"),
+        "hikarinagi_scope": ("scrapers", "SENA_HIKARINAGI_SCOPE"),
         "proxy": ("config", "SENA_PROXY"),
     }
     for key, (target, env_name) in fields.items():
@@ -260,8 +253,8 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.vndb_token = os.environ["SENA_VNDB_TOKEN"]
     if os.environ.get("SENA_HIKARINAGI_CLIENT_ID"):
         config.scrapers.hikarinagi_client_id = os.environ["SENA_HIKARINAGI_CLIENT_ID"]
-    if os.environ.get("SENA_HIKARINAGI_REDIRECT_URI"):
-        config.scrapers.hikarinagi_redirect_uri = os.environ["SENA_HIKARINAGI_REDIRECT_URI"]
+    if os.environ.get("SENA_HIKARINAGI_CLIENT_SECRET"):
+        config.scrapers.hikarinagi_client_secret = os.environ["SENA_HIKARINAGI_CLIENT_SECRET"]
     if os.environ.get("SENA_HIKARINAGI_SCOPE"):
         config.scrapers.hikarinagi_scope = os.environ["SENA_HIKARINAGI_SCOPE"]
 
