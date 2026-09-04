@@ -38,8 +38,6 @@ def _get_patches_dir(config=None):
 
 
 def _normalize_analysis_mode(value: str | None, source_type: str = "local") -> str:
-    if source_type == "openlist":
-        return "manual"
     normalized = (value or "").strip().lower()
     if normalized in PATCH_ANALYSIS_MODES:
         return normalized
