@@ -18,6 +18,9 @@ games_path: "/path/to/your/games"
 # Path where Sena Repo data (database, covers, etc.) is stored
 data_path: "/path/to/data"
 
+# Path where Steam patch files and generated patch index are stored
+patch_dir: "/path/to/steam_patch"
+
 # Optional shared keys for multi-instance deployments.
 # SENA_ENCRYPTION_KEY and SENA_MANAGER_SIGNING_KEY environment variables are preferred.
 # Keep these values stable when moving the database or rotating containers.

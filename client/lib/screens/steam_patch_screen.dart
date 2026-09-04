@@ -52,8 +52,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     if (saved != null && saved.isNotEmpty && mounted) {
       setState(() {
         _commonDir = saved;
-        _status = "已加载上次选择的 Steam 库，点击刷新开始扫描";
+        _status = "已加载上次选择的 Steam 库，正在自动扫描...";
       });
+      unawaited(_scanAndCheck());
     }
   }
 
@@ -496,7 +497,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           ),
           const Spacer(),
           Text(
-            "提示：页面打开时只读取上次目录，不会自动重新扫描。需要刷新时手动点击“刷新扫描”。",
+            "提示：页面打开会自动读取上次 Steam 库并匹配补丁。需要重新同步时手动点击“刷新扫描”。",
             style: AppText.caption
                 .copyWith(color: hintColor(context), height: 1.5),
           ),
@@ -842,15 +843,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
-  Widget _emptyClientState() => Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.inventory_2_outlined,
-              size: 48, color: placeholderIcon(context)),
-          const SizedBox(height: 12),
-          Text("选择 Steam 库目录开始扫描",
-              style: AppText.bodyMedium.copyWith(color: hintColor(context))),
-        ]),
-      );
+  Widget _emptyClientState() {
+    final hasDir = _commonDir != null && _commonDir!.isNotEmpty;
+    return Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.inventory_2_outlined,
+            size: 48, color: placeholderIcon(context)),
+        const SizedBox(height: 12),
+        Text(hasDir ? "未发现 Steam 游戏或补丁匹配结果" : "选择 Steam 库目录开始扫描",
+            style: AppText.bodyMedium.copyWith(color: hintColor(context))),
+      ]),
+    );
+  }
 
   // ── Server tab ──
 

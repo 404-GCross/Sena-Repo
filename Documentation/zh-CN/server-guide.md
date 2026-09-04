@@ -45,7 +45,7 @@ Sena Repo 按固定层级扫描游戏文件，部署前请先整理好文件：
 
 > 文件不按规则整理则扫不出来。也可以在设置中调整目录结构为"仅游戏"或"扁平"模式。
 
-如果游戏库和 Steam 补丁库都使用 OpenList 作为文件来源，服务端本地无需挂载 `/games` 和 `/steam_patch`。
+如果游戏库和 Steam 补丁库都使用 OpenList 作为文件来源，服务端本地无需挂载实际的 `/games` 和补丁文件目录；但 Steam 补丁索引仍会生成 `patches.json`，需要将 `SENA_PATCH_DIR` 指向持久化目录（例如 `/data/steam_patch`），或单独挂载 `/steam_patch`。
 
 ### Steam 补丁目录结构
 
@@ -96,6 +96,7 @@ docker run -d \
   --name sena-repo \
   -p 11451:11451 \
   -v /path/to/data:/data \
+  -e SENA_PATCH_DIR=/data/steam_patch \
   --restart unless-stopped \
   404gcross/sena-repo:latest
 ```
@@ -147,6 +148,8 @@ services:
       - "11451:11451"
     volumes:
       - /path/to/data:/data
+    environment:
+      - SENA_PATCH_DIR=/data/steam_patch
     restart: unless-stopped
 ```
 

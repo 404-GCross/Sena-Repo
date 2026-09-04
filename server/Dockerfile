@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create volume mount points
-RUN mkdir -p /games /data
+RUN mkdir -p /games /data /steam_patch
 
 EXPOSE 11451
 
