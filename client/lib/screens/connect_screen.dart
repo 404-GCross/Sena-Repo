@@ -20,7 +20,6 @@ import "../services/notification_service.dart";
 import "../widgets/app_shell.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
-import "add_server_screen.dart";
 
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
@@ -34,22 +33,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   int _activeIndex = -1;
   bool _loading = true;
 
-  final _hostCtrl = TextEditingController(text: "192.168.1.100");
-  final _portCtrl = TextEditingController(text: "11451");
-  bool _useHttps = false;
-
-  final _userCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  final _passConfirmCtrl = TextEditingController();
-
-  bool _showAddServer = false; // user tapped "add server" button
-  bool _connecting = false;
-  bool _isLoggingIn = false;
-  bool _showRegister = false;
   String? _error;
-  String? _loginError;
-
-  ApiClient? _newApi;
 
   @override
   void initState() {
@@ -57,16 +41,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadAndAutoConnect();
     });
-  }
-
-  @override
-  void dispose() {
-    _hostCtrl.dispose();
-    _portCtrl.dispose();
-    _userCtrl.dispose();
-    _passCtrl.dispose();
-    _passConfirmCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _loadAndAutoConnect() async {
@@ -159,17 +133,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
         _loading = false;
         _error = autoLoginError;
       });
-    if (profiles.isEmpty && mounted) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const AddServerScreen()),
-      );
-      if (mounted)
-        setState(() {
-          _profiles = profiles;
-          _loading = false;
-        });
-    }
   }
 
   Future<void> _ensureClientSetup({bool force = false}) async {
@@ -605,161 +568,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     }
   }
 
-  Future<void> _connectNewServer() async {
-    final host = _hostCtrl.text.trim();
-    final port = int.tryParse(_portCtrl.text.trim()) ?? 11451;
-    if (host.isEmpty) {
-      setState(() => _error = "请输入服务器地址");
-      return;
-    }
-    setState(() {
-      _connecting = true;
-      _error = null;
-      _loginError = null;
-    });
-
-    final settings = context.read<SettingsProvider>();
-    final success = await settings.connect(host, port, useHttps: _useHttps);
-
-    if (success && mounted) {
-      final api = ApiClient();
-      api.connect(host, port: port, useHttps: _useHttps);
-
-      final needsSetup = await api.checkSetupNeeded();
-      if (needsSetup && mounted) {
-        final setupResult = await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => SetupWizardScreen(api: api)),
-        );
-        if (setupResult != null && mounted) {
-          final creds = setupResult as Map;
-          final loginResult = await api.login(
-            creds["username"]?.toString() ?? "",
-            creds["password"]?.toString() ?? "",
-          );
-          if (loginResult != null && mounted) {
-            await ProfileService().saveCurrentAsProfile(
-              loginResult["username"]?.toString() ?? "",
-            );
-            await _goHome(games: context.read<GameProvider>());
-            return;
-          }
-        }
-        if (!mounted) return;
-      }
-
-      _newApi = api;
-
-      if (mounted)
-        setState(() {
-          _connecting = false;
-          _showAddServer = true;
-        });
-    } else {
-      if (mounted) {
-        setState(() {
-          _connecting = false;
-          if (settings.errorMessage != null) _error = settings.errorMessage;
-        });
-      }
-    }
-  }
-
-  Future<void> _login() async {
-    if (_newApi == null) return;
-    if (_userCtrl.text.trim().isEmpty || _passCtrl.text.isEmpty) {
-      setState(() => _loginError = "请输入用户名和密码");
-      return;
-    }
-    setState(() {
-      _isLoggingIn = true;
-      _loginError = null;
-    });
-    try {
-      final data = await _newApi!.login(_userCtrl.text.trim(), _passCtrl.text);
-      if (data != null) {
-        final username = data["username"]?.toString() ?? _userCtrl.text.trim();
-        final profileName = await _promptProfileName(username);
-        if (profileName == null) {
-          setState(() => _isLoggingIn = false);
-          return;
-        }
-        await ProfileService().saveCurrentAsProfile(profileName);
-        if (mounted) await _goHome(games: context.read<GameProvider>());
-      } else {
-        setState(() => _loginError = "登录失败");
-      }
-    } catch (e) {
-      setState(() => _loginError = "登录失败: $e");
-    }
-    setState(() => _isLoggingIn = false);
-  }
-
-  Future<void> _register() async {
-    if (_newApi == null) return;
-    if (_userCtrl.text.trim().isEmpty) {
-      setState(() => _loginError = "请输入用户名");
-      return;
-    }
-    if (_passCtrl.text.length < 4) {
-      setState(() => _loginError = "密码至少4位");
-      return;
-    }
-    if (_passCtrl.text != _passConfirmCtrl.text) {
-      setState(() => _loginError = "两次密码不一致");
-      return;
-    }
-    setState(() {
-      _isLoggingIn = true;
-      _loginError = null;
-    });
-    try {
-      final resp = await http.post(
-        Uri.parse("${_newApi!.baseUrl}/api/auth/register"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "username": _userCtrl.text.trim(),
-          "password": _passCtrl.text,
-          "is_admin": false,
-        }),
-      );
-      final body = tryDecodeJsonMap(resp.body);
-      if (body == null) {
-        setState(
-          () => _loginError = describeUnexpectedApiResponse(
-            resp,
-            expected: "注册",
-            endpointPath: "/api/auth/register",
-          ),
-        );
-        return;
-      }
-      if (resp.statusCode == 200) {
-        if (body["auto_approved"] == true) {
-          final data = await _newApi!.login(
-            _userCtrl.text.trim(),
-            _passCtrl.text,
-          );
-          if (data != null) {
-            await ProfileService().saveCurrentAsProfile(_userCtrl.text.trim());
-            if (mounted) await _goHome(games: context.read<GameProvider>());
-            return;
-          }
-        }
-        setState(() {
-          _showRegister = false;
-          _loginError = "注册成功！" +
-              (body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录");
-        });
-      } else {
-        setState(() => _loginError = body["detail"]?.toString() ?? "注册失败");
-      }
-    } catch (e) {
-      setState(() => _loginError = "连接失败: $e");
-    }
-    setState(() => _isLoggingIn = false);
-  }
-
   void _toast(String msg) {
     if (!mounted) return;
     showDialog(
@@ -770,36 +578,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
-  }
-  // Helpers
-
-  Future<String?> _promptProfileName(String defaultName) async {
-    final ctrl = TextEditingController(text: defaultName);
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("保存配置"),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: "配置名称",
-            hintText: "如 家里NAS",
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text("保存"),
           ),
         ],
       ),
@@ -956,7 +734,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final ps = ProfileService();
     _profiles.removeAt(index);
     await ps.saveProfiles(_profiles);
-    if (_profiles.isEmpty) setState(() => _showAddServer = true);
     _reloadProfiles();
   }
 
@@ -1159,179 +936,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
-  Widget _buildConnectionSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const SizedBox.shrink(),
-                Text(
-                  "添加服务器",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 20),
-                  tooltip: "收起",
-                  onPressed: () => setState(() => _showAddServer = false),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _hostCtrl,
-              decoration: const InputDecoration(
-                labelText: "服务器地址",
-                prefixIcon: Icon(Icons.computer),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _portCtrl,
-                    decoration: const InputDecoration(
-                      labelText: "端口",
-                      prefixIcon: Icon(Icons.settings_ethernet),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  height: 56,
-                  child: FilledButton.tonal(
-                    onPressed: _connecting ? null : _connectNewServer,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                    ),
-                    child: _connecting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text("连接"),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                SizedBox(
-                  height: 32,
-                  child: Switch(
-                    value: _useHttps,
-                    onChanged: (v) => setState(() => _useHttps = v),
-                  ),
-                ),
-                Text(
-                  "HTTPS",
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                ),
-                const Spacer(),
-              ],
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
-                ),
-              ),
-            if (_newApi != null) ...[
-              const Divider(height: 32),
-              Text(
-                _showRegister ? "注册账户" : "登录到服务器",
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _userCtrl,
-                decoration: const InputDecoration(
-                  labelText: "用户名",
-                  prefixIcon: Icon(Icons.person),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _passCtrl,
-                decoration: const InputDecoration(
-                  labelText: "密码",
-                  prefixIcon: Icon(Icons.lock),
-                ),
-                obscureText: true,
-              ),
-              if (_showRegister) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _passConfirmCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "确认密码",
-                    prefixIcon: Icon(Icons.lock),
-                  ),
-                  obscureText: true,
-                ),
-              ],
-              if (_loginError != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    _loginError!,
-                    style: TextStyle(
-                      color: _loginError!.contains("成功")
-                          ? Colors.green
-                          : Colors.red,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _isLoggingIn
-                      ? null
-                      : (_showRegister ? _register : _login),
-                  child: _isLoggingIn
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(_showRegister ? "注册" : "登录"),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => setState(() {
-                  _showRegister = !_showRegister;
-                  _loginError = null;
-                }),
-                child: Text(_showRegister ? "已有账户？登录" : "没有账户？注册"),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _showAddServerDialog() async {
     final hostCtrl = TextEditingController(text: "192.168.1.100");
     final portCtrl = TextEditingController(text: "11451");
@@ -1355,7 +959,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
             borderRadius: BorderRadius.circular(16),
           ),
           title: Text(
-            step == 0 ? "添加服务器" : (showRegister ? "注册账户" : "登录到服务器"),
+            step == 0 ? "新增登录配置" : (showRegister ? "注册账户" : "登录到服务器"),
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
           ),
           content: SizedBox(
@@ -1673,10 +1277,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
           borderRadius: BorderRadius.circular(AppRadius.lg),
           child: InkWell(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AddServerScreen()),
-            ),
+            onTap: _showAddServerDialog,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
               child: Row(
@@ -1689,7 +1290,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   ),
                   const SizedBox(width: 10),
                   Text(
-                    "添加服务器",
+                    "新增登录配置",
                     style: TextStyle(
                       fontSize: 15,
                       color: Theme.of(context).colorScheme.primary,

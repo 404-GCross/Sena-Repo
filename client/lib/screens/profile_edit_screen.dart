@@ -1,7 +1,6 @@
 /// Profile edit screen — change username, password, avatar.
 
 import "dart:convert";
-import "dart:io";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
@@ -212,93 +211,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           ? const AppStateView.loading(title: "正在读取个人信息")
           : ListView(
               children: [
-                // ── Avatar ──
-                Center(
-                  child: Stack(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.4),
-                            width: 3,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.15),
-                              blurRadius: 24,
-                            ),
-                          ],
-                        ),
-                        child: CircleAvatar(
-                          radius: 52,
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primaryContainer,
-                          child: hasAvatar && _avatarUrl != null
-                              ? ClipOval(
-                                  child: Image.network(
-                                    _avatarUrl!,
-                                    headers: mediaAuthHeaders,
-                                    width: 104,
-                                    height: 104,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Text(
-                                      _userCtrl.text.isNotEmpty
-                                          ? _userCtrl.text[0].toUpperCase()
-                                          : "?",
-                                      style: TextStyle(
-                                        fontSize: 36,
-                                        fontWeight: FontWeight.bold,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              : Text(
-                                  _userCtrl.text.isNotEmpty
-                                      ? _userCtrl.text[0].toUpperCase()
-                                      : "?",
-                                  style: TextStyle(
-                                    fontSize: 36,
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Material(
-                          color: Theme.of(context).colorScheme.primary,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            onTap: _pickAvatar,
-                            customBorder: const CircleBorder(),
-                            child: const Padding(
-                              padding: EdgeInsets.all(8),
-                              child: Icon(
-                                Icons.camera_alt,
-                                size: 20,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
+                _avatarCard(hasAvatar),
+                const SizedBox(height: 16),
 
                 // ── Messages ──
                 if (_error != null)
@@ -364,28 +278,29 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     ),
                   ),
 
-                // ── Username ──
-                _section("用户名"),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _userCtrl,
-                  decoration: _dec("用户名"),
-                  style: const TextStyle(fontSize: 15),
-                ),
-                const SizedBox(height: 20),
-
-                // ── Password ──
-                _section("修改密码"),
-                const SizedBox(height: 6),
-                Container(
+                AppSurface(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: cardBg(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cardBorder(context)),
-                  ),
+                  radius: AppRadius.lg,
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      _section("用户名"),
+                      TextField(
+                        controller: _userCtrl,
+                        decoration: _dec("用户名"),
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                AppSurface(
+                  padding: const EdgeInsets.all(16),
+                  radius: AppRadius.lg,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _section("修改密码"),
                       TextField(
                         controller: _currentPassCtrl,
                         decoration: _dec("当前密码"),
@@ -440,6 +355,158 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           ),
         ),
       );
+
+  Widget _avatarCard(bool hasAvatar) {
+    return AppSurface(
+      padding: const EdgeInsets.all(16),
+      radius: AppRadius.lg,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 520;
+          final avatar = _avatarPreview(
+            hasAvatar: hasAvatar,
+            radius: compact ? 26 : 44,
+          );
+          final info = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "头像",
+                style: AppText.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: sectionTextColor(context),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "支持 JPG / PNG / WebP / GIF，最大 5MB。",
+                style: AppText.bodySmall.copyWith(color: hintColor(context)),
+              ),
+            ],
+          );
+          final button = FilledButton.icon(
+            onPressed: _saving ? null : _pickAvatar,
+            icon: const Icon(Icons.photo_camera_outlined, size: 18),
+            label: const Text("选择图片"),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    avatar,
+                    const SizedBox(width: 14),
+                    Expanded(child: info),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                button,
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              avatar,
+              const SizedBox(width: 18),
+              Expanded(child: info),
+              const SizedBox(width: 16),
+              button,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _avatarPreview({required bool hasAvatar, required double radius}) {
+    final diameter = radius * 2;
+    final initial =
+        _userCtrl.text.isNotEmpty ? _userCtrl.text[0].toUpperCase() : "?";
+    final avatarUrl = _avatarUrl;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.4),
+              width: radius >= 40 ? 3 : 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.15),
+                blurRadius: radius >= 40 ? 22 : 12,
+              ),
+            ],
+          ),
+          child: CircleAvatar(
+            radius: radius,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            child: hasAvatar && avatarUrl != null
+                ? ClipOval(
+                    child: Image.network(
+                      avatarUrl,
+                      headers: mediaAuthHeaders,
+                      width: diameter,
+                      height: diameter,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Text(
+                        initial,
+                        style: TextStyle(
+                          fontSize: radius * 0.68,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  )
+                : Text(
+                    initial,
+                    style: TextStyle(
+                      fontSize: radius * 0.68,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+          ),
+        ),
+        Positioned(
+          bottom: -2,
+          right: -2,
+          child: Material(
+            color: Theme.of(context).colorScheme.primary,
+            shape: const CircleBorder(),
+            child: InkWell(
+              onTap: _saving ? null : _pickAvatar,
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: EdgeInsets.all(radius >= 40 ? 7 : 5),
+                child: Icon(
+                  Icons.camera_alt,
+                  size: radius >= 40 ? 18 : 14,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   InputDecoration _dec(String hint) => InputDecoration(
         hintText: hint,

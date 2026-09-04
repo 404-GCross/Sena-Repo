@@ -149,326 +149,379 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final actions = _taskActions(t, compact: compact);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _statusIcon(t.status),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      t.fileName,
+                      maxLines: compact ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (!compact && actions != null) ...[
+                    const SizedBox(width: 8),
+                    actions,
+                  ],
+                ],
+              ),
+              if (compact && actions != null) ...[
+                const SizedBox(height: 8),
+                actions,
+              ],
+              const SizedBox(height: 4),
+              Text(
+                "${t.companyName}/${t.gameName}",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.label.copyWith(color: hintColor(context)),
+              ),
+              if (_isActiveTask(t)) _progressSection(t, compact: compact),
+              if (t.status == "done" && t.outputPath != null)
+                _completedSection(t),
+              if (t.error != null) _errorSection(t.error!),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  bool _isActiveTask(DownloadTask t) =>
+      t.status == "downloading" ||
+      t.status == "paused" ||
+      t.status == "extracting";
+
+  Widget? _taskActions(DownloadTask t, {required bool compact}) {
+    if (t.status == "downloading" || t.status == "extracting") {
+      return Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          if (t.status == "downloading")
+            TextButton(
+              onPressed: () => DownloadService().pauseTask(t),
+              child: const Text("暂停", style: TextStyle(fontSize: 12)),
+            ),
+          TextButton(
+            onPressed: () => DownloadService().cancelTask(t),
+            child: Text(
+              "取消",
+              style: AppText.label.copyWith(color: Colors.red),
+            ),
+          ),
+        ],
+      );
+    }
+    if (t.status == "paused") {
+      return Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          FilledButton(
+            onPressed: () => DownloadService().resumeTask(t),
+            style: _smallFilledButtonStyle(),
+            child: const Text("继续", style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: () => DownloadService().cancelTask(t),
+            child: Text(
+              "取消",
+              style: AppText.label.copyWith(color: Colors.red),
+            ),
+          ),
+        ],
+      );
+    }
+    if (t.status == "pending") {
+      return TextButton(
+        onPressed: () => DownloadService().cancelTask(t),
+        child: Text(
+          "取消",
+          style: AppText.label.copyWith(color: Colors.red),
+        ),
+      );
+    }
+    if (t.status == "failed") {
+      if (t.needsPassword) {
+        return Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            SizedBox(
+              width: compact ? 150 : 130,
+              height: 32,
+              child: TextField(
+                controller: _pwdCtrls.putIfAbsent(
+                  t.versionId,
+                  () => TextEditingController(),
+                ),
+                obscureText: true,
+                style: const TextStyle(fontSize: 12),
+                decoration: const InputDecoration(
+                  hintText: "解压密码",
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                ),
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                final pwd = (_pwdCtrls[t.versionId]?.text ?? "").trim();
+                if (pwd.isNotEmpty) {
+                  DownloadService().retryWithPassword(t, pwd);
+                }
+              },
+              style: _smallFilledButtonStyle(horizontal: 10),
+              child: const Text("带密码重试", style: TextStyle(fontSize: 12)),
+            ),
+            FilledButton(
+              onPressed: () => DownloadService().retryTask(t),
+              style: _smallFilledButtonStyle(horizontal: 10),
+              child: const Text("无密码重试", style: TextStyle(fontSize: 12)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => DownloadService().removeTask(t),
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        );
+      }
+      return Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          FilledButton(
+            onPressed: () => DownloadService().retryTask(t),
+            style: _smallFilledButtonStyle(),
+            child: const Text("重试", style: TextStyle(fontSize: 12)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => DownloadService().removeTask(t),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      );
+    }
+    if (t.status == "done" || t.status == "cancelled") {
+      return IconButton(
+        icon: const Icon(Icons.close, size: 18),
+        onPressed: () => DownloadService().removeTask(t),
+        visualDensity: VisualDensity.compact,
+      );
+    }
+    return null;
+  }
+
+  ButtonStyle _smallFilledButtonStyle({double horizontal = 12}) {
+    return FilledButton.styleFrom(
+      padding: EdgeInsets.symmetric(horizontal: horizontal, vertical: 4),
+    );
+  }
+
+  Widget _progressSection(DownloadTask t, {required bool compact}) {
+    final statusText = t.status == "extracting"
+        ? "解压中..."
+        : t.totalBytes > 0
+            ? "${(t.progress * 100).toStringAsFixed(0)}% · ${_fmtSize(t.receivedBytes)} / ${_fmtSize(t.totalBytes)}"
+            : t.receivedBytes > 0
+                ? "已下载 ${_fmtSize(t.receivedBytes)}"
+                : t.headersReceived
+                    ? "已连接，等待数据..."
+                    : "正在连接...";
+    final trailingText = t.status == "downloading"
+        ? _formatSpeed(t.speedBytesPerSecond)
+        : t.status == "paused"
+            ? "已暂停"
+            : null;
+    final trailingColor = t.status == "paused" ? Colors.orange[300] : null;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              _statusIcon(t.status),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  t.fileName,
-                  style: AppText.bodyMedium.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              if (t.status == "downloading" || t.status == "extracting")
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (t.status == "downloading")
-                      TextButton(
-                        onPressed: () => DownloadService().pauseTask(t),
-                        child: const Text("暂停", style: TextStyle(fontSize: 12)),
-                      ),
-                    TextButton(
-                      onPressed: () => DownloadService().cancelTask(t),
-                      child: Text(
-                        "取消",
-                        style: AppText.label.copyWith(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                )
-              else if (t.status == "paused")
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton(
-                      onPressed: () => DownloadService().resumeTask(t),
-                      child: const Text("继续", style: TextStyle(fontSize: 12)),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    TextButton(
-                      onPressed: () => DownloadService().cancelTask(t),
-                      child: Text(
-                        "取消",
-                        style: AppText.label.copyWith(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                )
-              else if (t.status == "pending")
-                TextButton(
-                  onPressed: () => DownloadService().cancelTask(t),
-                  child: Text(
-                    "取消",
-                    style: AppText.label.copyWith(color: Colors.red),
-                  ),
-                )
-              else if (t.status == "failed")
-                t.needsPassword
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              SizedBox(
-                                width: 130,
-                                height: 32,
-                                child: TextField(
-                                  controller: _pwdCtrls.putIfAbsent(
-                                    t.versionId,
-                                    () => TextEditingController(),
-                                  ),
-                                  obscureText: true,
-                                  style: const TextStyle(fontSize: 12),
-                                  decoration: const InputDecoration(
-                                    hintText: "解压密码",
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 6,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              FilledButton(
-                                onPressed: () {
-                                  final pwd =
-                                      (_pwdCtrls[t.versionId]?.text ?? "")
-                                          .trim();
-                                  if (pwd.isNotEmpty)
-                                    DownloadService().retryWithPassword(t, pwd);
-                                },
-                                child: const Text(
-                                  "带密码重试",
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              FilledButton(
-                                onPressed: () => DownloadService().retryTask(t),
-                                child: const Text(
-                                  "无密码重试",
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, size: 18),
-                                onPressed: () =>
-                                    DownloadService().removeTask(t),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ],
-                          ),
-                        ],
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FilledButton(
-                            onPressed: () => DownloadService().retryTask(t),
-                            child: const Text(
-                              "重试",
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () => DownloadService().removeTask(t),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ],
-                      )
-              else if (t.status == "done" || t.status == "cancelled")
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () => DownloadService().removeTask(t),
-                  visualDensity: VisualDensity.compact,
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            "${t.companyName}/${t.gameName}",
-            style: AppText.label.copyWith(color: hintColor(context)),
-          ),
-          if (t.status == "downloading" ||
-              t.status == "paused" ||
-              t.status == "extracting") ...[
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: t.totalBytes > 0 ? t.progress : null,
-                minHeight: 4,
-                backgroundColor: cardBorder(context),
-                color: t.status == "paused" ? Colors.orange : null,
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: t.totalBytes > 0 ? t.progress : null,
+              minHeight: compact ? 6 : 4,
+              backgroundColor: cardBorder(context),
+              color: t.status == "paused" ? Colors.orange : null,
             ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          ),
+          const SizedBox(height: 6),
+          if (compact)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  t.status == "extracting"
-                      ? "解压中..."
-                      : t.totalBytes > 0
-                          ? "${(t.progress * 100).toStringAsFixed(0)}% · ${_fmtSize(t.receivedBytes)} / ${_fmtSize(t.totalBytes)}"
-                          : t.receivedBytes > 0
-                              ? "已下载 ${_fmtSize(t.receivedBytes)}"
-                              : t.headersReceived
-                                  ? "已连接，等待数据..."
-                                  : "正在连接...",
+                  statusText,
                   style: AppText.caption.copyWith(color: hintColor(context)),
                 ),
-                if (t.status == "downloading")
+                if (trailingText != null) ...[
+                  const SizedBox(height: 2),
                   Text(
-                    _formatSpeed(t.speedBytesPerSecond),
-                    style: AppText.caption.copyWith(color: hintColor(context)),
-                  ),
-                if (t.status == "paused")
-                  Text(
-                    "已暂停",
-                    style: AppText.caption.copyWith(color: Colors.orange[300]),
-                  ),
-              ],
-            ),
-          ],
-          if (t.status == "done" && t.outputPath != null)
-            if (t.isApk)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.android, size: 16, color: Colors.green[300]),
-                  const SizedBox(width: 4),
-                  Text(
-                    "APK 就绪",
-                    style: AppText.caption.copyWith(color: Colors.green[300]),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: () => _installApk(t.outputPath!),
-                    icon: const Icon(Icons.install_mobile, size: 16),
-                    label: const Text("安装", style: TextStyle(fontSize: 12)),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
+                    trailingText,
+                    style: AppText.caption.copyWith(
+                      color: trailingColor ?? hintColor(context),
                     ),
                   ),
                 ],
-              )
-            else ...[
-              Text(
-                Platform.isAndroid
-                    ? "已下载: ${t.outputPath}"
-                    : "已解压到: ${t.outputPath}",
-                style: AppText.caption.copyWith(color: hintColor(context)),
-              ),
-              if (!Platform.isAndroid && t.outputPath != null) ...[
-                const SizedBox(height: 6),
-                Builder(
-                  builder: (_) {
-                    final exes = ShortcutService.findAllExecutables(
-                      t.outputPath!,
-                      gameName: t.gameName,
-                    );
-                    final exeCount =
-                        exes.length > 1 ? " (${exes.length}个)" : "";
-                    return Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () => _openTargetFolder(t.outputPath!),
-                          icon: const Icon(Icons.folder_open, size: 14),
-                          label: const Text(
-                            "打开文件夹",
-                            style: TextStyle(fontSize: 11),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            minimumSize: Size.zero,
-                          ),
-                        ),
-                        if (exes.isNotEmpty) ...[
-                          OutlinedButton.icon(
-                            onPressed: () => _addToSteam(t, t.outputPath!),
-                            icon: const Icon(Icons.gamepad, size: 14),
-                            label: Text(
-                              "添加到 Steam$exeCount",
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () => _createShortcut(t, t.outputPath!),
-                            icon: const Icon(Icons.desktop_windows, size: 14),
-                            label: const Text(
-                              "快捷方式",
-                              style: TextStyle(fontSize: 11),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
               ],
-            ],
-          if (t.error != null)
-            Text(
-              t.error!,
-              style: AppText.caption.copyWith(color: Colors.red[300]),
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    statusText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.caption.copyWith(color: hintColor(context)),
+                  ),
+                ),
+                if (trailingText != null) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    trailingText,
+                    style: AppText.caption.copyWith(
+                      color: trailingColor ?? hintColor(context),
+                    ),
+                  ),
+                ],
+              ],
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _completedSection(DownloadTask t) {
+    if (t.isApk) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            Icon(Icons.android, size: 16, color: Colors.green[300]),
+            Text(
+              "APK 就绪",
+              style: AppText.caption.copyWith(color: Colors.green[300]),
+            ),
+            FilledButton.icon(
+              onPressed: () => _installApk(t.outputPath!),
+              icon: const Icon(Icons.install_mobile, size: 16),
+              label: const Text("安装", style: TextStyle(fontSize: 12)),
+              style: _smallFilledButtonStyle(),
+            ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            Platform.isAndroid ? "已下载: ${t.outputPath}" : "已解压到: ${t.outputPath}",
+            style: AppText.caption.copyWith(color: hintColor(context)),
+          ),
+          if (!Platform.isAndroid) ...[
+            const SizedBox(height: 6),
+            Builder(
+              builder: (_) {
+                final exes = ShortcutService.findAllExecutables(
+                  t.outputPath!,
+                  gameName: t.gameName,
+                );
+                final exeCount = exes.length > 1 ? " (${exes.length}个)" : "";
+                return Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _openTargetFolder(t.outputPath!),
+                      icon: const Icon(Icons.folder_open, size: 14),
+                      label: const Text(
+                        "打开文件夹",
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      style: _smallOutlinedButtonStyle(),
+                    ),
+                    if (exes.isNotEmpty) ...[
+                      OutlinedButton.icon(
+                        onPressed: () => _addToSteam(t, t.outputPath!),
+                        icon: const Icon(Icons.gamepad, size: 14),
+                        label: Text(
+                          "添加到 Steam$exeCount",
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        style: _smallOutlinedButtonStyle(),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _createShortcut(t, t.outputPath!),
+                        icon: const Icon(Icons.desktop_windows, size: 14),
+                        label: const Text(
+                          "快捷方式",
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: _smallOutlinedButtonStyle(),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  ButtonStyle _smallOutlinedButtonStyle() {
+    return OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      minimumSize: Size.zero,
+    );
+  }
+
+  Widget _errorSection(String error) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        error,
+        style: AppText.caption.copyWith(color: Colors.red[300]),
       ),
     );
   }
