@@ -531,11 +531,6 @@ class DownloadService with WidgetsBindingObserver {
           await Directory(tmpExtract).delete(recursive: true);
           return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
         }
-      } else {
-        final entries = Directory(tmpExtract).listSync();
-        if (entries.length == 1 && entries.first is Directory) {
-          sourceDir = entries.first.path;
-        }
       }
       final backupDir =
           "${dir}${Platform.pathSeparator}.patch_backup_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";

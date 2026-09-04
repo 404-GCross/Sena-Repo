@@ -203,8 +203,6 @@ class SteamService {
     required String appId,
     required String patchDir,
     required String targetDir,
-    required int stripComponents,
-    required String targetMode,
     String? file,
     String? lookupKey,
   }) async {
@@ -215,8 +213,6 @@ class SteamService {
       body: jsonEncode({
         "patch_dir": patchDir,
         "target_dir": targetDir,
-        "strip_components": stripComponents,
-        "target_mode": targetMode,
         if (appId.isNotEmpty && appId != "null" && appId != "None") "app_id": appId,
         if (file != null && file.isNotEmpty) "file": file,
       }),

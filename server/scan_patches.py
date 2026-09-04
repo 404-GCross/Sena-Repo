@@ -287,6 +287,7 @@ def main():
             "target_dir": target_dir,
             "label": label,
             "type": ptype,
+            "manifest_status": "confirmed",
         })
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)
@@ -308,20 +309,21 @@ def main():
     print(f"扫描 {base_dir}")
     print(f"找到 {len(scanned)} 个补丁文件\n")
     for p in patches:
-        status = "✓" if p.get("patch_dir") and p.get("target_dir") else "○"
+        configured = p.get("manifest_status") == "confirmed"
+        status = "✓" if configured else "○"
         app_id = p.get("app_id")
         print(f"  [{status}] AppID={app_id}  {p['file']}")
-        if p.get("patch_dir"):
-            print(f"       patch={p['patch_dir']} -> target={p['target_dir']}")
+        if configured or p.get("patch_dir") or p.get("target_dir"):
+            print(f"       patch={p.get('patch_dir', '')} -> target={p.get('target_dir', '')}")
         if p.get("label"):
             print(f"       label={p['label']}")
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)
 
-    todo = sum(1 for p in patches if not p.get("patch_dir") or not p.get("target_dir"))
+    todo = sum(1 for p in patches if p.get("manifest_status") != "confirmed")
     if todo:
-        print(f"\n⚠ {todo} 个补丁尚未配置 patch_dir / target_dir，请编辑 {json_path} 补填")
+        print(f"\n⚠ {todo} 个补丁尚未确认注入规则，请编辑 {json_path} 或在客户端保存规则")
     else:
         print(f"\n✓ 全部配置完成，共 {len(patches)} 个补丁")
 

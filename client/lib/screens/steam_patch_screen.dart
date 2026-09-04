@@ -1,7 +1,7 @@
 /// Steam patch injection screen — PC-only (Windows / Linux).
 
 import "dart:async";
-import "dart:io" show Platform;
+import "dart:io" show Directory, Platform;
 
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
@@ -1397,8 +1397,6 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
   String? _error;
   bool _loading = true;
   bool _saving = false;
-  int _stripComponents = 0;
-  String _targetMode = "game_root";
 
   bool get _manualRules => widget.match.analysisMode == "manual";
 
@@ -1457,14 +1455,6 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
             ? currentTargetDir
             : (recommended["target_dir"] ?? "").toString();
       }
-      _stripComponents = int.tryParse(
-            (data["strip_components"] ?? recommended["strip_components"] ?? 0).toString(),
-          ) ??
-          0;
-      if (_stripComponents == 0 && _patchDir.text.trim().isNotEmpty) {
-        _stripComponents = 1;
-      }
-      _targetMode = (data["target_mode"] ?? recommended["target_mode"] ?? "game_root").toString();
       if (!mounted) return;
       setState(() {
         _data = data;
@@ -1491,8 +1481,6 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
         lookupKey: widget.match.patchLookupKey,
         patchDir: patchDir,
         targetDir: targetDir,
-        stripComponents: _manualRules ? _stripComponents : (patchDir.isEmpty ? 0 : _stripComponents),
-        targetMode: _targetMode,
       );
       if (!mounted) return;
       Navigator.pop(
@@ -1522,6 +1510,28 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
       .whereType<Map>()
       .map((item) => Map<String, dynamic>.from(item))
       .toList();
+
+  void _usePatchDir(String path) {
+    setState(() {
+      _patchDir.text = path.trim().replaceAll(RegExp(r"^/+|/+$"), "");
+    });
+  }
+
+  Future<void> _pickTargetDir() async {
+    final installPath = widget.installPath;
+    if (installPath == null || installPath.isEmpty) return;
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) => _TargetDirectoryPickerDialog(
+        rootPath: installPath,
+        currentPath: _targetDir.text.trim(),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _targetDir.text = selected;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1732,7 +1742,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
           const SizedBox(width: AppGap.sm),
           Expanded(
             child: Text(
-              "手动规则模式不会下载或探测远程压缩包。适合 OpenList / 网盘补丁库：按补丁说明填写补丁内容根目录、目标目录和剥离层级即可。",
+              "手动规则模式不会下载或探测远程压缩包。适合 OpenList / 网盘补丁库：按补丁说明填写补丁源目录和目标子目录；目标子目录留空表示游戏根目录。",
               style: AppText.bodySmall.copyWith(
                 color: subTextColor(context),
                 height: 1.45,
@@ -1777,7 +1787,11 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: _tree.length,
-                    itemBuilder: (context, index) => _PatchTreeNodeRow(node: _tree[index]),
+                    itemBuilder: (context, index) => _PatchTreeNodeRow(
+                      node: _tree[index],
+                      selectedPath: _patchDir.text.trim(),
+                      onSelectDirectory: _usePatchDir,
+                    ),
                   ),
           ),
         ],
@@ -1837,9 +1851,14 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                     const SizedBox(width: AppGap.sm),
                     Expanded(
                       child: Text(
-                        "推荐剥离外层目录：$recommendedPatchDir",
+                        "推荐补丁源目录：$recommendedPatchDir",
                         style: AppText.bodySmall.copyWith(color: Colors.orange[800], fontWeight: FontWeight.w700),
                       ),
+                    ),
+                    const SizedBox(width: AppGap.sm),
+                    TextButton(
+                      onPressed: () => _usePatchDir(recommendedPatchDir),
+                      child: const Text("应用"),
                     ),
                   ],
                 ),
@@ -1848,7 +1867,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
             TextField(
               controller: _patchDir,
               decoration: InputDecoration(
-                labelText: "补丁内容根目录 (patch_dir)",
+                labelText: "补丁源目录 (patch_dir)",
                 hintText: _manualRules ? "按补丁说明填写；留空表示压缩包根目录" : "例如 Kinkoi_R18DLC；留空则直接解压",
                 isDense: true,
               ),
@@ -1856,28 +1875,18 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
             const SizedBox(height: AppGap.md),
             TextField(
               controller: _targetDir,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "目标子目录 (target_dir)",
                 hintText: "留空表示游戏根目录",
                 isDense: true,
+                suffixIcon: widget.installPath == null
+                    ? null
+                    : IconButton(
+                        tooltip: "从游戏目录选择",
+                        icon: const Icon(Icons.folder_open_rounded),
+                        onPressed: _pickTargetDir,
+                      ),
               ),
-            ),
-            const SizedBox(height: AppGap.md),
-            DropdownButtonFormField<int>(
-              value: _stripComponents,
-              decoration: const InputDecoration(labelText: "剥离层级", isDense: true),
-              items: List.generate(5, (index) => DropdownMenuItem(value: index, child: Text("剥离 $index 层"))),
-              onChanged: (value) => setState(() => _stripComponents = value ?? 0),
-            ),
-            const SizedBox(height: AppGap.md),
-            DropdownButtonFormField<String>(
-              value: _targetMode,
-              decoration: const InputDecoration(labelText: "目标模式", isDense: true),
-              items: const [
-                DropdownMenuItem(value: "game_root", child: Text("游戏根目录")),
-                DropdownMenuItem(value: "custom", child: Text("自定义子目录")),
-              ],
-              onChanged: (value) => setState(() => _targetMode = value ?? "game_root"),
             ),
             if (widget.installPath != null) ...[
               const SizedBox(height: AppGap.md),
@@ -1911,10 +1920,240 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
   }
 }
 
+class _TargetDirectoryEntry {
+  final String path;
+  final String name;
+  final int depth;
+
+  const _TargetDirectoryEntry({
+    required this.path,
+    required this.name,
+    required this.depth,
+  });
+}
+
+class _TargetDirectoryPickerDialog extends StatefulWidget {
+  final String rootPath;
+  final String currentPath;
+
+  const _TargetDirectoryPickerDialog({
+    required this.rootPath,
+    required this.currentPath,
+  });
+
+  @override
+  State<_TargetDirectoryPickerDialog> createState() =>
+      _TargetDirectoryPickerDialogState();
+}
+
+class _TargetDirectoryPickerDialogState
+    extends State<_TargetDirectoryPickerDialog> {
+  late final Future<List<_TargetDirectoryEntry>> _directories;
+
+  @override
+  void initState() {
+    super.initState();
+    _directories = _loadDirectories();
+  }
+
+  Future<List<_TargetDirectoryEntry>> _loadDirectories() async {
+    final root = Directory(widget.rootPath);
+    if (!await root.exists()) {
+      throw Exception("游戏目录不存在: ${widget.rootPath}");
+    }
+    final entries = <_TargetDirectoryEntry>[
+      const _TargetDirectoryEntry(path: "", name: "游戏根目录", depth: 0),
+    ];
+    const maxDepth = 8;
+    const maxEntries = 800;
+
+    Future<void> walk(Directory dir, String relativePath, int depth) async {
+      if (depth >= maxDepth || entries.length >= maxEntries) return;
+      final children = <Directory>[];
+      try {
+        await for (final entity in dir.list(followLinks: false)) {
+          if (entity is Directory) children.add(entity);
+        }
+      } catch (_) {
+        return;
+      }
+      children.sort(
+        (a, b) => _pathBasename(a.path)
+            .toLowerCase()
+            .compareTo(_pathBasename(b.path).toLowerCase()),
+      );
+      for (final child in children) {
+        if (entries.length >= maxEntries) return;
+        final name = _pathBasename(child.path);
+        if (name.isEmpty) continue;
+        final childRelativePath =
+            relativePath.isEmpty ? name : "$relativePath/$name";
+        entries.add(
+          _TargetDirectoryEntry(
+            path: childRelativePath,
+            name: name,
+            depth: depth + 1,
+          ),
+        );
+        await walk(child, childRelativePath, depth + 1);
+      }
+    }
+
+    await walk(root, "", 0);
+    return entries;
+  }
+
+  String get _currentPath =>
+      widget.currentPath.replaceAll("\\", "/").replaceAll(RegExp(r"^/+|/+$"), "");
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: size.width > 760 ? 640 : size.width - 32,
+        height: size.height > 700 ? 620 : size.height - 48,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 16, 14),
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_open_rounded, color: cs.primary),
+                    const SizedBox(width: AppGap.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("选择目标子目录", style: AppText.title),
+                          const SizedBox(height: 3),
+                          Text(
+                            widget.rootPath,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.caption.copyWith(color: hintColor(context)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: "关闭",
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Expanded(
+                child: FutureBuilder<List<_TargetDirectoryEntry>>(
+                  future: _directories,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppGap.lg),
+                          child: Text(
+                            "读取目录失败：${snapshot.error}",
+                            textAlign: TextAlign.center,
+                            style: AppText.bodySmall.copyWith(color: Colors.red[700]),
+                          ),
+                        ),
+                      );
+                    }
+                    final dirs = snapshot.data ?? const <_TargetDirectoryEntry>[];
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: dirs.length,
+                      itemBuilder: (context, index) {
+                        final item = dirs[index];
+                        final selected = item.path == _currentPath;
+                        return Padding(
+                          padding: EdgeInsets.only(left: item.depth * 18.0, bottom: 4),
+                          child: Material(
+                            color: selected
+                                ? cs.primary.withValues(alpha: 0.14)
+                                : item.path.isEmpty
+                                    ? cs.primary.withValues(alpha: 0.06)
+                                    : Colors.transparent,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              onTap: () => Navigator.pop(context, item.path),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      item.path.isEmpty
+                                          ? Icons.home_rounded
+                                          : Icons.folder_rounded,
+                                      size: 17,
+                                      color: selected ? cs.primary : hintColor(context),
+                                    ),
+                                    const SizedBox(width: AppGap.sm),
+                                    Expanded(
+                                      child: Text(
+                                        item.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppText.bodySmall.copyWith(
+                                          color: selected
+                                              ? cs.primary
+                                              : sectionTextColor(context),
+                                          fontWeight: selected
+                                              ? FontWeight.w800
+                                              : FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (selected)
+                                      Icon(Icons.check_rounded, size: 18, color: cs.primary),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _pathBasename(String path) {
+  final normalized = path.replaceAll("\\", "/");
+  final parts = normalized.split("/").where((part) => part.isNotEmpty).toList();
+  return parts.isEmpty ? normalized : parts.last;
+}
+
 class _PatchTreeNodeRow extends StatelessWidget {
   final Map<String, dynamic> node;
+  final String selectedPath;
+  final ValueChanged<String>? onSelectDirectory;
 
-  const _PatchTreeNodeRow({required this.node});
+  const _PatchTreeNodeRow({
+    required this.node,
+    required this.selectedPath,
+    this.onSelectDirectory,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1923,42 +2162,69 @@ class _PatchTreeNodeRow extends StatelessWidget {
     final depth = int.tryParse((node["depth"] ?? 0).toString()) ?? 0;
     final size = int.tryParse((node["size"] ?? 0).toString()) ?? 0;
     final name = (node["name"] ?? node["path"] ?? "").toString();
+    final path = (node["path"] ?? "").toString();
+    final selected = isDir && path == selectedPath;
     return Padding(
       padding: EdgeInsets.only(left: depth * 18.0, bottom: 3),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 30),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: isDir
-              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
-              : Colors.transparent,
+      child: Material(
+        color: selected
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.14)
+            : isDir
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
+                : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: InkWell(
           borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isDir ? Icons.folder_rounded : Icons.insert_drive_file_outlined,
-              size: 16,
-              color: isDir ? Theme.of(context).colorScheme.primary : hintColor(context),
-            ),
-            const SizedBox(width: AppGap.sm),
-            Expanded(
-              child: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.bodySmall.copyWith(
-                  color: isDir ? sectionTextColor(context) : subTextColor(context),
-                  fontWeight: isDir ? FontWeight.w800 : FontWeight.w500,
+          onTap: isDir && onSelectDirectory != null
+              ? () => onSelectDirectory!(path)
+              : null,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 30),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            child: Row(
+              children: [
+                Icon(
+                  isDir ? Icons.folder_rounded : Icons.insert_drive_file_outlined,
+                  size: 16,
+                  color: isDir ? Theme.of(context).colorScheme.primary : hintColor(context),
                 ),
-              ),
+                const SizedBox(width: AppGap.sm),
+                Expanded(
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.bodySmall.copyWith(
+                      color: isDir ? sectionTextColor(context) : subTextColor(context),
+                      fontWeight: isDir ? FontWeight.w800 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(
+                      Icons.check_rounded,
+                      size: 17,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  )
+                else if (isDir && onSelectDirectory != null)
+                  Text(
+                    "作为源目录",
+                    style: AppText.caption.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  )
+                else if (!isDir && size > 0)
+                  Text(
+                    _formatPatchBytes(size),
+                    style: AppText.caption.copyWith(color: hintColor(context)),
+                  ),
+              ],
             ),
-            if (!isDir && size > 0)
-              Text(
-                _formatPatchBytes(size),
-                style: AppText.caption.copyWith(color: hintColor(context)),
-              ),
-          ],
+          ),
         ),
       ),
     );

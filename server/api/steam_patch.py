@@ -228,6 +228,8 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
 
 def _normalize_patch_record(patch: dict) -> dict:
     item = dict(patch)
+    item.pop("strip_components", None)
+    item.pop("target_mode", None)
     source_type = str(item.get("source_type") or "local")
     item["source_type"] = source_type
     item["analysis_mode"] = _normalize_analysis_mode(
@@ -611,7 +613,7 @@ def _list_archive_entries(archive_path: Path) -> dict:
         risks.append({
             "level": "warning",
             "code": "single_outer_dir",
-            "message": f"检测到单一外层目录 {recommended_patch_dir}，建议作为补丁内容根目录。",
+            "message": f"检测到单一外层目录 {recommended_patch_dir}，建议作为补丁源目录。",
         })
     if len(tree) >= _MAX_TREE_ENTRIES:
         risks.append({
@@ -627,8 +629,6 @@ def _list_archive_entries(archive_path: Path) -> dict:
         "recommended": {
             "patch_dir": recommended_patch_dir,
             "target_dir": "",
-            "strip_components": 1 if recommended_patch_dir else 0,
-            "target_mode": "game_root",
         },
         "risks": risks,
         "tree": tree[:_MAX_TREE_ENTRIES],
@@ -771,8 +771,6 @@ class ScanRequest(BaseModel):
 class PatchManifestUpdate(BaseModel):
     patch_dir: str = ""
     target_dir: str = ""
-    strip_components: int = Field(default=0, ge=0, le=16)
-    target_mode: str = "game_root"
     app_id: str | None = None
     file: str | None = None
 
@@ -943,8 +941,6 @@ async def get_patch_tree(
             "game_name": entry.get("game_name") or entry.get("label") or "",
             "patch_dir": entry.get("patch_dir") or "",
             "target_dir": entry.get("target_dir") or "",
-            "strip_components": int(entry.get("strip_components") or 0),
-            "target_mode": entry.get("target_mode") or "game_root",
             "manifest_status": entry["manifest_status"],
             "manifest_ready": entry["manifest_ready"],
             "manifest_updated_at": entry.get("manifest_updated_at"),
@@ -968,8 +964,6 @@ async def update_patch_manifest(
         {
             "patch_dir": body.patch_dir.strip().strip("/"),
             "target_dir": body.target_dir.strip().strip("/"),
-            "strip_components": body.strip_components,
-            "target_mode": body.target_mode or "game_root",
             "app_id": body.app_id,
             "manifest_status": "confirmed",
             "manifest_updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1026,8 +1020,6 @@ class PatchUpdate(BaseModel):
     target_dir: str | None = None
     label: str | None = None
     type: str | None = None
-    strip_components: int | None = Field(default=None, ge=0, le=16)
-    target_mode: str | None = None
     app_id: str | None = None  # new app_id to update
     file: str | None = None    # lookup by file path if app_id is None/unknown
 
@@ -1041,15 +1033,11 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         "target_dir": body.target_dir,
         "label": body.label,
         "type": body.type,
-        "strip_components": body.strip_components,
-        "target_mode": body.target_mode,
         "app_id": body.app_id,
     }
     if (
         body.patch_dir is not None
         or body.target_dir is not None
-        or body.strip_components is not None
-        or body.target_mode is not None
     ):
         values["manifest_status"] = "confirmed"
         values["manifest_updated_at"] = datetime.now(timezone.utc).isoformat()
