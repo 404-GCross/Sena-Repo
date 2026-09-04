@@ -715,162 +715,6 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
       );
 }
 
-// ── Batch scrape config dialog ──
-class _BatchScrapeDialog extends StatefulWidget {
-  final List<String> sources;
-
-  const _BatchScrapeDialog({required this.sources});
-
-  @override
-  State<_BatchScrapeDialog> createState() => _BatchScrapeDialogState();
-}
-
-class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
-  final Set<String> _selectedSources = {};
-  String _mode = "missing";
-
-  static const _sourceLabels = {
-    "vndb_kana": "VNDB Kana v2",
-    "bangumi": "Bangumi",
-    "steam": "Steam",
-    "hikarinagi": "Hikarinagi",
-  };
-  static const _modeLabels = {
-    "missing": "仅填充缺失",
-    "overwrite": "全部覆盖",
-    "images": "仅图片",
-    "metadata": "仅元数据",
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedSources.addAll(widget.sources);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.image_search, color: Colors.orange, size: 22),
-          const SizedBox(width: 8),
-          Text("批量刮削"),
-        ],
-      ),
-      content: SizedBox(
-        width: 320,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                "来源将按服务端优先级执行",
-                style: AppText.bodySmall.copyWith(color: Colors.grey),
-              ),
-              const SizedBox(height: 12),
-              if (widget.sources.isEmpty)
-                const AppStateView(
-                  icon: Icons.power_off_outlined,
-                  title: "没有启用的刮削源",
-                )
-              else
-                Container(
-                  decoration: BoxDecoration(
-                    color: cardBg(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cardBorder(context)),
-                  ),
-                  child: Column(
-                    children: widget.sources.map((source) {
-                      return CheckboxListTile(
-                        controlAffinity: ListTileControlAffinity.trailing,
-                        title: Text(
-                          _sourceLabels[source] ?? source,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        value: _selectedSources.contains(source),
-                        onChanged: (value) => setState(() {
-                          if (value == true) {
-                            _selectedSources.add(source);
-                          } else {
-                            _selectedSources.remove(source);
-                          }
-                        }),
-                        dense: true,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              Text("刮削模式",
-                  style: AppText.bodySmall.copyWith(color: Colors.grey)),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: cardBg(context),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cardBorder(context)),
-                ),
-                child: Column(
-                  children: _modeLabels.entries.map((e) {
-                    final descs = {
-                      "missing": "空字段才填，已有数据不覆盖",
-                      "overwrite": "全部刷新，覆盖已有数据",
-                      "images": "只下载封面和横版大图",
-                      "metadata": "只补文本，不下载图片",
-                    };
-                    return RadioListTile<String>(
-                      title:
-                          Text(e.value, style: const TextStyle(fontSize: 14)),
-                      subtitle: Text(
-                        descs[e.key] ?? "",
-                        style: AppText.bodySmall.copyWith(color: Colors.grey),
-                      ),
-                      value: e.key,
-                      groupValue: _mode,
-                      onChanged: (v) => setState(() => _mode = v!),
-                      dense: true,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("取消"),
-        ),
-        FilledButton.icon(
-          onPressed: _selectedSources.isEmpty
-              ? null
-              : () {
-                  Navigator.pop(context, {
-                    "sources": widget.sources
-                        .where(_selectedSources.contains)
-                        .toList(),
-                    "mode": _mode,
-                  });
-                },
-          icon: const Icon(Icons.play_arrow, size: 18),
-          label: const Text("开始刮削"),
-        ),
-      ],
-    );
-  }
-}
-
 class _SourceDirectoryDialog extends StatefulWidget {
   final List<Map<String, dynamic>> fileSources;
   final String purposeLabel;
@@ -1279,6 +1123,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _scanStatusRequestInFlight = false;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
+  bool _scrapeAfterScan = false;
   bool _testingHikarinagi = false;
   final Set<int> _testingOpenListSources = {};
   // Scraper sources
@@ -1581,8 +1426,19 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadPatchRoots();
   }
 
-  Future<void> _scanNow() async {
-    setState(() => _loading = true);
+  List<String> _enabledScraperSources() =>
+      _scraperOrder.where((source) => _sources[source] ?? false).toList();
+
+  Future<void> _scanAndScrapeNow() async {
+    final sources = _enabledScraperSources();
+    if (sources.isEmpty) {
+      _toast(context, "请先启用至少一个刮削源");
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _scrapeJob = null;
+    });
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"),
@@ -1592,9 +1448,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         throw Exception(_responseMessage(resp));
       }
       await _loadRoots();
+      _scrapeAfterScan = true;
       _startScanStatusPolling();
-      if (mounted) _toast(context, "扫描已触发");
+      if (mounted) _toast(context, "扫描已触发，完成后会自动刮削");
     } catch (e) {
+      _scrapeAfterScan = false;
       if (mounted) _toast(context, "扫描启动失败: $e");
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1684,6 +1542,14 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (state != "pending" && state != "running") {
         _scanStatusTimer?.cancel();
         _scanStatusTimer = null;
+        final wasWaitingForScrape = _scrapeAfterScan;
+        final shouldScrape = wasWaitingForScrape && state == "completed";
+        _scrapeAfterScan = false;
+        if (shouldScrape) {
+          unawaited(_startBatchScrape());
+        } else if (wasWaitingForScrape && state == "failed" && mounted) {
+          _toast(context, "扫描失败，已停止自动刮削");
+        }
       }
     } catch (_) {
       // The settings page can still be used when an older server lacks this endpoint.
@@ -1716,36 +1582,34 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } catch (_) {}
   }
 
-  Future<void> _scrapeNow() async {
-    // Show batch scrape config dialog
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => _BatchScrapeDialog(
-        sources:
-            _scraperOrder.where((source) => _sources[source] ?? false).toList(),
-      ),
-    );
-    if (result == null || !mounted) return;
-    final body = Map<String, dynamic>.from(result);
+  Future<void> _startBatchScrape() async {
+    final sources = _enabledScraperSources();
+    if (sources.isEmpty) {
+      _toast(context, "请先启用至少一个刮削源");
+      return;
+    }
     setState(() => _scraping = true);
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
         headers: {"Content-Type": "application/json", ...widget.api.headers},
-        body: jsonEncode(body),
+        body: jsonEncode({
+          "sources": sources,
+          "mode": "missing",
+        }),
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final jobId = data["job_id"] as int;
+        if (mounted) _toast(context, "扫描完成，已开始批量刮削");
         if (mounted) _pollJob(jobId);
       } else {
-        final body = resp.body;
-        if (mounted) _toast(context, "刮削启动失败: $body");
-        setState(() => _scraping = false);
+        if (mounted) _toast(context, "刮削启动失败: ${_responseMessage(resp)}");
+        if (mounted) setState(() => _scraping = false);
       }
     } catch (e) {
       if (mounted) _toast(context, "刮削启动失败: $e");
-      setState(() => _scraping = false);
+      if (mounted) setState(() => _scraping = false);
     }
   }
 
@@ -1762,7 +1626,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           final job = jsonDecode(resp.body) as Map<String, dynamic>;
           if (mounted) setState(() => _scrapeJob = job);
           if (job["status"] == "completed" || job["status"] == "failed") {
-            if (mounted) _scraping = false;
+            if (mounted) setState(() => _scraping = false);
             return;
           }
         }
@@ -2006,9 +1870,18 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                       final narrow = constraints.maxWidth < 620;
                       final width = narrow
                           ? constraints.maxWidth
-                          : (constraints.maxWidth - 24) / 3;
+                          : (constraints.maxWidth - 12) / 2;
                       final scanActive = _scanStatus?["status"] == "pending" ||
                           _scanStatus?["status"] == "running";
+                      final scrapeStatus = _scrapeJob?["status"]?.toString();
+                      final scrapeActive = _scraping ||
+                          scrapeStatus == "pending" ||
+                          scrapeStatus == "running";
+                      final actionActive = _loading || scanActive || scrapeActive;
+                      final hasScrapers = _enabledScraperSources().isNotEmpty;
+                      final actionLabel = scanActive
+                          ? "扫描中..."
+                          : (scrapeActive ? "刮削中..." : "扫描并刮削");
                       return Wrap(
                         spacing: 12,
                         runSpacing: 12,
@@ -2016,8 +1889,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           SizedBox(
                             width: width,
                             child: FilledButton.tonalIcon(
-                              onPressed: scanActive ? null : _scanNow,
-                              icon: scanActive
+                              onPressed: !actionActive && hasScrapers
+                                  ? _scanAndScrapeNow
+                                  : null,
+                              icon: actionActive
                                   ? const SizedBox(
                                       width: 18,
                                       height: 18,
@@ -2025,8 +1900,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                                         strokeWidth: 2,
                                       ),
                                     )
-                                  : const Icon(Icons.refresh, size: 18),
-                              label: Text(scanActive ? "扫描中..." : "开始扫描"),
+                                  : const Icon(Icons.sync, size: 18),
+                              label: Text(
+                                hasScrapers ? actionLabel : "未启用刮削源",
+                              ),
                               style: FilledButton.styleFrom(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
@@ -2039,22 +1916,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           SizedBox(
                             width: width,
                             child: OutlinedButton.icon(
-                              onPressed: _scrapeNow,
-                              icon: const Icon(Icons.image_search, size: 18),
-                              label: const Text("批量刮削"),
-                              style: OutlinedButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: OutlinedButton.icon(
-                              onPressed: _clearAndRescan,
+                              onPressed: actionActive ? null : _clearAndRescan,
                               icon: const Icon(Icons.delete_sweep, size: 18),
                               label: const Text("清空并重扫"),
                               style: OutlinedButton.styleFrom(

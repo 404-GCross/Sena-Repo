@@ -321,7 +321,7 @@ async def refresh_root(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Re-scan a root directory and import/update games, then auto-scrape."""
+    """Re-scan a root directory and import/update games."""
     if _scan_active():
         raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再试")
     result = await session.execute(
@@ -389,9 +389,6 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                 _mark_auto_scan(config, time.time())
             except Exception:
                 logger.exception("Failed to persist last auto-scan time")
-        # Auto-scrape games without metadata after scan
-        asyncio.create_task(_auto_scrape(config, "metadata"))
-        asyncio.create_task(_auto_scrape(config, "missing"))
         _set_scan_state(
             status="completed",
             current_root=None,
@@ -399,19 +396,3 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
             message=f"扫描完成，共处理 {len(roots)} 个目录",
         )
         return {"total_games": total_games, "roots_scanned": len(roots)}
-
-
-async def _auto_scrape(config, mode: str = "missing"):
-    """Background task: batch scrape games without covers or metadata."""
-    import database
-    from models.scrape_job import JobStatus, ScrapeJob
-    from services.scraper.orchestrator import run_batch_scrape
-
-    try:
-        async with database._session_factory() as session:
-            job = ScrapeJob(status=JobStatus.PENDING)
-            session.add(job)
-            await session.commit()
-            await run_batch_scrape(config, None, session, job, mode=mode)
-    except Exception:
-        logger.exception("Auto-scrape failed")
