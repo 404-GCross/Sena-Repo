@@ -36,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isAdmin = false;
   String _currentRole = "user";
   String _serverVersion = "";
+  bool _profileChanged = false;
 
   @override
   void initState() {
@@ -99,11 +100,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: AppBackdrop(
         child: Column(
           children: [
-            const AppPageHeader(
+            AppPageHeader(
               showBack: true,
-              leading: Icon(Icons.settings_outlined, size: 26),
+              leading: const Icon(Icons.settings_outlined, size: 26),
               title: "设置",
               subtitle: "管理客户端体验、下载、扫描和服务端权限",
+              onBack: () => Navigator.pop(context, _profileChanged),
             ),
             Expanded(
               child: ListView(
@@ -117,11 +119,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Colors.indigo,
                       "个人信息",
                       "修改用户名、密码、头像",
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const ProfileEditScreen()),
-                      ),
+                      () async {
+                        final changed = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const ProfileEditScreen()),
+                        );
+                        if (changed == true && mounted) {
+                          _profileChanged = true;
+                          await _loadIsAdmin();
+                        }
+                      },
                     ),
                     _menuItem(
                       Icons.grid_view,

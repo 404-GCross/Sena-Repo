@@ -31,6 +31,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String? _msg;
   String? _avatarPath;
   int _userId = 0;
+  bool _changed = false;
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
@@ -138,6 +139,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             userId: _userId,
             username: data["username"]?.toString() ?? newName,
           );
+          _changed = true;
           _msg = "个人信息更新成功";
           _currentPassCtrl.clear();
           _newPassCtrl.clear();
@@ -183,6 +185,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         setState(() {
           _avatarPath = url;
           _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+          _changed = true;
           _msg = "头像更新成功";
         });
       } else {
@@ -204,6 +207,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       leading: const Icon(Icons.account_circle_outlined, size: 24),
       scrollable: false,
       maxWidth: 760,
+      onBack: () => Navigator.pop(context, _changed),
       child: _loading
           ? const AppStateView.loading(title: "正在读取个人信息")
           : ListView(

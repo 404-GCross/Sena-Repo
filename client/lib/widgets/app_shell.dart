@@ -404,6 +404,7 @@ class AppScaffold extends StatelessWidget {
   final bool scrollable;
   final double maxWidth;
   final FloatingActionButton? floatingActionButton;
+  final VoidCallback? onBack;
 
   const AppScaffold({
     super.key,
@@ -417,6 +418,7 @@ class AppScaffold extends StatelessWidget {
     this.scrollable = true,
     this.maxWidth = 1180,
     this.floatingActionButton,
+    this.onBack,
   });
 
   @override
@@ -442,6 +444,7 @@ class AppScaffold extends StatelessWidget {
               title: title,
               subtitle: subtitle,
               actions: actions,
+              onBack: onBack,
             ),
             Expanded(
               child: scrollable ? SingleChildScrollView(child: body) : body,

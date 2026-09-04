@@ -29,8 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _avatarPath;
   int _userId = 0;
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-  int _lastLoadTime = 0;
-  int _lastVersionLoadTime = 0;
+  bool _loadingUserInfo = false;
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
@@ -45,19 +44,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadServerVersion();
   }
 
-  Future<void> refresh() async {
-    await _loadUserInfo();
+  Future<void> refresh({bool forceAvatarRefresh = false}) async {
+    await _loadUserInfo(forceAvatarRefresh: forceAvatarRefresh);
     _loadServerVersion();
-  }
-
-  void _maybeRefresh() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastLoadTime > 10000 && _userId > 0) {
-      _loadUserInfo();
-    }
-    if (now - _lastVersionLoadTime > 30000) {
-      _loadServerVersion();
-    }
   }
 
   Future<void> _loadServerVersion() async {
@@ -67,22 +56,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         if (mounted) setState(() => _serverVersion = data["version"] ?? "");
-        _lastVersionLoadTime = DateTime.now().millisecondsSinceEpoch;
       }
     } catch (_) {}
   }
 
-  Future<void> _loadUserInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    await ApiClient.restoreToken();
-    final api = context.read<GameProvider>().api;
-    _userId = prefs.getInt("user_id") ?? api.cachedUserId ?? 0;
-    if (mounted) {
-      setState(() {
-        _username = prefs.getString("username") ?? "Sena Repo";
-      });
-    }
+  Future<void> _loadUserInfo({bool forceAvatarRefresh = false}) async {
+    if (_loadingUserInfo) return;
+    _loadingUserInfo = true;
     try {
+      final prefs = await SharedPreferences.getInstance();
+      await ApiClient.restoreToken();
+      final api = context.read<GameProvider>().api;
+      final cachedUserId = prefs.getInt("user_id") ?? api.cachedUserId ?? 0;
+      final cachedUsername = prefs.getString("username") ?? "Sena Repo";
+      if (mounted && (_userId != cachedUserId || _username != cachedUsername)) {
+        setState(() {
+          _userId = cachedUserId;
+          _username = cachedUsername;
+        });
+      }
       final resp = await http.get(
         Uri.parse("${api.baseUrl}/api/auth/profile/me"),
         headers: api.headers,
@@ -92,27 +84,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final userId = data["id"] is int
             ? data["id"] as int
             : int.tryParse(data["id"]?.toString() ?? "") ?? 0;
+        final username = data["username"]?.toString() ?? _username;
+        final avatarPath = data["avatar_path"]?.toString();
         await ApiClient.persistSessionInfo(
           userId: userId,
-          username: data["username"]?.toString(),
+          username: username,
           isAdmin: data["is_admin"] == true,
           role: data["role"]?.toString(),
         );
-        if (mounted)
+        if (mounted) {
+          final avatarChanged = avatarPath != _avatarPath;
           setState(() {
             _userId = userId;
-            _username = data["username"]?.toString() ?? _username;
-            _avatarPath = data["avatar_path"];
-            _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-            _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
+            _username = username;
+            _avatarPath = avatarPath;
+            if (avatarChanged || forceAvatarRefresh) {
+              _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+            }
           });
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _loadingUserInfo = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    _maybeRefresh();
     final settings = context.watch<SettingsProvider>();
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
@@ -195,10 +194,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.settings,
             title: "设置",
             trailing: "服务器、刮削源、显示",
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
+            onTap: () async {
+              final changed = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+              if (changed == true && mounted) {
+                await refresh(forceAvatarRefresh: true);
+              }
+            },
           ),
         ]),
         const SizedBox(height: 16),
