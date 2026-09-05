@@ -2378,6 +2378,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       expiresAt: link.expiresAt,
       gameName: game.name,
       companyName: game.companyName ?? "",
+      sourceType: v.sourceType,
       coverUrl: coverUrl,
       bgUrl: bgUrl,
       extractPassword: v.extractPassword,

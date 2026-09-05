@@ -49,6 +49,7 @@ class DownloadTask {
   String? serverBaseUrl;
   final String gameName;
   final String companyName;
+  final String sourceType;
 
   String
   status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
@@ -82,6 +83,7 @@ class DownloadTask {
     this.serverBaseUrl,
     required this.gameName,
     required this.companyName,
+    this.sourceType = "local",
     this.status = "pending",
     this.progress = 0,
     this.receivedBytes = 0,
@@ -99,6 +101,7 @@ class DownloadTask {
     "serverBaseUrl": serverBaseUrl,
     "gameName": gameName,
     "companyName": companyName,
+    "sourceType": sourceType,
     "status": status,
     "progress": progress,
     "error": error,
@@ -186,6 +189,7 @@ class DownloadService with WidgetsBindingObserver {
                 serverBaseUrl: m["serverBaseUrl"],
                 gameName: m["gameName"] ?? "",
                 companyName: m["companyName"] ?? "",
+                sourceType: m["sourceType"]?.toString() ?? "local",
               )
               ..status = m["status"] ?? "failed"
               ..receivedBytes = m["receivedBytes"] ?? 0
@@ -223,6 +227,7 @@ class DownloadService with WidgetsBindingObserver {
               "serverBaseUrl": t.serverBaseUrl,
               "gameName": t.gameName,
               "companyName": t.companyName,
+              "sourceType": t.sourceType,
               "status": t.status,
               "receivedBytes": t.receivedBytes,
               "totalBytes": t.totalBytes,
@@ -592,6 +597,7 @@ class DownloadService with WidgetsBindingObserver {
     int expiresAt = 0,
     required String gameName,
     required String companyName,
+    String sourceType = "local",
     String? coverUrl,
     String? bgUrl,
     String? extractPassword,
@@ -606,6 +612,7 @@ class DownloadService with WidgetsBindingObserver {
             serverBaseUrl: _serverOrigin(downloadUrl),
             gameName: gameName,
             companyName: companyName,
+            sourceType: sourceType,
           )
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
@@ -1186,6 +1193,7 @@ class DownloadService with WidgetsBindingObserver {
   static const _parallelDownloadMinSize = 32 * 1024 * 1024;
   static const _parallelDownloadMinPartSize = 8 * 1024 * 1024;
   static const _parallelDownloadMaxParts = 8;
+  static const _parallelDownloadOpenListInitialParts = 4;
 
   Future<void> _refreshSignedDownloadLink(DownloadTask task) async {
     final original = Uri.tryParse(task.downloadUrl);
@@ -1769,8 +1777,10 @@ class DownloadService with WidgetsBindingObserver {
     t.progress = downloaded / probe.totalBytes;
     _emit();
 
+    var concurrency = _initialParallelConcurrency(t, parts.length);
     LoggerService().info(
-      "parallel download started: parts=${parts.length} "
+      "parallel download started: source=${_normalizedSourceType(t)} "
+      "parts=${parts.length} concurrency=$concurrency "
       "total=${probe.totalBytes} received=$downloaded",
     );
 
@@ -1837,37 +1847,121 @@ class DownloadService with WidgetsBindingObserver {
       }
     }
 
-    final pending = <_ParallelDownloadPart>[];
-    for (final part in parts) {
-      final file = File(part.path);
-      final existing = await file.exists() ? await file.length() : 0;
-      if (existing >= part.length) continue;
-      pending.add(part);
-    }
-
-    var nextIndex = 0;
-    Future<void> worker() async {
-      while (!_stopped(t)) {
-        final index = nextIndex;
-        if (index >= pending.length) return;
-        nextIndex += 1;
-        await _downloadParallelPart(t, pending[index], recordBytes);
-      }
-    }
-
-    try {
-      final workers = List.generate(
-        pending.length.clamp(0, _parallelDownloadMaxParts).toInt(),
-        (_) => worker(),
+    while (!_stopped(t)) {
+      final pending = await _pendingParallelDownloadParts(parts);
+      if (pending.isEmpty) break;
+      final waveConcurrency = pending.length.clamp(1, concurrency).toInt();
+      LoggerService().info(
+        "parallel download wave: source=${_normalizedSourceType(t)} "
+        "concurrency=$waveConcurrency pending=${pending.length} "
+        "received=$downloaded total=${t.totalBytes}",
       );
-      await Future.wait(workers);
-    } on _ParallelDownloadUnsupported catch (e) {
-      LoggerService().warn("parallel download unsupported; fallback to stream", e);
-      await _discardParallelDownloadState(dest);
-      t.receivedBytes = 0;
-      t.totalBytes = 0;
-      t.progress = 0.0;
-      return false;
+
+      try {
+        await _downloadParallelWave(t, pending, waveConcurrency, recordBytes);
+      } on _ParallelDownloadUnsupported catch (e) {
+        LoggerService().warn(
+          "parallel download unsupported; fallback to stream",
+          e,
+        );
+        await _discardParallelDownloadState(dest);
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        t.progress = 0.0;
+        return false;
+      } on DownloadHttpException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        if (_isAdaptiveParallelStatus(e.statusCode)) {
+          final nextConcurrency = _reduceParallelConcurrency(concurrency);
+          if (nextConcurrency < concurrency) {
+            LoggerService().warn(
+              "parallel download throttled: source=${_normalizedSourceType(t)} "
+              "status=${e.statusCode} concurrency=$concurrency -> $nextConcurrency "
+              "received=$downloaded total=${probe.totalBytes}",
+            );
+            concurrency = nextConcurrency;
+            await Future.delayed(_adaptiveParallelRetryDelay(e));
+            continue;
+          }
+          LoggerService().warn(
+            "parallel download fallback to stream: source=${_normalizedSourceType(t)} "
+            "status=${e.statusCode} received=$downloaded total=${probe.totalBytes}",
+          );
+          await _discardParallelDownloadState(dest);
+          t.receivedBytes = 0;
+          t.totalBytes = 0;
+          t.progress = 0.0;
+          return false;
+        }
+        rethrow;
+      } on TimeoutException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        final nextConcurrency = _reduceParallelConcurrency(concurrency);
+        if (nextConcurrency < concurrency) {
+          LoggerService().warn(
+            "parallel download timeout; reducing concurrency: "
+            "$concurrency -> $nextConcurrency",
+            e,
+          );
+          concurrency = nextConcurrency;
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        LoggerService().warn("parallel download timeout; fallback to stream", e);
+        await _discardParallelDownloadState(dest);
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        t.progress = 0.0;
+        return false;
+      } on SocketException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        final nextConcurrency = _reduceParallelConcurrency(concurrency);
+        if (nextConcurrency < concurrency) {
+          LoggerService().warn(
+            "parallel download socket error; reducing concurrency: "
+            "$concurrency -> $nextConcurrency",
+            e,
+          );
+          concurrency = nextConcurrency;
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        LoggerService().warn(
+          "parallel download socket error; fallback to stream",
+          e,
+        );
+        await _discardParallelDownloadState(dest);
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        t.progress = 0.0;
+        return false;
+      } on http.ClientException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        final nextConcurrency = _reduceParallelConcurrency(concurrency);
+        if (nextConcurrency < concurrency) {
+          LoggerService().warn(
+            "parallel download client error; reducing concurrency: "
+            "$concurrency -> $nextConcurrency",
+            e,
+          );
+          concurrency = nextConcurrency;
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        LoggerService().warn(
+          "parallel download client error; fallback to stream",
+          e,
+        );
+        await _discardParallelDownloadState(dest);
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        t.progress = 0.0;
+        return false;
+      }
     }
 
     if (_stopped(t)) {
@@ -1893,6 +1987,91 @@ class DownloadService with WidgetsBindingObserver {
       "elapsedMs=$elapsedMs avgSpeed=$avgSpeed parts=${parts.length}",
     );
     return true;
+  }
+
+  String _normalizedSourceType(DownloadTask t) {
+    final sourceType = t.sourceType.trim().toLowerCase();
+    return sourceType.isEmpty ? "local" : sourceType;
+  }
+
+  int _initialParallelConcurrency(DownloadTask t, int partCount) {
+    final maxParts = _normalizedSourceType(t) == "openlist"
+        ? _parallelDownloadOpenListInitialParts
+        : _parallelDownloadMaxParts;
+    return partCount.clamp(1, maxParts).toInt();
+  }
+
+  int _reduceParallelConcurrency(int current) {
+    if (current <= 1) return 1;
+    final next = current ~/ 2;
+    return next < 1 ? 1 : next;
+  }
+
+  bool _isAdaptiveParallelStatus(int statusCode) =>
+      const {403, 429, 500, 502, 503, 504}.contains(statusCode);
+
+  Duration _adaptiveParallelRetryDelay(DownloadHttpException error) {
+    final seconds = error.retryAfterSeconds ?? (error.statusCode == 429 ? 2 : 1);
+    return Duration(seconds: seconds.clamp(1, 30).toInt());
+  }
+
+  void _updateParallelProgress(DownloadTask t, int downloaded, int totalBytes) {
+    t.headersReceived = true;
+    t.totalBytes = totalBytes;
+    t.receivedBytes = downloaded;
+    t.progress = totalBytes > 0 ? downloaded / totalBytes : 0.0;
+    _emit(save: false);
+  }
+
+  Future<List<_ParallelDownloadPart>> _pendingParallelDownloadParts(
+    List<_ParallelDownloadPart> parts,
+  ) async {
+    final pending = <_ParallelDownloadPart>[];
+    for (final part in parts) {
+      final file = File(part.path);
+      final existing = await file.exists() ? await file.length() : 0;
+      if (existing >= part.length) continue;
+      pending.add(part);
+    }
+    return pending;
+  }
+
+  Future<void> _downloadParallelWave(
+    DownloadTask t,
+    List<_ParallelDownloadPart> pending,
+    int concurrency,
+    void Function(int bytes) onBytes,
+  ) async {
+    var nextIndex = 0;
+    var stopScheduling = false;
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
+    Future<void> worker() async {
+      while (!_stopped(t) && !stopScheduling) {
+        final index = nextIndex;
+        if (index >= pending.length) return;
+        nextIndex += 1;
+        try {
+          await _downloadParallelPart(t, pending[index], onBytes);
+        } catch (e, stackTrace) {
+          stopScheduling = true;
+          firstError ??= e;
+          firstStackTrace ??= stackTrace;
+          return;
+        }
+      }
+    }
+
+    final workerCount = pending.length.clamp(0, concurrency).toInt();
+    if (workerCount <= 0) return;
+    await Future.wait(List.generate(workerCount, (_) => worker()));
+    if (firstError != null) {
+      Error.throwWithStackTrace(
+        firstError!,
+        firstStackTrace ?? StackTrace.current,
+      );
+    }
   }
 
   Future<_ParallelDownloadProbe?> _probeParallelDownload(DownloadTask t) async {
