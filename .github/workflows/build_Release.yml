@@ -258,6 +258,8 @@ jobs:
           BUNDLE=build/linux/x64/release/bundle
           cp ../server/add_steam_game.py "$BUNDLE/add_steam_game.py"
           cp -r ../server/vdf "$BUNDLE/vdf"
+      - name: Bundle Linux runtime deps
+        run: bash ../.github/scripts/bundle_linux_runtime_deps.sh build/linux/x64/release/bundle
       - name: Package Linux
         run: |
           set -euo pipefail
@@ -288,6 +290,7 @@ jobs:
           cat > "$APPDIR/AppRun" << 'EOF'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/lib:${LD_LIBRARY_PATH:-}"
           exec "$HERE/sena_repo" "$@"
           EOF
           chmod +x "$APPDIR/AppRun"
