@@ -8,6 +8,10 @@ import "logged_http.dart" as http;
 
 class ScrapeService {
   static const int _maxScrapedTags = 20;
+  static const String _steamAssetBaseUrl =
+      "https://shared.akamai.steamstatic.com/store_item_assets/";
+  static const String _steamStoreItemsUrl =
+      "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/";
 
   static const _vndbFields =
       "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
@@ -367,20 +371,7 @@ class ScrapeService {
         .cast<String>()
         .toList();
 
-    // Cover URL: Chinese → English → default
-    String cover =
-        "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900.jpg";
-    for (final suffix in ["_schinese", "_english", ""]) {
-      try {
-        final url =
-            "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900$suffix.jpg";
-        final r = await http.head(Uri.parse(url));
-        if (r.statusCode == 200) {
-          cover = url;
-          break;
-        }
-      } catch (_) {}
-    }
+    final cover = await _resolveSteamCoverUrl(appid);
 
     // Hero banner: library_hero → header
     String hero =
@@ -408,6 +399,74 @@ class ScrapeService {
         "tags": tags,
       },
     ];
+  }
+
+  static Future<String> _resolveSteamCoverUrl(String appid) async {
+    final assets = await _steamStoreAssets(appid);
+    for (final key in ["library_capsule_2x", "library_capsule"]) {
+      final url = _steamAssetUrl(assets, key);
+      if (url.isNotEmpty) return url;
+    }
+
+    for (final suffix in ["_schinese", "_english", ""]) {
+      try {
+        final url =
+            "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900$suffix.jpg";
+        final r = await http.head(Uri.parse(url));
+        if (r.statusCode == 200) return url;
+      } catch (_) {}
+    }
+    return "";
+  }
+
+  static Future<Map<String, String>> _steamStoreAssets(String appid) async {
+    final appidValue = int.tryParse(appid);
+    if (appidValue == null) return {};
+
+    for (final (lang, cc) in [("schinese", "CN"), ("english", "US")]) {
+      try {
+        final uri = Uri.parse(_steamStoreItemsUrl).replace(
+          queryParameters: {
+            "input_json": jsonEncode({
+              "ids": [
+                {"appid": appidValue},
+              ],
+              "context": {
+                "language": lang,
+                "country_code": cc,
+                "steam_realm": 1,
+              },
+              "data_request": {
+                "include_assets": true,
+                "include_basic_info": true,
+              },
+            }),
+          },
+        );
+        final resp = await http.get(uri);
+        if (resp.statusCode != 200) continue;
+        final data = jsonDecode(resp.body);
+        final items = ((data["response"] ?? {})["store_items"] as List?) ?? [];
+        if (items.isEmpty || items.first is! Map) continue;
+        final assets = (items.first as Map)["assets"];
+        if (assets is! Map) continue;
+        return assets.map(
+          (key, value) => MapEntry(key.toString(), value?.toString() ?? ""),
+        );
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  static String _steamAssetUrl(Map<String, String> assets, String key) {
+    final filename = (assets[key] ?? "").trim();
+    final template = (assets["asset_url_format"] ?? "").trim();
+    if (filename.isEmpty || template.isEmpty) return "";
+    final path = template.replaceAll(r"${FILENAME}", filename);
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      return path;
+    }
+    return "$_steamAssetBaseUrl${path.replaceFirst(RegExp(r'^/+'), '')}";
   }
 
   static List<Map<String, dynamic>> _steamTagMaps(

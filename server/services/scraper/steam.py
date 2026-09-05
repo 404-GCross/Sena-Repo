@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from urllib.parse import quote as url_encode
 
@@ -17,6 +18,9 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+STEAM_ASSET_BASE_URL = "https://shared.akamai.steamstatic.com/store_item_assets/"
+STEAM_STORE_ITEMS_URL = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/"
 
 
 class SteamScraper(BaseScraper):
@@ -164,18 +168,7 @@ class SteamScraper(BaseScraper):
             developer = devs[0] if devs else ""
             description = (details.get("short_description") or "")[:500]
 
-            # Cover URL: prefer Chinese → English → default
-            cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
-            # Try Chinese-specific covers first
-            for suffix in ("_schinese", "_english", ""):
-                try:
-                    url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900{suffix}.jpg"
-                    r = await client.head(url)
-                    if r.status_code == 200:
-                        cover_url = url
-                        break
-                except Exception:
-                    continue
+            cover_url = await self._resolve_cover_url(client, appid)
 
             # Background: prefer the Store API image, then fall back to CDN assets.
             header_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
@@ -232,3 +225,77 @@ class SteamScraper(BaseScraper):
                 source_name=self.source_name,
                 tags=tags,
             )] if title else []
+
+    async def _resolve_cover_url(self, client: httpx.AsyncClient, appid: str) -> str:
+        assets = await self._get_store_assets(client, appid)
+        for key in ("library_capsule_2x", "library_capsule"):
+            url = self._build_store_asset_url(assets, key)
+            if url:
+                return url
+
+        for suffix in ("_schinese", "_english", ""):
+            try:
+                url = (
+                    f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/"
+                    f"library_600x900{suffix}.jpg"
+                )
+                r = await client.head(url)
+                if r.status_code == 200:
+                    return url
+            except Exception:
+                continue
+        return ""
+
+    async def _get_store_assets(
+        self,
+        client: httpx.AsyncClient,
+        appid: str,
+    ) -> dict[str, str]:
+        appid_int = int(appid) if appid.isdigit() else None
+        if appid_int is None:
+            return {}
+
+        for lang, cc in (("schinese", "CN"), ("english", "US")):
+            payload = {
+                "ids": [{"appid": appid_int}],
+                "context": {
+                    "language": lang,
+                    "country_code": cc,
+                    "steam_realm": 1,
+                },
+                "data_request": {
+                    "include_assets": True,
+                    "include_basic_info": True,
+                },
+            }
+            url = (
+                STEAM_STORE_ITEMS_URL
+                + "?input_json="
+                + url_encode(json.dumps(payload, separators=(",", ":")), safe="")
+            )
+            try:
+                resp = await self._request_with_retry(client, "GET", url)
+                items = (resp.json().get("response") or {}).get("store_items") or []
+                if not items:
+                    continue
+                assets = items[0].get("assets") or {}
+                if isinstance(assets, dict):
+                    return {
+                        str(key): str(value)
+                        for key, value in assets.items()
+                        if value is not None
+                    }
+            except Exception as e:
+                logger.debug(f"Steam asset lookup failed for app {appid} ({lang}): {e}")
+        return {}
+
+    @staticmethod
+    def _build_store_asset_url(assets: dict[str, str], key: str) -> str:
+        filename = (assets.get(key) or "").strip()
+        template = (assets.get("asset_url_format") or "").strip()
+        if not filename or not template:
+            return ""
+        path = template.replace("${FILENAME}", filename)
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        return STEAM_ASSET_BASE_URL + path.lstrip("/")
