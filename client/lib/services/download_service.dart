@@ -1193,7 +1193,6 @@ class DownloadService with WidgetsBindingObserver {
   static const _parallelDownloadMinSize = 32 * 1024 * 1024;
   static const _parallelDownloadMinPartSize = 8 * 1024 * 1024;
   static const _parallelDownloadMaxParts = 8;
-  static const _parallelDownloadOpenListInitialParts = 4;
 
   Future<void> _refreshSignedDownloadLink(DownloadTask task) async {
     final original = Uri.tryParse(task.downloadUrl);
@@ -1743,6 +1742,18 @@ class DownloadService with WidgetsBindingObserver {
   Future<bool> _attemptParallel(DownloadTask t, File dest) async {
     final hasParallelState = await _hasParallelDownloadState(dest);
     if (await downloadSpeedLimitKbps > 0) return false;
+    if (_normalizedSourceType(t) == "openlist") {
+      if (hasParallelState) {
+        await _discardParallelDownloadState(dest);
+        t.receivedBytes = 0;
+        t.totalBytes = 0;
+        t.progress = 0.0;
+      }
+      LoggerService().info(
+        "parallel download skipped: source=openlist mode=stream",
+      );
+      return false;
+    }
     if (t.receivedBytes > 0 && !hasParallelState) {
       return false;
     }
@@ -1777,7 +1788,7 @@ class DownloadService with WidgetsBindingObserver {
     t.progress = downloaded / probe.totalBytes;
     _emit();
 
-    var concurrency = _initialParallelConcurrency(t, parts.length);
+    var concurrency = _initialParallelConcurrency(parts.length);
     LoggerService().info(
       "parallel download started: source=${_normalizedSourceType(t)} "
       "parts=${parts.length} concurrency=$concurrency "
@@ -1994,11 +2005,8 @@ class DownloadService with WidgetsBindingObserver {
     return sourceType.isEmpty ? "local" : sourceType;
   }
 
-  int _initialParallelConcurrency(DownloadTask t, int partCount) {
-    final maxParts = _normalizedSourceType(t) == "openlist"
-        ? _parallelDownloadOpenListInitialParts
-        : _parallelDownloadMaxParts;
-    return partCount.clamp(1, maxParts).toInt();
+  int _initialParallelConcurrency(int partCount) {
+    return partCount.clamp(1, _parallelDownloadMaxParts).toInt();
   }
 
   int _reduceParallelConcurrency(int current) {
