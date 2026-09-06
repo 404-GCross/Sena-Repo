@@ -602,7 +602,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       } catch (_) {}
     }
 
-    var result = await SteamIntegrationService().addToSteam(
+    var result = await _addToSteamWithSteamPrompt(
       gameName: t.gameName,
       exePath: exe,
       coverUrl: coverUrl,
@@ -615,7 +615,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       );
       if (picked != null) {
         await SteamIntegrationService().setSteamappsDir(picked);
-        result = await SteamIntegrationService().addToSteam(
+        result = await _addToSteamWithSteamPrompt(
           gameName: t.gameName,
           exePath: exe,
           coverUrl: coverUrl,
@@ -625,7 +625,6 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     }
     if (!result.success && result.message.contains("Steam 用户 ID")) {
       final ctrl = TextEditingController();
-      final hintPath = await SteamIntegrationService().getSteamappsDir();
       final input = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -665,7 +664,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       );
       if (input != null && input.isNotEmpty) {
         await SteamIntegrationService().setSteamUserId(input);
-        result = await SteamIntegrationService().addToSteam(
+        result = await _addToSteamWithSteamPrompt(
           gameName: t.gameName,
           exePath: exe,
           coverUrl: coverUrl,
@@ -674,6 +673,54 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       }
     }
     _toast(result.message);
+  }
+
+  Future<SteamIntegrationResult> _addToSteamWithSteamPrompt({
+    required String gameName,
+    required String exePath,
+    String coverUrl = "",
+    String heroUrl = "",
+  }) async {
+    final service = SteamIntegrationService();
+    var result = await service.addToSteam(
+      gameName: gameName,
+      exePath: exePath,
+      coverUrl: coverUrl,
+      heroUrl: heroUrl,
+    );
+    if (!mounted || !result.needsSteamShutdown) return result;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("关闭 Steam 后导入？"),
+        content: Text(
+          "Steam 正在运行。Sena-Repo 需要先关闭 Steam，安全写入 shortcuts.vdf，"
+          "完成后会自动重新启动 Steam。\n\n${result.message}",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("关闭并导入"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return SteamIntegrationResult(false, "已取消导入 Steam。");
+    }
+
+    return service.addToSteam(
+      gameName: gameName,
+      exePath: exePath,
+      coverUrl: coverUrl,
+      heroUrl: heroUrl,
+      manageSteamProcess: true,
+    );
   }
 
   Future<void> _createShortcut(DownloadTask t, String dir) async {

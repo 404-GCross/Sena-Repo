@@ -2761,7 +2761,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       } catch (_) {}
     }
 
-    var result = await SteamIntegrationService().addToSteam(
+    var result = await _addToSteamWithSteamPrompt(
       gameName: task.gameName,
       exePath: exe,
       coverUrl: coverUrl,
@@ -2773,7 +2773,52 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       );
       if (picked != null) {
         await SteamIntegrationService().setSteamappsDir(picked);
-        result = await SteamIntegrationService().addToSteam(
+        result = await _addToSteamWithSteamPrompt(
+          gameName: task.gameName,
+          exePath: exe,
+          coverUrl: coverUrl,
+          heroUrl: heroUrl,
+        );
+      }
+    }
+    if (!result.success && result.message.contains("Steam 用户 ID")) {
+      final ctrl = TextEditingController();
+      final input = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("设置 Steam 用户 ID"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Steam 用户 ID 就是你的 Steam 好友代码", style: AppText.bodySmall),
+              Text(
+                "在 Steam 客户端里点好友 → 添加好友就能看到",
+                style: AppText.bodySmall.copyWith(color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: ctrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(hintText: "例如: 12345678"),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("取消"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text("保存"),
+            ),
+          ],
+        ),
+      );
+      if (input != null && input.isNotEmpty) {
+        await SteamIntegrationService().setSteamUserId(input);
+        result = await _addToSteamWithSteamPrompt(
           gameName: task.gameName,
           exePath: exe,
           coverUrl: coverUrl,
@@ -2782,6 +2827,54 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       }
     }
     _showDialog(context, result.success ? "完成" : "失败", result.message);
+  }
+
+  Future<SteamIntegrationResult> _addToSteamWithSteamPrompt({
+    required String gameName,
+    required String exePath,
+    String coverUrl = "",
+    String heroUrl = "",
+  }) async {
+    final service = SteamIntegrationService();
+    var result = await service.addToSteam(
+      gameName: gameName,
+      exePath: exePath,
+      coverUrl: coverUrl,
+      heroUrl: heroUrl,
+    );
+    if (!mounted || !result.needsSteamShutdown) return result;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("关闭 Steam 后导入？"),
+        content: Text(
+          "Steam 正在运行。Sena-Repo 需要先关闭 Steam，安全写入 shortcuts.vdf，"
+          "完成后会自动重新启动 Steam。\n\n${result.message}",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("关闭并导入"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return SteamIntegrationResult(false, "已取消导入 Steam。");
+    }
+
+    return service.addToSteam(
+      gameName: gameName,
+      exePath: exePath,
+      coverUrl: coverUrl,
+      heroUrl: heroUrl,
+      manageSteamProcess: true,
+    );
   }
 
   Future<void> _createShortcut(DownloadTask task) async {

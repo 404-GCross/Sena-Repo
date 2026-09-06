@@ -10,6 +10,7 @@ import "logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "api_client.dart";
+import "logger_service.dart";
 import "vdf_parser.dart"; // only for gridAppId CRC32 calculation
 
 class SteamIntegrationResult {
@@ -20,6 +21,9 @@ class SteamIntegrationResult {
   final int? shortcutAppId;
   final String? steamUrl;
   final bool existingShortcut;
+  final bool needsSteamShutdown;
+  final bool steamWasRunning;
+  final bool steamRestarted;
 
   SteamIntegrationResult(
     this.success,
@@ -29,6 +33,9 @@ class SteamIntegrationResult {
     this.shortcutAppId,
     this.steamUrl,
     this.existingShortcut = false,
+    this.needsSteamShutdown = false,
+    this.steamWasRunning = false,
+    this.steamRestarted = false,
   });
 }
 
@@ -45,6 +52,18 @@ class SteamNativeGameInfo {
 }
 
 class SteamIntegrationService {
+  static const List<String> _linuxSteamProcessNames = [
+    "steam",
+    "steamwebhelper",
+    "steam-runtime",
+    "steam-runtime-launcher",
+    "steam-runtime-supervisor",
+  ];
+  static const List<String> _windowsSteamProcessNames = [
+    "steam.exe",
+    "steamwebhelper.exe",
+  ];
+  static const Duration _steamShutdownTimeout = Duration(seconds: 45);
 
   // ── Steam path resolution ──
 
@@ -270,19 +289,164 @@ class SteamIntegrationService {
     return "../server/add_steam_game.py";
   }
 
+  Future<List<String>> _runningSteamProcesses() async {
+    if (Platform.isWindows) return _runningWindowsSteamProcesses();
+    if (Platform.isLinux) return _runningLinuxSteamProcesses();
+    return [];
+  }
+
+  Future<List<String>> _runningWindowsSteamProcesses() async {
+    final running = <String>[];
+    for (final name in _windowsSteamProcessNames) {
+      try {
+        final result = await Process.run(
+          "tasklist",
+          ["/FI", "IMAGENAME eq $name", "/NH"],
+        );
+        if (result.exitCode == 0 &&
+            result.stdout.toString().toLowerCase().contains(name)) {
+          running.add(name);
+        }
+      } catch (_) {}
+    }
+    return running;
+  }
+
+  Future<List<String>> _runningLinuxSteamProcesses() async {
+    final running = <String>[];
+    for (final name in _linuxSteamProcessNames) {
+      try {
+        final result = await Process.run(
+          "pgrep",
+          [name.length > 15 ? "-f" : "-x", name],
+        );
+        if (result.exitCode == 0) running.add(name);
+      } catch (_) {}
+    }
+    return running;
+  }
+
   Future<bool> _isSteamRunning() async {
+    return (await _runningSteamProcesses()).isNotEmpty;
+  }
+
+  Future<bool> _shutdownSteamForImport() async {
     try {
-      final result = Platform.isWindows
-          ? await Process.run("tasklist", ["/FI", "IMAGENAME eq steam.exe"])
-          : await Process.run("pgrep", ["-x", "steam"]);
       if (Platform.isWindows) {
-        return result.exitCode == 0 &&
-            result.stdout.toString().toLowerCase().contains("steam.exe");
+        await _runExternalProcess("taskkill", ["/IM", "steam.exe", "/T"]);
+        await Future.delayed(const Duration(seconds: 2));
+        if (await _isSteamRunning()) {
+          for (final name in _windowsSteamProcessNames) {
+            await _runExternalProcess(
+              "taskkill",
+              ["/IM", name, "/T", "/F"],
+            );
+          }
+        }
+      } else if (Platform.isLinux) {
+        await _runExternalProcess("steam", ["-shutdown"]);
+        await Future.delayed(const Duration(seconds: 2));
+        if (await _isSteamRunning()) {
+          await _runExternalProcess("xdg-open", ["steam://exit"]);
+        }
+        await Future.delayed(const Duration(seconds: 2));
+        if (await _isSteamRunning()) {
+          for (final name in _linuxSteamProcessNames) {
+            await _runExternalProcess(
+              "pkill",
+              ["-TERM", name.length > 15 ? "-f" : "-x", name],
+            );
+          }
+        }
+      } else {
+        return false;
       }
-      return result.exitCode == 0;
+      return _waitForSteamExit(_steamShutdownTimeout);
     } catch (_) {
       return false;
     }
+  }
+
+  Future<bool> _waitForSteamExit(Duration timeout) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (!await _isSteamRunning()) return true;
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    return !await _isSteamRunning();
+  }
+
+  Future<bool> _restartSteam(String steamRoot) async {
+    final env = _externalProcessEnvironment();
+    final candidates = <({String executable, List<String> args})>[];
+    if (Platform.isWindows) {
+      candidates.add(
+        (
+          executable: "$steamRoot${Platform.pathSeparator}steam.exe",
+          args: <String>[],
+        ),
+      );
+      candidates.add((executable: "steam", args: <String>[]));
+    } else if (Platform.isLinux) {
+      candidates.add(
+        (
+          executable: "$steamRoot${Platform.pathSeparator}steam.sh",
+          args: <String>[],
+        ),
+      );
+      candidates.add((executable: "steam", args: <String>[]));
+      candidates.add((executable: "xdg-open", args: ["steam://open/main"]));
+    }
+
+    for (final candidate in candidates) {
+      if (candidate.executable.contains(Platform.pathSeparator) &&
+          !await File(candidate.executable).exists()) {
+        continue;
+      }
+      try {
+        await Process.start(
+          candidate.executable,
+          candidate.args,
+          mode: ProcessStartMode.detached,
+          workingDirectory: Directory(steamRoot).existsSync() ? steamRoot : null,
+          environment: env,
+        );
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  Future<void> _runExternalProcess(String executable, List<String> args) async {
+    try {
+      await Process.run(
+        executable,
+        args,
+        environment: _externalProcessEnvironment(),
+      ).timeout(const Duration(seconds: 8));
+    } catch (_) {}
+  }
+
+  Map<String, String>? _externalProcessEnvironment() {
+    if (!Platform.isLinux) return null;
+    final current = Platform.environment["LD_LIBRARY_PATH"];
+    if (current == null) return null;
+
+    final appDir = Platform.environment["APPDIR"];
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final filtered = current
+        .split(":")
+        .where((path) {
+          if (path.isEmpty) return false;
+          if (appDir != null && appDir.isNotEmpty && path.startsWith(appDir)) {
+            return false;
+          }
+          if (path.startsWith(exeDir)) return false;
+          if (path.contains("/tmp/.mount_")) return false;
+          return true;
+        })
+        .join(":");
+    return {"LD_LIBRARY_PATH": filtered};
   }
 
   Future<SteamNativeGameInfo?> findNativeGameForPath(String targetPath) async {
@@ -375,6 +539,7 @@ class SteamIntegrationService {
     String heroUrl = "",
     String? startDir,
     String? iconPath,
+    bool manageSteamProcess = false,
   }) async {
     final steamapps = await getSteamappsDir();
     if (steamapps == null) {
@@ -412,11 +577,33 @@ class SteamIntegrationService {
     final start = startDir ?? File(exePath).parent.path;
     final icon = iconPath ?? exePath;
 
-    if (await _isSteamRunning()) {
+    final runningProcesses = await _runningSteamProcesses();
+    final restartSteamAfterImport = runningProcesses.isNotEmpty;
+    if (restartSteamAfterImport && !manageSteamProcess) {
       return SteamIntegrationResult(
         false,
-        "Steam 正在运行。请完全退出 Steam 后再导入，否则 shortcuts.vdf 可能会被 Steam 覆盖。",
+        "Steam 正在运行（${runningProcesses.join(", ")}）。"
+        "需要先关闭 Steam 再写入 shortcuts.vdf，完成后会自动重新启动 Steam。",
+        needsSteamShutdown: true,
+        steamWasRunning: true,
       );
+    }
+    if (restartSteamAfterImport) {
+      LoggerService().info(
+        "Steam import: shutting down Steam before shortcuts write "
+        "processes=${runningProcesses.join(",")}",
+      );
+      final closed = await _shutdownSteamForImport();
+      if (!closed) {
+        final stillRunning = await _runningSteamProcesses();
+        return SteamIntegrationResult(
+          false,
+          "无法完全关闭 Steam"
+          "${stillRunning.isEmpty ? "" : "（仍在运行: ${stillRunning.join(", ")}）"}。"
+          "请手动完全退出 Steam 后再导入。",
+          steamWasRunning: true,
+        );
+      }
     }
 
     try {
@@ -432,10 +619,24 @@ class SteamIntegrationService {
       ]);
       if (result.exitCode != 0) {
         final err = result.stderr.toString().trim();
-        return SteamIntegrationResult(false, err.isNotEmpty ? err : "add_steam_game.py failed");
+        return _withSteamRestart(
+          SteamIntegrationResult(
+            false,
+            err.isNotEmpty ? err : "add_steam_game.py failed",
+          ),
+          restartSteam: restartSteamAfterImport,
+          steamRoot: steam.root,
+        );
       }
       final output = jsonDecode(result.stdout.toString().trim()) as Map<String, dynamic>;
       final msg = output["message"]?.toString() ?? "done";
+      if (output["success"] != true) {
+        return _withSteamRestart(
+          SteamIntegrationResult(false, msg),
+          restartSteam: restartSteamAfterImport,
+          steamRoot: steam.root,
+        );
+      }
       final gridId = output["grid_id"]?.toString() ?? gridAppId(gameName, exePath).toString();
       final shortcutAppId = _readNullableInt(output["shortcut_app_id"]);
       final launchId = output["launch_id"]?.toString();
@@ -464,18 +665,48 @@ class SteamIntegrationService {
       if (!coverOk && coverUrl.isNotEmpty) fullMsg += "（封面导入失败）";
       if (!heroOk && heroUrl.isNotEmpty) fullMsg += "（背景导入失败）";
 
-      return SteamIntegrationResult(
-        output["success"] == true,
-        fullMsg,
-        launchKind: "shortcut",
-        launchId: launchId,
-        shortcutAppId: shortcutAppId,
-        steamUrl: steamUrl,
-        existingShortcut: output["existing"] == true,
+      return _withSteamRestart(
+        SteamIntegrationResult(
+          output["success"] == true,
+          fullMsg,
+          launchKind: "shortcut",
+          launchId: launchId,
+          shortcutAppId: shortcutAppId,
+          steamUrl: steamUrl,
+          existingShortcut: output["existing"] == true,
+        ),
+        restartSteam: restartSteamAfterImport,
+        steamRoot: steam.root,
       );
     } catch (e) {
-      return SteamIntegrationResult(false, "add_steam_game.py error: $e");
+      return _withSteamRestart(
+        SteamIntegrationResult(false, "add_steam_game.py error: $e"),
+        restartSteam: restartSteamAfterImport,
+        steamRoot: steam.root,
+      );
     }
+  }
+
+  Future<SteamIntegrationResult> _withSteamRestart(
+    SteamIntegrationResult result, {
+    required bool restartSteam,
+    required String steamRoot,
+  }) async {
+    if (!restartSteam) return result;
+    final restarted = await _restartSteam(steamRoot);
+    final suffix = restarted ? "（已重新启动 Steam）" : "（请手动重新启动 Steam）";
+    return SteamIntegrationResult(
+      result.success,
+      "${result.message}$suffix",
+      launchKind: result.launchKind,
+      launchId: result.launchId,
+      shortcutAppId: result.shortcutAppId,
+      steamUrl: result.steamUrl,
+      existingShortcut: result.existingShortcut,
+      needsSteamShutdown: result.needsSteamShutdown,
+      steamWasRunning: true,
+      steamRestarted: restarted,
+    );
   }
 
   int? _readNullableInt(dynamic value) {
