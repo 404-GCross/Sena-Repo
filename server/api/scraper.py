@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import ipaddress
+import re
 import socket
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -36,6 +37,16 @@ router = APIRouter(prefix="/api", tags=["scraper"])
 
 
 _MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024
+_STALE_SCRAPE_JOB_AFTER = timedelta(minutes=10)
+
+
+def _safe_error_text(value: object, *, limit: int = 1024) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    text = re.sub(r"https?://\S+", "[url]", text)
+    text = re.sub(r"(?i)(token|secret|password|signature|authorization)=([^&\s]+)", r"\1=[redacted]", text)
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
 
 
 def _is_blocked_address(value: str) -> bool:
@@ -114,11 +125,92 @@ class JobStatusOut(BaseModel):
     id: int
     status: str
     total_games: int
+    processed_games: int
+    successful_games: int
     completed_games: int
     failed_games: int
+    current_game_id: int | None
     current_game: str | None
+    current_source: str | None
+    current_query: str | None
+    current_stage: str | None
+    last_error: str | None
     log: str
     started_at: str | None
+    updated_at: str | None
+    heartbeat_at: str | None
+    is_stale: bool = False
+
+
+def _dt_iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _job_progress_at(job: ScrapeJob) -> datetime:
+    return (
+        job.heartbeat_at
+        or job.updated_at
+        or job.started_at
+        or job.created_at
+        or datetime.utcnow()
+    )
+
+
+def _job_to_response(job: ScrapeJob, *, is_stale: bool = False) -> dict:
+    processed = job.processed_games or job.completed_games or 0
+    return {
+        "id": job.id,
+        "status": job.status.value,
+        "total_games": job.total_games or 0,
+        "processed_games": processed,
+        "successful_games": job.successful_games or 0,
+        "completed_games": processed,
+        "failed_games": job.failed_games or 0,
+        "current_game_id": job.current_game_id,
+        "current_game": job.current_game,
+        "current_source": job.current_source,
+        "current_query": job.current_query,
+        "current_stage": job.current_stage,
+        "last_error": job.last_error,
+        "log": job.log or "",
+        "started_at": _dt_iso(job.started_at),
+        "updated_at": _dt_iso(job.updated_at),
+        "heartbeat_at": _dt_iso(job.heartbeat_at),
+        "is_stale": is_stale,
+    }
+
+
+async def _fail_stale_scrape_jobs(
+    session: AsyncSession,
+    jobs: list[ScrapeJob] | None = None,
+) -> set[int]:
+    if jobs is None:
+        result = await session.execute(
+            select(ScrapeJob).where(
+                ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+            )
+        )
+        jobs = list(result.scalars().all())
+
+    now = datetime.utcnow()
+    stale_ids: set[int] = set()
+    for job in jobs:
+        if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+            continue
+        if now - _job_progress_at(job) <= _STALE_SCRAPE_JOB_AFTER:
+            continue
+        job.status = JobStatus.FAILED
+        job.current_stage = "stale"
+        job.last_error = "刮削任务超过 10 分钟没有心跳，已自动停止"
+        job.heartbeat_at = now
+        job.updated_at = now
+        job.log = (job.log or "") + " [超过 10 分钟没有心跳，已自动停止]"
+        stale_ids.add(job.id)
+
+    if stale_ids:
+        await session.commit()
+        logger.warning("Marked stale scrape job(s) as failed: %s", sorted(stale_ids))
+    return stale_ids
 
 
 # --- Search candidates (Playnite-style) ---
@@ -340,9 +432,24 @@ async def start_batch_scrape(
     Otherwise, all games without covers are scraped.
     """
     config = load_config()
+    await _fail_stale_scrape_jobs(session)
+    active_result = await session.execute(
+        select(ScrapeJob)
+        .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+        .order_by(ScrapeJob.created_at.desc())
+    )
+    active_job = active_result.scalars().first()
+    if active_job is not None:
+        raise HTTPException(status_code=409, detail="已有批量刮削任务正在运行")
 
     # Create job record
-    job = ScrapeJob(status=JobStatus.PENDING)
+    now = datetime.utcnow()
+    job = ScrapeJob(
+        status=JobStatus.PENDING,
+        current_stage="queued",
+        heartbeat_at=now,
+        updated_at=now,
+    )
     session.add(job)
     await session.commit()
     await session.refresh(job)
@@ -368,8 +475,8 @@ async def start_batch_scrape(
                     )
             loop.run_until_complete(_work())
         except Exception as e:
-            logger.error(f"Batch scrape job {job.id} failed: {e}", exc_info=True)
-            error_message = str(e)
+            logger.error("Batch scrape job %s failed: %s", job.id, _safe_error_text(e), exc_info=True)
+            error_message = _safe_error_text(e)
 
             async def _mark_failed():
                 async with database._session_factory() as bg_session:
@@ -379,7 +486,13 @@ async def start_batch_scrape(
                     failed_job = result.scalar_one_or_none()
                     if failed_job is not None:
                         failed_job.status = JobStatus.FAILED
+                        failed_job.current_game_id = None
                         failed_job.current_game = None
+                        failed_job.current_source = None
+                        failed_job.current_query = None
+                        failed_job.current_stage = "failed"
+                        failed_job.last_error = error_message
+                        failed_job.heartbeat_at = datetime.utcnow()
                         failed_job.log = f"批量刮削失败: {error_message}"
                         await bg_session.commit()
 
@@ -400,7 +513,11 @@ async def start_batch_scrape(
 
 
 @router.post("/scrape/jobs/{job_id}/cancel")
-async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(require_admin)):
+async def cancel_scrape_job(
+    job_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_admin),
+):
     """Cancel a running scrape job."""
     result = await session.execute(select(ScrapeJob).where(ScrapeJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -408,36 +525,39 @@ async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_ses
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
         raise HTTPException(status_code=400, detail="Job is not active")
+    now = datetime.utcnow()
     job.status = JobStatus.FAILED
+    job.current_source = None
+    job.current_query = None
+    job.current_stage = "cancelled"
+    job.last_error = "用户已取消刮削任务"
+    job.heartbeat_at = now
+    job.updated_at = now
     job.log = (job.log or "") + " [已取消]"
     await session.commit()
     return {"message": "Job cancelled"}
 
 
 @router.get("/scrape/jobs", response_model=list[JobStatusOut])
-async def list_scrape_jobs(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+async def list_scrape_jobs(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
     """List all scrape jobs."""
     result = await session.execute(
         select(ScrapeJob).order_by(ScrapeJob.created_at.desc()).limit(20)
     )
     jobs = result.scalars().all()
-    return [
-        {
-            "id": j.id,
-            "status": j.status.value,
-            "total_games": j.total_games,
-            "completed_games": j.completed_games,
-            "failed_games": j.failed_games,
-            "current_game": j.current_game,
-            "log": j.log,
-            "started_at": j.started_at.isoformat() if j.started_at else None,
-        }
-        for j in jobs
-    ]
+    stale_ids = await _fail_stale_scrape_jobs(session, jobs)
+    return [_job_to_response(j, is_stale=j.id in stale_ids) for j in jobs]
 
 
 @router.get("/scrape/jobs/{job_id}", response_model=JobStatusOut)
-async def get_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+async def get_scrape_job(
+    job_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
     """Get a specific scrape job's status."""
     result = await session.execute(
         select(ScrapeJob).where(ScrapeJob.id == job_id)
@@ -446,16 +566,8 @@ async def get_scrape_job(job_id: int, session: AsyncSession = Depends(get_sessio
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return {
-        "id": job.id,
-        "status": job.status.value,
-        "total_games": job.total_games,
-        "completed_games": job.completed_games,
-        "failed_games": job.failed_games,
-        "current_game": job.current_game,
-        "log": job.log,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-    }
+    stale_ids = await _fail_stale_scrape_jobs(session, [job])
+    return _job_to_response(job, is_stale=job.id in stale_ids)
 
 
 # --- Cover management ---

@@ -1952,98 +1952,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     const SizedBox(height: 20),
                     _sectionHeader("刮削进度", Icons.cloud_sync),
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: cardBg(context),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: cardBorder(context)),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              _jobStatusIcon(_scrapeJob!["status"]),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _jobStatusLabel(_scrapeJob!["status"]),
-                                      style: AppText.body.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    if (_scrapeJob!["current_game"] != null)
-                                      Text(
-                                        "正在处理: ${_scrapeJob!["current_game"]}",
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: AppText.label.copyWith(
-                                          color: hintColor(context),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              if (_scrapeJob!["status"] == "running" ||
-                                  _scrapeJob!["status"] == "pending")
-                                TextButton(
-                                  onPressed: () =>
-                                      _cancelJob(_scrapeJob!["id"] as int),
-                                  child: Text(
-                                    "取消",
-                                    style: AppText.label.copyWith(
-                                      color: Colors.red,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          if (_scrapeJob!["total_games"] != null &&
-                              (_scrapeJob!["total_games"] as int) > 0) ...[
-                            const SizedBox(height: 12),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: LinearProgressIndicator(
-                                value: ((_scrapeJob!["completed_games"] ?? 0)
-                                        as int) /
-                                    ((_scrapeJob!["total_games"] as int)).clamp(
-                                      1,
-                                      99999,
-                                    ),
-                                minHeight: 6,
-                                backgroundColor: cardBorder(context),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  "${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
-                                  style: AppText.label.copyWith(
-                                    color: hintColor(context),
-                                  ),
-                                ),
-                                if (_scrapeJob!["failed_games"] != null &&
-                                    (_scrapeJob!["failed_games"] as int) > 0)
-                                  Text(
-                                    "失败: ${_scrapeJob!["failed_games"]}",
-                                    style: AppText.label.copyWith(
-                                      color: Colors.red[300],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                          // Completed summary
-                          if (_scrapeJob!["status"] == "completed")
-                            _buildCompletedSummary(),
-                        ],
-                      ),
-                    ),
+                    _buildScrapeJobStatusCard(),
                   ],
 
                   const SizedBox(height: 24),
@@ -2368,8 +2277,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Widget _divider() =>
       Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
-  Widget _jobStatusIcon(String? status) {
-    switch (status) {
+  Widget _jobStatusIcon(Object? status) {
+    switch (status?.toString()) {
       case "running":
         return Icon(Icons.sync, size: 24, color: Colors.blue[300]);
       case "completed":
@@ -2464,6 +2373,203 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
+  int _jobInt(String key, [String? fallbackKey]) {
+    final value = _scrapeJob?[key] ??
+        (fallbackKey == null ? null : _scrapeJob?[fallbackKey]);
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? "") ?? 0;
+  }
+
+  String? _jobText(String key) {
+    final value = _scrapeJob?[key];
+    final text = value?.toString().trim() ?? "";
+    return text.isEmpty ? null : text;
+  }
+
+  String _scrapeStageLabel(String? stage) => switch (stage) {
+        "queued" => "排队中",
+        "started" => "已开始",
+        "game" => "准备处理游戏",
+        "reuse_metadata" => "复用已有元数据",
+        "reused" => "已复用已有元数据",
+        "search" => "搜索元数据",
+        "matched" => "已匹配结果",
+        "search_timeout" => "搜索超时",
+        "search_failed" => "搜索失败",
+        "download_cover" => "下载封面",
+        "download_hero" => "下载背景图",
+        "apply_metadata" => "写入元数据",
+        "completed_game" => "单个游戏完成",
+        "game_timeout" => "单个游戏超时",
+        "game_failed" => "单个游戏失败",
+        "completed" => "任务完成",
+        "cancelled" => "已取消",
+        "interrupted" => "服务重启中断",
+        "stale" => "心跳超时",
+        "failed" => "任务失败",
+        null => "未知阶段",
+        _ => stage,
+      };
+
+  String _scrapeSourceLabel(String? source) {
+    if (source == null) return "";
+    if (source == "metadata_cache") return "已有元数据";
+    return _scraperLabels[source] ?? source;
+  }
+
+  String _formatScrapeTime(String? raw) {
+    if (raw == null || raw.isEmpty) return "";
+    try {
+      final value = DateTime.parse(raw).toLocal();
+      String two(int input) => input.toString().padLeft(2, "0");
+      return "${two(value.hour)}:${two(value.minute)}:${two(value.second)}";
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  Widget _scrapeMetaChip(String label, String value) => Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: cardBorder(context).withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          "$label: $value",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppText.label.copyWith(color: subTextColor(context)),
+        ),
+      );
+
+  Widget _buildScrapeJobStatusCard() {
+    final job = _scrapeJob;
+    if (job == null) return const SizedBox.shrink();
+    final status = _jobText("status") ?? "unknown";
+    final total = _jobInt("total_games");
+    final processed = _jobInt("processed_games", "completed_games");
+    final successful = _jobInt("successful_games");
+    final failed = _jobInt("failed_games");
+    final currentGame = _jobText("current_game");
+    final currentGameId = _jobInt("current_game_id");
+    final currentSource = _scrapeSourceLabel(_jobText("current_source"));
+    final currentQuery = _jobText("current_query");
+    final currentStage = _scrapeStageLabel(_jobText("current_stage"));
+    final lastError = _jobText("last_error");
+    final heartbeat = _formatScrapeTime(_jobText("heartbeat_at"));
+    final progress =
+        total > 0 ? (processed / total).clamp(0.0, 1.0).toDouble() : null;
+    final active = status == "running" || status == "pending";
+    final chips = <Widget>[];
+    if (currentSource.isNotEmpty) {
+      chips.add(_scrapeMetaChip("来源", currentSource));
+    }
+    chips.add(_scrapeMetaChip("阶段", currentStage));
+    if (currentQuery != null) chips.add(_scrapeMetaChip("查询", currentQuery));
+    if (heartbeat.isNotEmpty) chips.add(_scrapeMetaChip("心跳", heartbeat));
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _jobStatusIcon(status),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _jobStatusLabel(status),
+                      style: AppText.body.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    if (currentGame != null)
+                      Text(
+                        currentGameId > 0
+                            ? "正在处理: #$currentGameId $currentGame"
+                            : "正在处理: $currentGame",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.label.copyWith(color: hintColor(context)),
+                      ),
+                  ],
+                ),
+              ),
+              if (active)
+                TextButton(
+                  onPressed: () => _cancelJob((job["id"] as num).toInt()),
+                  child: Text(
+                    "取消",
+                    style: AppText.label.copyWith(color: Colors.red),
+                  ),
+                ),
+            ],
+          ),
+          if (progress != null) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: cardBorder(context),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                Text(
+                  "$processed / $total 已处理",
+                  style: AppText.label.copyWith(color: hintColor(context)),
+                ),
+                if (successful > 0)
+                  Text(
+                    "成功: $successful",
+                    style: AppText.label.copyWith(color: Colors.green[300]),
+                  ),
+                if (failed > 0)
+                  Text(
+                    "失败: $failed",
+                    style: AppText.label.copyWith(color: Colors.red[300]),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: chips),
+          if (lastError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.25)),
+              ),
+              child: Text(
+                lastError,
+                style: AppText.label.copyWith(color: Colors.red[300]),
+              ),
+            ),
+          ],
+          if (status == "completed") _buildCompletedSummary(),
+        ],
+      ),
+    );
+  }
+
   Future<void> _cancelJob(int jobId) async {
     try {
       await http.post(
@@ -2475,8 +2581,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Widget _buildCompletedSummary() {
-    final failed = (_scrapeJob!["failed_games"] ?? 0) as int;
-    final total = (_scrapeJob!["total_games"] ?? 0) as int;
+    final failed = _jobInt("failed_games");
+    final successful = _jobInt("successful_games");
+    final total = _jobInt("total_games");
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(
@@ -2484,7 +2591,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           Icon(Icons.check_circle, size: 16, color: Colors.green[300]),
           const SizedBox(width: 6),
           Text(
-            "${total - failed} 成功, $failed 失败",
+            "${successful > 0 ? successful : total - failed} 成功, $failed 失败",
             style: AppText.label.copyWith(color: subTextColor(context)),
           ),
         ],
@@ -2492,8 +2599,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
-  String _jobStatusLabel(String? status) {
-    switch (status) {
+  String _jobStatusLabel(Object? status) {
+    switch (status?.toString()) {
       case "pending":
         return "等待开始...";
       case "running":
@@ -2503,7 +2610,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       case "failed":
         return "刮削失败";
       default:
-        return status ?? "未知";
+        return status?.toString() ?? "未知";
     }
   }
 

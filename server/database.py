@@ -162,6 +162,45 @@ async def create_tables():
                 "UPDATE steam_patch_roots SET analysis_mode = 'manual' WHERE source_type = 'openlist'"
             )
 
+        columns = await conn.exec_driver_sql("PRAGMA table_info(scrape_jobs)")
+        scrape_job_columns = {row[1] for row in columns}
+        if "processed_games" not in scrape_job_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE scrape_jobs ADD COLUMN processed_games INTEGER NOT NULL DEFAULT 0"
+            )
+            await conn.exec_driver_sql(
+                "UPDATE scrape_jobs SET processed_games = completed_games WHERE processed_games = 0"
+            )
+        if "successful_games" not in scrape_job_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE scrape_jobs ADD COLUMN successful_games INTEGER NOT NULL DEFAULT 0"
+            )
+            await conn.exec_driver_sql(
+                """
+                UPDATE scrape_jobs
+                SET successful_games = CASE
+                    WHEN status = 'COMPLETED' AND total_games > 0 AND completed_games > failed_games
+                        THEN completed_games - failed_games
+                    WHEN status = 'COMPLETED' AND total_games > 0
+                        THEN 0
+                    ELSE completed_games
+                END
+                WHERE successful_games = 0
+                """
+            )
+        if "current_game_id" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_game_id INTEGER")
+        if "current_source" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_source VARCHAR(64)")
+        if "current_query" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_query VARCHAR(512)")
+        if "current_stage" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_stage VARCHAR(64)")
+        if "last_error" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN last_error TEXT")
+        if "heartbeat_at" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN heartbeat_at DATETIME")
+
         # ── users.role migration (v2) ──────────────────────────────────────
         user_cols = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(users)")}
         if "role" not in user_cols:

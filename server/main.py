@@ -6,12 +6,42 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import load_config
 from database import create_tables, init_database
+
+
+async def _fail_interrupted_scrape_jobs(logger):
+    from sqlalchemy import select
+
+    from database import get_session
+    from models.scrape_job import JobStatus, ScrapeJob
+
+    async for session in get_session():
+        result = await session.execute(
+            select(ScrapeJob).where(
+                ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+            )
+        )
+        jobs = result.scalars().all()
+        now = datetime.utcnow()
+        for job in jobs:
+            job.status = JobStatus.FAILED
+            job.current_stage = "interrupted"
+            job.last_error = "服务重启或后台任务中断，已停止旧刮削任务"
+            job.heartbeat_at = now
+            job.log = (
+                (job.log or "")
+                + " [服务重启或后台任务中断，已自动停止旧刮削任务]"
+            )
+        if jobs:
+            await session.commit()
+            logger.warning("Marked %s interrupted scrape job(s) as failed", len(jobs))
+        break
 
 
 async def _auto_scan_task(config, logger):
@@ -50,6 +80,7 @@ async def lifespan(app: FastAPI):
     config = load_config()
     init_database(config)
     await create_tables()
+    await _fail_interrupted_scrape_jobs(logger)
     logger.info(f"Database initialized at: {config.database_url}")
     logger.info(f"Games path: {config.games_path}")
     logger.info(f"Data path: {config.data_path}")
