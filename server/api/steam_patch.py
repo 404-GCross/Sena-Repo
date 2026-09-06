@@ -1,8 +1,4 @@
-"""Steam patch injection API - PC client feature.
-
-Reads patches.json in the patch directory for patch index.
-Falls back to bare file scanning if no patches.json exists.
-"""
+"""Steam patch injection API - PC client feature."""
 from __future__ import annotations
 
 import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, zipfile
@@ -35,6 +31,31 @@ def _get_patches_dir(config=None):
     if config is None:
         config = load_config()
     return Path(config.patch_dir or "/steam_patch")
+
+
+def _get_patch_index_dir(config=None):
+    if config is None:
+        config = load_config()
+    return Path(config.data_path or "/data") / "steam_patch_index"
+
+
+def _migrate_legacy_patch_index(index_dir: Path, legacy_dir: Path) -> None:
+    index_path = index_dir / "patches.json"
+    legacy_path = legacy_dir / "patches.json"
+    if index_path.exists() or not legacy_path.is_file():
+        return
+    try:
+        if index_path.resolve() == legacy_path.resolve():
+            return
+    except OSError:
+        pass
+    index_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(legacy_path, index_path)
+    legacy_keywords = legacy_dir / "patch_type_keywords.json"
+    index_keywords = index_dir / "patch_type_keywords.json"
+    if legacy_keywords.is_file() and not index_keywords.exists():
+        shutil.copy2(legacy_keywords, index_keywords)
+    logger.info("Migrated Steam patch index from %s to %s", legacy_path, index_path)
 
 
 def _normalize_analysis_mode(value: str | None, source_type: str = "local") -> str:
@@ -439,14 +460,14 @@ def _patch_lookup_matches(patch: dict, lookup_key: str) -> bool:
     return False
 
 
-def _find_patch_entry(patches_dir: Path, lookup_key: str) -> dict | None:
-    for patch in _load_all_patches(patches_dir):
+def _find_patch_entry(index_dir: Path, lookup_key: str, fallback_dir: Path | None = None) -> dict | None:
+    for patch in _load_all_patches(index_dir):
         if _patch_lookup_matches(patch, lookup_key):
             return patch
-    index = _load_patches_index(patches_dir)
+    index = _load_patches_index(index_dir)
     if index and lookup_key in index:
         return index[lookup_key]
-    fallback = _find_patch_fallback(patches_dir, lookup_key)
+    fallback = _find_patch_fallback(fallback_dir, lookup_key) if fallback_dir else None
     if fallback:
         return {
             "app_id": lookup_key,
@@ -460,12 +481,12 @@ def _find_patch_entry(patches_dir: Path, lookup_key: str) -> dict | None:
 
 
 def _update_patch_record(
-    patches_dir: Path,
+    index_dir: Path,
     lookup_key: str,
     values: dict,
     file_hint: str | None = None,
 ) -> dict:
-    json_path = patches_dir / "patches.json"
+    json_path = index_dir / "patches.json"
     if not json_path.is_file():
         raise HTTPException(status_code=404, detail="patches.json not found")
     try:
@@ -783,8 +804,10 @@ async def scan_steam_games(
 ):
     config = load_config()
     patches_dir = _get_patches_dir(config)
-    keywords = _load_type_keywords(patches_dir)
-    patches = _load_all_patches(patches_dir)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    keywords = _load_type_keywords(index_dir)
+    patches = _load_all_patches(index_dir)
     results = []
 
     for game in body.games:
@@ -794,10 +817,6 @@ async def scan_steam_games(
             install_dir=game.install_dir,
             patch_available=False,
         )
-
-        if not patches_dir.exists():
-            results.append(match)
-            continue
 
         entry = _find_patch_entry_for_game(patches, game)
         if entry is not None:
@@ -837,7 +856,7 @@ async def scan_steam_games(
             continue
 
         # Fallback: bare local file named by AppID.
-        patch_file = _find_patch_fallback(patches_dir, game.app_id)
+        patch_file = _find_patch_fallback(patches_dir, game.app_id) if patches_dir.exists() else None
         if patch_file:
             match.patch_available = True
             match.patch_lookup_key = game.app_id
@@ -860,11 +879,14 @@ async def scan_steam_games(
 @router.get("/patches")
 async def list_patches(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """List indexed patches. Scanning is explicit via /scan-patches."""
-    patches_dir = _get_patches_dir()
-    patches_dir.mkdir(parents=True, exist_ok=True)
-    json_path = patches_dir / "patches.json"
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    index_dir.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    json_path = index_dir / "patches.json"
     needs_scan = _patches_index_needs_autoscan(json_path)
-    patches = [_enrich_patch_record(p) for p in _load_all_patches(patches_dir)]
+    patches = [_enrich_patch_record(p) for p in _load_all_patches(index_dir)]
 
     # Suggest DB matches for display only. Do not write internal game IDs into Steam app_id.
     if patches:
@@ -898,6 +920,8 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
         "count": len(patches),
         "source": "patches.json",
         "needs_scan": needs_scan,
+        "index_path": str(json_path),
+        "legacy_index_path": str(patches_dir / "patches.json"),
     }
 
 
@@ -907,8 +931,11 @@ async def get_patch_tree(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    patches_dir = _get_patches_dir()
-    entry = _find_patch_entry(patches_dir, lookup_key)
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
 
@@ -955,9 +982,12 @@ async def update_patch_manifest(
     body: PatchManifestUpdate,
     user: User = Depends(require_admin),
 ):
-    patches_dir = _get_patches_dir()
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
     updated = _update_patch_record(
-        patches_dir,
+        index_dir,
         lookup_key,
         {
             "patch_dir": body.patch_dir.strip().strip("/"),
@@ -978,9 +1008,12 @@ async def download_patch(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    patches_dir = _get_patches_dir()
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
 
-    entry = _find_patch_entry(patches_dir, lookup_key)
+    entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
     if entry is not None:
         entry = _enrich_patch_record(entry)
         if entry.get("source_type") == "openlist":
@@ -1025,7 +1058,10 @@ class PatchUpdate(BaseModel):
 @router.put("/patches/{lookup_key}")
 async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(require_admin)):
     """Update patch metadata in patches.json. lookup_key can be app_id or file path."""
-    patches_dir = _get_patches_dir()
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
     values = {
         "patch_dir": body.patch_dir,
         "target_dir": body.target_dir,
@@ -1040,7 +1076,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         values["manifest_status"] = "confirmed"
         values["manifest_updated_at"] = datetime.now(timezone.utc).isoformat()
     updated = _update_patch_record(
-        patches_dir,
+        index_dir,
         lookup_key,
         values,
         file_hint=body.file,
@@ -1053,8 +1089,11 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
 @router.post("/scan-patches")
 async def scan_patches_endpoint(user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """Re-scan all configured patch roots and regenerate patches.json."""
-    index_dir = _get_patches_dir()
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
     try:
         from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
 
@@ -1086,7 +1125,7 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
                 item["source_id"] = None
                 item["analysis_mode"] = analysis_mode
                 item["source_path"] = str(root_path / item["file"])
-                if root_path.resolve() != index_dir.resolve():
+                if root_path.resolve() != patches_dir.resolve():
                     item["file"] = str(root_path / item["file"])
                 item.pop("patch_id", None)
                 item["patch_id"] = _make_patch_id(item)
@@ -1108,8 +1147,11 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
 @router.get("/patch-type-keywords")
 async def get_type_keywords(user: User = Depends(get_current_user)):
     """Return patch_type_keywords.json content."""
-    patches_dir = _get_patches_dir()
-    return _load_type_keywords(patches_dir)
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    return _load_type_keywords(index_dir)
 
 
 class TypeKeywordsUpdate(BaseModel):
@@ -1119,8 +1161,11 @@ class TypeKeywordsUpdate(BaseModel):
 @router.put("/patch-type-keywords")
 async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(require_admin)):
     """Overwrite patch_type_keywords.json (admin only)."""
-    patches_dir = _get_patches_dir()
-    _save_type_keywords(patches_dir, body.keywords)
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    _save_type_keywords(index_dir, body.keywords)
     return {"message": "关键词已更新"}
 
 
@@ -1157,8 +1202,11 @@ class RescrapeResult(BaseModel):
 async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     """Re-search Steam for a single patch's app_id and update patches.json."""
     import asyncio as _asyncio
-    patches_dir = _get_patches_dir()
-    json_path = patches_dir / "patches.json"
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    json_path = index_dir / "patches.json"
 
     if not json_path.is_file():
         raise HTTPException(status_code=404, detail="patches.json not found")
@@ -1223,8 +1271,11 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
 async def rescrape_all_patches(user: User = Depends(require_admin)):
     """Re-search Steam for all patches' app_ids (batch)."""
     import asyncio as _asyncio
-    patches_dir = _get_patches_dir()
-    json_path = patches_dir / "patches.json"
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    _migrate_legacy_patch_index(index_dir, patches_dir)
+    json_path = index_dir / "patches.json"
 
     if not json_path.is_file():
         raise HTTPException(status_code=404, detail="patches.json not found")
