@@ -1796,27 +1796,51 @@ class DownloadService with WidgetsBindingObserver {
     return true;
   }
 
-  Future<int?> _probeDownloadLengthForAria2(DownloadTask t) async {
+  Future<_Aria2DownloadTarget?> _resolveAria2DownloadTarget(
+    DownloadTask t,
+  ) async {
     final client = http.Client();
     _trackTaskClient(t, client);
+    Uri? finalUri;
     try {
       final resp = await _sendDownloadRequest(
         client,
         t.downloadUrl,
         {"Range": "bytes=0-0"},
+        onFinalUri: (uri) => finalUri = uri,
       );
+      final statusCode = resp.statusCode;
       final total = resp.statusCode == 206
           ? _parseContentRangeTotal(resp.headers["content-range"])
           : resp.contentLength;
       LoggerService().info(
-        "aria2 length probe: status=${resp.statusCode} "
+        "aria2 target resolved: status=$statusCode "
+        "target=${finalUri == null ? "-" : _downloadLogTarget(finalUri!)} "
         "contentLength=${resp.contentLength ?? 0} "
         "contentRange=${resp.headers["content-range"] ?? "-"} "
         "total=${total ?? 0}",
       );
-      return total != null && total > 0 ? total : null;
+      if (statusCode != 200) {
+        await resp.stream.drain<void>();
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw DownloadHttpException(
+          statusCode,
+          "aria2 target probe HTTP $statusCode",
+          retryAfterSeconds: _retryAfterSeconds(resp.headers["retry-after"]),
+        );
+      }
+      if (statusCode != 200 && statusCode != 206) return null;
+      final uri = finalUri;
+      if (uri == null) return null;
+      return _Aria2DownloadTarget(
+        url: uri.toString(),
+        totalBytes: total != null && total > 0 ? total : null,
+      );
+    } on DownloadHttpException {
+      rethrow;
     } catch (e) {
-      LoggerService().warn("aria2 length probe failed", e);
+      LoggerService().warn("aria2 target resolve failed", e);
       return null;
     } finally {
       client.close();
@@ -1831,10 +1855,16 @@ class DownloadService with WidgetsBindingObserver {
     if (aria2 == null) return false;
 
     await dest.parent.create(recursive: true);
-    final totalHint = t.totalBytes > 0
-        ? t.totalBytes
-        : await _probeDownloadLengthForAria2(t);
+    final target = await _resolveAria2DownloadTarget(t);
     if (_stopped(t)) return true;
+    if (target == null && _normalizedSourceType(t) == "openlist") {
+      LoggerService().info(
+        "aria2 download skipped: source=openlist final target unavailable",
+      );
+      return false;
+    }
+    final aria2Url = target?.url ?? t.downloadUrl;
+    final totalHint = t.totalBytes > 0 ? t.totalBytes : target?.totalBytes;
     if (totalHint != null && totalHint > 0) {
       t.totalBytes = totalHint;
       if (await dest.exists()) {
@@ -1845,7 +1875,7 @@ class DownloadService with WidgetsBindingObserver {
           : 0.0;
     }
 
-    final args = await _aria2DownloadArgs(t, dest, aria2);
+    final args = await _aria2DownloadArgs(t, dest, aria2, aria2Url);
     final invocation = _externalToolInvocation(aria2, args);
     LoggerService().info(
       "aria2 download started: platform=${Platform.operatingSystem} "
@@ -2025,6 +2055,7 @@ class DownloadService with WidgetsBindingObserver {
     DownloadTask t,
     File dest,
     String aria2,
+    String downloadUrl,
   ) async {
     final source = _normalizedSourceType(t);
     final split = source == "openlist" ? 1 : _parallelDownloadMaxParts;
@@ -2061,7 +2092,7 @@ class DownloadService with WidgetsBindingObserver {
     if (split > 1) args.add("--min-split-size=32M");
     final limitKbps = await downloadSpeedLimitKbps;
     if (limitKbps > 0) args.add("--max-download-limit=${limitKbps}K");
-    args.add(t.downloadUrl);
+    args.add(downloadUrl);
     return args;
   }
 
@@ -2982,6 +3013,7 @@ class DownloadService with WidgetsBindingObserver {
     String url,
     Map<String, String> baseHeaders, {
     String method = "GET",
+    void Function(Uri uri)? onFinalUri,
   }) async {
     var current = Uri.parse(url);
     final originalScheme = current.scheme;
@@ -3035,6 +3067,7 @@ class DownloadService with WidgetsBindingObserver {
       LoggerService().info(
         "download final[$redirectCount]: $method HTTP ${resp.statusCode} ${_downloadLogTarget(current)}",
       );
+      onFinalUri?.call(current);
       return resp;
     }
 
@@ -3468,6 +3501,13 @@ class DownloadService with WidgetsBindingObserver {
     if (save) _saveTasks();
     if (!_hasActiveDownloads()) _stopForegroundService();
   }
+}
+
+class _Aria2DownloadTarget {
+  final String url;
+  final int? totalBytes;
+
+  _Aria2DownloadTarget({required this.url, required this.totalBytes});
 }
 
 class _ParallelDownloadState {
