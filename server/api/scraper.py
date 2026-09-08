@@ -373,10 +373,12 @@ async def scrape_game_cover(
     if config.proxy:
         client_kwargs["proxy"] = config.proxy
     async with httpx.AsyncClient(**client_kwargs) as client:
+        replaced_tags = False
         for scraper in all_scrapers:
             try:
                 result = await scraper.search_best(game.name, company_hint)
                 if result:
+                    replace_tags = not replaced_tags and bool(result.tags)
                     found_results.append({
                         "source": scraper.source_name,
                         "title": result.title,
@@ -401,7 +403,10 @@ async def scrape_game_cover(
                         covers_dir,
                         session,
                         config,
+                        replace_tags=replace_tags,
                     )
+                    if replace_tags:
+                        replaced_tags = True
 
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} failed: {e}")

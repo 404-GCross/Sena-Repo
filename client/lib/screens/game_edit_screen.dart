@@ -51,6 +51,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   String? _pendingBgFilePath;
   late List<GameVersion> _versions;
   late List<String> _tagNames;
+  late List<String> _userTagNames;
   int _mobileSection = 0;
   int _coverVersion = 0;
   int _bgVersion = 0;
@@ -88,6 +89,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final g = widget.game;
     _versions = List<GameVersion>.from(g.versions);
     _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
+    _userTagNames = _normalizeTagNames(
+      g.tags
+          .where((tag) => tag.source.trim().toLowerCase() == "user")
+          .map((tag) => tag.name),
+    );
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
@@ -117,6 +123,124 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   void _onMetadataEdited() {
     if (mounted) setState(() {});
+  }
+
+  List<String> _parseTagInput(String raw) {
+    return _normalizeTagNames(raw.split(RegExp(r"[,，;；\n\r]+")));
+  }
+
+  void _setManualTags(Iterable<String> names) {
+    final normalized = _normalizeTagNames(names);
+    setState(() {
+      _tagNames = normalized;
+      _userTagNames = List<String>.from(normalized);
+      _tagsDirty = true;
+      _tagSource = "user";
+    });
+  }
+
+  Future<void> _showAddTagDialog() async {
+    final controller = TextEditingController();
+    try {
+      final value = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("新增标签"),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: "标签",
+              hintText: "可用逗号或换行一次添加多个标签",
+            ),
+            onSubmitted: (_) => Navigator.pop(ctx, controller.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("取消"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text("添加"),
+            ),
+          ],
+        ),
+      );
+      final tags = value == null ? const <String>[] : _parseTagInput(value);
+      if (tags.isEmpty) return;
+      if (!mounted) return;
+      _setManualTags([..._tagNames, ...tags]);
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _showEditTagDialog(int index) async {
+    if (index < 0 || index >= _tagNames.length) return;
+    final controller = TextEditingController(text: _tagNames[index]);
+    try {
+      final value = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("编辑标签"),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: "标签名称",
+              hintText: "留空会删除这个标签",
+            ),
+            onSubmitted: (_) => Navigator.pop(ctx, controller.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("取消"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text("保存"),
+            ),
+          ],
+        ),
+      );
+      if (value == null) return;
+      final next = List<String>.from(_tagNames);
+      final name = value.trim();
+      if (name.isEmpty) {
+        next.removeAt(index);
+      } else {
+        next[index] = name;
+      }
+      if (!mounted) return;
+      _setManualTags(next);
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  void _removeTagAt(int index) {
+    if (index < 0 || index >= _tagNames.length) return;
+    final next = List<String>.from(_tagNames)..removeAt(index);
+    _setManualTags(next);
+  }
+
+  void _clearTags() {
+    if (_tagNames.isEmpty) return;
+    _setManualTags(const <String>[]);
+  }
+
+  List<String> _metadataReplaceableTags() {
+    final userKeys = _userTagNames
+        .map((tag) => tag.trim().toLowerCase())
+        .where((tag) => tag.isNotEmpty)
+        .toSet();
+    return _normalizeTagNames(
+      _tagNames.where((tag) => !userKeys.contains(tag.trim().toLowerCase())),
+    );
   }
 
   Future<void> _save({bool popOnSave = true}) async {
@@ -845,6 +969,86 @@ class _GameEditScreenState extends State<GameEditScreen> {
         child: Column(children: children),
       );
 
+  Widget _tagEditorContent() {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppSectionTitle(
+          icon: Icons.local_offer_outlined,
+          title: "标签",
+          subtitle: "用于筛选和详情页展示，可手动新增、改名或删除",
+          trailing: AppStatusPill(
+            icon: Icons.sell_outlined,
+            label: "${_tagNames.length} 个",
+            color: cs.primary,
+          ),
+        ),
+        const SizedBox(height: AppGap.md),
+        if (_tagNames.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest.withValues(alpha: 0.36),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: cardBorder(context)),
+            ),
+            child: Text(
+              "暂无标签，点击下方按钮添加。",
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
+            ),
+          )
+        else
+          Wrap(
+            spacing: AppGap.sm,
+            runSpacing: AppGap.sm,
+            children: _tagNames.asMap().entries.map((entry) {
+              return _tagEditorChip(entry.key, entry.value);
+            }).toList(),
+          ),
+        const SizedBox(height: AppGap.md),
+        Wrap(
+          spacing: AppGap.sm,
+          runSpacing: AppGap.sm,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _showAddTagDialog,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text("新增标签"),
+            ),
+            if (_tagNames.isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: _clearTags,
+                icon: const Icon(Icons.clear_all_rounded),
+                label: const Text("清空标签"),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _tagEditorChip(int index, String tag) {
+    final cs = Theme.of(context).colorScheme;
+    return InputChip(
+      label: Text(tag),
+      avatar: Icon(Icons.local_offer_outlined, size: 16, color: cs.primary),
+      tooltip: "点击编辑标签",
+      onPressed: () => _showEditTagDialog(index),
+      onDeleted: () => _removeTagAt(index),
+      deleteIcon: const Icon(Icons.close_rounded, size: 16),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      labelStyle: AppText.bodySmall.copyWith(fontWeight: FontWeight.w700),
+      backgroundColor: cs.primary.withValues(alpha: 0.08),
+      side: BorderSide(color: cs.primary.withValues(alpha: 0.22)),
+    );
+  }
+
+  Widget _desktopTagPanel() => _desktopPanel(child: _tagEditorContent());
+
+  Widget _mobileTagPanel() => _mobilePanel(child: _tagEditorContent());
+
   Widget _hintCard(String text) => Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1271,6 +1475,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _mobileTagPanel(),
         const SizedBox(height: 12),
         _editCompletenessCard(),
       ],
@@ -1778,6 +1984,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     _desktopTitlePanel(g),
                     const SizedBox(height: 16),
                     _desktopMetadataPanel(g),
+                    const SizedBox(height: 16),
+                    _desktopTagPanel(),
                     const SizedBox(height: 16),
                     _desktopTextPanel(
                       title: "简介",
@@ -2696,12 +2904,14 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
     final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
+    final currentMetadataTags = _metadataReplaceableTags();
     // Build initial selection state (outside StatefulBuilder so it persists across rebuilds)
     final useSearch = <String, bool>{};
     for (final f in currentFields.keys) {
       useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != currentFields[f];
     }
-    useSearch["标签"] = _metadataNewTags(_tagNames, incomingTags).isNotEmpty;
+    useSearch["标签"] = incomingTags.isNotEmpty &&
+        !_metadataTagsEqual(currentMetadataTags, incomingTags);
     useSearch["封面"] = hasCoverDiff;
     useSearch["背景"] = hasHeroDiff;
 
@@ -2720,7 +2930,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sourceName: sources[src] ?? src,
         currentFields: currentFields,
         incomingFields: incoming,
-        currentTags: List<String>.from(_tagNames),
+        currentTags: currentMetadataTags,
         incomingTags: incomingTags,
         initialSelection: useSearch,
         imageComparisons: [
@@ -2764,7 +2974,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       if (apply["标签"] == true) {
-        _tagNames = _normalizeTagNames([..._tagNames, ...incomingTags]);
+        _tagNames = _normalizeTagNames([..._userTagNames, ...incomingTags]);
         _tagsDirty = true;
         _tagSource = src;
       }
@@ -3735,6 +3945,23 @@ List<String> _metadataNewTags(
   );
 }
 
+bool _metadataTagsEqual(
+  Iterable<String> currentTags,
+  Iterable<String> incomingTags,
+) {
+  final current = _normalizeTagNames(currentTags)
+      .map((tag) => tag.toLowerCase())
+      .toSet();
+  final incoming = _normalizeTagNames(incomingTags)
+      .map((tag) => tag.toLowerCase())
+      .toSet();
+  if (current.length != incoming.length) return false;
+  for (final tag in current) {
+    if (!incoming.contains(tag)) return false;
+  }
+  return true;
+}
+
 String? _metadataSourceIdLabel(String sourceKey) {
   switch (sourceKey) {
     case "vndb_kana":
@@ -3899,14 +4126,21 @@ class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
 
   int get _selectedCount => _selection.values.where((value) => value).length;
 
-  List<String> get _newTags =>
+  List<String> get _addedTags =>
       _metadataNewTags(widget.currentTags, widget.incomingTags);
+
+  List<String> get _removedTags =>
+      _metadataNewTags(widget.incomingTags, widget.currentTags);
+
+  bool get _tagsHaveDiff =>
+      widget.incomingTags.isNotEmpty &&
+      !_metadataTagsEqual(widget.currentTags, widget.incomingTags);
 
   bool get _hasChanges {
     for (final key in widget.currentFields.keys) {
       if (_fieldHasDiff(key)) return true;
     }
-    return _newTags.isNotEmpty || widget.imageComparisons.isNotEmpty;
+    return _tagsHaveDiff || widget.imageComparisons.isNotEmpty;
   }
 
   bool _fieldHasDiff(String key) {
@@ -4045,7 +4279,8 @@ class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
                         sourceName: widget.sourceName,
                         currentTags: widget.currentTags,
                         incomingTags: widget.incomingTags,
-                        newTags: _newTags,
+                        addedTags: _addedTags,
+                        removedTags: _removedTags,
                         selected: _selection["标签"] ?? false,
                         onChanged: (value) => _setSelected("标签", value),
                       ),
@@ -4109,7 +4344,8 @@ class _MetadataTagDiffCard extends StatelessWidget {
   final String sourceName;
   final List<String> currentTags;
   final List<String> incomingTags;
-  final List<String> newTags;
+  final List<String> addedTags;
+  final List<String> removedTags;
   final bool selected;
   final ValueChanged<bool> onChanged;
 
@@ -4117,12 +4353,14 @@ class _MetadataTagDiffCard extends StatelessWidget {
     required this.sourceName,
     required this.currentTags,
     required this.incomingTags,
-    required this.newTags,
+    required this.addedTags,
+    required this.removedTags,
     required this.selected,
     required this.onChanged,
   });
 
-  bool get _enabled => newTags.isNotEmpty;
+  bool get _enabled => incomingTags.isNotEmpty &&
+      (addedTags.isNotEmpty || removedTags.isNotEmpty);
 
   @override
   Widget build(BuildContext context) {
@@ -4157,9 +4395,11 @@ class _MetadataTagDiffCard extends StatelessWidget {
               ),
               AppStatusPill(
                 icon: _enabled
-                    ? Icons.add_circle_outline_rounded
+                    ? Icons.swap_horiz_rounded
                     : Icons.check_circle_outline_rounded,
-                label: _enabled ? "新增 ${newTags.length} 个" : "无新增",
+                label: _enabled
+                    ? "替换为 ${incomingTags.length} 个"
+                    : "无变更",
                 color: _enabled ? Colors.green : hintColor(context),
               ),
               const SizedBox(width: AppGap.sm),
@@ -4190,9 +4430,16 @@ class _MetadataTagDiffCard extends StatelessWidget {
                 ),
                 _MetadataTagGroup(
                   title: "将新增",
-                  tags: newTags,
+                  tags: addedTags,
                   emptyText: "没有需要新增的标签",
                   color: Colors.green,
+                  highlighted: true,
+                ),
+                _MetadataTagGroup(
+                  title: "将移除",
+                  tags: removedTags,
+                  emptyText: "没有需要移除的标签",
+                  color: Colors.red,
                   highlighted: true,
                 ),
               ];

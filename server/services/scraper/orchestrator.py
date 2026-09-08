@@ -559,7 +559,9 @@ async def scrape_single_game(
     ]
     if mode in {"overwrite", "images"}:
         ordered_results.reverse()
+    replaced_tags = False
     for source_name, result in ordered_results:
+        replace_tags = mode == "overwrite" and not replaced_tags and bool(result.tags)
         await _apply_result(
             result,
             source_name,
@@ -570,7 +572,10 @@ async def scrape_single_game(
             config,
             mode,
             job=job,
+            replace_tags=replace_tags,
         )
+        if replace_tags:
+            replaced_tags = True
 
     await session.commit()
     return results
@@ -586,6 +591,7 @@ async def _apply_result(
     config: "Config | None" = None,
     mode: str = "missing",
     job: ScrapeJob | None = None,
+    replace_tags: bool | None = None,
 ):
     """Apply a scraper result to a game, respecting the scrape mode."""
     overwrite = mode == "overwrite"
@@ -685,6 +691,7 @@ async def _apply_result(
                 source_name,
                 result.tags,
                 overwrite=overwrite,
+                replace_existing=overwrite if replace_tags is None else replace_tags,
             )
 
 
@@ -695,7 +702,19 @@ async def _apply_scraped_tags(
     tags: list[ScrapedTag],
     *,
     overwrite: bool,
+    replace_existing: bool = False,
 ) -> None:
+    if replace_existing:
+        existing_result = await session.execute(
+            select(GameTag).where(
+                GameTag.game_id == game.id,
+                GameTag.source != "user",
+            )
+        )
+        for assoc in existing_result.scalars():
+            await session.delete(assoc)
+        await session.flush()
+
     for scraped in tags:
         name = scraped.name.strip()
         if not name:
@@ -727,7 +746,7 @@ async def _apply_scraped_tags(
             )
             continue
 
-        if overwrite or (assoc.source or "") != "user":
+        if (assoc.source or "") != "user":
             assoc.source = source_name
         if overwrite or scraped.rating > (assoc.weight or 0.0):
             assoc.weight = scraped.rating
