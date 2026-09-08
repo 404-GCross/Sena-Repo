@@ -378,7 +378,7 @@ async def scrape_game_cover(
             try:
                 result = await scraper.search_best(game.name, company_hint)
                 if result:
-                    replace_tags = not replaced_tags and bool(result.tags)
+                    replace_tags = not replaced_tags
                     found_results.append({
                         "source": scraper.source_name,
                         "title": result.title,

@@ -561,7 +561,7 @@ async def scrape_single_game(
         ordered_results.reverse()
     replaced_tags = False
     for source_name, result in ordered_results:
-        replace_tags = mode == "overwrite" and not replaced_tags and bool(result.tags)
+        replace_tags = mode == "overwrite" and not replaced_tags
         await _apply_result(
             result,
             source_name,
@@ -684,6 +684,8 @@ async def _apply_result(
         if col and result.source_id and (overwrite or not getattr(game, col, None)):
             setattr(game, col, result.source_id)
             session.add(game)
+        if replace_tags is True and not result.tags:
+            await _clear_game_tags(session, game)
         if result.tags:
             await _apply_scraped_tags(
                 session,
@@ -693,6 +695,15 @@ async def _apply_result(
                 overwrite=overwrite,
                 replace_existing=overwrite if replace_tags is None else replace_tags,
             )
+
+
+async def _clear_game_tags(session: AsyncSession, game: Game) -> None:
+    existing_result = await session.execute(
+        select(GameTag).where(GameTag.game_id == game.id)
+    )
+    for assoc in existing_result.scalars():
+        await session.delete(assoc)
+    await session.flush()
 
 
 async def _apply_scraped_tags(
@@ -705,15 +716,7 @@ async def _apply_scraped_tags(
     replace_existing: bool = False,
 ) -> None:
     if replace_existing:
-        existing_result = await session.execute(
-            select(GameTag).where(
-                GameTag.game_id == game.id,
-                GameTag.source != "user",
-            )
-        )
-        for assoc in existing_result.scalars():
-            await session.delete(assoc)
-        await session.flush()
+        await _clear_game_tags(session, game)
 
     for scraped in tags:
         name = scraped.name.strip()

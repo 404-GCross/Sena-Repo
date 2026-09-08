@@ -638,10 +638,9 @@ async def _replace_game_tags(
         seen.add(key)
         normalized.append(name)
 
-    filters = [GameTag.game_id == game.id]
-    if source_name != "user":
-        filters.append(GameTag.source != "user")
-    existing_result = await session.execute(select(GameTag).where(*filters))
+    existing_result = await session.execute(
+        select(GameTag).where(GameTag.game_id == game.id)
+    )
     for assoc in existing_result.scalars():
         await session.delete(assoc)
     await session.flush()

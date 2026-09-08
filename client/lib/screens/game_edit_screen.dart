@@ -51,7 +51,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
   String? _pendingBgFilePath;
   late List<GameVersion> _versions;
   late List<String> _tagNames;
-  late List<String> _userTagNames;
   int _mobileSection = 0;
   int _coverVersion = 0;
   int _bgVersion = 0;
@@ -89,11 +88,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final g = widget.game;
     _versions = List<GameVersion>.from(g.versions);
     _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
-    _userTagNames = _normalizeTagNames(
-      g.tags
-          .where((tag) => tag.source.trim().toLowerCase() == "user")
-          .map((tag) => tag.name),
-    );
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
@@ -133,7 +127,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final normalized = _normalizeTagNames(names);
     setState(() {
       _tagNames = normalized;
-      _userTagNames = List<String>.from(normalized);
       _tagsDirty = true;
       _tagSource = "user";
     });
@@ -231,16 +224,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
   void _clearTags() {
     if (_tagNames.isEmpty) return;
     _setManualTags(const <String>[]);
-  }
-
-  List<String> _metadataReplaceableTags() {
-    final userKeys = _userTagNames
-        .map((tag) => tag.trim().toLowerCase())
-        .where((tag) => tag.isNotEmpty)
-        .toSet();
-    return _normalizeTagNames(
-      _tagNames.where((tag) => !userKeys.contains(tag.trim().toLowerCase())),
-    );
   }
 
   Future<void> _save({bool popOnSave = true}) async {
@@ -2904,14 +2887,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
     final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
-    final currentMetadataTags = _metadataReplaceableTags();
+    final currentTags = List<String>.from(_tagNames);
     // Build initial selection state (outside StatefulBuilder so it persists across rebuilds)
     final useSearch = <String, bool>{};
     for (final f in currentFields.keys) {
       useSearch[f] = incoming[f]!.isNotEmpty && incoming[f] != currentFields[f];
     }
-    useSearch["标签"] = incomingTags.isNotEmpty &&
-        !_metadataTagsEqual(currentMetadataTags, incomingTags);
+    useSearch["标签"] = !_metadataTagsEqual(currentTags, incomingTags);
     useSearch["封面"] = hasCoverDiff;
     useSearch["背景"] = hasHeroDiff;
 
@@ -2930,7 +2912,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sourceName: sources[src] ?? src,
         currentFields: currentFields,
         incomingFields: incoming,
-        currentTags: currentMetadataTags,
+        currentTags: currentTags,
         incomingTags: incomingTags,
         initialSelection: useSearch,
         imageComparisons: [
@@ -2974,7 +2956,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       if (apply["日期"] == true) _date.text = incoming["日期"]!;
       if (apply["简介"] == true) _desc.text = incoming["简介"]!;
       if (apply["标签"] == true) {
-        _tagNames = _normalizeTagNames([..._userTagNames, ...incomingTags]);
+        _tagNames = _normalizeTagNames(incomingTags);
         _tagsDirty = true;
         _tagSource = src;
       }
@@ -4133,7 +4115,6 @@ class _MetadataApplyDialogState extends State<_MetadataApplyDialog> {
       _metadataNewTags(widget.incomingTags, widget.currentTags);
 
   bool get _tagsHaveDiff =>
-      widget.incomingTags.isNotEmpty &&
       !_metadataTagsEqual(widget.currentTags, widget.incomingTags);
 
   bool get _hasChanges {
@@ -4359,8 +4340,7 @@ class _MetadataTagDiffCard extends StatelessWidget {
     required this.onChanged,
   });
 
-  bool get _enabled => incomingTags.isNotEmpty &&
-      (addedTags.isNotEmpty || removedTags.isNotEmpty);
+  bool get _enabled => addedTags.isNotEmpty || removedTags.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -4398,7 +4378,9 @@ class _MetadataTagDiffCard extends StatelessWidget {
                     ? Icons.swap_horiz_rounded
                     : Icons.check_circle_outline_rounded,
                 label: _enabled
-                    ? "替换为 ${incomingTags.length} 个"
+                    ? incomingTags.isEmpty
+                        ? "清空标签"
+                        : "替换为 ${incomingTags.length} 个"
                     : "无变更",
                 color: _enabled ? Colors.green : hintColor(context),
               ),
