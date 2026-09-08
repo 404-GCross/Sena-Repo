@@ -1192,6 +1192,10 @@ class DownloadService with WidgetsBindingObserver {
   static const _downloadConnectTimeout = Duration(seconds: 20);
   static const _downloadIdleTimeout = Duration(seconds: 45);
   static const _downloadUserAgent = "Sena-Repo Downloader";
+  static const _browserDownloadUserAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+  static const List<int> _openListAria2SplitCandidates = [4, 2, 1];
   static const _parallelDownloadMinSize = 32 * 1024 * 1024;
   static const _parallelDownloadMinPartSize = 8 * 1024 * 1024;
   static const _parallelDownloadMaxParts = 8;
@@ -1796,6 +1800,29 @@ class DownloadService with WidgetsBindingObserver {
     return true;
   }
 
+  String _downloadUserAgentForTask(DownloadTask t) {
+    if (_normalizedSourceType(t) == "openlist") {
+      return _browserDownloadUserAgent;
+    }
+    return _downloadUserAgent;
+  }
+
+  String _downloadUserAgentProfile(DownloadTask t) =>
+      _normalizedSourceType(t) == "openlist" ? "browser" : "sena";
+
+  List<int> _aria2SplitCandidates(DownloadTask t) {
+    if (_normalizedSourceType(t) != "openlist") {
+      return const [_parallelDownloadMaxParts];
+    }
+    if (t.totalBytes > 0 && t.totalBytes < _parallelDownloadMinSize) {
+      return const [1];
+    }
+    return _openListAria2SplitCandidates;
+  }
+
+  bool _shouldRetryAria2WithLowerSplit(DownloadTask t, int split) =>
+      _normalizedSourceType(t) == "openlist" && split > 1;
+
   Future<_Aria2DownloadTarget?> _resolveAria2DownloadTarget(
     DownloadTask t,
   ) async {
@@ -1806,7 +1833,10 @@ class DownloadService with WidgetsBindingObserver {
       final resp = await _sendDownloadRequest(
         client,
         t.downloadUrl,
-        {"Range": "bytes=0-0"},
+        {
+          "Range": "bytes=0-0",
+          "User-Agent": _downloadUserAgentForTask(t),
+        },
         onFinalUri: (uri) => finalUri = uri,
       );
       final statusCode = resp.statusCode;
@@ -1815,6 +1845,7 @@ class DownloadService with WidgetsBindingObserver {
           : resp.contentLength;
       LoggerService().info(
         "aria2 target resolved: status=$statusCode "
+        "ua=${_downloadUserAgentProfile(t)} "
         "target=${finalUri == null ? "-" : _downloadLogTarget(finalUri!)} "
         "contentLength=${resp.contentLength ?? 0} "
         "contentRange=${resp.headers["content-range"] ?? "-"} "
@@ -1875,11 +1906,81 @@ class DownloadService with WidgetsBindingObserver {
           : 0.0;
     }
 
-    final args = await _aria2DownloadArgs(t, dest, aria2, aria2Url);
+    final splitCandidates = _aria2SplitCandidates(t);
+    for (var index = 0; index < splitCandidates.length; index++) {
+      final split = splitCandidates[index];
+      final result = await _runAria2Download(
+        t,
+        dest,
+        aria2,
+        aria2Url,
+        split: split,
+        attemptIndex: index,
+        attemptCount: splitCandidates.length,
+      );
+      if (result.success || result.stopped) return true;
+      final hasLowerSplit = index < splitCandidates.length - 1;
+      if (result.retryWithLowerSplit && hasLowerSplit) {
+        LoggerService().warn(
+          "aria2 download retrying with lower split: "
+          "source=${_normalizedSourceType(t)} split=$split "
+          "nextSplit=${splitCandidates[index + 1]} "
+          "status=${result.statusCode ?? "-"} "
+          "received=${result.receivedBytes}",
+        );
+        continue;
+      }
+      if (result.processStarted) {
+        await _discardOpenListAria2PartialForFallback(t, dest, splitCandidates);
+      }
+      return false;
+    }
+    return false;
+  }
+
+  Future<void> _discardOpenListAria2PartialForFallback(
+    DownloadTask t,
+    File dest,
+    List<int> splitCandidates,
+  ) async {
+    if (_normalizedSourceType(t) != "openlist") return;
+    if (!splitCandidates.any((split) => split > 1)) return;
+    LoggerService().warn(
+      "discard aria2 partial before Dart fallback: source=openlist",
+    );
+    try {
+      if (await dest.exists()) await dest.delete();
+    } catch (e) {
+      LoggerService().warn("discard aria2 partial failed: $e");
+    }
+    await _deleteAria2ControlFile(dest);
+    t.receivedBytes = 0;
+    t.progress = 0.0;
+  }
+
+  Future<_Aria2AttemptResult> _runAria2Download(
+    DownloadTask t,
+    File dest,
+    String aria2,
+    String aria2Url, {
+    required int split,
+    required int attemptIndex,
+    required int attemptCount,
+  }) async {
+    final args = await _aria2DownloadArgs(
+      t,
+      dest,
+      aria2,
+      aria2Url,
+      split: split,
+      userAgent: _downloadUserAgentForTask(t),
+    );
     final invocation = _externalToolInvocation(aria2, args);
     LoggerService().info(
       "aria2 download started: platform=${Platform.operatingSystem} "
-      "source=${_normalizedSourceType(t)} exe=${invocation.$1} "
+      "source=${_normalizedSourceType(t)} split=$split "
+      "attempt=${attemptIndex + 1}/$attemptCount "
+      "ua=${_downloadUserAgentProfile(t)} exe=${invocation.$1} "
       "args=${_redactAria2Args(invocation.$2)}",
     );
 
@@ -1888,7 +1989,12 @@ class DownloadService with WidgetsBindingObserver {
       proc = await Process.start(invocation.$1, invocation.$2);
     } catch (e, stackTrace) {
       LoggerService().warn("aria2 process start failed", e, stackTrace);
-      return false;
+      return _Aria2AttemptResult.failed(
+        retryWithLowerSplit: false,
+        processStarted: false,
+        receivedBytes: t.receivedBytes,
+        summary: e.toString(),
+      );
     }
 
     t._downloadProcess = proc;
@@ -1956,7 +2062,7 @@ class DownloadService with WidgetsBindingObserver {
         final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
         LoggerService().info(
           "aria2 download trace: platform=${Platform.operatingSystem} "
-          "received=${t.receivedBytes} total=${t.totalBytes} "
+          "split=$split received=${t.receivedBytes} total=${t.totalBytes} "
           "windowSpeed=$windowSpeed",
         );
         lastTraceLog = now;
@@ -1984,7 +2090,7 @@ class DownloadService with WidgetsBindingObserver {
       while (!exited) {
         if (_stopped(t)) {
           proc.kill();
-          return true;
+          return _Aria2AttemptResult.stopped();
         }
         await Future.delayed(const Duration(milliseconds: 500));
         await updateProgress();
@@ -1993,7 +2099,7 @@ class DownloadService with WidgetsBindingObserver {
       await stdoutSub.cancel();
       await stderrSub.cancel();
       await updateProgress(force: true);
-      if (_stopped(t)) return true;
+      if (_stopped(t)) return _Aria2AttemptResult.stopped();
 
       if (exitCode != 0) {
         final summary = _aria2OutputSummary(stdoutBytes, stderrBytes);
@@ -2005,21 +2111,59 @@ class DownloadService with WidgetsBindingObserver {
             t.progress = (fileSize / t.totalBytes).clamp(0.0, 1.0).toDouble();
           }
         }
+        final retryWithLowerSplit = _shouldRetryAria2WithLowerSplit(t, split);
         LoggerService().warn(
-          "aria2 download failed; falling back to Dart downloader: "
-          "source=${_normalizedSourceType(t)} exit=$exitCode "
+          "aria2 download failed: source=${_normalizedSourceType(t)} "
+          "split=$split exit=$exitCode "
           "status=${statusCode ?? "-"} received=$fileSize "
+          "retryLower=$retryWithLowerSplit "
           "${summary.isEmpty ? "" : "summary=$summary"}",
         );
-        await _deleteAria2ControlFile(dest);
-        return false;
+        if (!retryWithLowerSplit) await _deleteAria2ControlFile(dest);
+        return _Aria2AttemptResult.failed(
+          retryWithLowerSplit: retryWithLowerSplit,
+          processStarted: true,
+          statusCode: statusCode,
+          receivedBytes: fileSize,
+          summary: summary,
+        );
       }
 
       final fileSize = await dest.exists() ? await dest.length() : 0;
-      if (fileSize == 0) throw http.ClientException("aria2 未收到任何数据");
+      if (fileSize == 0) {
+        final retryWithLowerSplit = _shouldRetryAria2WithLowerSplit(t, split);
+        LoggerService().warn(
+          "aria2 download empty: source=${_normalizedSourceType(t)} "
+          "split=$split retryLower=$retryWithLowerSplit",
+        );
+        if (!retryWithLowerSplit) await _deleteAria2ControlFile(dest);
+        return _Aria2AttemptResult.failed(
+          retryWithLowerSplit: retryWithLowerSplit,
+          processStarted: true,
+          receivedBytes: 0,
+        );
+      }
       if (t.totalBytes > 0 && fileSize != t.totalBytes) {
-        throw http.ClientException(
-          "aria2 文件不完整: expected=${t.totalBytes} actual=$fileSize",
+        final retryWithLowerSplit = _shouldRetryAria2WithLowerSplit(t, split);
+        LoggerService().warn(
+          "aria2 download incomplete: source=${_normalizedSourceType(t)} "
+          "split=$split expected=${t.totalBytes} actual=$fileSize "
+          "retryLower=$retryWithLowerSplit",
+        );
+        t.receivedBytes = fileSize > t.totalBytes ? 0 : fileSize;
+        if (fileSize > t.totalBytes) {
+          try {
+            await dest.delete();
+          } catch (_) {}
+          t.progress = 0.0;
+        } else {
+          t.progress = (fileSize / t.totalBytes).clamp(0.0, 1.0).toDouble();
+        }
+        if (!retryWithLowerSplit) await _deleteAria2ControlFile(dest);
+        return _Aria2AttemptResult.failed(
+          retryWithLowerSplit: retryWithLowerSplit,
+          processStarted: true,
+          receivedBytes: t.receivedBytes,
         );
       }
       t.receivedBytes = fileSize;
@@ -2036,10 +2180,10 @@ class DownloadService with WidgetsBindingObserver {
           .clamp(1, 1 << 31);
       final avgSpeed = (fileSize * 1000 / elapsedMs).round();
       LoggerService().info(
-        "aria2 download completed: bytes=$fileSize elapsedMs=$elapsedMs "
-        "avgSpeed=$avgSpeed",
+        "aria2 download completed: source=${_normalizedSourceType(t)} "
+        "split=$split bytes=$fileSize elapsedMs=$elapsedMs avgSpeed=$avgSpeed",
       );
-      return true;
+      return _Aria2AttemptResult.succeeded();
     } finally {
       try {
         await stdoutSub.cancel();
@@ -2055,10 +2199,10 @@ class DownloadService with WidgetsBindingObserver {
     DownloadTask t,
     File dest,
     String aria2,
-    String downloadUrl,
-  ) async {
-    final source = _normalizedSourceType(t);
-    final split = source == "openlist" ? 1 : _parallelDownloadMaxParts;
+    String downloadUrl, {
+    required int split,
+    required String userAgent,
+  }) async {
     final args = <String>[
       "--continue=true",
       "--allow-overwrite=true",
@@ -2072,7 +2216,7 @@ class DownloadService with WidgetsBindingObserver {
       "--console-log-level=warn",
       "--show-console-readout=true",
       "--download-result=hide",
-      "--user-agent=$_downloadUserAgent",
+      "--user-agent=$userAgent",
       "--split=$split",
       "--max-connection-per-server=$split",
       "--dir=${dest.parent.path}",
@@ -2089,7 +2233,10 @@ class DownloadService with WidgetsBindingObserver {
         args.add("--ca-certificate=$caCertificate");
       }
     }
-    if (split > 1) args.add("--min-split-size=32M");
+    if (split > 1) {
+      args.add("--min-split-size=32M");
+      args.add("--stream-piece-selector=inorder");
+    }
     final limitKbps = await downloadSpeedLimitKbps;
     if (limitKbps > 0) args.add("--max-download-limit=${limitKbps}K");
     args.add(downloadUrl);
@@ -2104,6 +2251,11 @@ class DownloadService with WidgetsBindingObserver {
       }
       if (arg.toLowerCase().startsWith("--header=authorization:")) {
         return "--header=Authorization: [REDACTED]";
+      }
+      if (arg.startsWith("--user-agent=")) {
+        return arg == "--user-agent=$_browserDownloadUserAgent"
+            ? "--user-agent=[browser]"
+            : "--user-agent=[sena]";
       }
       return arg;
     }).toList();
@@ -2147,7 +2299,9 @@ class DownloadService with WidgetsBindingObserver {
     _trackTaskClient(t, client);
     IOSink? sink;
     try {
-      final headers = <String, String>{};
+      final headers = <String, String>{
+        "User-Agent": _downloadUserAgentForTask(t),
+      };
 
       if (t.receivedBytes > 0) {
         headers["Range"] = "bytes=${t.receivedBytes}-";
@@ -2158,6 +2312,7 @@ class DownloadService with WidgetsBindingObserver {
       _emit();
       LoggerService().info(
         "download response: status=${resp.statusCode} "
+        "ua=${_downloadUserAgentProfile(t)} "
         "contentLength=${resp.contentLength ?? 0} "
         "contentRange=${resp.headers["content-range"] ?? "-"} "
         "acceptRanges=${resp.headers["accept-ranges"] ?? "-"}",
@@ -3508,6 +3663,53 @@ class _Aria2DownloadTarget {
   final int? totalBytes;
 
   _Aria2DownloadTarget({required this.url, required this.totalBytes});
+}
+
+class _Aria2AttemptResult {
+  final bool success;
+  final bool stopped;
+  final bool retryWithLowerSplit;
+  final bool processStarted;
+  final int? statusCode;
+  final int receivedBytes;
+  final String summary;
+
+  const _Aria2AttemptResult({
+    required this.success,
+    required this.stopped,
+    required this.retryWithLowerSplit,
+    required this.processStarted,
+    this.statusCode,
+    this.receivedBytes = 0,
+    this.summary = "",
+  });
+
+  const _Aria2AttemptResult.succeeded()
+      : success = true,
+        stopped = false,
+        retryWithLowerSplit = false,
+        processStarted = true,
+        statusCode = null,
+        receivedBytes = 0,
+        summary = "";
+
+  const _Aria2AttemptResult.stopped()
+      : success = false,
+        stopped = true,
+        retryWithLowerSplit = false,
+        processStarted = true,
+        statusCode = null,
+        receivedBytes = 0,
+        summary = "";
+
+  const _Aria2AttemptResult.failed({
+    required this.retryWithLowerSplit,
+    required this.processStarted,
+    this.statusCode,
+    this.receivedBytes = 0,
+    this.summary = "",
+  })  : success = false,
+        stopped = false;
 }
 
 class _ParallelDownloadState {
