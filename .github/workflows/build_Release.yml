@@ -64,12 +64,14 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358" 2>&1 || \
           yes | "$ANDROID_HOME/tools/bin/sdkmanager" --install "ndk;28.2.13676358" 2>&1 || true
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
-      - name: Copy 7z binary
+      - name: Copy bundled download tools
         run: |
           mkdir -p assets/binaries
           cp ../7zip-zstd/Android/7zz assets/binaries/7zz
           cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/android-aarch64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
       - name: Enable Android
         run: |
           flutter config --enable-android
@@ -105,7 +107,7 @@ jobs:
         with:
           flutter-version: "3.44.8"
           channel: "stable"
-      - name: Copy 7z binary
+      - name: Copy bundled download tools
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
@@ -114,6 +116,7 @@ jobs:
           if (Test-Path "../7zip-zstd/Windows/License.txt") { Copy-Item "../7zip-zstd/Windows/License.txt" assets/binaries/LICENSE-7z.txt }
           if (Test-Path "../7zip-zstd/Windows/readme.txt") { Copy-Item "../7zip-zstd/Windows/readme.txt" assets/binaries/README-7z.txt }
           Copy-Item "../7zip-zstd/NOTICE.txt" assets/binaries/NOTICE-7zip-zstd.txt
+          Copy-Item "assets/binaries/aria2/windows-x64/aria2c.exe" assets/binaries/aria2c.exe
       - name: Sync version to source files
         shell: pwsh
         run: |
@@ -235,12 +238,14 @@ jobs:
             libayatana-appindicator3-dev libsecret-1-dev p7zip-full \
             ruby ruby-dev build-essential rpm
           sudo gem install --no-document fpm
-      - name: Copy 7z binary
+      - name: Copy bundled download tools
         run: |
           mkdir -p assets/binaries
           cp ../7zip-zstd/Linux/7zz assets/binaries/7zz
           cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/linux-x64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
       - name: Enable Linux
         run: |
           flutter config --enable-linux-desktop

@@ -103,12 +103,14 @@ jobs:
           # Tell AGP where to find NDK so it skips auto-download
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
-      - name: Copy 7z binary (Android ARM64)
+      - name: Copy bundled download tools (Android ARM64)
         run: |
           mkdir -p assets/binaries
           cp ../7zip-zstd/Android/7zz assets/binaries/7zz
           cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/android-aarch64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
 
       - name: Enable Android + generate platform files
         run: |
@@ -163,7 +165,7 @@ jobs:
           flutter-version: "3.44.8"
           channel: "stable"
 
-      - name: Copy 7z binary (Windows)
+      - name: Copy bundled download tools (Windows)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
@@ -172,6 +174,7 @@ jobs:
           if (Test-Path "../7zip-zstd/Windows/License.txt") { Copy-Item "../7zip-zstd/Windows/License.txt" assets/binaries/LICENSE-7z.txt }
           if (Test-Path "../7zip-zstd/Windows/readme.txt") { Copy-Item "../7zip-zstd/Windows/readme.txt" assets/binaries/README-7z.txt }
           Copy-Item "../7zip-zstd/NOTICE.txt" assets/binaries/NOTICE-7zip-zstd.txt
+          Copy-Item "assets/binaries/aria2/windows-x64/aria2c.exe" assets/binaries/aria2c.exe
 
       - name: Enable Windows + generate platform files
         run: |
@@ -301,12 +304,14 @@ jobs:
 
       # Linux uses system 7z from p7zip-full (already installed above)
 
-      - name: Copy 7z binary (Linux)
+      - name: Copy bundled download tools (Linux)
         run: |
           mkdir -p assets/binaries
           cp ../7zip-zstd/Linux/7zz assets/binaries/7zz
           cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/linux-x64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
 
       - name: Enable Linux + generate platform files
         run: |

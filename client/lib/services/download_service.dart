@@ -1,4 +1,4 @@
-/// Download service — stream download with progress + 7z extraction.
+/// Download service — bundled aria2 download with Dart fallback + 7z extraction.
 /// Windows: 7z.exe + 7z.dll (x64, full format support incl. RAR)
 /// Linux:   7zz (standalone x64)
 ///
@@ -61,6 +61,7 @@ class DownloadTask {
   String? outputPath;
   final DateTime startedAt;
   http.Client? _client;
+  Process? _downloadProcess;
   bool _cancelled = false;
   bool headersReceived = false;
   bool needsPassword = false;
@@ -763,6 +764,7 @@ class DownloadService with WidgetsBindingObserver {
   // ── binary management ──
 
   String? _sevenZipPath;
+  String? _aria2Path;
   Process? _extractionProcess;
   bool _userSkippedSetup = false;
   Future<bool> Function()? onSetupNeeded;
@@ -1189,7 +1191,7 @@ class DownloadService with WidgetsBindingObserver {
   static const _retryDelays = [1, 3, 7]; // seconds
   static const _downloadConnectTimeout = Duration(seconds: 20);
   static const _downloadIdleTimeout = Duration(seconds: 45);
-  static const _downloadUserAgent = "Sena-Repo Flutter Downloader";
+  static const _downloadUserAgent = "Sena-Repo Downloader";
   static const _parallelDownloadMinSize = 32 * 1024 * 1024;
   static const _parallelDownloadMinPartSize = 8 * 1024 * 1024;
   static const _parallelDownloadMaxParts = 8;
@@ -1266,9 +1268,7 @@ class DownloadService with WidgetsBindingObserver {
     for (int attempt = 0; attempt <= _maxRetries; attempt++) {
       if (_stopped(t)) return;
 
-      final hasParallelState = await _hasParallelDownloadState(dest);
-      final speedLimitEnabled = await downloadSpeedLimitKbps > 0;
-      if (hasParallelState && speedLimitEnabled) {
+      if (await _hasParallelDownloadState(dest)) {
         final state = await _readParallelDownloadState(dest);
         if (state != null) {
           await _fallbackParallelToStream(
@@ -1276,21 +1276,13 @@ class DownloadService with WidgetsBindingObserver {
             dest,
             state.parts,
             state.totalBytes,
-            "speed-limit-enabled",
+            "aria2-resume",
           );
         } else {
           await _discardParallelDownloadState(dest);
           t.receivedBytes = 0;
           t.totalBytes = 0;
         }
-      } else if (hasParallelState) {
-        if (await dest.exists()) {
-          try {
-            await dest.delete();
-          } catch (_) {}
-        }
-        final parallelBytes = await _parallelDownloadedBytes(dest);
-        if (parallelBytes > 0) t.receivedBytes = parallelBytes;
       } else if (t.receivedBytes > 0) {
         LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
@@ -1311,9 +1303,12 @@ class DownloadService with WidgetsBindingObserver {
 
       try {
         t.headersReceived = false;
-        final usedParallel = await _attemptParallel(t, dest);
-        if (!usedParallel) {
-          await _attempt(t, dest);
+        final usedAria2 = await _attemptAria2(t, dest);
+        if (!usedAria2) {
+          final usedParallel = await _attemptParallel(t, dest);
+          if (!usedParallel) {
+            await _attempt(t, dest);
+          }
         }
         return; // success
       } on DownloadHttpException catch (e) {
@@ -1620,6 +1615,490 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _deleteFileQuietly(String path) async {
     try {
       await File(path).delete();
+    } catch (_) {}
+  }
+
+  String? _aria2AssetPath() {
+    if (Platform.isWindows) return "assets/binaries/aria2c.exe";
+    if (Platform.isLinux) return "assets/binaries/aria2c";
+    if (Platform.isAndroid) return "assets/binaries/aria2c";
+    return null;
+  }
+
+  String? _aria2FallbackAssetPath() {
+    if (Platform.isWindows) {
+      return "assets/binaries/aria2/windows-x64/aria2c.exe";
+    }
+    if (Platform.isLinux) return "assets/binaries/aria2/linux-x64/aria2c";
+    if (Platform.isAndroid) {
+      return "assets/binaries/aria2/android-aarch64/aria2c";
+    }
+    return null;
+  }
+
+  String _aria2FileName() => Platform.isWindows ? "aria2c.exe" : "aria2c";
+
+  Future<ByteData?> _loadAria2Asset() async {
+    for (final asset in [_aria2AssetPath(), _aria2FallbackAssetPath()]) {
+      if (asset == null) continue;
+      try {
+        final data = await rootBundle.load(asset);
+        LoggerService().info(
+          "aria2 asset loaded: $asset size=${data.lengthInBytes}",
+        );
+        return data;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<String?> _getAria2Path() async {
+    if (_aria2Path != null) return _aria2Path;
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isAndroid) {
+      return null;
+    }
+
+    final data = await _loadAria2Asset();
+    if (data == null) {
+      LoggerService().warn(
+        "aria2 asset unavailable for platform=${Platform.operatingSystem}",
+      );
+      return null;
+    }
+
+    final supportDir = await getApplicationSupportDirectory();
+    final platformDir = Directory(
+      "${supportDir.path}${Platform.pathSeparator}aria2"
+      "${Platform.pathSeparator}${Platform.operatingSystem}",
+    );
+    await platformDir.create(recursive: true);
+    final dest = File(
+      "${platformDir.path}${Platform.pathSeparator}${_aria2FileName()}",
+    );
+    final assetBytes = data.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+
+    var shouldWrite = !await dest.exists();
+    if (!shouldWrite) {
+      try {
+        shouldWrite = await dest.length() != assetBytes.length;
+      } catch (_) {
+        shouldWrite = true;
+      }
+    }
+    Future<void> installAsset() async {
+      await dest.writeAsBytes(assetBytes, flush: true);
+    }
+
+    Future<void> chmodExecutable() async {
+      if (!Platform.isLinux && !Platform.isAndroid) return;
+      try {
+        await Process.run(
+          Platform.isAndroid ? "/system/bin/chmod" : "chmod",
+          ["+x", dest.path],
+        );
+      } catch (_) {}
+    }
+
+    if (shouldWrite) await installAsset();
+    await chmodExecutable();
+
+    if (!await _checkAria2(dest.path)) {
+      await installAsset();
+      await chmodExecutable();
+      if (!await _checkAria2(dest.path)) {
+        LoggerService().warn("aria2 binary check failed: ${dest.path}");
+        return null;
+      }
+    }
+
+    _aria2Path = dest.path;
+    return _aria2Path;
+  }
+
+  Future<bool> _checkAria2(String path) async {
+    try {
+      final invocation = _externalToolInvocation(path, ["--version"]);
+      final result = await Process.run(
+        invocation.$1,
+        invocation.$2,
+      ).timeout(const Duration(seconds: 5));
+      final output = "${result.stdout}${result.stderr}";
+      return result.exitCode == 0 && output.contains("aria2 version");
+    } catch (e) {
+      LoggerService().warn("aria2 version check failed", e);
+      return false;
+    }
+  }
+
+  (String, List<String>) _externalToolInvocation(
+    String exe,
+    List<String> args,
+  ) {
+    if (!Platform.isAndroid) return (exe, args);
+    return ("/system/bin/linker64", [exe, ...args]);
+  }
+
+  Future<String?> _androidAria2CaCertificatePath(String aria2) async {
+    if (!Platform.isAndroid) return null;
+    final certDir = Directory("/system/etc/security/cacerts");
+    if (!await certDir.exists()) {
+      LoggerService().warn("Android CA directory not found for aria2");
+      return null;
+    }
+
+    final files = <File>[];
+    await for (final entry in certDir.list()) {
+      if (entry is File) files.add(entry);
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
+    if (files.isEmpty) {
+      LoggerService().warn("Android CA directory is empty for aria2");
+      return null;
+    }
+
+    final output = File(
+      "${File(aria2).parent.path}${Platform.pathSeparator}ca-certificates.pem",
+    );
+    IOSink? sink;
+    try {
+      sink = output.openWrite(mode: FileMode.write);
+      for (final file in files) {
+        sink.add(await file.readAsBytes());
+        sink.add(const Utf8Encoder().convert("\n"));
+      }
+      await sink.flush();
+      await sink.close();
+      return output.path;
+    } catch (e) {
+      LoggerService().warn("Android CA bundle setup failed for aria2", e);
+      return null;
+    } finally {
+      try {
+        await sink?.close();
+      } catch (_) {}
+    }
+  }
+
+  bool _canUseAria2Download(DownloadTask t) {
+    final uri = Uri.tryParse(t.downloadUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return false;
+    if (uri.path.contains("/api/download/signed/")) return true;
+    if (RegExp(r"(^|/)api/").hasMatch(uri.path)) {
+      LoggerService().info(
+        "aria2 download skipped: authenticated api url "
+        "target=${_downloadLogTarget(uri)}",
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<int?> _probeDownloadLengthForAria2(DownloadTask t) async {
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    try {
+      final resp = await _sendDownloadRequest(
+        client,
+        t.downloadUrl,
+        {"Range": "bytes=0-0"},
+      );
+      final total = resp.statusCode == 206
+          ? _parseContentRangeTotal(resp.headers["content-range"])
+          : resp.contentLength;
+      LoggerService().info(
+        "aria2 length probe: status=${resp.statusCode} "
+        "contentLength=${resp.contentLength ?? 0} "
+        "contentRange=${resp.headers["content-range"] ?? "-"} "
+        "total=${total ?? 0}",
+      );
+      return total != null && total > 0 ? total : null;
+    } catch (e) {
+      LoggerService().warn("aria2 length probe failed", e);
+      return null;
+    } finally {
+      client.close();
+      _untrackTaskClient(t, client);
+    }
+  }
+
+  Future<bool> _attemptAria2(DownloadTask t, File dest) async {
+    if (!_canUseAria2Download(t)) return false;
+
+    final aria2 = await _getAria2Path();
+    if (aria2 == null) return false;
+
+    await dest.parent.create(recursive: true);
+    final totalHint = t.totalBytes > 0
+        ? t.totalBytes
+        : await _probeDownloadLengthForAria2(t);
+    if (_stopped(t)) return true;
+    if (totalHint != null && totalHint > 0) {
+      t.totalBytes = totalHint;
+      if (await dest.exists()) {
+        t.receivedBytes = await dest.length();
+      }
+      t.progress = t.receivedBytes > 0
+          ? t.receivedBytes / t.totalBytes
+          : 0.0;
+    }
+
+    final args = await _aria2DownloadArgs(t, dest, aria2);
+    final invocation = _externalToolInvocation(aria2, args);
+    LoggerService().info(
+      "aria2 download started: platform=${Platform.operatingSystem} "
+      "source=${_normalizedSourceType(t)} exe=${invocation.$1} "
+      "args=${_redactAria2Args(invocation.$2)}",
+    );
+
+    final Process proc;
+    try {
+      proc = await Process.start(invocation.$1, invocation.$2);
+    } catch (e, stackTrace) {
+      LoggerService().warn("aria2 process start failed", e, stackTrace);
+      return false;
+    }
+
+    t._downloadProcess = proc;
+    t.headersReceived = true;
+    final startedAt = DateTime.now();
+    var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
+    var lastStateSave = DateTime.now();
+    var lastTraceLog = DateTime.now();
+    var lastTraceBytes = t.receivedBytes;
+    final uiEmitIntervalMs = Platform.isAndroid ? 500 : 250;
+    final stateSaveIntervalMs = Platform.isAndroid ? 5000 : 2000;
+    const notificationIntervalMs = 5000;
+    final stdoutBytes = <int>[];
+    final stderrBytes = <int>[];
+
+    void appendOutput(List<int> target, List<int> chunk) {
+      final remaining = 8192 - target.length;
+      if (remaining <= 0) return;
+      target.addAll(chunk.take(remaining));
+    }
+
+    Future<void> updateProgress({bool force = false}) async {
+      final now = DateTime.now();
+      final received = await dest.exists() ? await dest.length() : 0;
+      if (received > 0 || t.totalBytes > 0) {
+        t.receivedBytes = received;
+        if (t.totalBytes > 0) {
+          t.progress = (received / t.totalBytes)
+              .clamp(0.0, 1.0)
+              .toDouble();
+        }
+      }
+
+      final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
+      if (elapsed >= 1000) {
+        t.speedBytesPerSecond =
+            ((t.receivedBytes - t._lastBytes) / elapsed * 1000).round();
+        t._lastBytes = t.receivedBytes;
+        t._lastSpeedTime = now;
+      }
+
+      if (force ||
+          now.difference(lastUiEmit).inMilliseconds >= uiEmitIntervalMs) {
+        lastUiEmit = now;
+        _emit(save: false);
+      }
+      if (now.difference(lastStateSave).inMilliseconds >= stateSaveIntervalMs) {
+        lastStateSave = now;
+        _saveTasks();
+      }
+      final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
+      if (force || notifyElapsed >= notificationIntervalMs) {
+        t._lastNotifyTime = now;
+        NotificationService().showDownloadProgress(
+          id: t.gameId,
+          gameName: t.gameName,
+          progress: t.progress,
+          receivedBytes: t.receivedBytes,
+          totalBytes: t.totalBytes,
+        );
+      }
+      final traceElapsed = now.difference(lastTraceLog).inMilliseconds;
+      if (traceElapsed >= 10000) {
+        final windowBytes = t.receivedBytes - lastTraceBytes;
+        final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
+        LoggerService().info(
+          "aria2 download trace: platform=${Platform.operatingSystem} "
+          "received=${t.receivedBytes} total=${t.totalBytes} "
+          "windowSpeed=$windowSpeed",
+        );
+        lastTraceLog = now;
+        lastTraceBytes = t.receivedBytes;
+      }
+    }
+
+    final stdoutSub = proc.stdout.listen((d) => appendOutput(stdoutBytes, d));
+    final stderrSub = proc.stderr.listen((d) => appendOutput(stderrBytes, d));
+    var exited = false;
+    var exitCode = -1;
+    unawaited(proc.exitCode.then((code) {
+      exitCode = code;
+      exited = true;
+    }));
+
+    try {
+      try {
+        await proc.stdin.close();
+      } catch (_) {}
+      t._lastBytes = t.receivedBytes;
+      t._lastSpeedTime = DateTime.now();
+      await updateProgress(force: true);
+
+      while (!exited) {
+        if (_stopped(t)) {
+          proc.kill();
+          return true;
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+        await updateProgress();
+      }
+
+      await stdoutSub.cancel();
+      await stderrSub.cancel();
+      await updateProgress(force: true);
+      if (_stopped(t)) return true;
+
+      if (exitCode != 0) {
+        final summary = _aria2OutputSummary(stdoutBytes, stderrBytes);
+        final statusCode = _parseAria2HttpStatus(summary);
+        if (statusCode != null) {
+          throw DownloadHttpException(statusCode, "aria2 HTTP $statusCode");
+        }
+        throw http.ClientException(
+          "aria2 下载失败（exit=$exitCode）${summary.isEmpty ? "" : ": $summary"}",
+        );
+      }
+
+      final fileSize = await dest.exists() ? await dest.length() : 0;
+      if (fileSize == 0) throw http.ClientException("aria2 未收到任何数据");
+      if (t.totalBytes > 0 && fileSize != t.totalBytes) {
+        throw http.ClientException(
+          "aria2 文件不完整: expected=${t.totalBytes} actual=$fileSize",
+        );
+      }
+      t.receivedBytes = fileSize;
+      if (t.totalBytes <= 0) t.totalBytes = fileSize;
+      t.progress = 1.0;
+      t.headersReceived = true;
+      await _deleteParallelDownloadState(dest);
+      await _deleteAria2ControlFile(dest);
+      _emit();
+
+      final elapsedMs = DateTime.now()
+          .difference(startedAt)
+          .inMilliseconds
+          .clamp(1, 1 << 31);
+      final avgSpeed = (fileSize * 1000 / elapsedMs).round();
+      LoggerService().info(
+        "aria2 download completed: bytes=$fileSize elapsedMs=$elapsedMs "
+        "avgSpeed=$avgSpeed",
+      );
+      return true;
+    } finally {
+      try {
+        await stdoutSub.cancel();
+      } catch (_) {}
+      try {
+        await stderrSub.cancel();
+      } catch (_) {}
+      if (identical(t._downloadProcess, proc)) t._downloadProcess = null;
+    }
+  }
+
+  Future<List<String>> _aria2DownloadArgs(
+    DownloadTask t,
+    File dest,
+    String aria2,
+  ) async {
+    final source = _normalizedSourceType(t);
+    final split = source == "openlist" ? 1 : _parallelDownloadMaxParts;
+    final args = <String>[
+      "--continue=true",
+      "--allow-overwrite=true",
+      "--auto-file-renaming=false",
+      "--file-allocation=none",
+      "--max-tries=5",
+      "--retry-wait=2",
+      "--timeout=${_downloadIdleTimeout.inSeconds}",
+      "--connect-timeout=${_downloadConnectTimeout.inSeconds}",
+      "--summary-interval=1",
+      "--console-log-level=warn",
+      "--show-console-readout=true",
+      "--download-result=hide",
+      "--user-agent=$_downloadUserAgent",
+      "--split=$split",
+      "--max-connection-per-server=$split",
+      "--dir=${dest.parent.path}",
+      "--out=${_safeName(dest.path)}",
+    ];
+    if (Platform.isAndroid) {
+      final caCertificate = await _androidAria2CaCertificatePath(aria2);
+      if (caCertificate == null) {
+        LoggerService().warn(
+          "aria2 Android CA bundle unavailable; disabling certificate check",
+        );
+        args.add("--check-certificate=false");
+      } else {
+        args.add("--ca-certificate=$caCertificate");
+      }
+    }
+    if (split > 1) args.add("--min-split-size=32M");
+    final limitKbps = await downloadSpeedLimitKbps;
+    if (limitKbps > 0) args.add("--max-download-limit=${limitKbps}K");
+    args.add(t.downloadUrl);
+    return args;
+  }
+
+  List<String> _redactAria2Args(List<String> args) {
+    return args.map((arg) {
+      final uri = Uri.tryParse(arg);
+      if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
+        return _downloadLogTarget(uri);
+      }
+      if (arg.toLowerCase().startsWith("--header=authorization:")) {
+        return "--header=Authorization: [REDACTED]";
+      }
+      return arg;
+    }).toList();
+  }
+
+  String _aria2OutputSummary(List<int> stdoutBytes, List<int> stderrBytes) {
+    final raw = utf8.decode(
+      [...stderrBytes, ...stdoutBytes],
+      allowMalformed: true,
+    );
+    final redacted = raw
+        .replaceAll(RegExp(r"https?://\S+"), "[URL]")
+        .replaceAll(RegExp(r"\s+"), " ")
+        .trim();
+    if (redacted.length <= 600) return redacted;
+    return "${redacted.substring(0, 600)}...";
+  }
+
+  int? _parseAria2HttpStatus(String output) {
+    final patterns = [
+      RegExp(r"\bstatus=(\d{3})\b", caseSensitive: false),
+      RegExp(r"\bHTTP(?:/\d(?:\.\d)?)?\s+(\d{3})\b", caseSensitive: false),
+    ];
+    for (final pattern in patterns) {
+      final matches = pattern.allMatches(output).toList();
+      if (matches.isNotEmpty) {
+        return int.tryParse(matches.last.group(1)!);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _deleteAria2ControlFile(File dest) async {
+    try {
+      await File("${dest.path}.aria2").delete();
     } catch (_) {}
   }
 
@@ -2914,6 +3393,14 @@ class DownloadService with WidgetsBindingObserver {
       t._client?.close();
     } catch (_) {}
     t._client = null;
+    _killTaskDownloadProcess(t);
+  }
+
+  void _killTaskDownloadProcess(DownloadTask t) {
+    try {
+      t._downloadProcess?.kill();
+    } catch (_) {}
+    t._downloadProcess = null;
   }
 
   void _setStatus(DownloadTask t, String s) {
@@ -2936,6 +3423,7 @@ class DownloadService with WidgetsBindingObserver {
         await tmp.delete();
       } catch (_) {}
       await _deleteParallelDownloadState(tmp);
+      await _deleteAria2ControlFile(tmp);
     } catch (_) {}
   }
 
