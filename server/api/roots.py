@@ -22,6 +22,7 @@ from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from services.importer import cleanup_empty_companies, import_from_root
 from utils.secrets import encrypt_secret
+from utils.process_lock import process_lock, scan_lock_path
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,12 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
             result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
             if result.get("skipped"):
                 logger.info("Background scan skipped: scan already running")
+                _set_scan_state(
+                    status="idle",
+                    current_root=None,
+                    finished_at=time.time(),
+                    message="已有扫描任务正在运行",
+                )
         except Exception:
             logger.exception("Background scan failed")
             _set_scan_state(
@@ -285,6 +292,11 @@ async def clear_and_refresh_roots(
     if _scan_active():
         raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
 
+    config = load_config()
+    with process_lock(scan_lock_path(config.data_path), blocking=False) as locked:
+        if not locked:
+            raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
+
     count_result = await session.execute(select(func.count()).select_from(Game))
     cleared_games = int(count_result.scalar_one() or 0)
     await session.execute(delete(GameTag))
@@ -295,7 +307,6 @@ async def clear_and_refresh_roots(
 
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
-    config = load_config()
     from api.settings import _load_scan_settings
     _load_scan_settings(config)
     _set_scan_state(
@@ -356,43 +367,46 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
     from api.settings import _load_scan_settings, _mark_auto_scan
     _load_scan_settings(config)
     total_games = 0
-    async with _scan_lock:
-        async with database._session_factory() as session:
-            query = select(RootDirectory)
-            if root_ids is not None:
-                query = query.where(RootDirectory.id.in_(root_ids))
-            result = await session.execute(query)
-            roots = result.scalars().all()
-            _set_scan_state(
-                status="running",
-                roots_total=len(roots),
-                roots_completed=0,
-                current_root=None,
-                started_at=time.time(),
-                finished_at=None,
-                message=None,
-            )
-            for root in roots:
+    with process_lock(scan_lock_path(config.data_path), blocking=False) as locked:
+        if not locked:
+            return {"skipped": True, "reason": "scan already running"}
+        async with _scan_lock:
+            async with database._session_factory() as session:
+                query = select(RootDirectory)
+                if root_ids is not None:
+                    query = query.where(RootDirectory.id.in_(root_ids))
+                result = await session.execute(query)
+                roots = result.scalars().all()
                 _set_scan_state(
-                    current_root=root.source_path or root.path,
-                    roots_completed=_scan_state["roots_completed"],
+                    status="running",
+                    roots_total=len(roots),
+                    roots_completed=0,
+                    current_root=None,
+                    started_at=time.time(),
+                    finished_at=None,
+                    message=None,
                 )
+                for root in roots:
+                    _set_scan_state(
+                        current_root=root.source_path or root.path,
+                        roots_completed=_scan_state["roots_completed"],
+                    )
+                    try:
+                        stats = await import_from_root(root.id, config, session)
+                        total_games += stats.get("total_games", 0)
+                    except Exception:
+                        logger.exception("Scan root %s failed", root.id)
+                    finally:
+                        _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
+            if update_last:
                 try:
-                    stats = await import_from_root(root.id, config, session)
-                    total_games += stats.get("total_games", 0)
+                    _mark_auto_scan(config, time.time())
                 except Exception:
-                    logger.exception("Scan root %s failed", root.id)
-                finally:
-                    _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
-        if update_last:
-            try:
-                _mark_auto_scan(config, time.time())
-            except Exception:
-                logger.exception("Failed to persist last auto-scan time")
-        _set_scan_state(
-            status="completed",
-            current_root=None,
-            finished_at=time.time(),
-            message=f"扫描完成，共处理 {len(roots)} 个目录",
-        )
-        return {"total_games": total_games, "roots_scanned": len(roots)}
+                    logger.exception("Failed to persist last auto-scan time")
+            _set_scan_state(
+                status="completed",
+                current_root=None,
+                finished_at=time.time(),
+                message=f"扫描完成，共处理 {len(roots)} 个目录",
+            )
+            return {"total_games": total_games, "roots_scanned": len(roots)}

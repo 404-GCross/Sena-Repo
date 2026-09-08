@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create volume mount points
-RUN mkdir -p /games /data /steam_patch
+RUN mkdir -p /games /data /steam_patch \
+    && chmod 0755 /app/senacli.py \
+    && ln -sf /app/senacli.py /usr/local/bin/senacli
 
 EXPOSE 11451
 

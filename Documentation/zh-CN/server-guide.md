@@ -153,6 +153,16 @@ services:
     restart: unless-stopped
 ```
 
+Docker 镜像内置 `senacli`，可以直接在容器里执行本地维护命令：
+
+```bash
+docker exec -it sena-repo senacli status
+docker exec -it sena-repo senacli scan --scrape missing
+docker exec -it sena-repo senacli useradd
+```
+
+Docker 部署的升级和卸载仍应在宿主机通过重新拉取镜像、停止旧容器、重建容器完成；容器内的 `senacli update` / `senacli uninstall` 只会给出操作提示，不会尝试修改宿主机。
+
 ### 方式二：Tarball 加载
 
 从 [Releases](https://github.com/404-GCross/Sena-Repo/releases) 下载对应架构的 `Sena-Repo_Server_*.tar.gz`：
@@ -186,6 +196,31 @@ sudo bash install.sh
 脚本当前支持 Debian / Ubuntu / Armbian 一类带 `apt` 与 `systemd` 的系统，会自动安装 Python 编译依赖、创建 venv、写入 systemd 服务并启动服务。
 
 如果服务端已经安装，再次直接运行安装脚本时会先检查远程提交版本：已是最新则不重复安装；检测到新提交才会更新依赖并重启服务。需要强制更新可使用 `--update`，只检查而不更新可使用 `--check`。
+
+安装完成后会注册本地维护命令 `senacli`，常用命令如下：
+
+```bash
+senacli status --roots
+senacli scan
+senacli scan --scrape missing
+senacli clear
+senacli update --channel dev
+senacli update --channel release
+senacli uninstall
+```
+
+用户管理命令：
+
+```bash
+senacli users
+senacli useradd
+senacli username
+senacli passwd
+senacli useradmin
+senacli userdel
+```
+
+`useradd` 在数据库没有任何用户时会创建首个服主；已有用户后默认创建普通用户，加 `--admin` 可创建管理员。`username`、`passwd`、`useradmin` 会让目标用户现有登录态失效，用户需要重新登录。`clear` 只清空游戏、版本和游戏标签关联，目录配置、用户、OpenList 与刮削配置会保留，然后重新扫描。
 
 默认路径：
 

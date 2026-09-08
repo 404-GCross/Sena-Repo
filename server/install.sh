@@ -87,6 +87,7 @@ VENV_DIR="$INSTALL_ROOT/venv"
 REPO_CACHE_DIR="$INSTALL_ROOT/repo"
 CONTROL_INSTALLER="$INSTALL_ROOT/install.sh"
 CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
+CLI_BIN="/usr/local/bin/senacli"
 VERSION_FILE="$INSTALL_ROOT/.version"
 ENV_DIR="/etc/sena-repo"
 ENV_FILE="$ENV_DIR/sena-repo.env"
@@ -162,6 +163,7 @@ validate_paths() {
   REPO_CACHE_DIR="$INSTALL_ROOT/repo"
   CONTROL_INSTALLER="$INSTALL_ROOT/install.sh"
   CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
+  CLI_BIN="/usr/local/bin/senacli"
   VERSION_FILE="$INSTALL_ROOT/.version"
 }
 
@@ -365,6 +367,30 @@ install_control_scripts() {
   chmod 0755 "$CONTROL_INSTALLER" "$CONTROL_UNINSTALLER"
 }
 
+install_cli_command() {
+  log "installing senacli to $CLI_BIN"
+  chmod 0755 "$APP_DIR/senacli.py"
+  cat > "$CLI_BIN" <<EOF
+#!/usr/bin/env bash
+exec "$VENV_DIR/bin/python" "$APP_DIR/senacli.py" "\$@"
+EOF
+  chmod 0755 "$CLI_BIN"
+}
+
+remove_cli_command() {
+  if [ -L "$CLI_BIN" ]; then
+    local target
+    target="$(readlink "$CLI_BIN" 2>/dev/null || true)"
+    if [ "$target" = "$APP_DIR/senacli.py" ]; then
+      rm -f -- "$CLI_BIN"
+    fi
+    return
+  fi
+  if [ -f "$CLI_BIN" ] && grep -Fq "$APP_DIR/senacli.py" "$CLI_BIN" 2>/dev/null; then
+    rm -f -- "$CLI_BIN"
+  fi
+}
+
 write_version_metadata() {
   local source_dir="$1"
   local source_sha metadata_tmp
@@ -463,6 +489,7 @@ install_or_update() {
   install_control_scripts
   write_environment_file
   install_python_dependencies
+  install_cli_command
   write_systemd_service
   start_service
   write_version_metadata "$source_dir"
@@ -491,6 +518,7 @@ uninstall_service() {
   systemctl disable "$SERVICE_NAME.service" >/dev/null 2>&1 || true
   rm -f "$SERVICE_FILE"
   systemctl daemon-reload >/dev/null 2>&1 || true
+  remove_cli_command
   rm -rf "$APP_DIR" "$VENV_DIR" "$REPO_CACHE_DIR"
 
   case "$DATA_ACTION" in

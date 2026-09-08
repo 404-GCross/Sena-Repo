@@ -20,6 +20,11 @@
 | 1.6 | Tarball 加载 | `docker load < tar.gz` 后启动 | 服务正常运行 |
 | 1.7 | 服务端更新 | `docker pull` -> `stop/rm` -> 重新 `run` | 新版本生效，数据不丢失 |
 | 1.8 | 挂载目录检查 | 检查 /games /data /steam_patch 挂载 | 容器内路径可读写 |
+| 1.9 | Docker CLI 状态 | `docker exec -it sena-repo senacli status --roots` | 输出服务、数据库、目录、扫描和刮削状态 |
+| 1.10 | 裸机 CLI 注册 | 安装脚本部署后执行 `senacli status` | 命令可直接运行，并读取 `/etc/sena-repo/sena-repo.env` |
+| 1.11 | CLI 扫描 | 执行 `senacli scan --scrape none` | 扫描完成，目录统计正常输出 |
+| 1.12 | CLI 清库重扫 | 执行 `senacli clear` 并确认 | 游戏条目清空后重新扫描，用户和目录配置保留 |
+| 1.13 | CLI 用户管理 | 执行 `senacli useradd` / `senacli passwd` / `senacli useradmin` | 用户可创建、改密、升降管理员，目标用户需重新登录 |
 ---
 
 ## 二、初始化与连接
