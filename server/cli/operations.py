@@ -438,8 +438,3 @@ def cmd_uninstall(args) -> int:
     elif args.keep_data:
         command.append("--keep-data")
     return run_command(command)
-
-
-def cmd_run(args) -> int:
-    echo("senacli run 是预留彩蛋入口，还需要项目作者定义具体行为。")
-    return 0

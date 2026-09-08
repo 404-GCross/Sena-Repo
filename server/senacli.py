@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 SERVER_DIR = Path(__file__).resolve().parent
@@ -16,6 +17,7 @@ from cli.common import CliError, echo
 
 SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
 CHANNELS = ("dev", "release")
+RUN_TITLE = "Sena-Repo,bye~bye~"
 
 
 def _add_password_options(parser: argparse.ArgumentParser) -> None:
@@ -89,11 +91,32 @@ def build_parser() -> argparse.ArgumentParser:
     useradmin.add_argument("-f", "--force", action="store_true", help="跳过确认")
 
     sub.add_parser("users", help="列出用户")
-    sub.add_parser("run", help="预留彩蛋入口")
+    sub.add_parser("run", help="???")
     return parser
 
 
+def _type_print(text: str) -> None:
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(0.035)
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    time.sleep(0.8)
+
+
+def _run_title_easter_egg() -> int:
+    sys.stdout.write("\033[H\033[2J")
+    sys.stdout.flush()
+    time.sleep(1)
+    _type_print(RUN_TITLE)
+    return 0
+
+
 async def dispatch(args: argparse.Namespace) -> int:
+    if args.command == "run":
+        return _run_title_easter_egg()
+
     from cli import operations, users
 
     if args.command == "status":
@@ -118,8 +141,6 @@ async def dispatch(args: argparse.Namespace) -> int:
         return await users.cmd_useradmin(args)
     if args.command == "users":
         return await users.cmd_users(args)
-    if args.command == "run":
-        return operations.cmd_run(args)
     raise CliError(f"Unknown command: {args.command}", 2)
 
 
