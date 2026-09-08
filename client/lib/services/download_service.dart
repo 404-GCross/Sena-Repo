@@ -1968,12 +1968,21 @@ class DownloadService with WidgetsBindingObserver {
       if (exitCode != 0) {
         final summary = _aria2OutputSummary(stdoutBytes, stderrBytes);
         final statusCode = _parseAria2HttpStatus(summary);
-        if (statusCode != null) {
-          throw DownloadHttpException(statusCode, "aria2 HTTP $statusCode");
+        final fileSize = await dest.exists() ? await dest.length() : 0;
+        if (fileSize > 0) {
+          t.receivedBytes = fileSize;
+          if (t.totalBytes > 0) {
+            t.progress = (fileSize / t.totalBytes).clamp(0.0, 1.0).toDouble();
+          }
         }
-        throw http.ClientException(
-          "aria2 下载失败（exit=$exitCode）${summary.isEmpty ? "" : ": $summary"}",
+        LoggerService().warn(
+          "aria2 download failed; falling back to Dart downloader: "
+          "source=${_normalizedSourceType(t)} exit=$exitCode "
+          "status=${statusCode ?? "-"} received=$fileSize "
+          "${summary.isEmpty ? "" : "summary=$summary"}",
         );
+        await _deleteAria2ControlFile(dest);
+        return false;
       }
 
       final fileSize = await dest.exists() ? await dest.length() : 0;
@@ -2306,6 +2315,29 @@ class DownloadService with WidgetsBindingObserver {
   Future<bool> _attemptParallel(DownloadTask t, File dest) async {
     final hasParallelState = await _hasParallelDownloadState(dest);
     if (await downloadSpeedLimitKbps > 0) return false;
+    if (_normalizedSourceType(t) == "openlist") {
+      if (hasParallelState) {
+        final state = await _readParallelDownloadState(dest);
+        if (state != null) {
+          await _fallbackParallelToStream(
+            t,
+            dest,
+            state.parts,
+            state.totalBytes,
+            "openlist-stream",
+          );
+        } else {
+          await _discardParallelDownloadState(dest);
+          t.receivedBytes = 0;
+          t.totalBytes = 0;
+          t.progress = 0.0;
+        }
+      }
+      LoggerService().info(
+        "parallel download skipped: source=openlist mode=stream",
+      );
+      return false;
+    }
     if (t.receivedBytes > 0 && !hasParallelState) {
       return false;
     }
