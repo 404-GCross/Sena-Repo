@@ -2245,6 +2245,10 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   Future<_ParallelDownloadProbe?> _probeParallelDownload(DownloadTask t) async {
+    if (_normalizedSourceType(t) == "openlist") {
+      return _probeParallelDownloadWithHead(t);
+    }
+
     final client = http.Client();
     _trackTaskClient(t, client);
     try {
@@ -2267,6 +2271,54 @@ class DownloadService with WidgetsBindingObserver {
       final total = _parseContentRangeTotal(resp.headers["content-range"]);
       if (total == null || total <= 0) return null;
       return _ParallelDownloadProbe(totalBytes: total);
+    } finally {
+      client.close();
+      _untrackTaskClient(t, client);
+    }
+  }
+
+  Future<_ParallelDownloadProbe?> _probeParallelDownloadWithHead(
+    DownloadTask t,
+  ) async {
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    try {
+      final resp = await _sendDownloadRequest(
+        client,
+        t.downloadUrl,
+        const {},
+        method: "HEAD",
+      );
+      final contentLength = resp.contentLength ?? 0;
+      final acceptRanges = resp.headers["accept-ranges"] ?? "";
+      LoggerService().info(
+        "parallel head probe response: source=${_normalizedSourceType(t)} "
+        "status=${resp.statusCode} contentLength=$contentLength "
+        "acceptRanges=${acceptRanges.isEmpty ? "-" : acceptRanges}",
+      );
+      await resp.stream.drain<void>();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        LoggerService().info(
+          "parallel download skipped: source=${_normalizedSourceType(t)} "
+          "headStatus=${resp.statusCode}",
+        );
+        return null;
+      }
+      if (!acceptRanges.toLowerCase().contains("bytes")) {
+        LoggerService().info(
+          "parallel download skipped: source=${_normalizedSourceType(t)} "
+          "acceptRanges=${acceptRanges.isEmpty ? "-" : acceptRanges}",
+        );
+        return null;
+      }
+      if (contentLength <= 0) {
+        LoggerService().info(
+          "parallel download skipped: source=${_normalizedSourceType(t)} "
+          "contentLength=$contentLength",
+        );
+        return null;
+      }
+      return _ParallelDownloadProbe(totalBytes: contentLength);
     } finally {
       client.close();
       _untrackTaskClient(t, client);
@@ -2417,15 +2469,16 @@ class DownloadService with WidgetsBindingObserver {
   Future<http.StreamedResponse> _sendDownloadRequest(
     http.Client client,
     String url,
-    Map<String, String> baseHeaders,
-  ) async {
+    Map<String, String> baseHeaders, {
+    String method = "GET",
+  }) async {
     var current = Uri.parse(url);
     final originalScheme = current.scheme;
     final originalHost = current.host;
     final originalPort = current.hasPort ? current.port : null;
 
     for (var redirectCount = 0; redirectCount < 8; redirectCount++) {
-      final req = http.Request("GET", current)..followRedirects = false;
+      final req = http.Request(method, current)..followRedirects = false;
       req.headers.addAll(baseHeaders);
       req.headers.putIfAbsent("User-Agent", () => _downloadUserAgent);
       req.headers.putIfAbsent("Accept", () => "*/*");
@@ -2439,7 +2492,7 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       LoggerService().info(
-        "download request[$redirectCount]: ${_downloadLogTarget(current)} "
+        "download request[$redirectCount]: $method ${_downloadLogTarget(current)} "
         "range=${req.headers["Range"] ?? "-"} "
         "auth=${req.headers.containsKey("Authorization")}",
       );
@@ -2469,7 +2522,7 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       LoggerService().info(
-        "download final[$redirectCount]: HTTP ${resp.statusCode} ${_downloadLogTarget(current)}",
+        "download final[$redirectCount]: $method HTTP ${resp.statusCode} ${_downloadLogTarget(current)}",
       );
       return resp;
     }
