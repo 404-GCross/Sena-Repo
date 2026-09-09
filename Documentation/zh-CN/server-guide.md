@@ -204,6 +204,8 @@ senacli status --roots
 senacli scan
 senacli scan --scrape missing
 senacli clear
+senacli backup
+senacli restore sena-steam-patch-rules-20260909-153000.json
 senacli update --channel dev
 senacli update --channel release
 senacli uninstall
@@ -220,7 +222,7 @@ senacli useradmin
 senacli userdel
 ```
 
-`useradd` 在数据库没有任何用户时会创建首个服主；已有用户后默认创建普通用户，加 `--admin` 可创建管理员。`username`、`passwd`、`useradmin` 会让目标用户现有登录态失效，用户需要重新登录。`clear` 只清空游戏、版本和游戏标签关联，目录配置、用户、OpenList 与刮削配置会保留，然后重新扫描。
+`useradd` 在数据库没有任何用户时会创建首个服主；已有用户后默认创建普通用户，加 `--admin` 可创建管理员。`username`、`passwd`、`useradmin` 会让目标用户现有登录态失效，用户需要重新登录。`clear` 只清空游戏、版本和游戏标签关联，目录配置、用户、OpenList 与刮削配置会保留，然后重新扫描。`backup` / `restore` 用于导出和恢复 Steam 补丁匹配规则，恢复前会先保存当前索引备份。
 
 默认路径：
 

@@ -54,6 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     clear.add_argument("--sources", help="刮削源白名单，逗号分隔，例如 hikarinagi,vndb_kana")
 
+    backup = sub.add_parser("backup", help="备份 Steam 补丁匹配规则")
+    backup.add_argument("-o", "--output", help="输出文件路径；默认保存到数据目录")
+
+    restore = sub.add_parser("restore", help="恢复 Steam 补丁匹配规则")
+    restore.add_argument("file", help="规则备份 JSON 文件")
+    restore.add_argument("-y", "--yes", action="store_true", help="跳过确认")
+    restore.add_argument("--replace", action="store_true", help="先清空当前规则再恢复")
+
     update = sub.add_parser("update", help="检查并更新裸机部署的服务端")
     update.add_argument("--channel", choices=CHANNELS, default="dev")
     update.add_argument("--ref", help="直接指定 Git ref，优先于 --channel")
@@ -116,6 +124,12 @@ def _run_title_easter_egg() -> int:
 async def dispatch(args: argparse.Namespace) -> int:
     if args.command == "run":
         return _run_title_easter_egg()
+    if args.command in {"backup", "restore"}:
+        from cli import steam_patch_rules
+
+        if args.command == "backup":
+            return steam_patch_rules.cmd_backup(args)
+        return steam_patch_rules.cmd_restore(args)
 
     from cli import operations, users
 
