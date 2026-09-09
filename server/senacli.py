@@ -55,7 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     clear.add_argument("--sources", help="刮削源白名单，逗号分隔，例如 hikarinagi,vndb_kana")
 
     backup = sub.add_parser("backup", help="备份 Steam 补丁匹配规则")
-    backup.add_argument("-o", "--output", help="输出文件路径；默认保存到数据目录")
+    backup.add_argument("directory", nargs="?", help="备份保存目录；不填则保存到数据目录")
+    backup.add_argument("-o", "--output", help="输出文件路径")
 
     restore = sub.add_parser("restore", help="恢复 Steam 补丁匹配规则")
     restore.add_argument("file", help="规则备份 JSON 文件")

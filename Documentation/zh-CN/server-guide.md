@@ -205,6 +205,8 @@ senacli scan
 senacli scan --scrape missing
 senacli clear
 senacli backup
+senacli backup /path/to/backup-dir
+senacli backup -o /path/to/backup.json
 senacli restore sena-steam-patch-rules-20260909-153000.json
 senacli update --channel dev
 senacli update --channel release

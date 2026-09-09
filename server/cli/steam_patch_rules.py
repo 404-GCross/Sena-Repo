@@ -62,6 +62,24 @@ def _default_backup_path(config) -> Path:
     return _backup_dir(config) / f"sena-steam-patch-rules-{_utc_timestamp()}.json"
 
 
+def _resolve_backup_output(args, config) -> Path:
+    directory = getattr(args, "directory", None)
+    output = getattr(args, "output", None)
+    if directory and output:
+        fail("不能同时指定备份目录和 -o 输出文件", 2)
+    if directory:
+        backup_dir = Path(directory).expanduser()
+        if backup_dir.suffix.lower() == ".json":
+            fail("backup 后面的路径表示目录；指定文件请使用 -o", 2)
+        return backup_dir / f"sena-steam-patch-rules-{_utc_timestamp()}.json"
+    if output:
+        output_path = Path(output).expanduser()
+        if output_path.exists() and output_path.is_dir():
+            return output_path / f"sena-steam-patch-rules-{_utc_timestamp()}.json"
+        return output_path
+    return _default_backup_path(config)
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -316,9 +334,7 @@ def cmd_backup(args) -> int:
 
     index_data = _load_patch_index(index_path)
     rules = _rule_entries(index_data["patches"])
-    output = Path(args.output).expanduser() if args.output else _default_backup_path(config)
-    if output.exists() and output.is_dir():
-        output = output / f"sena-steam-patch-rules-{_utc_timestamp()}.json"
+    output = _resolve_backup_output(args, config)
 
     backup_data = {
         "schema_version": 1,
