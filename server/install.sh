@@ -54,6 +54,9 @@ Update behavior:
                 keep existing data and configuration, then restart the service.
   --check       Check the remote source revision without installing or updating.
 
+Supported Linux package managers:
+  apt-get, dnf, yum, zypper, pacman. systemd is still required.
+
 Environment overrides:
   SENA_INSTALL_ROOT=/opt/sena-repo
   SENA_DATA_PATH=/var/lib/sena-repo
@@ -61,6 +64,7 @@ Environment overrides:
   SENA_PATCH_DIR=/srv/sena-repo/steam_patch
   SENA_HOST=0.0.0.0
   SENA_PORT=11451
+  SENA_PYTHON_BIN=/usr/bin/python3.11
   SENA_REPO_URL=https://github.com/404-GCross/Sena-Repo.git
   SENA_REPO_REF=dev
   SENA_HIKARINAGI_CLIENT_ID=...
@@ -99,6 +103,7 @@ HOST_VALUE="${SENA_HOST:-0.0.0.0}"
 PORT_VALUE="${SENA_PORT:-11451}"
 REPO_URL="${SENA_REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_REF="${SENA_REPO_REF:-$DEFAULT_REPO_REF}"
+PYTHON_BIN="${SENA_PYTHON_BIN:-}"
 HIKARINAGI_CLIENT_ID="${SENA_HIKARINAGI_CLIENT_ID:-}"
 HIKARINAGI_CLIENT_SECRET="${SENA_HIKARINAGI_CLIENT_SECRET:-}"
 HIKARINAGI_SCOPE="${SENA_HIKARINAGI_SCOPE:-}"
@@ -278,29 +283,149 @@ detect_arch() {
 }
 
 install_system_dependencies() {
-  if ! command -v apt-get >/dev/null 2>&1; then
-    die "apt-get not found; currently supported bare-metal installer targets Debian/Ubuntu/Armbian"
+  if command -v apt-get >/dev/null 2>&1; then
+    log "installing system dependencies with apt-get"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      python3 \
+      python3-venv \
+      python3-pip \
+      python3-dev \
+      build-essential \
+      pkg-config \
+      libffi-dev \
+      libssl-dev \
+      libxml2-dev \
+      libxslt1-dev \
+      zlib1g-dev
+    apt-get install -y --no-install-recommends p7zip-full || true
+  elif command -v dnf >/dev/null 2>&1; then
+    log "installing system dependencies with dnf"
+    dnf install -y \
+      ca-certificates \
+      curl \
+      git \
+      python3 \
+      python3-pip \
+      python3-devel \
+      gcc \
+      gcc-c++ \
+      make \
+      pkgconf-pkg-config \
+      libffi-devel \
+      openssl-devel \
+      libxml2-devel \
+      libxslt-devel \
+      zlib-devel
+    dnf install -y 7zip || dnf install -y p7zip p7zip-plugins || true
+  elif command -v yum >/dev/null 2>&1; then
+    log "installing system dependencies with yum"
+    yum install -y \
+      ca-certificates \
+      curl \
+      git \
+      python3 \
+      python3-pip \
+      python3-devel \
+      gcc \
+      gcc-c++ \
+      make \
+      pkgconfig \
+      libffi-devel \
+      openssl-devel \
+      libxml2-devel \
+      libxslt-devel \
+      zlib-devel
+    yum install -y p7zip p7zip-plugins || true
+  elif command -v zypper >/dev/null 2>&1; then
+    log "installing system dependencies with zypper"
+    zypper --non-interactive refresh || true
+    zypper --non-interactive install --no-recommends \
+      ca-certificates \
+      curl \
+      git \
+      python3 \
+      python3-pip \
+      python3-devel \
+      gcc \
+      gcc-c++ \
+      make \
+      pkg-config \
+      libffi-devel \
+      libopenssl-devel \
+      libxml2-devel \
+      libxslt-devel \
+      zlib-devel
+    zypper --non-interactive install --no-recommends 7zip \
+      || zypper --non-interactive install --no-recommends p7zip \
+      || true
+  elif command -v pacman >/dev/null 2>&1; then
+    log "installing system dependencies with pacman"
+    pacman -Sy --needed --noconfirm \
+      ca-certificates \
+      curl \
+      git \
+      python \
+      python-pip \
+      base-devel \
+      pkgconf \
+      libffi \
+      openssl \
+      libxml2 \
+      libxslt \
+      zlib \
+      p7zip
+  else
+    log "no supported package manager found; continuing without automatic dependency installation"
+    log "please ensure Python 3.10+, pip, venv, git, curl, build tools, OpenSSL/libffi/libxml2/libxslt/zlib headers, and 7z are installed"
   fi
 
-  log "installing system dependencies"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    git \
-    python3 \
-    python3-venv \
-    python3-pip \
-    python3-dev \
-    build-essential \
-    pkg-config \
-    libffi-dev \
-    libssl-dev \
-    libxml2-dev \
-    libxslt1-dev \
-    zlib1g-dev \
-    p7zip-full
+  ensure_python_runtime
+  warn_if_archive_tool_missing
+}
+
+python_version_ok() {
+  "$1" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+PY
+}
+
+ensure_python_runtime() {
+  if [ -n "$PYTHON_BIN" ]; then
+    command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "SENA_PYTHON_BIN not found: $PYTHON_BIN"
+    python_version_ok "$PYTHON_BIN" || die "SENA_PYTHON_BIN must point to Python 3.10 or newer: $PYTHON_BIN"
+    return
+  fi
+
+  local candidate
+  for candidate in python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && python_version_ok "$candidate"; then
+      PYTHON_BIN="$(command -v "$candidate")"
+      log "using Python runtime: $PYTHON_BIN"
+      return
+    fi
+  done
+
+  die "Python 3.10 or newer is required; install it or set SENA_PYTHON_BIN=/path/to/python3"
+}
+
+archive_tool_available() {
+  command -v 7zz >/dev/null 2>&1 \
+    || command -v 7z >/dev/null 2>&1 \
+    || command -v 7za >/dev/null 2>&1
+}
+
+warn_if_archive_tool_missing() {
+  if archive_tool_available; then
+    return
+  fi
+  log "warning: 7z was not found; .rar/.7z Steam patch archive inspection will be unavailable until 7z/p7zip is installed"
+  log "warning: on RHEL/Rocky/Alma/openEuler, you may need to enable EPEL or install the 7zip/p7zip package manually"
 }
 
 local_server_dir() {
@@ -437,7 +562,7 @@ write_environment_file() {
 
 install_python_dependencies() {
   log "installing Python dependencies"
-  python3 -m venv "$VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
   "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
 }

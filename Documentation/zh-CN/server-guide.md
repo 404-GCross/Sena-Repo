@@ -193,7 +193,17 @@ cd Sena-Repo/server
 sudo bash install.sh
 ```
 
-脚本当前支持 Debian / Ubuntu / Armbian 一类带 `apt` 与 `systemd` 的系统，会自动安装 Python 编译依赖、创建 venv、写入 systemd 服务并启动服务。
+脚本当前支持带 `systemd` 的常见 Linux 发行版，会自动识别 `apt-get`、`dnf`、`yum`、`zypper` 或 `pacman` 安装 Python 编译依赖、创建 venv、写入 systemd 服务并启动服务。已覆盖 Debian / Ubuntu / Armbian、Fedora / RHEL / Rocky / AlmaLinux / openEuler、openSUSE、Arch / Manjaro 等发行版。
+
+如果发行版不在上述包管理器范围内，脚本不会立即退出；只要系统已经手动准备好依赖，仍会继续尝试创建 venv 和安装服务。
+
+如果系统默认 `python3` 低于 3.10，可以通过环境变量指定 Python：
+
+```bash
+sudo SENA_PYTHON_BIN=/usr/bin/python3.11 bash install.sh
+```
+
+Steam 补丁压缩包探测需要 `7z` / `7zz` / `7za`。RPM 系发行版如果没有直接安装到 7z，通常需要先启用 EPEL 或手动安装 `7zip` / `p7zip`。
 
 如果服务端已经安装，再次直接运行安装脚本时会先检查远程提交版本：已是最新则不重复安装；检测到新提交才会更新依赖并重启服务。需要强制更新可使用 `--update`，只检查而不更新可使用 `--check`。
 
