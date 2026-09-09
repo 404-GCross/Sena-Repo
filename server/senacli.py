@@ -17,7 +17,7 @@ from cli.common import CliError, echo
 
 SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
 CHANNELS = ("dev", "release")
-RUN_TITLE = "Sena-Repo,bye~bye~"
+RUN_TITLE = "bye~bye~"
 
 
 def _add_password_options(parser: argparse.ArgumentParser) -> None:
