@@ -13,6 +13,7 @@ import "../services/logged_http.dart" as http;
 import "package:path_provider/path_provider.dart";
 
 import "../models/game.dart";
+import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
@@ -2746,10 +2747,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
         await context.read<GameProvider>().api.getEnabledScraperSources();
     if (!mounted) return;
     final sources = _metadataSourcesFor(enabled);
-    final src = await showDialog<String>(
-      context: context,
-      builder: (ctx) => _MetadataSourceDialog(sources: sources),
-    );
+    // A single available source (NextMoe mode) needs no picker.
+    final src = sources.length == 1
+        ? sources.keys.first
+        : await showDialog<String>(
+            context: context,
+            builder: (ctx) => _MetadataSourceDialog(sources: sources),
+          );
     if (src == null || !mounted) return;
 
     // Step 2: Search with inline loading + results
@@ -3057,6 +3061,7 @@ class _MetadataSourceInfo {
   final IconData icon;
   final Color color;
   final List<String> chips;
+  final String? asset;
 
   const _MetadataSourceInfo({
     required this.key,
@@ -3065,6 +3070,7 @@ class _MetadataSourceInfo {
     required this.icon,
     required this.color,
     required this.chips,
+    this.asset,
   });
 }
 
@@ -3098,16 +3104,17 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "Hikarinagi 是面向 Galgame 的中文资料站，收录作品、标签和分级信息。",
+        subtitle: "你和同好的ACGN社区",
         icon: Icons.auto_awesome_rounded,
         color: Colors.pink,
         chips: const ["中文", "Tag", "NSFW"],
+        asset: sourceIconAsset("hikarinagi"),
       );
     case "vndb_kana":
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "VNDB 是视觉小说资料库，以维基形式收录作品、发行版本和标签。",
+        subtitle: "视觉小说信息的综合数据库",
         icon: Icons.menu_book_rounded,
         color: Colors.indigo,
         chips: const ["VNDB ID", "Tag", "简介"],
@@ -3116,28 +3123,31 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "Bangumi 是中文 ACG 条目与收藏社区，覆盖动画、游戏、书籍和人物。",
+        subtitle: "让ACG生活更精彩",
         icon: Icons.forum_rounded,
         color: Colors.blue,
+        asset: sourceIconAsset("bangumi"),
         chips: const ["中文", "条目 ID", "日期"],
       );
     case "steam":
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "Steam 是 Valve 的数字游戏商店与社区平台，提供商店页和用户标签。",
+        subtitle: "高质量的游戏平台",
         icon: Icons.sports_esports_rounded,
         color: Colors.teal,
         chips: const ["AppID", "图片", "Tag"],
+        asset: sourceIconAsset("steam"),
       );
     case "nextmoe":
       return _MetadataSourceInfo(
         key: key,
         label: fallbackLabel,
-        subtitle: "NextMoe 聚合 VNDB、Bangumi、DLsite、ErogameScape 等六个来源，并支持按外部 ID 反查。",
+        subtitle: "ACGN 数据，以此为准",
         icon: Icons.hub_rounded,
         color: Colors.deepPurple,
         chips: const ["六源聚合", "中文名", "外部 ID"],
+        asset: sourceIconAsset("nextmoe"),
       );
     default:
       return _MetadataSourceInfo(
@@ -3209,7 +3219,11 @@ class _MetadataSourceDialog extends StatelessWidget {
               ),
               Divider(height: 1, color: cardBorder(context)),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 440),
+                constraints: BoxConstraints(
+                  maxHeight: (MediaQuery.sizeOf(context).height - 300)
+                      .clamp(180.0, 620.0)
+                      .toDouble(),
+                ),
                 child: ListView.separated(
                   shrinkWrap: true,
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -3522,6 +3536,39 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
   }
 }
 
+class _SourceIconBadge extends StatelessWidget {
+  final _MetadataSourceInfo info;
+
+  const _SourceIconBadge({required this.info});
+
+  static const _size = 44.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Container(
+      width: _size,
+      height: _size,
+      decoration: BoxDecoration(
+        color: info.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Icon(info.icon, size: 22, color: info.color),
+    );
+    final asset = info.asset;
+    if (asset == null) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Image.asset(
+        asset,
+        width: _size,
+        height: _size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
+  }
+}
+
 class _MetadataSourceTile extends StatelessWidget {
   final _MetadataSourceInfo info;
   final bool selected;
@@ -3550,26 +3597,18 @@ class _MetadataSourceTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(Icons.public_rounded, size: 20, color: cs.primary),
+              _SourceIconBadge(info: info),
               const SizedBox(width: AppGap.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(info.icon, size: 18, color: info.color),
-                        const SizedBox(width: AppGap.xs),
-                        Expanded(
-                          child: Text(
-                            info.label,
-                            style: AppText.bodyMedium.copyWith(
-                              color: cs.onSurface,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      info.label,
+                      style: AppText.bodyMedium.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 5),
                     Text(

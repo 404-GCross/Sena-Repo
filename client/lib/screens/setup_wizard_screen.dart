@@ -7,6 +7,7 @@ import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/api_client.dart";
+import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 
@@ -1059,6 +1060,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     required String title,
     required String subtitle,
     Widget? trailing,
+    Widget? leading,
   }) {
     return Container(
       padding: const EdgeInsets.all(11),
@@ -1078,11 +1080,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   ),
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            child: leading ??
+                Icon(
+                  icon,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
           ),
           const SizedBox(width: AppGap.md),
           Expanded(
@@ -1291,6 +1294,23 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return "${value[0]}***${value[value.length - 1]}";
   }
 
+  Widget _scraperSourceLeading(String source) {
+    final asset = sourceIconAsset(source);
+    if (asset != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Image.asset(asset, width: 20, height: 20, fit: BoxFit.cover),
+      );
+    }
+    return Icon(
+      source == "vndb_kana"
+          ? Icons.menu_book_rounded
+          : Icons.public_rounded,
+      size: 20,
+      color: source == "vndb_kana" ? Colors.indigo : hintColor(context),
+    );
+  }
+
   bool get _hasClassicSourceEnabled => _scraperOrder
       .where((source) => source != "nextmoe")
       .any((source) => _scraperEnabled[source] ?? false);
@@ -1335,6 +1355,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
           child: _setupRow(
             icon: Icons.drag_indicator_rounded,
+            leading: _scraperSourceLeading(source),
             title: "${index + 1}. ${_scraperLabels[source] ?? source}",
             subtitle: _scraperSubtitle(source),
             trailing: Row(

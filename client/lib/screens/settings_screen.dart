@@ -12,6 +12,7 @@ import "dart:io" show Platform;
 import "../providers/game_provider.dart";
 import "../providers/settings_provider.dart";
 import "../providers/theme_provider.dart";
+import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
@@ -2869,6 +2870,23 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     });
   }
 
+  Widget _scraperSourceIcon(String source) {
+    final asset = sourceIconAsset(source);
+    if (asset != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.asset(asset, width: 22, height: 22, fit: BoxFit.cover),
+      );
+    }
+    return Icon(
+      source == "vndb_kana"
+          ? Icons.menu_book_rounded
+          : Icons.public_rounded,
+      size: 22,
+      color: source == "vndb_kana" ? Colors.indigo : hintColor(context),
+    );
+  }
+
   Widget _srcCard({
     required Key key,
     required int index,
@@ -2895,7 +2913,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           index: index,
           child: Icon(Icons.drag_handle, color: hintColor(context)),
         ),
-        title: Text(label, style: const TextStyle(fontSize: 14)),
+        title: Row(
+          children: [
+            _scraperSourceIcon(src),
+            const SizedBox(width: AppGap.sm),
+            Text(label, style: const TextStyle(fontSize: 14)),
+          ],
+        ),
         subtitle: Text(
           hint,
           style: AppText.label.copyWith(color: hintColor(context)),

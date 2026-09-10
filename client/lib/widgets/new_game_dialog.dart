@@ -3,6 +3,7 @@ import "dart:math" as math;
 import "package:flutter/material.dart";
 
 import "../services/api_client.dart";
+import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "app_shell.dart";
 
@@ -45,37 +46,41 @@ class _NewGameDialogState extends State<NewGameDialog> {
     _NewGameSource(
       key: "hikarinagi",
       label: "Hikarinagi",
-      description: "中文 Galgame 资料站，适合优先补全中文简介、标签和分级。",
+      description: "你和同好的ACGN社区",
       icon: Icons.auto_awesome_rounded,
       color: Colors.pink,
+      asset: sourceIconAsset("hikarinagi"),
     ),
     _NewGameSource(
       key: "vndb_kana",
       label: "VNDB",
-      description: "视觉小说资料库，标签和发行信息覆盖较全。",
+      description: "视觉小说信息的综合数据库",
       icon: Icons.menu_book_rounded,
       color: Colors.indigo,
     ),
     _NewGameSource(
       key: "bangumi",
       label: "Bangumi",
-      description: "中文 ACG 条目社区，中文标题与简介命中率较高。",
+      description: "让ACG生活更精彩",
       icon: Icons.forum_rounded,
       color: Colors.blue,
+      asset: sourceIconAsset("bangumi"),
     ),
     _NewGameSource(
       key: "steam",
       label: "Steam",
-      description: "Steam 商店数据，适合已上架作品的图片和商店标签。",
+      description: "高质量的游戏平台",
       icon: Icons.sports_esports_rounded,
       color: Colors.teal,
+      asset: sourceIconAsset("steam"),
     ),
     _NewGameSource(
       key: "nextmoe",
       label: "NextMoe",
-      description: "独立模式，聚合 VNDB、Bangumi、DLsite 等六源，可一次补齐外部 ID。",
+      description: "ACGN 数据，以此为准",
       icon: Icons.hub_rounded,
       color: Colors.deepPurple,
+      asset: sourceIconAsset("nextmoe"),
     ),
   ];
 
@@ -424,7 +429,13 @@ class _NewGameDialogState extends State<NewGameDialog> {
         for (final source in _visibleSources)
           DropdownMenuItem(
             value: source.key,
-            child: Text(source.label),
+            child: Row(
+              children: [
+                _SourceIconImage(source: source, size: 18),
+                const SizedBox(width: AppGap.sm),
+                Text(source.label),
+              ],
+            ),
           ),
       ],
       onChanged: _loading || _creating
@@ -461,21 +472,24 @@ class _NewGameDialogState extends State<NewGameDialog> {
       key: const ValueKey("metadata"),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        compact
-            ? Column(
-                children: [
-                  sourcePicker,
-                  const SizedBox(height: AppGap.sm),
-                  searchField,
-                ],
-              )
-            : Row(
-                children: [
-                  SizedBox(width: 210, child: sourcePicker),
-                  const SizedBox(width: AppGap.md),
-                  Expanded(child: searchField),
-                ],
-              ),
+        if (_visibleSources.length <= 1)
+          searchField
+        else
+          compact
+              ? Column(
+                  children: [
+                    sourcePicker,
+                    const SizedBox(height: AppGap.sm),
+                    searchField,
+                  ],
+                )
+              : Row(
+                  children: [
+                    SizedBox(width: 210, child: sourcePicker),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(child: searchField),
+                  ],
+                ),
         const SizedBox(height: AppGap.sm),
         _SourceHint(source: selectedSource),
         const SizedBox(height: AppGap.md),
@@ -589,6 +603,7 @@ class _NewGameSource {
   final String description;
   final IconData icon;
   final Color color;
+  final String? asset;
 
   const _NewGameSource({
     required this.key,
@@ -596,6 +611,7 @@ class _NewGameSource {
     required this.description,
     required this.icon,
     required this.color,
+    this.asset,
   });
 }
 
@@ -654,6 +670,30 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _SourceIconImage extends StatelessWidget {
+  final _NewGameSource source;
+  final double size;
+
+  const _SourceIconImage({required this.source, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Icon(source.icon, size: size, color: source.color);
+    final asset = source.asset;
+    if (asset == null) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: Image.asset(
+        asset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
+  }
+}
+
 class _SourceHint extends StatelessWidget {
   final _NewGameSource source;
 
@@ -663,8 +703,8 @@ class _SourceHint extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(source.icon, size: 16, color: source.color),
-        const SizedBox(width: AppGap.xs),
+        _SourceIconImage(source: source, size: 18),
+        const SizedBox(width: AppGap.sm),
         Expanded(
           child: Text(
             source.description,
