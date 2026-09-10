@@ -38,14 +38,15 @@ class _GameGridState extends State<GameGrid> {
   @override
   Widget build(BuildContext context) {
     final coverSize = context.watch<SettingsProvider>().coverSize;
+    final spacing = (coverSize * 0.08).clamp(AppGap.sm, 20.0).toDouble();
     return GridView.builder(
       controller: widget.controller,
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: coverSize,
         childAspectRatio: 0.68,
-        crossAxisSpacing: AppGap.lg,
-        mainAxisSpacing: AppGap.lg,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
       ),
       itemCount: widget.games.length,
       itemBuilder: (context, index) {
