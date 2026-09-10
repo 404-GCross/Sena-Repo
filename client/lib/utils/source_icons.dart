@@ -1,12 +1,18 @@
-/// Bundled brand icons for metadata sources.
+// Bundled brand icons for metadata sources.
+//
+// VNDB has no square brand mark of its own — its identity is the
+// "the visual novel database" wordmark — so it keeps a drawn icon.
 
-/// VNDB has no square brand mark of its own — its identity is the
-/// "the visual novel database" wordmark — so it keeps a drawn icon.
+const String bangumiSourceIcon = "assets/source_icons/bangumi.png";
+const String steamSourceIcon = "assets/source_icons/steam.png";
+const String hikarinagiSourceIcon = "assets/source_icons/hikarinagi.png";
+const String nextmoeSourceIcon = "assets/source_icons/nextmoe.png";
+
 const Map<String, String> sourceIconAssets = {
-  "bangumi": "assets/source_icons/bangumi.png",
-  "steam": "assets/source_icons/steam.png",
-  "hikarinagi": "assets/source_icons/hikarinagi.png",
-  "nextmoe": "assets/source_icons/nextmoe.png",
+  "bangumi": bangumiSourceIcon,
+  "steam": steamSourceIcon,
+  "hikarinagi": hikarinagiSourceIcon,
+  "nextmoe": nextmoeSourceIcon,
 };
 
 String? sourceIconAsset(String source) => sourceIconAssets[source];

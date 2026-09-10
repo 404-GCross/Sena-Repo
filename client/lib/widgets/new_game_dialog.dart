@@ -49,7 +49,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
       description: "你和同好的ACGN社区",
       icon: Icons.auto_awesome_rounded,
       color: Colors.pink,
-      asset: sourceIconAsset("hikarinagi"),
+      asset: hikarinagiSourceIcon,
     ),
     _NewGameSource(
       key: "vndb_kana",
@@ -64,7 +64,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
       description: "让ACG生活更精彩",
       icon: Icons.forum_rounded,
       color: Colors.blue,
-      asset: sourceIconAsset("bangumi"),
+      asset: bangumiSourceIcon,
     ),
     _NewGameSource(
       key: "steam",
@@ -72,7 +72,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
       description: "高质量的游戏平台",
       icon: Icons.sports_esports_rounded,
       color: Colors.teal,
-      asset: sourceIconAsset("steam"),
+      asset: steamSourceIcon,
     ),
     _NewGameSource(
       key: "nextmoe",
@@ -80,7 +80,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
       description: "ACGN 数据，以此为准",
       icon: Icons.hub_rounded,
       color: Colors.deepPurple,
-      asset: sourceIconAsset("nextmoe"),
+      asset: nextmoeSourceIcon,
     ),
   ];
 
