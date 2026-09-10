@@ -187,6 +187,27 @@ docker run -d \
 
 > 适合没有 Docker 的设备，例如部分 arm32 NAS、盒子或 Armbian 设备。amd64 / arm64 仍建议优先使用 Docker。
 
+一键下载安装（默认安装 `dev` 分支）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo bash
+```
+
+如果需要指定端口、数据目录或 Python 路径，可以把环境变量放到 `sudo` 后面：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo SENA_PORT=11451 SENA_DATA_PATH=/var/lib/sena-repo bash
+```
+
+如果希望先查看脚本内容再执行：
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh
+sudo bash install.sh
+```
+
+也可以手动 clone 后运行本地脚本：
+
 ```bash
 git clone -b dev https://github.com/404-GCross/Sena-Repo.git
 cd Sena-Repo/server

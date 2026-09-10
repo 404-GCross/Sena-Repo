@@ -77,6 +77,19 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 快速开始
 
+服务端一键安装（默认安装 `dev` 分支）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo bash
+```
+
+已 `git clone` 的源码安装：
+
+```bash
+cd Sena-Repo/server
+sudo bash install.sh
+```
+
 | 文档 | 说明 |
 |------|------|
 | **[服务端部署说明书](Documentation/zh-CN/server-guide.md)** | 服务端部署的教程，包含部署前准备，存储来源选择 |
