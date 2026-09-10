@@ -16,7 +16,6 @@ from cli.common import (
     fail,
     in_docker,
     install_root,
-    managed_deployment,
     installer_path,
     is_interactive,
     prepare_app,
@@ -301,11 +300,7 @@ async def cmd_status(args) -> int:
             ("Games path", config.games_path),
             ("Patch dir", config.patch_dir),
             ("Bind", f"{config.server.host}:{config.server.port}"),
-            (
-                "Deployment",
-                managed_deployment()
-                or ("docker" if in_docker() else "bare-metal/source"),
-            ),
+            ("Deployment", "docker" if in_docker() else "bare-metal/source"),
             ("Service", service_state),
             ("Server PID", pid or "-"),
             ("CPU", cpu),
@@ -401,18 +396,7 @@ async def cmd_clear(args) -> int:
     )
 
 
-def _reject_managed_lifecycle(command: str) -> None:
-    manager = managed_deployment()
-    if manager:
-        fail(
-            f"此部署由{manager}管理，senacli {command} 已禁用；"
-            f"请到{manager}升级或卸载。",
-            2,
-        )
-
-
 def cmd_update(args) -> int:
-    _reject_managed_lifecycle("update")
     if in_docker():
         echo("Docker 部署不能在容器内自更新。")
         echo("请在宿主机 pull 新镜像并重建容器，例如：")
@@ -444,7 +428,6 @@ def cmd_update(args) -> int:
 
 
 def cmd_uninstall(args) -> int:
-    _reject_managed_lifecycle("uninstall")
     if in_docker():
         echo("Docker 部署不能在容器内卸载宿主机服务。")
         echo("请在宿主机停止并删除容器；如需清数据，再删除挂载的数据目录。")
