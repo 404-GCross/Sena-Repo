@@ -29,7 +29,7 @@ def _parse_positive_int(value, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
+SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam", "nextmoe"]
 DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
 
 
@@ -93,6 +93,7 @@ class ScraperConfig:
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
+    nextmoe_api_key: str = ""
     scraper_order: list[str] = field(default_factory=lambda: list(SCRAPER_SOURCE_ORDER))
     enabled_scrapers: list[str] = field(
         default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
@@ -160,6 +161,7 @@ def _apply_persisted_scraper_config(config: Config) -> None:
         "hikarinagi_client_id": ("scrapers", "SENA_HIKARINAGI_CLIENT_ID"),
         "hikarinagi_client_secret": ("scrapers", "SENA_HIKARINAGI_CLIENT_SECRET"),
         "hikarinagi_scope": ("scrapers", "SENA_HIKARINAGI_SCOPE"),
+        "nextmoe_api_key": ("scrapers", "SENA_NEXTMOE_API_KEY"),
         "proxy": ("config", "SENA_PROXY"),
     }
     for key, (target, env_name) in fields.items():
@@ -257,6 +259,8 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.hikarinagi_client_secret = os.environ["SENA_HIKARINAGI_CLIENT_SECRET"]
     if os.environ.get("SENA_HIKARINAGI_SCOPE"):
         config.scrapers.hikarinagi_scope = os.environ["SENA_HIKARINAGI_SCOPE"]
+    if os.environ.get("SENA_NEXTMOE_API_KEY"):
+        config.scrapers.nextmoe_api_key = os.environ["SENA_NEXTMOE_API_KEY"]
 
     # 3. CLI arg overrides
     if args.host:

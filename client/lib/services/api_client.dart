@@ -357,6 +357,22 @@ class ApiClient {
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
+  Future<List<String>> getEnabledScraperSources() async {
+    final uri = Uri.parse("$baseUrl/api/settings/scraper");
+    try {
+      final resp = await _client.get(uri, headers: headers).timeout(
+            const Duration(seconds: 10),
+          );
+      if (resp.statusCode != 200) return const [];
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final enabled = data["enabled_scrapers"];
+      if (enabled is! List) return const [];
+      return enabled.map((value) => value.toString()).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<List<Map<String, dynamic>>> searchMetadataCandidates({
     required String source,
     required String query,

@@ -25,18 +25,21 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "vndb_kana": "VNDB Kana v2",
     "bangumi": "Bangumi",
     "steam": "Steam",
+    "nextmoe": "NextMoe",
   };
   final List<String> _scraperOrder = [
     "hikarinagi",
     "vndb_kana",
     "bangumi",
     "steam",
+    "nextmoe",
   ];
   final Map<String, bool> _scraperEnabled = {
     "hikarinagi": true,
     "vndb_kana": true,
     "bangumi": true,
     "steam": true,
+    "nextmoe": false,
   };
   int _step = 0;
   bool _loading = false;
@@ -857,7 +860,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           title: "本步骤摘要",
           stats: {
             "启用来源": "$enabledCount",
-            "主来源": _scraperLabels[_scraperOrder.first] ?? _scraperOrder.first,
+            "主来源": _scraperEnabled["nextmoe"] == true
+                ? "NextMoe"
+                : (_scraperLabels[_scraperOrder.first] ?? _scraperOrder.first),
             "凭据": _hikarinagiClientIdCtrl.text.trim().isEmpty &&
                     _hikarinagiClientSecretCtrl.text.trim().isEmpty
                 ? "未填"
@@ -1286,6 +1291,26 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return "${value[0]}***${value[value.length - 1]}";
   }
 
+  bool get _hasClassicSourceEnabled => _scraperOrder
+      .where((source) => source != "nextmoe")
+      .any((source) => _scraperEnabled[source] ?? false);
+
+  bool _scraperSourceLocked(String source) {
+    if (source == "nextmoe") return _hasClassicSourceEnabled;
+    return _scraperEnabled["nextmoe"] ?? false;
+  }
+
+  void _toggleScraperSource(String source, bool value) {
+    setState(() {
+      _scraperEnabled[source] = value;
+      if (source == "nextmoe" && value) {
+        for (final classic in _scraperOrder) {
+          if (classic != "nextmoe") _scraperEnabled[classic] = false;
+        }
+      }
+    });
+  }
+
   Widget _scraperSourceList() {
     return ReorderableListView.builder(
       shrinkWrap: true,
@@ -1302,6 +1327,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       itemBuilder: (context, index) {
         final source = _scraperOrder[index];
         final enabled = _scraperEnabled[source] ?? false;
+        final locked = _scraperSourceLocked(source);
         return Padding(
           key: ValueKey(source),
           padding: EdgeInsets.only(
@@ -1323,8 +1349,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 ),
                 Switch.adaptive(
                   value: enabled,
-                  onChanged: (value) =>
-                      setState(() => _scraperEnabled[source] = value),
+                  onChanged: locked
+                      ? null
+                      : (value) => _toggleScraperSource(source, value),
                 ),
               ],
             ),
@@ -1344,6 +1371,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         return "中文条目、封面和发布日期。";
       case "steam":
         return "商店信息、AppID 和发行资料辅助匹配。";
+      case "nextmoe":
+        return "独立模式 · 聚合 VNDB / Bangumi / DLsite 等六源，需 API Key，开启后将禁用其他源。";
       default:
         return source;
     }

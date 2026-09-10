@@ -26,6 +26,7 @@ from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
 from .hikarinagi import HikarinagiScraper
+from .nextmoe import NextMoeScraper
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ _IMAGE_DOWNLOAD_TIMEOUT = 45.0
 _MAX_PROGRESS_TEXT_LENGTH = 512
 _UNSET = object()
 
-_VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "hikarinagi"}
+_VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "hikarinagi", "nextmoe"}
 # Average playtime is intentionally sourced from VNDB only.
 _PLAYTIME_SOURCES = {"vndb_kana", "vndb"}
 
@@ -162,6 +163,10 @@ def _build_scrapers(config: Config) -> list[BaseScraper]:
         "vndb_kana": lambda: VndbKanaScraper(proxy=config.proxy),
         "bangumi": lambda: BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
         "steam": lambda: SteamScraper(proxy=config.proxy),
+        "nextmoe": lambda: NextMoeScraper(
+            proxy=config.proxy,
+            api_key=s.nextmoe_api_key,
+        ),
     }
     scrapers: list[BaseScraper] = []
     for source in s.scraper_order:

@@ -334,6 +334,7 @@ sudo bash /opt/sena-repo/uninstall.sh --keep-data
 | `SENA_PROXY` | 刮削代理（http/socks5） | 空 |
 | `SENA_BANGUMI_TOKEN` | Bangumi API Token | 空 |
 | `SENA_VNDB_TOKEN` | VNDB API Token | 空 |
+| `SENA_NEXTMOE_API_KEY` | NextMoe 应用密钥（`nmk_live_…`） | 空 |
 
 ### config.yaml（可选）
 
@@ -353,6 +354,9 @@ proxy: ""
 scrapers:
   bangumi_token: ""
   vndb_token: ""
+  hikarinagi_client_id: ""
+  hikarinagi_client_secret: ""
+  nextmoe_api_key: ""
 ```
 
 ### 数据目录结构
@@ -374,6 +378,10 @@ scrapers:
 | VNDB Kana v2 | 可选 Token | 含游戏时长数据 |
 | Bangumi | 可选 Token | 中文元数据丰富 |
 | Steam | 免认证 | 封面、背景、简介 |
+| Hikarinagi | Client ID / Secret | 中文 Galgame 资料站 |
+| NextMoe | 应用密钥 | 聚合六源；独立模式，开启后禁用其他刮削源 |
+
+> NextMoe 是独立的刮削模式：在客户端「扫描设置 → 刮削源」中开启 NextMoe 后，其余刮削源会自动关闭并禁用，单条目和批量刮削都只走 NextMoe。密钥在 https://developer.nextmoe.dev 控制台自助创建应用并勾选 `catalog:read`，免费额度为每分钟 60 次、每天 50000 次。关闭 NextMoe 后其余刮削源恢复可选。
 
 ---
 

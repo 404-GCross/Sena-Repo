@@ -119,6 +119,7 @@ class ScraperConfigOut(BaseModel):
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
+    nextmoe_api_key: str = ""
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -134,6 +135,7 @@ class ScraperConfigUpdate(BaseModel):
     hikarinagi_client_id: str | None = None
     hikarinagi_client_secret: str | None = None
     hikarinagi_scope: str | None = None
+    nextmoe_api_key: str | None = None
     scraper_order: list[str] | None = None
     enabled_scrapers: list[str] | None = None
     proxy: str | None = None
@@ -143,6 +145,10 @@ class HikarinagiTestRequest(BaseModel):
     client_id: str = ""
     client_secret: str = ""
     scope: str = "catalog:full"
+
+
+class NextMoeTestRequest(BaseModel):
+    api_key: str = ""
 
 
 class SecretKeyStatusOut(BaseModel):
@@ -172,6 +178,7 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         hikarinagi_client_id=_mask(s.hikarinagi_client_id),
         hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
         hikarinagi_scope=s.hikarinagi_scope,
+        nextmoe_api_key=_mask(s.nextmoe_api_key),
         scraper_order=s.scraper_order,
         enabled_scrapers=s.enabled_scrapers,
         proxy=_mask(config.proxy),
@@ -218,6 +225,7 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
         "hikarinagi_client_id",
         "hikarinagi_client_secret",
         "hikarinagi_scope",
+        "nextmoe_api_key",
         "scraper_order",
         "enabled_scrapers",
         "proxy",
@@ -316,6 +324,63 @@ async def test_hikarinagi(
         return {"ok": False, "error": "Hikarinagi 连接失败，请检查凭据、Scope 和网络"}
     finally:
         await scraper.close()
+
+
+@router.post("/nextmoe-test")
+async def test_nextmoe(
+    body: NextMoeTestRequest,
+    user: User = Depends(require_admin),
+):
+    """Validate a NextMoe application key and catalog scope."""
+    import time
+    import httpx
+    from services.scraper.nextmoe import NEXTMOE_API_BASE
+
+    del user
+    config = load_config()
+    api_key = body.api_key.strip()
+    if not api_key or "****" in api_key:
+        api_key = config.scrapers.nextmoe_api_key
+    if not api_key:
+        return {"ok": False, "error": "请填写 API Key"}
+
+    client_kwargs = {"timeout": httpx.Timeout(15.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            resp = await client.get(
+                f"{NEXTMOE_API_BASE}/catalog/works",
+                params={"limit": "1", "nsfw": "true"},
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+            )
+        if resp.status_code == 200:
+            return {
+                "ok": True,
+                "latency_ms": round((time.monotonic() - started) * 1000),
+            }
+        if resp.status_code in (401, 403):
+            code = ""
+            try:
+                code = str(resp.json().get("code") or "")
+            except Exception:
+                code = ""
+            if code == "SCOPE_REQUIRED":
+                return {"ok": False, "error": "Key 有效但缺少 catalog:read scope"}
+            if code == "INVALID_CREDENTIAL":
+                return {"ok": False, "error": "API Key 无效或已被吊销"}
+            return {"ok": False, "error": f"NextMoe 鉴权失败（HTTP {resp.status_code}）"}
+        if resp.status_code == 429:
+            return {"ok": False, "error": "NextMoe 限流，请稍后重试"}
+        return {"ok": False, "error": f"NextMoe 返回 HTTP {resp.status_code}"}
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "NextMoe 连接超时，请检查网络或代理"}
+    except Exception:
+        return {"ok": False, "error": "NextMoe 连接失败，请检查网络和 Key"}
 
 
 @router.post("/proxy-test")

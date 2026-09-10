@@ -915,13 +915,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
-    const allSrc = ["hikarinagi", "vndb_kana", "bangumi", "steam"];
+    const allSrc = [
+      "hikarinagi",
+      "vndb_kana",
+      "bangumi",
+      "steam",
+      "nextmoe",
+    ];
     final prefs = await SharedPreferences.getInstance();
     final defaultSources = allSrc
         .where(
-          (source) => prefs.getBool("scrape_src_$source") ?? true,
+          (source) =>
+              prefs.getBool("scrape_src_$source") ?? (source != "nextmoe"),
         )
         .toSet();
+    if (defaultSources.contains("nextmoe") && defaultSources.length > 1) {
+      defaultSources.retainAll({"nextmoe"});
+    }
     if (defaultSources.isEmpty) defaultSources.add("vndb_kana");
 
     final result = await showDialog<Map<String, dynamic>>(
@@ -948,12 +958,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                 for (final s in allSrc)
                                   CheckboxListTile(
                                       title: Text(_srcLabel(s)),
+                                      subtitle: s == "nextmoe"
+                                          ? const Text(
+                                              "独立模式，不能与其他源同时使用",
+                                              style: TextStyle(fontSize: 11))
+                                          : null,
                                       value: sel.contains(s),
-                                      onChanged: (v) {
-                                        setD(() => v == true
-                                            ? sel.add(s)
-                                            : sel.remove(s));
-                                      },
+                                      onChanged: _scrapeSourceLocked(s, sel)
+                                          ? null
+                                          : (v) {
+                                              setD(() => v == true
+                                                  ? sel.add(s)
+                                                  : sel.remove(s));
+                                            },
                                       dense: true),
                                 const SizedBox(height: 12),
                                 Text("刮削模式",
@@ -1040,11 +1057,19 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  bool _scrapeSourceLocked(String source, Set<String> selected) {
+    if (source == "nextmoe") {
+      return selected.any((other) => other != "nextmoe");
+    }
+    return selected.contains("nextmoe");
+  }
+
   String _srcLabel(String s) => switch (s) {
         "vndb_kana" => "VNDB Kana v2",
         "bangumi" => "Bangumi",
         "steam" => "Steam",
         "hikarinagi" => "Hikarinagi",
+        "nextmoe" => "NextMoe",
         _ => s,
       };
 

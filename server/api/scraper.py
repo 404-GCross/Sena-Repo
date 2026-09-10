@@ -121,6 +121,17 @@ class BatchScrapeRequest(BaseModel):
     mode: str = "missing"  # "missing" | "overwrite" | "images" | "metadata"
 
 
+def _validate_scrape_sources(sources: list[str] | None) -> None:
+    """NextMoe is an exclusive mode and cannot be mixed with other sources."""
+    if not sources:
+        return
+    unique = {str(source).strip() for source in sources}
+    if "nextmoe" in unique and len(unique) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="NextMoe 是独立刮削模式，不能与其他刮削源同时使用",
+        )
+
 class JobStatusOut(BaseModel):
     id: int
     status: str
@@ -251,6 +262,8 @@ async def search_candidates(
                 for r in results
             ],
         }
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="搜索失败，请查看服务端日志")
     finally:
@@ -359,6 +372,7 @@ async def scrape_game_cover(
     config = load_config()
     all_scrapers = _build_scrapers(config)
 
+    _validate_scrape_sources(sources)
     # Filter by requested sources
     if sources:
         all_scrapers = [s for s in all_scrapers if s.source_name in sources]
@@ -436,6 +450,7 @@ async def start_batch_scrape(
     If game_ids is provided, only those games are scraped.
     Otherwise, all games without covers are scraped.
     """
+    _validate_scrape_sources(body.sources)
     config = load_config()
     await _fail_stale_scrape_jobs(session)
     active_result = await session.execute(

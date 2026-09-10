@@ -70,6 +70,13 @@ class _NewGameDialogState extends State<NewGameDialog> {
       icon: Icons.sports_esports_rounded,
       color: Colors.teal,
     ),
+    _NewGameSource(
+      key: "nextmoe",
+      label: "NextMoe",
+      description: "独立模式，聚合 VNDB、Bangumi、DLsite 等六源，可一次补齐外部 ID。",
+      icon: Icons.hub_rounded,
+      color: Colors.deepPurple,
+    ),
   ];
 
   int _modeIndex = 0;
@@ -80,6 +87,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
   bool _creating = false;
   bool _searched = false;
   String? _error;
+  List<String>? _visibleSourceKeys;
 
   @override
   void initState() {
@@ -87,6 +95,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
     final initial = widget.initialQuery.trim();
     _searchCtrl = TextEditingController(text: initial);
     _manualNameCtrl = TextEditingController(text: initial);
+    _loadVisibleSources();
     if (initial.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _search();
@@ -99,6 +108,28 @@ class _NewGameDialogState extends State<NewGameDialog> {
     _searchCtrl.dispose();
     _manualNameCtrl.dispose();
     super.dispose();
+  }
+
+  List<_NewGameSource> get _visibleSources {
+    final keys = _visibleSourceKeys;
+    if (keys == null) return _sources;
+    return _sources.where((source) => keys.contains(source.key)).toList();
+  }
+
+  Future<void> _loadVisibleSources() async {
+    final enabled = await widget.api.getEnabledScraperSources();
+    if (!mounted) return;
+    setState(() {
+      _visibleSourceKeys = enabled.contains("nextmoe")
+          ? const ["nextmoe"]
+          : _sources
+              .map((source) => source.key)
+              .where((key) => key != "nextmoe")
+              .toList();
+      if (!_visibleSourceKeys!.contains(_source)) {
+        _source = _visibleSourceKeys!.first;
+      }
+    });
   }
 
   Future<void> _search() async {
@@ -240,7 +271,11 @@ class _NewGameDialogState extends State<NewGameDialog> {
     final compact = size.width < 560;
     final width = math.min(size.width - 24, compact ? 520.0 : 720.0);
     final height = math.min(size.height - 24, compact ? 680.0 : 640.0);
-    final selectedSource = _sources.firstWhere((item) => item.key == _source);
+    final visibleSources = _visibleSources;
+    final selectedSource = visibleSources.firstWhere(
+      (item) => item.key == _source,
+      orElse: () => visibleSources.first,
+    );
     final status = _creating
         ? "创建中"
         : _loading
@@ -386,7 +421,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
         isDense: true,
       ),
       items: [
-        for (final source in _sources)
+        for (final source in _visibleSources)
           DropdownMenuItem(
             value: source.key,
             child: Text(source.label),

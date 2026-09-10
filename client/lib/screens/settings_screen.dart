@@ -1096,18 +1096,21 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "vndb_kana",
     "bangumi",
     "steam",
+    "nextmoe",
   ];
   static const _scraperLabels = {
     "vndb_kana": "VNDB Kana v2",
     "bangumi": "Bangumi",
     "steam": "Steam",
     "hikarinagi": "Hikarinagi",
+    "nextmoe": "NextMoe",
   };
   static const _scraperHints = {
     "vndb_kana": "中文标题、平均游戏时长",
     "bangumi": "免认证，填 Token 可提高速率",
     "steam": "免认证，Steam 商店元数据",
     "hikarinagi": "需要 Client ID / Secret",
+    "nextmoe": "聚合六源；开启后将禁用其他源",
   };
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
@@ -1125,6 +1128,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   bool _scraping = false;
   bool _scrapeAfterScan = false;
   bool _testingHikarinagi = false;
+  bool _testingNextMoe = false;
   final Set<int> _testingOpenListSources = {};
   // Scraper sources
   final _sources = {
@@ -1132,12 +1136,14 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "bangumi": true,
     "steam": true,
     "hikarinagi": true,
+    "nextmoe": false,
   };
   final _keys = {
     "vndb_token": TextEditingController(),
     "hikarinagi_client_id": TextEditingController(),
     "hikarinagi_client_secret": TextEditingController(),
     "hikarinagi_scope": TextEditingController(text: "catalog:full"),
+    "nextmoe_api_key": TextEditingController(),
     "proxy": TextEditingController(),
   };
 
@@ -2074,6 +2080,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   _scraperSourceList(),
                   const SizedBox(height: 12),
                   _hikarinagiCredentialSettings(),
+                  const SizedBox(height: 12),
+                  _nextmoeCredentialSettings(),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -2637,6 +2645,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           for (final source in _sources.keys) {
             _sources[source] = enabledSet.contains(source);
           }
+          if (_sources["nextmoe"] == true) {
+            for (final source in _sources.keys) {
+              if (source != "nextmoe") _sources[source] = false;
+            }
+          }
         }
       }
     } catch (_) {}
@@ -2663,6 +2676,86 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } else {
       if (showToast) _toast(context, "刮削源配置保存失败: ${resp.statusCode}");
       return false;
+    }
+  }
+
+  Widget _nextmoeCredentialSettings() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "NextMoe 凭据",
+            style: AppText.bodySmall.copyWith(
+              fontWeight: FontWeight.w600,
+              color: subTextColor(context),
+            ),
+          ),
+          Text(
+            "在 developer.nextmoe.dev 自助创建应用并勾选 catalog:read，密钥保存在服务端配置中",
+            style: AppText.label.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["nextmoe_api_key"],
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: "API Key",
+              hintText: "nmk_live_...",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _testingNextMoe ? null : _testNextMoe,
+              icon: _testingNextMoe
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.wifi_tethering_outlined, size: 17),
+              label: const Text("测试连接"),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _testNextMoe() async {
+    setState(() => _testingNextMoe = true);
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/settings/nextmoe-test"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({
+          "api_key": _keys["nextmoe_api_key"]!.text.trim(),
+        }),
+      );
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        _toast(
+          context,
+          data["ok"] == true
+              ? "NextMoe 连接正常（${data["latency_ms"]}ms）"
+              : "NextMoe 连接失败: ${data["error"]}",
+        );
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "NextMoe 连接失败: $e");
+    } finally {
+      if (mounted) setState(() => _testingNextMoe = false);
     }
   }
 
@@ -2754,6 +2847,28 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
+  List<String> get _classicScraperSources =>
+      _defaultScraperOrder.where((source) => source != "nextmoe").toList();
+
+  bool get _hasClassicSourceEnabled =>
+      _classicScraperSources.any((source) => _sources[source] ?? false);
+
+  bool _scraperSourceLocked(String source) {
+    if (source == "nextmoe") return _hasClassicSourceEnabled;
+    return _sources["nextmoe"] ?? false;
+  }
+
+  void _toggleScraperSource(String source, bool value) {
+    setState(() {
+      _sources[source] = value;
+      if (source == "nextmoe" && value) {
+        for (final classic in _classicScraperSources) {
+          _sources[classic] = false;
+        }
+      }
+    });
+  }
+
   Widget _srcCard({
     required Key key,
     required int index,
@@ -2762,6 +2877,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     required String hint,
   }) {
     final enabled = _sources[src] ?? false;
+    final locked = _scraperSourceLocked(src);
     return Container(
       key: key,
       margin: const EdgeInsets.only(bottom: 6),
@@ -2785,7 +2901,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           style: AppText.label.copyWith(color: hintColor(context)),
         ),
         value: enabled,
-        onChanged: (v) => setState(() => _sources[src] = v),
+        onChanged: locked ? null : (v) => _toggleScraperSource(src, v),
         dense: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),

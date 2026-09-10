@@ -46,13 +46,19 @@ scrapers:
   hikarinagi_client_id: ""
   hikarinagi_client_secret: ""
   hikarinagi_scope: "catalog:full"
+  # NextMoe is an exclusive scraping mode: enabling it disables the sources above.
+  nextmoe_api_key: ""
   scraper_order:
     - hikarinagi
     - vndb_kana
     - bangumi
     - steam
+    - nextmoe
   enabled_scrapers:
     - hikarinagi
     - vndb_kana
     - bangumi
     - steam
+  # To use NextMoe instead, replace the list above with:
+  # enabled_scrapers:
+  #   - nextmoe

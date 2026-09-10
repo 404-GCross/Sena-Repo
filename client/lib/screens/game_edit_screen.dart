@@ -63,7 +63,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     String source,
     String query,
   ) async {
-    if (source != "hikarinagi") {
+    if (!_serverSideMetadataSources.contains(source)) {
       return ScrapeService.search(source, query);
     }
 
@@ -72,7 +72,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     final resp = await http.get(uri, headers: _authHeaders);
     if (resp.statusCode != 200) {
-      throw Exception("Hikarinagi 搜索失败 (${resp.statusCode})");
+      final label = _allMetadataSources[source] ?? source;
+      throw Exception("$label 搜索失败 (${resp.statusCode})");
     }
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     final results = (data["results"] as List?) ?? const [];
@@ -2741,12 +2742,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Future<void> _downloadMetadata() async {
     // Step 1: Pick source
-    final sources = {
-      "vndb_kana": "VNDB Kana v2",
-      "bangumi": "Bangumi",
-      "steam": "Steam",
-      "hikarinagi": "Hikarinagi",
-    };
+    final enabled =
+        await context.read<GameProvider>().api.getEnabledScraperSources();
+    if (!mounted) return;
+    final sources = _metadataSourcesFor(enabled);
     final src = await showDialog<String>(
       context: context,
       builder: (ctx) => _MetadataSourceDialog(sources: sources),
@@ -3069,6 +3068,30 @@ class _MetadataSourceInfo {
   });
 }
 
+const _allMetadataSources = {
+  "vndb_kana": "VNDB Kana v2",
+  "bangumi": "Bangumi",
+  "steam": "Steam",
+  "hikarinagi": "Hikarinagi",
+  "nextmoe": "NextMoe",
+};
+
+/// Hikarinagi and NextMoe need server-held credentials, so their search
+/// runs on the server instead of from the client.
+const _serverSideMetadataSources = {"hikarinagi", "nextmoe"};
+
+/// NextMoe is an exclusive mode: when it is enabled the edit screen only
+/// offers NextMoe, mirroring the server-side scraper settings.
+Map<String, String> _metadataSourcesFor(List<String> enabled) {
+  if (enabled.contains("nextmoe")) {
+    return const {"nextmoe": "NextMoe"};
+  }
+  return {
+    for (final entry in _allMetadataSources.entries)
+      if (entry.key != "nextmoe") entry.key: entry.value,
+  };
+}
+
 _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
   switch (key) {
     case "hikarinagi":
@@ -3106,6 +3129,15 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         icon: Icons.sports_esports_rounded,
         color: Colors.teal,
         chips: const ["AppID", "图片", "Tag"],
+      );
+    case "nextmoe":
+      return _MetadataSourceInfo(
+        key: key,
+        label: fallbackLabel,
+        subtitle: "NextMoe 聚合 VNDB、Bangumi、DLsite、ErogameScape 等六个来源，并支持按外部 ID 反查。",
+        icon: Icons.hub_rounded,
+        color: Colors.deepPurple,
+        chips: const ["六源聚合", "中文名", "外部 ID"],
       );
     default:
       return _MetadataSourceInfo(
