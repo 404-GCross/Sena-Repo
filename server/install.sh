@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SERVICE_NAME="sena-repo"
 DEFAULT_REPO_URL="https://github.com/404-GCross/Sena-Repo.git"
-DEFAULT_REPO_REF="dev"
+DEFAULT_REPO_REF="main"
 
 ACTION="install"
 DATA_ACTION="ask"
@@ -66,7 +66,7 @@ Environment overrides:
   SENA_PORT=11451
   SENA_PYTHON_BIN=/usr/bin/python3.11
   SENA_REPO_URL=https://github.com/404-GCross/Sena-Repo.git
-  SENA_REPO_REF=dev
+  SENA_REPO_REF=main
   SENA_HIKARINAGI_CLIENT_ID=...
   SENA_HIKARINAGI_CLIENT_SECRET=...
   SENA_HIKARINAGI_SCOPE=catalog:full

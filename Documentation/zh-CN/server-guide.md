@@ -187,31 +187,45 @@ docker run -d \
 
 > 适合没有 Docker 的设备，例如部分 arm32 NAS、盒子或 Armbian 设备。amd64 / arm64 仍建议优先使用 Docker。
 
-一键下载安装（默认安装 `dev` 分支）：
+一键下载安装稳定版（默认安装 `main` 分支）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/main/server/install.sh | sudo bash
+```
+
+安装开发版 / `dev` 分支：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo SENA_REPO_REF=dev bash
 ```
 
 如果需要指定端口、数据目录或 Python 路径，可以把环境变量放到 `sudo` 后面：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo SENA_PORT=11451 SENA_DATA_PATH=/var/lib/sena-repo bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/main/server/install.sh | sudo SENA_PORT=11451 SENA_DATA_PATH=/var/lib/sena-repo bash
 ```
 
 如果希望先查看脚本内容再执行：
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh
+curl -fsSLO https://raw.githubusercontent.com/404-GCross/Sena-Repo/main/server/install.sh
 sudo bash install.sh
 ```
 
-也可以手动 clone 后运行本地脚本：
+也可以手动 clone 稳定版源码后运行本地脚本：
 
 ```bash
-git clone -b dev https://github.com/404-GCross/Sena-Repo.git
+git clone https://github.com/404-GCross/Sena-Repo.git
 cd Sena-Repo/server
 sudo bash install.sh
+```
+
+如果需要开发版源码：
+
+```bash
+git clone -b dev https://github.com/404-GCross/Sena-Repo.git Sena-Repo-dev
+cd Sena-Repo-dev/server
+sudo SENA_REPO_REF=dev bash install.sh
 ```
 
 脚本当前支持带 `systemd` 的常见 Linux 发行版，会自动识别 `apt-get`、`dnf`、`yum`、`zypper` 或 `pacman` 安装 Python 编译依赖、创建 venv、写入 systemd 服务并启动服务。已覆盖 Debian / Ubuntu / Armbian、Fedora / RHEL / Rocky / AlmaLinux / openEuler、openSUSE、Arch / Manjaro 等发行版。

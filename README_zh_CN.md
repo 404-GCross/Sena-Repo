@@ -77,10 +77,16 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 快速开始
 
-服务端一键安装（默认安装 `dev` 分支）：
+服务端一键安装（稳定版 / `main`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/main/server/install.sh | sudo bash
+```
+
+开发版 / `dev`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo SENA_REPO_REF=dev bash
 ```
 
 已 `git clone` 的源码安装：
