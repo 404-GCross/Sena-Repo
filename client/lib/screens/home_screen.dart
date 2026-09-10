@@ -45,17 +45,22 @@ class _HomeScreenState extends State<HomeScreen> {
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
+  bool _mobileToolbarVisible = true;
+  double _lastLibraryScrollOffset = 0;
   int _downloadCount = 0;
   StreamSubscription? _downloadSub;
 
+  bool get _isHandheldPlatform => Platform.isAndroid || Platform.isIOS;
+
   bool _isWide(BuildContext ctx) =>
-      !Platform.isAndroid || MediaQuery.of(ctx).size.shortestSide > 600;
+      !_isHandheldPlatform || MediaQuery.of(ctx).size.shortestSide > 600;
   bool _isMobile(BuildContext ctx) =>
-      Platform.isAndroid && MediaQuery.of(ctx).size.shortestSide <= 600;
+      _isHandheldPlatform && MediaQuery.of(ctx).size.shortestSide <= 600;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleLibraryScroll);
     _pollBackground();
     _downloadSub = DownloadService().tasks.listen((tasks) {
       final count = tasks
@@ -69,6 +74,21 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted && count != _downloadCount)
         setState(() => _downloadCount = count);
     });
+  }
+
+  void _handleLibraryScroll() {
+    if (!mounted || !_isMobile(context) || !_scrollController.hasClients) {
+      return;
+    }
+    final offset = _scrollController.offset;
+    final delta = offset - _lastLibraryScrollOffset;
+    if (delta.abs() < 4) return;
+    _lastLibraryScrollOffset = offset;
+
+    final visible = offset <= 8 || delta < 0;
+    if (visible != _mobileToolbarVisible) {
+      setState(() => _mobileToolbarVisible = visible);
+    }
   }
 
   void _pollBackground() {
@@ -116,8 +136,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGameLibrary(GameProvider gameProvider) {
+    final mobile = _isMobile(context);
     return Column(
       children: [
+        if (mobile) _buildMobileLibraryToolbar(gameProvider),
+        if (!mobile) ...[
         // ── Search bar ──
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
@@ -382,6 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ])),
             ]),
           ),
+        ],
         Expanded(
           child: gameProvider.isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -417,6 +441,324 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMobileLibraryToolbar(GameProvider gameProvider) {
+    final hasFilters = gameProvider.filterPlatform != null ||
+        gameProvider.filterHasCover != null ||
+        gameProvider.sortBy != null;
+    final cs = Theme.of(context).colorScheme;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      child: _mobileToolbarVisible
+          ? Container(
+              height: 58,
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+              decoration: BoxDecoration(
+                color: cardBg(context).withValues(alpha: 0.96),
+                border: Border(
+                  bottom: BorderSide(
+                    color: cardBorder(context).withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  _mobileToolbarButton(
+                    icon: Icons.search_rounded,
+                    tooltip: "搜索",
+                    active: _searchController.text.trim().isNotEmpty,
+                    onPressed: () => _showMobileSearch(gameProvider),
+                  ),
+                  _mobileToolbarButton(
+                    icon: Icons.tune_rounded,
+                    tooltip: "筛选",
+                    active: hasFilters,
+                    onPressed: () => _showMobileFilters(gameProvider),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "${gameProvider.games.length} 款",
+                    style: AppText.label.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: subTextColor(context),
+                    ),
+                  ),
+                  const Spacer(),
+                  _mobileToolbarButton(
+                    icon: Icons.refresh_rounded,
+                    tooltip: "刷新",
+                    onPressed: gameProvider.loadGames,
+                  ),
+                  _mobileToolbarButton(
+                    icon: _isGridView
+                        ? Icons.view_list_rounded
+                        : Icons.grid_view_rounded,
+                    tooltip: _isGridView ? "列表视图" : "网格视图",
+                    onPressed: () => setState(() => _isGridView = !_isGridView),
+                  ),
+                  _mobileToolbarButton(
+                    icon: _multiSelect
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    tooltip: "多选",
+                    active: _multiSelect,
+                    onPressed: _toggleMultiSelect,
+                  ),
+                  if (hasFilters)
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, size: 19, color: cs.error),
+                      tooltip: "清除筛选",
+                      visualDensity: VisualDensity.compact,
+                      onPressed: gameProvider.clearFilters,
+                    ),
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _mobileToolbarButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    bool active = false,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return IconButton(
+      icon: Icon(
+        icon,
+        size: 20,
+        color: active ? cs.primary : hintColor(context),
+      ),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+    );
+  }
+
+  Future<void> _showMobileSearch(GameProvider gameProvider) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          child: Material(
+            color: cardBg(context),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: "搜索游戏、会社、补丁关键词...",
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded),
+                            onPressed: () {
+                              _searchController.clear();
+                              gameProvider.search("");
+                              setState(() {});
+                              setSheetState(() {});
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.72),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: (value) {
+                    gameProvider.search(value);
+                    setState(() {});
+                    setSheetState(() {});
+                  },
+                  onSubmitted: (_) => Navigator.pop(sheetContext),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMobileFilters(GameProvider gameProvider) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          void refresh(VoidCallback action) {
+            action();
+            setSheetState(() {});
+          }
+
+          return Material(
+            color: cardBg(context),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(22)),
+            child: SafeArea(
+              top: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text("筛选与排序", style: AppText.subtitle),
+                        const Spacer(),
+                        if (gameProvider.filterPlatform != null ||
+                            gameProvider.filterHasCover != null ||
+                            gameProvider.sortBy != null)
+                          TextButton(
+                            onPressed: () {
+                              gameProvider.clearFilters();
+                              setSheetState(() {});
+                            },
+                            child: const Text("清除"),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text("平台", style: AppText.label.copyWith(
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _filterChip(
+                          "PC",
+                          Icons.desktop_windows,
+                          gameProvider.filterPlatform == "PC",
+                          () => refresh(() => _togglePlatformFilter("PC")),
+                        ),
+                        _filterChip(
+                          "KRKR",
+                          Icons.android,
+                          gameProvider.filterPlatform == "KRKR",
+                          () => refresh(() => _togglePlatformFilter("KRKR")),
+                        ),
+                        _filterChip(
+                          "ONS",
+                          Icons.language,
+                          gameProvider.filterPlatform == "ONS",
+                          () => refresh(() => _togglePlatformFilter("ONS")),
+                        ),
+                        _filterChip(
+                          "Ty",
+                          Icons.phone_android,
+                          gameProvider.filterPlatform == "Ty",
+                          () => refresh(() => _togglePlatformFilter("Ty")),
+                        ),
+                        _filterChip(
+                          "直装",
+                          Icons.phone_iphone,
+                          gameProvider.filterPlatform == "直装",
+                          () => refresh(() => _togglePlatformFilter("直装")),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text("封面", style: AppText.label.copyWith(
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        _filterChip(
+                          "有封面",
+                          Icons.image_outlined,
+                          gameProvider.filterHasCover == true,
+                          () => refresh(() => gameProvider.setFilters(
+                              hasCover: gameProvider.filterHasCover == true
+                                  ? null
+                                  : true)),
+                        ),
+                        _filterChip(
+                          "缺封面",
+                          Icons.hide_image_outlined,
+                          gameProvider.filterHasCover == false,
+                          () => refresh(() => gameProvider.setFilters(
+                              hasCover: gameProvider.filterHasCover == false
+                                  ? null
+                                  : false)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text("排序", style: AppText.label.copyWith(
+                        fontWeight: FontWeight.w700)),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("导入时间 ↓"),
+                      value: "imported",
+                      groupValue: gameProvider.sortBy ?? "imported",
+                      onChanged: (_) => refresh(() => gameProvider.setSort(null)),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("名称 A → Z"),
+                      value: "name",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) => refresh(() => gameProvider.setSort("name")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("名称 Z → A"),
+                      value: "name_desc",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("name_desc")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("会社 A → Z"),
+                      value: "developer",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("developer")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("会社 Z → A"),
+                      value: "developer_desc",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("developer_desc")),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -771,6 +1113,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _downloadSub?.cancel();
+    _scrollController.removeListener(_handleLibraryScroll);
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
