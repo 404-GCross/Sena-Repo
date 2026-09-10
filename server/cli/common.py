@@ -17,6 +17,10 @@ SERVER_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SERVICE_NAME = "sena-repo"
 DEFAULT_ENV_FILE = Path("/etc/sena-repo/sena-repo.env")
 
+# Package managers that own the service lifecycle for a deployment. senacli
+# refuses update/uninstall on those because the manager must do it.
+MANAGED_DEPLOYMENTS = {"fnos": "飞牛应用中心"}
+
 
 class CliError(Exception):
     def __init__(self, message: str, code: int = 1):
@@ -168,6 +172,12 @@ def print_table(headers: Sequence[str], rows: Sequence[Sequence[object]]) -> Non
     echo("  ".join("-" * widths[i] for i in range(len(headers))))
     for row in text_rows:
         echo("  ".join(row[i].ljust(widths[i]) for i in range(len(headers))))
+
+
+def managed_deployment() -> str:
+    """Name of the package manager owning this deployment, or an empty string."""
+    key = os.environ.get("SENA_DEPLOYMENT", "").strip().lower()
+    return MANAGED_DEPLOYMENTS.get(key, "")
 
 
 def in_docker() -> bool:
