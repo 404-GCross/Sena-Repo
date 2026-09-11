@@ -2106,6 +2106,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                             Expanded(
                               child: TextField(
                                 controller: _keys["proxy"],
+                                onChanged: (_) => _scheduleScraperSave(),
+                                onEditingComplete: () =>
+                                    _scheduleScraperSave(immediate: true),
                                 decoration: InputDecoration(
                                   hintText: "http://127.0.0.1:7890",
                                   isDense: true,
@@ -2136,18 +2139,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           ],
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () => _saveScraperConfig(),
-                    icon: const Icon(Icons.save, size: 18),
-                    label: const Text("保存刮削配置"),
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ],
@@ -2185,6 +2176,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
+            onChanged: (_) => _scheduleScraperSave(),
+            onEditingComplete: () => _scheduleScraperSave(immediate: true),
           ),
           const SizedBox(height: 8),
           TextField(
@@ -2196,6 +2189,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
+            onChanged: (_) => _scheduleScraperSave(),
+            onEditingComplete: () => _scheduleScraperSave(immediate: true),
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
@@ -2220,6 +2215,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             onChanged: (value) {
               if (value != null) {
                 setState(() => _keys["hikarinagi_scope"]!.text = value);
+                _scheduleScraperSave(immediate: true);
               }
             },
           ),
@@ -2648,7 +2644,42 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     if (mounted) setState(() {});
   }
 
-  Future<bool> _saveScraperConfig({bool showToast = true}) async {
+  Timer? _scraperSaveTimer;
+  bool _scraperSaveInFlight = false;
+  bool _scraperSaveQueued = false;
+
+  /// Auto-save entry point: immediate for discrete actions (toggles, mode,
+  /// ordering), debounced for text fields so typing does not spam the server.
+  void _scheduleScraperSave({bool immediate = false}) {
+    _scraperSaveTimer?.cancel();
+    if (immediate) {
+      unawaited(_flushScraperSave());
+      return;
+    }
+    _scraperSaveTimer = Timer(
+      const Duration(milliseconds: 800),
+      () => unawaited(_flushScraperSave()),
+    );
+  }
+
+  Future<void> _flushScraperSave() async {
+    if (_scraperSaveInFlight) {
+      _scraperSaveQueued = true;
+      return;
+    }
+    _scraperSaveInFlight = true;
+    try {
+      await _saveScraperConfig();
+    } finally {
+      _scraperSaveInFlight = false;
+      if (_scraperSaveQueued && mounted) {
+        _scraperSaveQueued = false;
+        await _flushScraperSave();
+      }
+    }
+  }
+
+  Future<bool> _saveScraperConfig({bool showSuccessToast = false}) async {
     final body = <String, dynamic>{};
     for (final k in _keys.keys) {
       body[k] = _keys[k]!.text.trim();
@@ -2659,19 +2690,24 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         : _classicScraperOrder
             .where((source) => _sources[source] ?? false)
             .toList();
-    final resp = await http.put(
-      Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
-      headers: {"Content-Type": "application/json", ...widget.api.headers},
-      body: jsonEncode(body),
-    );
-    if (!mounted) return false;
-    if (resp.statusCode >= 200 && resp.statusCode < 300) {
-      if (showToast) _toast(context, "刮削源配置已保存");
-      return true;
-    } else {
-      if (showToast) _toast(context, "刮削源配置保存失败: ${resp.statusCode}");
+    final http.Response resp;
+    try {
+      resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode(body),
+      );
+    } catch (e) {
+      if (mounted) _toast(context, "刮削源配置保存失败: $e");
       return false;
     }
+    if (!mounted) return false;
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      if (showSuccessToast) _toast(context, "刮削源配置已保存");
+      return true;
+    }
+    _toast(context, "刮削源配置保存失败: ${resp.statusCode}");
+    return false;
   }
 
   Widget _nextmoeCredentialSettings() {
@@ -2700,6 +2736,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           TextField(
             controller: _keys["nextmoe_api_key"],
             obscureText: true,
+            onChanged: (_) => _scheduleScraperSave(),
+            onEditingComplete: () => _scheduleScraperSave(immediate: true),
             decoration: InputDecoration(
               labelText: "API Key",
               hintText: "nmk_live_...",
@@ -2893,6 +2931,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       sources.insert(newIndex, moved);
       _scraperOrder = [...sources, "nextmoe"];
     });
+    _scheduleScraperSave(immediate: true);
   }
 
   static const _modeSlideDuration = Duration(milliseconds: 380);
@@ -2935,7 +2974,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     final cs = Theme.of(context).colorScheme;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: () => setState(() => _scraperMode = mode),
+      onTap: () {
+        setState(() => _scraperMode = mode);
+        _scheduleScraperSave(immediate: true);
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -3065,7 +3107,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             Switch(
               value: enabled,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              onChanged: (v) => setState(() => _sources[src] = v),
+              onChanged: (v) {
+                setState(() => _sources[src] = v);
+                _scheduleScraperSave(immediate: true);
+              },
             )
           else
             const SizedBox(width: 10),
@@ -3076,6 +3121,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 
   @override
   void dispose() {
+    _scraperSaveTimer?.cancel();
     _scanStatusTimer?.cancel();
     for (final c in _keys.values) {
       c.dispose();
