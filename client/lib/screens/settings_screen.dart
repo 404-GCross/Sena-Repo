@@ -1106,13 +1106,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "hikarinagi": "Hikarinagi",
     "nextmoe": "NextMoe",
   };
-  static const _scraperHints = {
-    "vndb_kana": "中文标题、平均游戏时长",
-    "bangumi": "免认证，填 Token 可提高速率",
-    "steam": "免认证，Steam 商店元数据",
-    "hikarinagi": "需要 Client ID / Secret",
-    "nextmoe": "聚合六源；开启后将禁用其他源",
-  };
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
   List<Map<String, dynamic>> _roots = [];
@@ -2842,7 +2835,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           index: index,
           label: _scraperLabels[source]!,
           src: source,
-          hint: _scraperHints[source]!,
         );
       },
     );
@@ -2892,7 +2884,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     required int index,
     required String label,
     required String src,
-    required String hint,
   }) {
     final enabled = _sources[src] ?? false;
     final locked = _scraperSourceLocked(src);
@@ -2919,10 +2910,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             const SizedBox(width: AppGap.sm),
             Text(label, style: const TextStyle(fontSize: 14)),
           ],
-        ),
-        subtitle: Text(
-          hint,
-          style: AppText.label.copyWith(color: hintColor(context)),
         ),
         value: enabled,
         onChanged: locked ? null : (v) => _toggleScraperSource(src, v),

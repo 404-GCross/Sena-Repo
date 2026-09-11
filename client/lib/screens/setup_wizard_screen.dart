@@ -1058,7 +1058,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Widget _setupRow({
     required IconData icon,
     required String title,
-    required String subtitle,
+    String? subtitle,
     Widget? trailing,
     Widget? leading,
   }) {
@@ -1098,16 +1098,18 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.caption.copyWith(
-                    color: hintColor(context),
-                    height: 1.35,
+                if ((subtitle ?? "").isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle ?? "",
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.caption.copyWith(
+                      color: hintColor(context),
+                      height: 1.35,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -1357,7 +1359,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             icon: Icons.drag_indicator_rounded,
             leading: _scraperSourceLeading(source),
             title: "${index + 1}. ${_scraperLabels[source] ?? source}",
-            subtitle: _scraperSubtitle(source),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1382,22 +1383,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     );
   }
 
-  String _scraperSubtitle(String source) {
-    switch (source) {
-      case "hikarinagi":
-        return "主数据源 · Client ID / Secret / catalog:full";
-      case "vndb_kana":
-        return "中文标题、标签、平均时长，可选 Token。";
-      case "bangumi":
-        return "中文条目、封面和发布日期。";
-      case "steam":
-        return "商店信息、AppID 和发行资料辅助匹配。";
-      case "nextmoe":
-        return "独立模式 · 聚合 VNDB / Bangumi / DLsite 等六源，需 API Key，开启后将禁用其他源。";
-      default:
-        return source;
-    }
-  }
 }
 
 class _SetupStepItem extends StatelessWidget {
