@@ -43,6 +43,29 @@ Future<bool> _check7zAvailable() async {
   }
 }
 
+/// Palette derived from the accent, but with neutral surfaces and outlines.
+///
+/// `ColorScheme.fromSeed` tints every surface with the seed, which made cards,
+/// borders and menus pick up the accent colour. Only interactive elements
+/// keep the accent here.
+ColorScheme _neutralSurfaceScheme(Color accent) {
+  final base = ColorScheme.fromSeed(
+    seedColor: accent,
+    brightness: Brightness.light,
+  );
+  return base.copyWith(
+    surface: const Color(0xFFFFFFFF),
+    surfaceTint: const Color(0xFFFFFFFF),
+    surfaceContainerLowest: const Color(0xFFFFFFFF),
+    surfaceContainerLow: const Color(0xFFF8FAFC),
+    surfaceContainer: const Color(0xFFF4F7FB),
+    surfaceContainerHigh: const Color(0xFFF1F4F9),
+    surfaceContainerHighest: const Color(0xFFEEF1F7),
+    outline: const Color(0xFFCBD3DF),
+    outlineVariant: const Color(0xFFE3E7EE),
+  );
+}
+
 final trayService = TrayService();
 
 ServerSocket? _lockServer;
@@ -336,13 +359,10 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
           debugShowCheckedModeBanner: false,
           scrollBehavior: const _DesktopTouchScrollBehavior(),
           theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: theme.accentColor,
-              brightness: Brightness.light,
-            ),
+            colorScheme: _neutralSurfaceScheme(theme.accentColor),
             useMaterial3: true,
             visualDensity: VisualDensity.standard,
-            scaffoldBackgroundColor: const Color(0xFFF4F6F8),
+            scaffoldBackgroundColor: const Color(0xFFECEFF5),
             appBarTheme: const AppBarTheme(
               centerTitle: false,
               elevation: 0,

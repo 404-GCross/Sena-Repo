@@ -7,12 +7,12 @@ import "package:flutter/material.dart";
 Color appBackgroundTop(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark
         ? const Color(0xFF12161D)
-        : const Color(0xFFF7F8FA);
+        : const Color(0xFFF2F4F9);
 
 Color appBackgroundBottom(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark
         ? const Color(0xFF171D25)
-        : const Color(0xFFEFF3F7);
+        : const Color(0xFFE8EBF2);
 
 Color cardBg(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
@@ -21,8 +21,11 @@ Color cardBg(BuildContext context) {
       : cs.surface.withValues(alpha: 0.78);
 }
 
+/// Neutral divider for cards, independent of the accent colour.
 Color cardBorder(BuildContext context) =>
-    Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.68);
+    Theme.of(context).brightness == Brightness.dark
+        ? Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.68)
+        : const Color(0xFFE3E7EE);
 
 Color softShadowColor(BuildContext context) => Colors.black.withValues(
       alpha: Theme.of(context).brightness == Brightness.dark ? 0.20 : 0.08,
