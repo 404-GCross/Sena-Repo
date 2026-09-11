@@ -50,6 +50,7 @@ class InitRequest(BaseModel):
     hikarinagi_client_id: str = ""
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
+    nextmoe_api_key: str = ""
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -209,6 +210,7 @@ async def initialize_setup(
     hikarinagi_client_id = body.hikarinagi_client_id.strip()
     hikarinagi_client_secret = body.hikarinagi_client_secret.strip()
     hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:full"
+    nextmoe_api_key = body.nextmoe_api_key.strip()
     try:
         from api.settings import _read_scraper_config, _write_scraper_config
 
@@ -224,6 +226,9 @@ async def initialize_setup(
             scraper_config["hikarinagi_client_secret"] = hikarinagi_client_secret
         config.scrapers.hikarinagi_scope = hikarinagi_scope
         scraper_config["hikarinagi_scope"] = hikarinagi_scope
+        if nextmoe_api_key:
+            config.scrapers.nextmoe_api_key = nextmoe_api_key
+            scraper_config["nextmoe_api_key"] = nextmoe_api_key
         config.scrapers.scraper_order = body.scraper_order
         config.scrapers.enabled_scrapers = body.enabled_scrapers
         normalize_scraper_config(config.scrapers)

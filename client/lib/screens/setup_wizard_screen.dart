@@ -28,13 +28,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "steam": "Steam",
     "nextmoe": "NextMoe",
   };
-  final List<String> _scraperOrder = [
+  List<String> _scraperOrder = [
     "hikarinagi",
     "vndb_kana",
     "bangumi",
     "steam",
     "nextmoe",
   ];
+  String _scraperMode = "classic";
   final Map<String, bool> _scraperEnabled = {
     "hikarinagi": true,
     "vndb_kana": true,
@@ -66,6 +67,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _hikarinagiClientIdCtrl = TextEditingController();
   final _hikarinagiClientSecretCtrl = TextEditingController();
   final _hikarinagiScopeCtrl = TextEditingController(text: "catalog:full");
+  final _nextmoeApiKeyCtrl = TextEditingController();
 
   static const _titles = [
     "\u521b\u5efa\u670d\u4e3b\u8d26\u6237",
@@ -82,6 +84,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     _hikarinagiClientIdCtrl.dispose();
     _hikarinagiClientSecretCtrl.dispose();
     _hikarinagiScopeCtrl.dispose();
+    _nextmoeApiKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -181,9 +184,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               ? "catalog:full"
               : _hikarinagiScopeCtrl.text.trim(),
           "scraper_order": _scraperOrder,
-          "enabled_scrapers": _scraperOrder
-              .where((source) => _scraperEnabled[source] ?? false)
-              .toList(),
+          "enabled_scrapers": _scraperMode == "nextmoe"
+              ? <String>["nextmoe"]
+              : _classicScraperOrder
+                  .where((source) => _scraperEnabled[source] ?? false)
+                  .toList(),
+          "nextmoe_api_key": _nextmoeApiKeyCtrl.text.trim(),
         }),
       );
       if (resp.statusCode != 200) {
@@ -829,31 +835,50 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _setupCard(
-          title: "来源顺序",
-          icon: Icons.sort_outlined,
-          child: _scraperSourceList(),
+          title: "刮削模式",
+          icon: Icons.tune_outlined,
+          child: _scraperModePicker(),
         ),
         const SizedBox(height: AppGap.md),
-        compact
-            ? Column(
-                children: [
-                  _hikarinagiCredentialsCard(),
-                  const SizedBox(height: AppGap.md),
-                  _vndbCredentialsCard(),
-                ],
-              )
-            : Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _hikarinagiCredentialsCard()),
-                  const SizedBox(width: AppGap.md),
-                  Expanded(child: _vndbCredentialsCard()),
-                ],
-              ),
+        if (_scraperMode == "nextmoe")
+          _setupCard(
+            title: "刮削源",
+            icon: Icons.sort_outlined,
+            child: _nextmoeSourceRow(),
+          )
+        else
+          _setupCard(
+            title: "来源顺序",
+            icon: Icons.sort_outlined,
+            child: _scraperSourceList(),
+          ),
+        const SizedBox(height: AppGap.md),
+        if (_scraperMode == "nextmoe")
+          _nextmoeCredentialsCard()
+        else
+          compact
+              ? Column(
+                  children: [
+                    _hikarinagiCredentialsCard(),
+                    const SizedBox(height: AppGap.md),
+                    _vndbCredentialsCard(),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _hikarinagiCredentialsCard()),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(child: _vndbCredentialsCard()),
+                  ],
+                ),
       ],
     );
-    final enabledCount =
-        _scraperOrder.where((source) => _scraperEnabled[source] ?? false).length;
+    final enabledCount = _scraperMode == "nextmoe"
+        ? (_scraperEnabled["nextmoe"] == true ? 1 : 0)
+        : _classicScraperOrder
+            .where((source) => _scraperEnabled[source] ?? false)
+            .length;
     final side = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -861,9 +886,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           title: "本步骤摘要",
           stats: {
             "启用来源": "$enabledCount",
-            "主来源": _scraperEnabled["nextmoe"] == true
+            "主来源": _scraperMode == "nextmoe"
                 ? "NextMoe"
-                : (_scraperLabels[_scraperOrder.first] ?? _scraperOrder.first),
+                : (_scraperLabels[_classicScraperOrder.first] ??
+                    _classicScraperOrder.first),
             "凭据": _hikarinagiClientIdCtrl.text.trim().isEmpty &&
                     _hikarinagiClientSecretCtrl.text.trim().isEmpty
                 ? "未填"
@@ -908,6 +934,21 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       ],
     );
     return _twoColumn(primary, side, compact: compact);
+  }
+
+  Widget _nextmoeCredentialsCard() {
+    return _setupCard(
+      title: "NextMoe 凭据",
+      icon: Icons.key_outlined,
+      child: TextField(
+        controller: _nextmoeApiKeyCtrl,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: "API Key（developer.nextmoe.dev 自助创建）",
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+    );
   }
 
   Widget _hikarinagiCredentialsCard() {
@@ -1313,47 +1354,89 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     );
   }
 
-  bool get _hasClassicSourceEnabled => _scraperOrder
-      .where((source) => source != "nextmoe")
-      .any((source) => _scraperEnabled[source] ?? false);
+  List<String> get _classicScraperOrder =>
+      _scraperOrder.where((source) => source != "nextmoe").toList();
 
-  bool _scraperSourceLocked(String source) {
-    if (source == "nextmoe") return _hasClassicSourceEnabled;
-    return _scraperEnabled["nextmoe"] ?? false;
-  }
-
-  void _toggleScraperSource(String source, bool value) {
+  void _reorderClassicSources(int oldIndex, int newIndex) {
     setState(() {
-      _scraperEnabled[source] = value;
-      if (source == "nextmoe" && value) {
-        for (final classic in _scraperOrder) {
-          if (classic != "nextmoe") _scraperEnabled[classic] = false;
-        }
-      }
+      if (newIndex > oldIndex) newIndex--;
+      final sources = _classicScraperOrder;
+      final moved = sources.removeAt(oldIndex);
+      sources.insert(newIndex, moved);
+      _scraperOrder = [...sources, "nextmoe"];
     });
   }
 
+  Widget _scraperModePicker() {
+    return Row(
+      children: [
+        Expanded(child: _scraperModeCard("classic", "普通模式")),
+        const SizedBox(width: AppGap.sm),
+        Expanded(child: _scraperModeCard("nextmoe", "NextMoe 模式")),
+      ],
+    );
+  }
+
+  Widget _scraperModeCard(String mode, String label) {
+    final selected = _scraperMode == mode;
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      onTap: () => setState(() => _scraperMode = mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color:
+              selected ? cs.primary.withValues(alpha: 0.12) : cardBg(context),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: selected
+                ? cs.primary.withValues(alpha: 0.55)
+                : cardBorder(context),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 18,
+              color: selected ? cs.primary : hintColor(context),
+            ),
+            const SizedBox(width: AppGap.sm),
+            Flexible(
+              child: Text(
+                label,
+                style: AppText.bodySmall.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: selected ? cs.primary : subTextColor(context),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _scraperSourceList() {
+    final sources = _classicScraperOrder;
     return ReorderableListView.builder(
       shrinkWrap: true,
       buildDefaultDragHandles: false,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _scraperOrder.length,
-      onReorder: (oldIndex, newIndex) {
-        setState(() {
-          if (newIndex > oldIndex) newIndex--;
-          final source = _scraperOrder.removeAt(oldIndex);
-          _scraperOrder.insert(newIndex, source);
-        });
-      },
+      itemCount: sources.length,
+      onReorder: _reorderClassicSources,
       itemBuilder: (context, index) {
-        final source = _scraperOrder[index];
+        final source = sources[index];
         final enabled = _scraperEnabled[source] ?? false;
-        final locked = _scraperSourceLocked(source);
         return Padding(
           key: ValueKey(source),
           padding: EdgeInsets.only(
-            bottom: index == _scraperOrder.length - 1 ? 0 : AppGap.sm,
+            bottom: index == sources.length - 1 ? 0 : AppGap.sm,
           ),
           child: _setupRow(
             icon: Icons.drag_indicator_rounded,
@@ -1371,15 +1454,27 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 ),
                 Switch.adaptive(
                   value: enabled,
-                  onChanged: locked
-                      ? null
-                      : (value) => _toggleScraperSource(source, value),
+                  onChanged: (value) =>
+                      setState(() => _scraperEnabled[source] = value),
                 ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _nextmoeSourceRow() {
+    return _setupRow(
+      icon: Icons.hub_outlined,
+      leading: _scraperSourceLeading("nextmoe"),
+      title: _scraperLabels["nextmoe"] ?? "NextMoe",
+      trailing: Switch.adaptive(
+        value: _scraperEnabled["nextmoe"] ?? false,
+        onChanged: (value) =>
+            setState(() => _scraperEnabled["nextmoe"] = value),
+      ),
     );
   }
 

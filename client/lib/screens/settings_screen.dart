@@ -2071,11 +2071,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   const SizedBox(height: 24),
                   _sectionHeader("刮削源", Icons.image_search),
                   const SizedBox(height: 8),
-                  _scraperSourceList(),
-                  const SizedBox(height: 12),
-                  _hikarinagiCredentialSettings(),
-                  const SizedBox(height: 12),
-                  _nextmoeCredentialSettings(),
+                  _scraperModePicker(),
+                  const SizedBox(height: 10),
+                  if (_scraperMode == "nextmoe") ...[
+                    _nextmoeSourceCard(),
+                    const SizedBox(height: 12),
+                    _nextmoeCredentialSettings(),
+                  ] else ...[
+                    _classicScraperList(),
+                    const SizedBox(height: 12),
+                    _hikarinagiCredentialSettings(),
+                  ],
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -2639,11 +2645,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           for (final source in _sources.keys) {
             _sources[source] = enabledSet.contains(source);
           }
-          if (_sources["nextmoe"] == true) {
-            for (final source in _sources.keys) {
-              if (source != "nextmoe") _sources[source] = false;
-            }
-          }
+          _scraperMode =
+              enabledSet.contains("nextmoe") ? "nextmoe" : "classic";
         }
       }
     } catch (_) {}
@@ -2656,8 +2659,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       body[k] = _keys[k]!.text.trim();
     }
     body["scraper_order"] = _scraperOrder;
-    body["enabled_scrapers"] =
-        _scraperOrder.where((source) => _sources[source] ?? false).toList();
+    body["enabled_scrapers"] = _scraperMode == "nextmoe"
+        ? <String>["nextmoe"]
+        : _classicScraperOrder
+            .where((source) => _sources[source] ?? false)
+            .toList();
     final resp = await http.put(
       Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
       headers: {"Content-Type": "application/json", ...widget.api.headers},
@@ -2816,20 +2822,16 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     return result;
   }
 
-  Widget _scraperSourceList() {
+  Widget _classicScraperList() {
+    final sources = _classicScraperOrder;
     return ReorderableListView.builder(
       shrinkWrap: true,
       buildDefaultDragHandles: false,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _scraperOrder.length,
-      onReorderItem: (oldIndex, newIndex) {
-        setState(() {
-          final source = _scraperOrder.removeAt(oldIndex);
-          _scraperOrder.insert(newIndex, source);
-        });
-      },
+      itemCount: sources.length,
+      onReorderItem: _reorderClassicSources,
       itemBuilder: (context, index) {
-        final source = _scraperOrder[index];
+        final source = sources[index];
         return _srcCard(
           key: ValueKey(source),
           index: index,
@@ -2840,26 +2842,86 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
+  Widget _nextmoeSourceCard() {
+    return _srcCard(
+      key: const ValueKey("nextmoe"),
+      index: 0,
+      label: _scraperLabels["nextmoe"]!,
+      src: "nextmoe",
+      draggable: false,
+    );
+  }
+
+  String _scraperMode = "classic";
+
   List<String> get _classicScraperSources =>
       _defaultScraperOrder.where((source) => source != "nextmoe").toList();
 
-  bool get _hasClassicSourceEnabled =>
-      _classicScraperSources.any((source) => _sources[source] ?? false);
+  List<String> get _classicScraperOrder =>
+      _scraperOrder.where((source) => source != "nextmoe").toList();
 
-  bool _scraperSourceLocked(String source) {
-    if (source == "nextmoe") return _hasClassicSourceEnabled;
-    return _sources["nextmoe"] ?? false;
+  void _reorderClassicSources(int oldIndex, int newIndex) {
+    setState(() {
+      final sources = _classicScraperOrder;
+      final moved = sources.removeAt(oldIndex);
+      sources.insert(newIndex, moved);
+      _scraperOrder = [...sources, "nextmoe"];
+    });
   }
 
-  void _toggleScraperSource(String source, bool value) {
-    setState(() {
-      _sources[source] = value;
-      if (source == "nextmoe" && value) {
-        for (final classic in _classicScraperSources) {
-          _sources[classic] = false;
-        }
-      }
-    });
+  Widget _scraperModePicker() {
+    return Row(
+      children: [
+        Expanded(child: _scraperModeCard("classic", "普通模式")),
+        const SizedBox(width: AppGap.sm),
+        Expanded(child: _scraperModeCard("nextmoe", "NextMoe 模式")),
+      ],
+    );
+  }
+
+  Widget _scraperModeCard(String mode, String label) {
+    final selected = _scraperMode == mode;
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => setState(() => _scraperMode = mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color:
+              selected ? cs.primary.withValues(alpha: 0.12) : cardBg(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? cs.primary.withValues(alpha: 0.55)
+                : cardBorder(context),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 18,
+              color: selected ? cs.primary : hintColor(context),
+            ),
+            const SizedBox(width: AppGap.sm),
+            Flexible(
+              child: Text(
+                label,
+                style: AppText.bodySmall.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: selected ? cs.primary : subTextColor(context),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _scraperSourceIcon(String source) {
@@ -2884,9 +2946,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     required int index,
     required String label,
     required String src,
+    bool draggable = true,
   }) {
     final enabled = _sources[src] ?? false;
-    final locked = _scraperSourceLocked(src);
     return Container(
       key: key,
       margin: const EdgeInsets.only(bottom: 6),
@@ -2900,10 +2962,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         ),
       ),
       child: SwitchListTile(
-        secondary: ReorderableDragStartListener(
-          index: index,
-          child: Icon(Icons.drag_handle, color: hintColor(context)),
-        ),
+        secondary: draggable
+            ? ReorderableDragStartListener(
+                index: index,
+                child: Icon(Icons.drag_handle, color: hintColor(context)),
+              )
+            : null,
         title: Row(
           children: [
             _scraperSourceIcon(src),
@@ -2912,7 +2976,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           ],
         ),
         value: enabled,
-        onChanged: locked ? null : (v) => _toggleScraperSource(src, v),
+        onChanged: (v) => setState(() => _sources[src] = v),
         dense: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
