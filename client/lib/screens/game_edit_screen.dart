@@ -3060,7 +3060,6 @@ class _MetadataSourceInfo {
   final String subtitle;
   final IconData icon;
   final Color color;
-  final List<String> chips;
   final String? asset;
 
   const _MetadataSourceInfo({
@@ -3069,7 +3068,6 @@ class _MetadataSourceInfo {
     required this.subtitle,
     required this.icon,
     required this.color,
-    required this.chips,
     this.asset,
   });
 }
@@ -3107,7 +3105,6 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         subtitle: "你和同好的ACGN社区",
         icon: Icons.auto_awesome_rounded,
         color: Colors.pink,
-        chips: const ["中文", "Tag", "NSFW"],
         asset: sourceIconAsset("hikarinagi"),
       );
     case "vndb_kana":
@@ -3117,7 +3114,7 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         subtitle: "视觉小说信息的综合数据库",
         icon: Icons.menu_book_rounded,
         color: Colors.indigo,
-        chips: const ["VNDB ID", "Tag", "简介"],
+        asset: sourceIconAsset("vndb_kana"),
       );
     case "bangumi":
       return _MetadataSourceInfo(
@@ -3127,7 +3124,6 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         icon: Icons.forum_rounded,
         color: Colors.blue,
         asset: sourceIconAsset("bangumi"),
-        chips: const ["中文", "条目 ID", "日期"],
       );
     case "steam":
       return _MetadataSourceInfo(
@@ -3136,7 +3132,6 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         subtitle: "高质量的游戏平台",
         icon: Icons.sports_esports_rounded,
         color: Colors.teal,
-        chips: const ["AppID", "图片", "Tag"],
         asset: sourceIconAsset("steam"),
       );
     case "nextmoe":
@@ -3146,7 +3141,6 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         subtitle: "ACGN 数据，以此为准",
         icon: Icons.hub_rounded,
         color: Colors.deepPurple,
-        chips: const ["六源聚合", "中文名", "外部 ID"],
         asset: sourceIconAsset("nextmoe"),
       );
     default:
@@ -3156,7 +3150,6 @@ _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
         subtitle: "从该来源搜索并对比可写入的元数据字段。",
         icon: Icons.public_rounded,
         color: Colors.deepPurple,
-        chips: const ["元数据"],
       );
   }
 }
@@ -3619,20 +3612,6 @@ class _MetadataSourceTile extends StatelessWidget {
                         color: hintColor(context),
                         height: 1.3,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: AppGap.xs,
-                      runSpacing: AppGap.xs,
-                      children: info.chips
-                          .map(
-                            (chip) => _MetadataMiniPill(
-                              icon: Icons.check_circle_outline_rounded,
-                              label: chip,
-                              color: info.color,
-                            ),
-                          )
-                          .toList(),
                     ),
                   ],
                 ),
