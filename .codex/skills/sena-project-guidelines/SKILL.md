@@ -7,12 +7,13 @@ description: Project-specific engineering rules for Sena Repo. Use whenever Code
 
 ## Iron Rules
 
-1. Plan before executing. When the user raises a requirement — including pasting an issue
-   link or asking whether something is feasible — first investigate read-only, then present a
-   concrete plan: what will change, which files, and the decisions the user still needs to
-   make. Wait for their confirmation before editing files, committing, or pushing. An explicit
-   go-ahead on a plan you just presented counts as that confirmation; do not re-plan or ask
-   again.
+1. Plan first; execute only on an explicit instruction. When the user raises a requirement —
+   including pasting an issue link or asking whether something is feasible — investigate
+   read-only, then present a concrete plan: what will change, which files, and the decisions
+   the user still needs to make. Then stop. Only an explicit instruction to act ("做", "改",
+   "开始", or an unambiguous equivalent) authorizes editing files, committing, or pushing.
+   Presenting a plan, receiving "继续", being asked an unrelated question, or silence is not
+   authorization. Never start part of a plan while other decisions in it are still open.
 2. Keep project skills inside this repository under `.codex/skills/`; do not create or update user-level skills for Sena Repo unless the user explicitly asks for that.
 3. Use `$git-commit-format` before drafting, amending, or creating any Git commit message. Commit messages must be pure English Conventional Commits.
 4. Do not leak secrets in logs, errors, release notes, or commit messages. Redact passwords, tokens, API keys, authorization headers, signatures, account identifiers, and OpenList credentials.
