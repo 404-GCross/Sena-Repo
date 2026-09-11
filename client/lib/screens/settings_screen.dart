@@ -2829,7 +2829,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         final source = sources[index];
         final hasCreds = source == "hikarinagi";
         final card = _srcCard(
-          key: ValueKey(source),
+          key: ValueKey("$source-card"),
           index: index,
           label: _scraperLabels[source]!,
           src: source,
@@ -2841,7 +2841,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               : null,
         );
         if (!hasCreds) return card;
+        // ReorderableListView needs the key on the widget it is handed, so the
+        // row plus its inline credentials travel as one keyed block.
         return Column(
+          key: ValueKey("$source-block"),
           mainAxisSize: MainAxisSize.min,
           children: [
             card,
