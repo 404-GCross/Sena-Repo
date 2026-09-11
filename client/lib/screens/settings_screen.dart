@@ -2073,15 +2073,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   const SizedBox(height: 8),
                   _scraperModePicker(),
                   const SizedBox(height: 10),
-                  if (_scraperMode == "nextmoe") ...[
-                    _nextmoeSourceCard(),
-                    const SizedBox(height: 12),
-                    _nextmoeCredentialSettings(),
-                  ] else ...[
+                  if (_scraperMode == "nextmoe")
+                    _nextmoeSourceCard()
+                  else
                     _classicScraperList(),
-                    const SizedBox(height: 12),
-                    _hikarinagiCredentialSettings(),
-                  ],
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -2832,27 +2827,55 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       onReorderItem: _reorderClassicSources,
       itemBuilder: (context, index) {
         final source = sources[index];
-        return _srcCard(
+        final hasCreds = source == "hikarinagi";
+        final card = _srcCard(
           key: ValueKey(source),
           index: index,
           label: _scraperLabels[source]!,
           src: source,
+          credToggle: hasCreds,
+          credsOpen: hasCreds && _hikarinagiCredsOpen,
+          onToggleCreds: hasCreds
+              ? () =>
+                  setState(() => _hikarinagiCredsOpen = !_hikarinagiCredsOpen)
+              : null,
+        );
+        if (!hasCreds) return card;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            card,
+            if (_hikarinagiCredsOpen) _hikarinagiCredentialSettings(),
+          ],
         );
       },
     );
   }
 
   Widget _nextmoeSourceCard() {
-    return _srcCard(
-      key: const ValueKey("nextmoe"),
-      index: 0,
-      label: _scraperLabels["nextmoe"]!,
-      src: "nextmoe",
-      draggable: false,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _srcCard(
+          key: const ValueKey("nextmoe"),
+          index: 0,
+          label: _scraperLabels["nextmoe"]!,
+          src: "nextmoe",
+          draggable: false,
+          showSwitch: false,
+          credToggle: true,
+          credsOpen: _nextmoeCredsOpen,
+          onToggleCreds: () =>
+              setState(() => _nextmoeCredsOpen = !_nextmoeCredsOpen),
+        ),
+        if (_nextmoeCredsOpen) _nextmoeCredentialSettings(),
+      ],
     );
   }
 
   String _scraperMode = "classic";
+  bool _hikarinagiCredsOpen = false;
+  bool _nextmoeCredsOpen = false;
 
   List<String> get _classicScraperSources =>
       _defaultScraperOrder.where((source) => source != "nextmoe").toList();
@@ -2869,13 +2892,38 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     });
   }
 
+  static const _modeSlideDuration = Duration(milliseconds: 380);
+
   Widget _scraperModePicker() {
-    return Row(
-      children: [
-        Expanded(child: _scraperModeCard("classic", "普通模式")),
-        const SizedBox(width: AppGap.sm),
-        Expanded(child: _scraperModeCard("nextmoe", "NextMoe 模式")),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = AppGap.sm;
+        final total = (constraints.maxWidth - gap).clamp(0.0, double.infinity);
+        // Narrow screens get a gentler split so both labels stay readable.
+        final selectedFraction = constraints.maxWidth < 360 ? 0.62 : 0.7;
+        final selectorWidth = total * selectedFraction;
+        final otherWidth = total - selectorWidth;
+        final classicWidth =
+            _scraperMode == "classic" ? selectorWidth : otherWidth;
+        final nextmoeWidth = total - classicWidth;
+        return Row(
+          children: [
+            AnimatedContainer(
+              duration: _modeSlideDuration,
+              curve: Curves.easeInOutCubic,
+              width: classicWidth,
+              child: _scraperModeCard("classic", "普通模式"),
+            ),
+            const SizedBox(width: gap),
+            AnimatedContainer(
+              duration: _modeSlideDuration,
+              curve: Curves.easeInOutCubic,
+              width: nextmoeWidth,
+              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -2909,12 +2957,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               color: selected ? cs.primary : hintColor(context),
             ),
             const SizedBox(width: AppGap.sm),
-            Flexible(
-              child: Text(
-                label,
-                style: AppText.bodySmall.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: selected ? cs.primary : subTextColor(context),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: AppText.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: selected ? cs.primary : subTextColor(context),
+                  ),
                 ),
               ),
             ),
@@ -2947,38 +3000,73 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     required String label,
     required String src,
     bool draggable = true,
+    bool showSwitch = true,
+    bool credToggle = false,
+    bool credsOpen = false,
+    VoidCallback? onToggleCreds,
   }) {
     final enabled = _sources[src] ?? false;
+    final cs = Theme.of(context).colorScheme;
     return Container(
       key: key,
       margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(10, 2, 6, 2),
       decoration: BoxDecoration(
         color: cardBg(context),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: enabled
-              ? Colors.green.withValues(alpha: 0.15)
-              : cardBorder(context),
+          color:
+              enabled ? cs.primary.withValues(alpha: 0.28) : cardBorder(context),
         ),
       ),
-      child: SwitchListTile(
-        secondary: draggable
-            ? ReorderableDragStartListener(
-                index: index,
-                child: Icon(Icons.drag_handle, color: hintColor(context)),
-              )
-            : null,
-        title: Row(
-          children: [
-            _scraperSourceIcon(src),
-            const SizedBox(width: AppGap.sm),
-            Text(label, style: const TextStyle(fontSize: 14)),
-          ],
-        ),
-        value: enabled,
-        onChanged: (v) => setState(() => _sources[src] = v),
-        dense: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          if (draggable)
+            ReorderableDragStartListener(
+              index: index,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(
+                  Icons.drag_handle,
+                  color: hintColor(context),
+                  size: 20,
+                ),
+              ),
+            )
+          else
+            const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          _scraperSourceIcon(src),
+          const SizedBox(width: AppGap.md),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          if (credToggle)
+            IconButton(
+              tooltip: credsOpen ? "收起凭据" : "填写凭据",
+              visualDensity: VisualDensity.compact,
+              color: credsOpen ? cs.primary : hintColor(context),
+              icon: AnimatedRotation(
+                turns: credsOpen ? 0.5 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: const Icon(Icons.expand_more_rounded, size: 20),
+              ),
+              onPressed: onToggleCreds,
+            ),
+          if (showSwitch)
+            Switch(
+              value: enabled,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: (v) => setState(() => _sources[src] = v),
+            )
+          else
+            const SizedBox(width: 10),
+        ],
       ),
     );
   }

@@ -36,6 +36,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "nextmoe",
   ];
   String _scraperMode = "classic";
+  bool _hikarinagiCredsOpen = false;
+  bool _vndbCredsOpen = false;
+  bool _nextmoeCredsOpen = false;
   final Map<String, bool> _scraperEnabled = {
     "hikarinagi": true,
     "vndb_kana": true,
@@ -852,26 +855,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             icon: Icons.sort_outlined,
             child: _scraperSourceList(),
           ),
-        const SizedBox(height: AppGap.md),
-        if (_scraperMode == "nextmoe")
-          _nextmoeCredentialsCard()
-        else
-          compact
-              ? Column(
-                  children: [
-                    _hikarinagiCredentialsCard(),
-                    const SizedBox(height: AppGap.md),
-                    _vndbCredentialsCard(),
-                  ],
-                )
-              : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _hikarinagiCredentialsCard()),
-                    const SizedBox(width: AppGap.md),
-                    Expanded(child: _vndbCredentialsCard()),
-                  ],
-                ),
       ],
     );
     final enabledCount = _scraperMode == "nextmoe"
@@ -1367,13 +1350,37 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     });
   }
 
+  static const _modeSlideDuration = Duration(milliseconds: 380);
+
   Widget _scraperModePicker() {
-    return Row(
-      children: [
-        Expanded(child: _scraperModeCard("classic", "普通模式")),
-        const SizedBox(width: AppGap.sm),
-        Expanded(child: _scraperModeCard("nextmoe", "NextMoe 模式")),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = AppGap.sm;
+        final total = (constraints.maxWidth - gap).clamp(0.0, double.infinity);
+        final selectedFraction = constraints.maxWidth < 360 ? 0.62 : 0.7;
+        final selectorWidth = total * selectedFraction;
+        final otherWidth = total - selectorWidth;
+        final classicWidth =
+            _scraperMode == "classic" ? selectorWidth : otherWidth;
+        final nextmoeWidth = total - classicWidth;
+        return Row(
+          children: [
+            AnimatedContainer(
+              duration: _modeSlideDuration,
+              curve: Curves.easeInOutCubic,
+              width: classicWidth,
+              child: _scraperModeCard("classic", "普通模式"),
+            ),
+            const SizedBox(width: gap),
+            AnimatedContainer(
+              duration: _modeSlideDuration,
+              curve: Curves.easeInOutCubic,
+              width: nextmoeWidth,
+              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1407,12 +1414,17 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               color: selected ? cs.primary : hintColor(context),
             ),
             const SizedBox(width: AppGap.sm),
-            Flexible(
-              child: Text(
-                label,
-                style: AppText.bodySmall.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: selected ? cs.primary : subTextColor(context),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: AppText.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: selected ? cs.primary : subTextColor(context),
+                  ),
                 ),
               ),
             ),
@@ -1433,48 +1445,98 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       itemBuilder: (context, index) {
         final source = sources[index];
         final enabled = _scraperEnabled[source] ?? false;
+        final credsOpen = source == "hikarinagi"
+            ? _hikarinagiCredsOpen
+            : source == "vndb_kana"
+                ? _vndbCredsOpen
+                : false;
+        final hasCreds = source == "hikarinagi" || source == "vndb_kana";
         return Padding(
           key: ValueKey(source),
           padding: EdgeInsets.only(
             bottom: index == sources.length - 1 ? 0 : AppGap.sm,
           ),
-          child: _setupRow(
-            icon: Icons.drag_indicator_rounded,
-            leading: _scraperSourceLeading(source),
-            title: "${index + 1}. ${_scraperLabels[source] ?? source}",
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ReorderableDragStartListener(
-                  index: index,
-                  child: Icon(
-                    Icons.drag_handle_rounded,
-                    color: hintColor(context),
-                  ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _setupRow(
+                icon: Icons.drag_indicator_rounded,
+                leading: _scraperSourceLeading(source),
+                title: "${index + 1}. ${_scraperLabels[source] ?? source}",
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasCreds) _credToggle(source, credsOpen),
+                    ReorderableDragStartListener(
+                      index: index,
+                      child: Icon(
+                        Icons.drag_handle_rounded,
+                        color: hintColor(context),
+                      ),
+                    ),
+                    Switch.adaptive(
+                      value: enabled,
+                      onChanged: (value) =>
+                          setState(() => _scraperEnabled[source] = value),
+                    ),
+                  ],
                 ),
-                Switch.adaptive(
-                  value: enabled,
-                  onChanged: (value) =>
-                      setState(() => _scraperEnabled[source] = value),
-                ),
-              ],
-            ),
+              ),
+              if (hasCreds && credsOpen) _credentialsFor(source),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _nextmoeSourceRow() {
-    return _setupRow(
-      icon: Icons.hub_outlined,
-      leading: _scraperSourceLeading("nextmoe"),
-      title: _scraperLabels["nextmoe"] ?? "NextMoe",
-      trailing: Switch.adaptive(
-        value: _scraperEnabled["nextmoe"] ?? false,
-        onChanged: (value) =>
-            setState(() => _scraperEnabled["nextmoe"] = value),
+  Widget _credToggle(String source, bool open) {
+    final cs = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: open ? "收起凭据" : "填写凭据",
+      visualDensity: VisualDensity.compact,
+      color: open ? cs.primary : hintColor(context),
+      icon: AnimatedRotation(
+        turns: open ? 0.5 : 0,
+        duration: const Duration(milliseconds: 180),
+        child: const Icon(Icons.expand_more_rounded, size: 20),
       ),
+      onPressed: () => setState(() {
+        switch (source) {
+          case "hikarinagi":
+            _hikarinagiCredsOpen = !_hikarinagiCredsOpen;
+          case "vndb_kana":
+            _vndbCredsOpen = !_vndbCredsOpen;
+          case "nextmoe":
+            _nextmoeCredsOpen = !_nextmoeCredsOpen;
+        }
+      }),
+    );
+  }
+
+  Widget _credentialsFor(String source) {
+    switch (source) {
+      case "hikarinagi":
+        return _hikarinagiCredentialsCard();
+      case "vndb_kana":
+        return _vndbCredentialsCard();
+      default:
+        return _nextmoeCredentialsCard();
+    }
+  }
+
+  Widget _nextmoeSourceRow() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _setupRow(
+          icon: Icons.hub_outlined,
+          leading: _scraperSourceLeading("nextmoe"),
+          title: _scraperLabels["nextmoe"] ?? "NextMoe",
+          trailing: _credToggle("nextmoe", _nextmoeCredsOpen),
+        ),
+        if (_nextmoeCredsOpen) _nextmoeCredentialsCard(),
+      ],
     );
   }
 
