@@ -2106,9 +2106,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                             Expanded(
                               child: TextField(
                                 controller: _keys["proxy"],
-                                onChanged: (_) => _scheduleScraperSave(),
-                                onEditingComplete: () =>
-                                    _scheduleScraperSave(immediate: true),
                                 decoration: InputDecoration(
                                   hintText: "http://127.0.0.1:7890",
                                   isDense: true,
@@ -2137,6 +2134,24 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton.icon(
+                            onPressed: _saveProxy,
+                            icon: const Icon(Icons.save_outlined, size: 17),
+                            label: const Text("保存代理"),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -2676,6 +2691,26 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _scraperSaveQueued = false;
         await _flushScraperSave();
       }
+    }
+  }
+
+  /// The proxy is saved explicitly: it takes effect for every scraper, so a
+  /// half-typed value must not be pushed by the auto-save debounce.
+  Future<void> _saveProxy() async {
+    try {
+      final resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({"proxy": _keys["proxy"]!.text.trim()}),
+      );
+      if (!mounted) return;
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        _toast(context, "代理已保存");
+      } else {
+        _toast(context, "代理保存失败: ${resp.statusCode}");
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "代理保存失败: $e");
     }
   }
 
