@@ -10,8 +10,6 @@ import argparse, hashlib, json, re
 from pathlib import Path
 
 # Default keywords for auto type detection (mirrors steam_patch.py)
-_KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
-
 DEFAULT_TYPE_KEYWORDS = {
     "translation": ["_Steam_Chinese_Patch"],
     "voice": ["_Steam_Voice_Patch"],
@@ -41,15 +39,14 @@ def _load_keywords(base_dir: Path) -> dict[str, list[str]]:
         try:
             with open(kw_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, dict) and data.get("_version") == _KEYWORD_VERSION:
-                return {k: v for k, v in data.items() if k != "_version" and isinstance(v, list)}
+            if isinstance(data, dict):
+                return {k: v for k, v in data.items() if isinstance(v, list)}
         except Exception:
             pass
-    # Create / overwrite with current defaults
+    # Create with current defaults
     base_dir.mkdir(parents=True, exist_ok=True)
-    defaults = {"_version": _KEYWORD_VERSION, **DEFAULT_TYPE_KEYWORDS}
     with open(kw_path, "w", encoding="utf-8") as f:
-        json.dump(defaults, f, ensure_ascii=False, indent=2)
+        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
     return dict(DEFAULT_TYPE_KEYWORDS)
 
 
