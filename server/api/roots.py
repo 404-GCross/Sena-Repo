@@ -21,7 +21,7 @@ from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from services.importer import cleanup_empty_companies, import_from_root
-from utils.secrets import encrypt_secret
+from utils.secrets import encrypt_secret, redact_url
 from utils.process_lock import process_lock, scan_lock_path
 
 logger = logging.getLogger(__name__)
@@ -113,6 +113,13 @@ async def add_root(
             session.add(source)
             await session.flush()
             source_id = source.id
+            logger.info(
+                "OpenList source created from root dialog: actor_id=%s source_id=%s name=%s base_url=%s",
+                user.id,
+                source.id,
+                source.name,
+                redact_url(source.base_url),
+            )
         adapter = adapter_from_source(source, "openlist")
         if not await asyncio.to_thread(adapter.exists, source_path):
             raise HTTPException(status_code=404, detail="OpenList path not found")
@@ -137,6 +144,14 @@ async def add_root(
     session.add(root)
     await session.commit()
     await session.refresh(root)
+    logger.info(
+        "Root added: actor_id=%s root_id=%s source_type=%s source_id=%s path=%s",
+        user.id,
+        root.id,
+        root.source_type,
+        root.source_id,
+        root.source_path or root.path,
+    )
     config = load_config()
     try:
         from api.settings import _load_scan_settings
@@ -185,6 +200,13 @@ async def update_root(
             session.add(source)
             await session.flush()
             source_id = source.id
+            logger.info(
+                "OpenList source created from root dialog: actor_id=%s source_id=%s name=%s base_url=%s",
+                user.id,
+                source.id,
+                source.name,
+                redact_url(source.base_url),
+            )
         adapter = adapter_from_source(source, "openlist")
         if not await asyncio.to_thread(adapter.exists, source_path):
             raise HTTPException(status_code=404, detail="OpenList path not found")
@@ -205,6 +227,14 @@ async def update_root(
     root.enable_batch_scrape = body.enable_batch_scrape
     await session.commit()
     await session.refresh(root)
+    logger.info(
+        "Root updated: actor_id=%s root_id=%s source_type=%s source_id=%s path=%s",
+        user.id,
+        root.id,
+        root.source_type,
+        root.source_id,
+        root.source_path or root.path,
+    )
     return root
 
 
@@ -222,6 +252,12 @@ async def delete_root(
     if root is None:
         raise HTTPException(status_code=404, detail="Root directory not found")
 
+    logger.info(
+        "Root deleted: actor_id=%s root_id=%s path=%s",
+        user.id,
+        root.id,
+        root.source_path or root.path,
+    )
     await session.delete(root)
     await session.commit()
     return MessageResponse(message="Root directory removed")
@@ -274,6 +310,7 @@ async def refresh_all_roots(
         message="扫描任务正在排队",
     )
     _bg_scan(config, [r.id for r in roots], update_last=True)
+    logger.info("Full library scan started: actor_id=%s roots=%s", user.id, len(roots))
     return {"message": "扫描已在后台启动", "roots": len(roots)}
 
 
@@ -319,6 +356,12 @@ async def clear_and_refresh_roots(
         message="扫描任务正在排队",
     )
     _bg_scan(config, [r.id for r in roots], update_last=True)
+    logger.warning(
+        "Library cleared and re-scanned: actor_id=%s cleared_games=%s roots=%s",
+        user.id,
+        cleared_games,
+        len(roots),
+    )
     return {
         "message": "游戏库已清空，重新扫描已在后台启动",
         "cleared_games": cleared_games,
@@ -355,6 +398,12 @@ async def refresh_root(
         message="扫描任务正在排队",
     )
     _bg_scan(config, [root_id], update_last=True)
+    logger.info(
+        "Root scan started: actor_id=%s root_id=%s path=%s",
+        user.id,
+        root_id,
+        root.source_path or root.path,
+    )
     return {"message": "扫描已在后台启动", "root_id": root_id}
 
 

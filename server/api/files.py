@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import uuid
@@ -14,6 +15,8 @@ from config import load_config
 from models.user import User
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload")
@@ -30,6 +33,12 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(require
 
     content = await file.read()
     dest.write_bytes(content)
+    logger.info(
+        "Image uploaded: actor_id=%s filename=%s bytes=%s",
+        user.id,
+        name,
+        len(content),
+    )
     return {"filename": name, "url": f"/api/files/covers/{name}"}
 
 # Allowed extensions for security

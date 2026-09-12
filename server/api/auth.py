@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import hashlib
+import logging
 import secrets
 import threading
 import time
@@ -19,6 +20,8 @@ from database import get_session
 from models.user import User, UserSession, Notification, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+logger = logging.getLogger(__name__)
 
 _LOGIN_FAILURE_LIMIT = 5
 _LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
@@ -288,6 +291,7 @@ async def login(
     login_key = _login_key(body, request)
     retry_after = _login_retry_after(login_key)
     if retry_after:
+        logger.warning("Login rate limited: username=%s retry_after=%ss", body.username, retry_after)
         raise HTTPException(
             status_code=429,
             detail="登录尝试过于频繁，请稍后再试",
@@ -296,6 +300,7 @@ async def login(
     result = await session.execute(select(User).where(User.username == body.username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.salt, user.password_hash):
+        logger.warning("Login failed: username=%s reason=bad_credentials", body.username)
         retry_after = _record_login_failure(login_key)
         if retry_after:
             raise HTTPException(
@@ -306,13 +311,22 @@ async def login(
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     _clear_login_failures(login_key)
     if user.status == "pending":
+        logger.info("Login blocked: user_id=%s username=%s status=pending", user.id, user.username)
         raise HTTPException(status_code=403, detail="账户等待管理员审批中")
     if user.status == "rejected":
+        logger.info("Login blocked: user_id=%s username=%s status=rejected", user.id, user.username)
         raise HTTPException(status_code=403, detail="账户已被拒绝")
     if user.salt != "bcrypt":
         user.password_hash, user.salt = hash_password(body.password)
     token = await _issue_session_token(user, session, request)
     await session.commit()
+    logger.info(
+        "Login succeeded: user_id=%s username=%s role=%s device=%s",
+        user.id,
+        user.username,
+        user.role,
+        _device_name(request),
+    )
     return LoginResponse(token=token, id=user.id, is_admin=user.role in ("owner", "admin"),
                          role=user.role, username=user.username)
 
@@ -334,6 +348,7 @@ async def logout(
     if auth_session is not None:
         auth_session.revoked_at = datetime.utcnow()
         await session.commit()
+        logger.info("Logout: user_id=%s", auth_session.user_id)
     return {"message": "已退出登录"}
 
 
@@ -373,7 +388,9 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
             raise HTTPException(status_code=409, detail=detail) from exc
         raise
     if is_first:
+        logger.info("First user registered as owner: user_id=%s username=%s", user.id, user.username)
         return {"message": "注册成功，首个用户已成为服主", "user_id": user.id, "auto_approved": True}
+    logger.info("User registered, pending approval: user_id=%s username=%s", user.id, user.username)
     return {"message": "注册成功，等待管理员审批", "user_id": user.id, "pending": True}
 
 
@@ -413,6 +430,13 @@ async def admin_create_user(body: CreateUserRequest,
                 role=role, is_admin=role == "admin", status="active")
     session.add(user)
     await session.commit()
+    logger.info(
+        "User created by admin: actor_id=%s user_id=%s username=%s role=%s",
+        current.id,
+        user.id,
+        user.username,
+        role,
+    )
     return {"message": "创建成功", "user_id": user.id}
 
 
@@ -447,6 +471,8 @@ async def approve_user(body: ApproveRequest,
     for n in notifs.scalars():
         n.read = True
     await session.commit()
+    action = "approved" if body.approve else "rejected"
+    logger.info("User %s: actor_id=%s user_id=%s status=%s", action, current.id, user.id, user.status)
     return {"message": "已通过" if body.approve else "已拒绝"}
 
 
@@ -508,6 +534,18 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
         await _revoke_user_sessions(user.id, session)
 
     await session.commit()
+    changed = [
+        name
+        for name in ("username", "password", "role", "is_admin")
+        if getattr(body, name, None) is not None
+    ]
+    logger.info(
+        "User updated by admin: actor_id=%s user_id=%s fields=%s role=%s",
+        current.id,
+        user.id,
+        changed,
+        user.role,
+    )
     return {"message": "更新成功", "role": user.role}
 
 
@@ -527,6 +565,7 @@ async def admin_delete_user(user_id: int, current: User = Depends(require_admin)
     await _revoke_user_sessions(user.id, session)
     await session.delete(user)
     await session.commit()
+    logger.info("User deleted: actor_id=%s user_id=%s", current.id, user_id)
     return {"message": "用户已删除"}
 
 
@@ -644,6 +683,13 @@ async def update_profile(user_id: int, body: ProfileUpdate,
     response: dict = {"message": "更新成功", "username": user.username}
     if new_token:
         response["new_token"] = new_token
+    logger.info(
+        "Profile updated: actor_id=%s user_id=%s username=%s password_changed=%s",
+        current.id,
+        user.id,
+        user.username,
+        body.new_password is not None,
+    )
     return response
 
 
@@ -673,4 +719,10 @@ async def upload_avatar(user_id: int, file: UploadFile = File(...),
     dest.write_bytes(contents)
     user.avatar_path = str(dest)
     await session.commit()
+    logger.info(
+        "Avatar uploaded: actor_id=%s user_id=%s file=%s",
+        current.id,
+        user.id,
+        name,
+    )
     return {"avatar_path": str(dest), "url": f"/api/files/avatars/{name}"}

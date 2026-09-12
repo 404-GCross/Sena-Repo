@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 import re
 from uuid import uuid4
 
@@ -27,6 +28,8 @@ from services.scraper.base import ScrapedTag, ScraperResult
 from services.scraper.orchestrator import _apply_result
 
 router = APIRouter(prefix="/api/games", tags=["games"])
+
+logger = logging.getLogger(__name__)
 
 
 _ENTRY_SOURCES = {"library", "manual", "metadata"}
@@ -320,6 +323,13 @@ async def delete_game(
 
     await cleanup_empty_companies(session)
     await session.commit()
+    logger.info(
+        "Game deleted: actor_id=%s game_id=%s name=%s path=%s",
+        user.id,
+        game.id,
+        game.name,
+        game.folder_path,
+    )
     return MessageResponse(message=f"Game '{game.name}' removed")
 
 
@@ -357,6 +367,12 @@ async def batch_delete_games(
         deleted += 1
     await cleanup_empty_companies(session)
     await session.commit()
+    logger.info(
+        "Games deleted in batch: actor_id=%s requested=%s deleted=%s",
+        user.id,
+        len(body.game_ids),
+        deleted,
+    )
     return MessageResponse(message=f"已删除 {deleted} 个游戏")
 
 
@@ -568,6 +584,14 @@ async def create_game(
 ):
     """Create a manual or metadata-backed game entry."""
     game, existing = await _create_game_from_payload(body, session)
+    logger.info(
+        "Game created: actor_id=%s game_id=%s name=%s entry_source=%s updated_existing=%s",
+        user.id,
+        game.id,
+        game.name,
+        _entry_source(game),
+        existing,
+    )
     return {
         "id": game.id,
         "name": game.name,
@@ -618,6 +642,14 @@ async def update_game(
         await _replace_game_tags(session, game, tag_names, tag_source)
     game.updated_at = datetime.utcnow()
     await session.commit()
+    logger.info(
+        "Game updated: actor_id=%s game_id=%s name=%s fields=%s tags_set=%s",
+        user.id,
+        game.id,
+        game.name,
+        sorted(data.keys()),
+        tag_names is not None,
+    )
     return {"message": "更新成功"}
 
 
@@ -693,6 +725,14 @@ async def update_version(
         version.extract_password = password or None
 
     await session.commit()
+    logger.info(
+        "Game version updated: actor_id=%s game_id=%s version_id=%s platform=%s extract_password_set=%s",
+        user.id,
+        game_id,
+        version_id,
+        version.platform.value,
+        bool(version.extract_password),
+    )
     return {
         "message": "Version updated",
         "version": {
@@ -744,6 +784,13 @@ async def move_version(
 
     await cleanup_empty_companies(session)
     await session.commit()
+    logger.info(
+        "Game version moved: actor_id=%s version_id=%s from_game_id=%s to_game_id=%s",
+        user.id,
+        version_id,
+        game_id,
+        to_game_id,
+    )
     return {"message": "版本已移动"}
 
 
@@ -774,4 +821,10 @@ async def merge_games(
 
     await cleanup_empty_companies(session)
     await session.commit()
+    logger.info(
+        "Games merged: actor_id=%s from_game_id=%s to_game_id=%s",
+        user.id,
+        from_id,
+        to_id,
+    )
     return {"message": "合并完成"}

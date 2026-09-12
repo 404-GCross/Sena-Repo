@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +17,8 @@ from schemas.common import MessageResponse
 from schemas.tag import TagCreate, TagOut, TagUpdate
 
 router = APIRouter(prefix="/api", tags=["tags"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.get("/tags", response_model=list[TagOut])
@@ -41,6 +45,7 @@ async def create_tag(
     session.add(tag)
     await session.commit()
     await session.refresh(tag)
+    logger.info("Tag created: actor_id=%s tag_id=%s name=%s", user.id, tag.id, tag.name)
     return tag
 
 
@@ -70,6 +75,7 @@ async def update_tag(
 
     await session.commit()
     await session.refresh(tag)
+    logger.info("Tag updated: actor_id=%s tag_id=%s name=%s", user.id, tag.id, tag.name)
     return tag
 
 
@@ -87,6 +93,7 @@ async def delete_tag(
 
     await session.delete(tag)
     await session.commit()
+    logger.info("Tag deleted: actor_id=%s tag_id=%s name=%s", user.id, tag_id, tag.name)
     return MessageResponse(message=f"Tag '{tag.name}' deleted")
 
 
@@ -119,6 +126,13 @@ async def add_tag_to_game(
     if assoc.scalar_one_or_none() is None:
         session.add(GameTag(game_id=game_id, tag_id=tag.id))
         await session.commit()
+        logger.info(
+            "Tag added to game: actor_id=%s game_id=%s tag_id=%s name=%s",
+            user.id,
+            game_id,
+            tag.id,
+            tag.name,
+        )
 
     return MessageResponse(message=f"Tag '{tag.name}' added to game")
 
@@ -140,4 +154,10 @@ async def remove_tag_from_game(
 
     await session.delete(assoc)
     await session.commit()
+    logger.info(
+        "Tag removed from game: actor_id=%s game_id=%s tag_id=%s",
+        user.id,
+        game_id,
+        tag_id,
+    )
     return MessageResponse(message="Tag removed from game")

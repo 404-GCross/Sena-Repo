@@ -1,9 +1,10 @@
-"""Small helpers for encrypting persisted service credentials."""
+"""Small helpers for handling persisted service credentials and keeping them out of logs."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -104,3 +105,22 @@ def decrypt_secret(value: str | None) -> str:
         return _fernet().decrypt(token).decode("utf-8")
     except (InvalidToken, UnicodeError, ValueError) as exc:
         raise RuntimeError("Unable to decrypt stored service credential") from exc
+
+
+def redact_url(value: str | None) -> str:
+    """Return a scheme://host[:port] form of a URL so logs never carry userinfo or query secrets."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if "://" not in text:
+        text = f"http://{text}"
+    parts = urlsplit(text)
+    host = parts.hostname or ""
+    if not host:
+        return ""
+    try:
+        port_number = parts.port
+    except ValueError:
+        port_number = None
+    port = f":{port_number}" if port_number else ""
+    return f"{parts.scheme}://{host}{port}"

@@ -27,6 +27,8 @@ from utils.secrets import encrypt_secret
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
+logger = logging.getLogger(__name__)
+
 
 class SetupStatus(BaseModel):
     needs_setup: bool
@@ -202,7 +204,6 @@ async def initialize_setup(
         from api.settings import _save_scan_settings
         _save_scan_settings(config)
     except Exception as e:
-        logger = logging.getLogger("sena-repo")
         logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
 
@@ -236,7 +237,6 @@ async def initialize_setup(
         scraper_config["enabled_scrapers"] = config.scrapers.enabled_scrapers
         _write_scraper_config(scraper_config)
     except Exception as e:
-        logger = logging.getLogger("sena-repo")
         logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
 
@@ -257,6 +257,13 @@ async def initialize_setup(
     # Also trigger scrape on new games after scan completes
     # (handled inside _background_scan via _run_scan)
 
+    logger.info(
+        "Initial setup completed: username=%s roots_added=%s patch_roots_added=%s auto_scan=%s",
+        user.username,
+        roots_added,
+        patch_roots_added,
+        bool(body.auto_scan),
+    )
     return {
         "message": "Setup complete",
         "admin_created": True,
@@ -267,7 +274,6 @@ async def initialize_setup(
 
 async def _background_scan(config):
     """Run game + patch scan in background without blocking setup response."""
-    logger = logging.getLogger("sena-repo")
     try:
         from api.roots import _run_scan
         stats = await _run_scan(config)

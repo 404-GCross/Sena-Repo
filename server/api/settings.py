@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -23,9 +24,11 @@ from models.game import Game
 from models.ignore_list import IgnoreList
 from schemas.common import MessageResponse
 from services.scanner import normalize_game_depth, structure_from_depth
-from utils.secrets import encryption_key_status
+from utils.secrets import encryption_key_status, redact_url
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+logger = logging.getLogger(__name__)
 
 
 # --- Scraper Config ---
@@ -107,9 +110,16 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
     try:
         _save_scan_settings(config)  # persist to disk
     except Exception as e:
-        import logging, traceback
-        logging.getLogger("sena-repo").error(f"Failed to save scan settings: {e}\n{traceback.format_exc()}")
+        import traceback
+        logger.error(f"Failed to save scan settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存失败: {e}")
+    logger.info(
+        "Scan settings updated: actor_id=%s auto_scan=%s interval_hours=%s depth=%s",
+        user.id,
+        body.auto_scan,
+        body.scan_interval,
+        config._scan_depth,
+    )
     return {"message": "保存成功"}
 
 
@@ -218,6 +228,7 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
     from config import load_config
     config = load_config()
     data = _read_scraper_config()
+    changed: list[str] = []
 
     for key in (
         "bangumi_token",
@@ -240,16 +251,25 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
                 if not isinstance(val, list):
                     continue
                 setattr(config.scrapers, key, val)
+                changed.append(key)
                 continue
             if key != "proxy":
                 setattr(config.scrapers, key, val)
             else:
                 setattr(config, "proxy", val)
             data[key] = val
+            changed.append(key)
     normalize_scraper_config(config.scrapers)
     data["scraper_order"] = config.scrapers.scraper_order
     data["enabled_scrapers"] = config.scrapers.enabled_scrapers
     _write_scraper_config(data)
+    logger.info(
+        "Scraper config updated: actor_id=%s fields=%s proxy_set=%s enabled_scrapers=%s",
+        user.id,
+        sorted(changed),
+        bool(config.proxy),
+        config.scrapers.enabled_scrapers,
+    )
     return {"message": "已保存"}
 
 
@@ -270,7 +290,6 @@ async def test_hikarinagi(
     import httpx
     from services.scraper.hikarinagi import HikarinagiScraper
 
-    del user
     config = load_config()
     configured_id = config.scrapers.hikarinagi_client_id
     configured_secret = config.scrapers.hikarinagi_client_secret
@@ -308,19 +327,38 @@ async def test_hikarinagi(
                 ],
                 use_auth=True,
             )
+        logger.info(
+            "Hikarinagi credential test succeeded: actor_id=%s scope=%s latency_ms=%s",
+            user.id,
+            scope,
+            round((time.monotonic() - started) * 1000),
+        )
         return {
             "ok": True,
             "scope": scope,
             "latency_ms": round((time.monotonic() - started) * 1000),
         }
     except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Hikarinagi credential test failed: actor_id=%s scope=%s status=%s",
+            user.id,
+            scope,
+            exc.response.status_code,
+        )
         return {
             "ok": False,
             "error": f"Hikarinagi 返回 HTTP {exc.response.status_code}，请检查凭据和 Scope",
         }
     except httpx.TimeoutException:
+        logger.warning("Hikarinagi credential test timed out: actor_id=%s scope=%s", user.id, scope)
         return {"ok": False, "error": "Hikarinagi 连接超时，请检查网络或代理"}
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Hikarinagi credential test errored: actor_id=%s scope=%s error=%s",
+            user.id,
+            scope,
+            type(exc).__name__,
+        )
         return {"ok": False, "error": "Hikarinagi 连接失败，请检查凭据、Scope 和网络"}
     finally:
         await scraper.close()
@@ -336,7 +374,6 @@ async def test_nextmoe(
     import httpx
     from services.scraper.nextmoe import NEXTMOE_API_BASE
 
-    del user
     config = load_config()
     api_key = body.api_key.strip()
     if not api_key or "****" in api_key:
@@ -359,6 +396,11 @@ async def test_nextmoe(
                 },
             )
         if resp.status_code == 200:
+            logger.info(
+                "NextMoe credential test succeeded: actor_id=%s latency_ms=%s",
+                user.id,
+                round((time.monotonic() - started) * 1000),
+            )
             return {
                 "ok": True,
                 "latency_ms": round((time.monotonic() - started) * 1000),
@@ -370,16 +412,28 @@ async def test_nextmoe(
             except Exception:
                 code = ""
             if code == "SCOPE_REQUIRED":
+                logger.warning("NextMoe credential test failed: actor_id=%s reason=scope_required", user.id)
                 return {"ok": False, "error": "Key 有效但缺少 catalog:read scope"}
             if code == "INVALID_CREDENTIAL":
+                logger.warning("NextMoe credential test failed: actor_id=%s reason=invalid_credential", user.id)
                 return {"ok": False, "error": "API Key 无效或已被吊销"}
+            logger.warning(
+                "NextMoe credential test failed: actor_id=%s status=%s code=%s",
+                user.id,
+                resp.status_code,
+                code or "unknown",
+            )
             return {"ok": False, "error": f"NextMoe 鉴权失败（HTTP {resp.status_code}）"}
         if resp.status_code == 429:
+            logger.warning("NextMoe credential test rate limited: actor_id=%s", user.id)
             return {"ok": False, "error": "NextMoe 限流，请稍后重试"}
+        logger.warning("NextMoe credential test failed: actor_id=%s status=%s", user.id, resp.status_code)
         return {"ok": False, "error": f"NextMoe 返回 HTTP {resp.status_code}"}
     except httpx.TimeoutException:
+        logger.warning("NextMoe credential test timed out: actor_id=%s", user.id)
         return {"ok": False, "error": "NextMoe 连接超时，请检查网络或代理"}
-    except Exception:
+    except Exception as exc:
+        logger.warning("NextMoe credential test errored: actor_id=%s error=%s", user.id, type(exc).__name__)
         return {"ok": False, "error": "NextMoe 连接失败，请检查网络和 Key"}
 
 
@@ -395,8 +449,21 @@ async def test_proxy(user: User = Depends(get_current_user)):
     try:
         async with httpx.AsyncClient(**kwargs) as client:
             resp = await client.get("https://www.google.com")
+            logger.info(
+                "Proxy test succeeded: actor_id=%s target=%s status=%s latency_ms=%s",
+                user.id,
+                redact_url(config.proxy) or "direct",
+                resp.status_code,
+                round(resp.elapsed.total_seconds() * 1000),
+            )
             return {"ok": True, "status": resp.status_code, "proxy": config.proxy or "直连", "latency_ms": round(resp.elapsed.total_seconds() * 1000)}
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Proxy test failed: actor_id=%s target=%s error=%s",
+            user.id,
+            redact_url(config.proxy) or "direct",
+            type(exc).__name__,
+        )
         return {"ok": False, "error": "代理连接失败，请检查代理地址和网络状态", "proxy": config.proxy or "直连"}
 
 
@@ -453,4 +520,11 @@ async def restore_from_ignore(
     await session.delete(item)
     await session.commit()
 
+    logger.info(
+        "Game restored from ignore list: actor_id=%s ignore_id=%s path=%s game_id=%s",
+        user.id,
+        ignore_id,
+        path,
+        game.id if game else None,
+    )
     return MessageResponse(message=f"Restored game at: {path}")
