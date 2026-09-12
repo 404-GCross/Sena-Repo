@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,6 +86,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"Database initialized at: {config.database_url}")
     logger.info(f"Games path: {config.games_path}")
     logger.info(f"Data path: {config.data_path}")
+    patch_index = Path(config.data_path) / "steam_patch_index" / "patches.json"
+    patch_count = 0
+    if patch_index.is_file():
+        try:
+            patch_count = len(
+                json.loads(patch_index.read_text(encoding="utf-8")).get("patches", [])
+            )
+        except Exception as exc:
+            logger.error(f"Steam patch index is unreadable: {patch_index} ({exc})")
+            patch_count = -1
+    logger.info(f"Steam patch index: {patch_index} ({patch_count} entries)")
 
     # Store config in app state for route access
     app.state.config = config

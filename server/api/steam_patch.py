@@ -39,25 +39,6 @@ def _get_patch_index_dir(config=None):
     return Path(config.data_path or "/data") / "steam_patch_index"
 
 
-def _migrate_legacy_patch_index(index_dir: Path, legacy_dir: Path) -> None:
-    index_path = index_dir / "patches.json"
-    legacy_path = legacy_dir / "patches.json"
-    if index_path.exists() or not legacy_path.is_file():
-        return
-    try:
-        if index_path.resolve() == legacy_path.resolve():
-            return
-    except OSError:
-        pass
-    index_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(legacy_path, index_path)
-    legacy_keywords = legacy_dir / "patch_type_keywords.json"
-    index_keywords = index_dir / "patch_type_keywords.json"
-    if legacy_keywords.is_file() and not index_keywords.exists():
-        shutil.copy2(legacy_keywords, index_keywords)
-    logger.info("Migrated Steam patch index from %s to %s", legacy_path, index_path)
-
-
 def _normalize_analysis_mode(value: str | None, source_type: str = "local") -> str:
     normalized = (value or "").strip().lower()
     if normalized in PATCH_ANALYSIS_MODES:
@@ -147,6 +128,12 @@ async def add_patch_root(
     session.add(root)
     await session.commit()
     await session.refresh(root)
+    logger.info(
+        "Patch root added: id=%s type=%s path=%s",
+        root.id,
+        root.source_type,
+        root.path,
+    )
     return root
 
 
@@ -199,6 +186,12 @@ async def update_patch_root(
     root.path = path
     await session.commit()
     await session.refresh(root)
+    logger.info(
+        "Patch root updated: id=%s type=%s path=%s",
+        root.id,
+        root.source_type,
+        root.path,
+    )
     return root
 
 
@@ -208,8 +201,10 @@ async def delete_patch_root(root_id: int, user: User = Depends(require_admin), s
     root = result.scalar_one_or_none()
     if root is None:
         raise HTTPException(status_code=404, detail="Patch root not found")
+    root_id_value, root_path = root.id, root.path
     await session.delete(root)
     await session.commit()
+    logger.info("Patch root removed: id=%s path=%s", root_id_value, root_path)
     return {"message": "Patch root removed"}
 
 
@@ -228,7 +223,8 @@ def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
             if aid is not None and str(aid) != "None" and aid != 0:
                 idx[str(aid)] = p
         return idx
-    except Exception:
+    except Exception as exc:
+        logger.error("Failed to read patch index %s: %s", idx_path, exc)
         return None
 
 
@@ -241,7 +237,8 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
         with open(idx_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return [_normalize_patch_record(p) for p in data.get("patches", [])]
-    except Exception:
+    except Exception as exc:
+        logger.error("Failed to read patch index %s: %s", idx_path, exc)
         return []
 
 
@@ -302,8 +299,16 @@ def _load_type_keywords(patches_dir: Path) -> dict[str, list[str]]:
                 data = json.load(f)
             if isinstance(data, dict) and data.get("_version") == _KEYWORD_VERSION:
                 return {k: v for k, v in data.items() if k != "_version" and isinstance(v, list)}
-        except Exception:
-            pass
+            logger.warning(
+                "Patch type keywords at %s have an outdated version, recreating defaults",
+                kw_path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Patch type keywords at %s are unreadable (%s), recreating defaults",
+                kw_path,
+                exc,
+            )
     # Create / overwrite with current defaults
     patches_dir.mkdir(parents=True, exist_ok=True)
     defaults = {"_version": _KEYWORD_VERSION, **DEFAULT_TYPE_KEYWORDS}
@@ -805,7 +810,6 @@ async def scan_steam_games(
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     keywords = _load_type_keywords(index_dir)
     patches = _load_all_patches(index_dir)
     results = []
@@ -873,6 +877,11 @@ async def scan_steam_games(
 
         results.append(match)
 
+    logger.debug(
+        "Steam patch match: games=%d matched=%d",
+        len(body.games),
+        sum(1 for r in results if r.patch_available),
+    )
     return results
 
 
@@ -883,7 +892,6 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     json_path = index_dir / "patches.json"
     needs_scan = _patches_index_needs_autoscan(json_path)
     patches = [_enrich_patch_record(p) for p in _load_all_patches(index_dir)]
@@ -921,7 +929,6 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
         "source": "patches.json",
         "needs_scan": needs_scan,
         "index_path": str(json_path),
-        "legacy_index_path": str(patches_dir / "patches.json"),
     }
 
 
@@ -934,7 +941,6 @@ async def get_patch_tree(
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
@@ -985,7 +991,6 @@ async def update_patch_manifest(
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     updated = _update_patch_record(
         index_dir,
         lookup_key,
@@ -997,6 +1002,13 @@ async def update_patch_manifest(
             "manifest_updated_at": datetime.now(timezone.utc).isoformat(),
         },
         file_hint=body.file,
+    )
+    logger.info(
+        "Patch manifest updated: lookup_key=%s app_id=%s patch_dir=%s target_dir=%s",
+        lookup_key,
+        body.app_id or "-",
+        body.patch_dir or "-",
+        body.target_dir or "-",
     )
     return {"message": "Manifest updated", "lookup_key": lookup_key, "patch": _enrich_patch_record(updated)}
 
@@ -1011,7 +1023,6 @@ async def download_patch(
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
 
     entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
     if entry is not None:
@@ -1024,9 +1035,15 @@ async def download_patch(
             adapter = adapter_from_source(source, "openlist")
             raw_url = await asyncio.to_thread(adapter.download_url, entry.get("source_path") or entry.get("file", ""))
             from fastapi.responses import RedirectResponse
+            logger.info(
+                "Patch download (openlist redirect): lookup_key=%s source_id=%s",
+                lookup_key,
+                entry.get("source_id"),
+            )
             return RedirectResponse(raw_url, status_code=302)
         patch_file = await _local_patch_file_from_entry(entry, patches_dir, session)
         if patch_file and patch_file.is_file():
+            logger.info("Patch download (local): lookup_key=%s file=%s", lookup_key, patch_file.name)
             return FileResponse(
                 path=str(patch_file),
                 filename=patch_file.name,
@@ -1038,7 +1055,9 @@ async def download_patch(
         raise HTTPException(status_code=404, detail="Patch directory not found")
     patch_file = _find_patch_fallback(patches_dir, lookup_key)
     if patch_file is None:
+        logger.warning("Patch download failed, file not found: lookup_key=%s", lookup_key)
         raise HTTPException(status_code=404, detail=f"Patch file for {lookup_key} not found")
+    logger.info("Patch download (fallback): lookup_key=%s file=%s", lookup_key, patch_file.name)
     return FileResponse(
         path=str(patch_file),
         filename=patch_file.name,
@@ -1061,7 +1080,6 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     values = {
         "patch_dir": body.patch_dir,
         "target_dir": body.target_dir,
@@ -1081,6 +1099,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         values,
         file_hint=body.file,
     )
+    logger.info("Patch record updated: lookup_key=%s fields=%s", lookup_key, sorted(values))
     return {"message": "Updated", "lookup_key": lookup_key, "patch": _enrich_patch_record(updated)}
 
 
@@ -1093,7 +1112,6 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     try:
         from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
 
@@ -1137,6 +1155,13 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
         merged_patches = _normalize_patch_records(merge(existing_list, scanned))
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
+        logger.info(
+            "Patch scan finished: roots=%d scanned=%d indexed=%d index=%s",
+            len(roots),
+            len(scanned),
+            len(merged_patches),
+            json_path,
+        )
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}
     except Exception as e:
         logger.error(f"Patch scan failed: {e}")
@@ -1150,7 +1175,6 @@ async def get_type_keywords(user: User = Depends(get_current_user)):
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     return _load_type_keywords(index_dir)
 
 
@@ -1164,8 +1188,8 @@ async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(re
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     _save_type_keywords(index_dir, body.keywords)
+    logger.info("Patch type keywords saved: groups=%d", len(body.keywords))
     return {"message": "关键词已更新"}
 
 
@@ -1205,7 +1229,6 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     json_path = index_dir / "patches.json"
 
     if not json_path.is_file():
@@ -1264,6 +1287,12 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+    logger.info(
+        "Patch rescrape: lookup_key=%s status=%s app_id=%s",
+        lookup_key,
+        result.status,
+        result.new_app_id or "-",
+    )
     return result
 
 
@@ -1274,7 +1303,6 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
-    _migrate_legacy_patch_index(index_dir, patches_dir)
     json_path = index_dir / "patches.json"
 
     if not json_path.is_file():
@@ -1335,6 +1363,7 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+    logger.info("Batch patch rescrape finished: updated=%d total=%d", updated, len(patches))
     return {"message": f"Batch rescrape completed: {updated} updated", "updated": updated, "total": len(patches), "results": [r.model_dump() for r in results]}
 
 
