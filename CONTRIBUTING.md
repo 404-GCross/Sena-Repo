@@ -20,9 +20,11 @@
 | `Documentation/zh-CN/` | 中文用户文档、技术文档、排障文档和测试清单 |
 | `.github/workflows/` | CI、开发版预发布、正式 Release 和 7-Zip-zstd 构建流程 |
 | `7zip-zstd/` | 构建产物期望存在的 7-Zip-zstd 平台二进制目录 |
-| `.codex/skills/` | 本仓库的 Codex 项目规则与提交规范 |
+| `AGENTS.md` | 本仓库的编码代理规则与提交规范（`CLAUDE.md` 是指向它的软链） |
 
 > `client/linux` 不提交到仓库。Linux runner 由 CI 中的 `flutter create .` 生成，并通过 `.github/scripts/patch_linux_runner_touch.py` 自动补丁。
+
+> 仓库根目录的 `AGENTS.md` 是项目规则的单一来源，使用 Codex、Claude Code 等工具时都会读取它；`CLAUDE.md` 只是软链，不要单独维护内容。
 
 ## 报告 Bug
 
