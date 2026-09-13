@@ -45,16 +45,18 @@ Sena Repo 按固定层级扫描游戏文件，部署前请先整理好文件：
 
 > 文件不按规则整理则扫不出来。也可以在设置中调整目录结构为"仅游戏"或"扁平"模式。
 
-如果游戏库和 Steam 补丁库都使用 OpenList 作为文件来源，服务端本地无需挂载实际的 `/games` 和补丁文件目录；但 Steam 补丁索引仍会生成 `patches.json`，需要将 `SENA_PATCH_DIR` 指向持久化目录（例如 `/data/steam_patch`），或单独挂载 `/steam_patch`。
+如果游戏库和 Steam 补丁库都使用 OpenList 作为文件来源，服务端本地无需挂载实际的 `/games` 和补丁文件目录。补丁索引与关键词配置都写在数据目录下的 `steam_patch_index/`，只要 `/data` 是持久化挂载即可。
 
 ### Steam 补丁目录结构
 
 ```
-steam_patch/
-├── patches.json               ← 自动生成，记录所有补丁
-├── patch_type_keywords.json   ← 类型识别关键词配置
+steam_patch/                      ← 补丁压缩包目录（本地类型的补丁库）
 ├── 游戏1_Steam_Chinese_Patch.7z
 └── 游戏2_Steam_Voice_Patch.rar
+
+data/steam_patch_index/           ← 索引目录，位于数据目录内
+├── patches.json                  ← 自动生成，记录所有补丁与匹配规则
+└── patch_type_keywords.json      ← 补丁类型识别关键词配置
 ```
 
 ---
@@ -253,6 +255,7 @@ senacli backup
 senacli backup /path/to/backup-dir
 senacli backup -o /path/to/backup.json
 senacli restore sena-steam-patch-rules-20260909-153000.json
+senacli restore sena-steam-patch-rules-20260909-153000.json --skip-keywords
 senacli update --channel dev
 senacli update --channel release
 senacli uninstall
@@ -269,7 +272,40 @@ senacli useradmin
 senacli userdel
 ```
 
-`useradd` 在数据库没有任何用户时会创建首个服主；已有用户后默认创建普通用户，加 `--admin` 可创建管理员。`username`、`passwd`、`useradmin` 会让目标用户现有登录态失效，用户需要重新登录。`clear` 只清空游戏、版本和游戏标签关联，目录配置、用户、OpenList 与刮削配置会保留，然后重新扫描。`backup` / `restore` 用于导出和恢复 Steam 补丁匹配规则，恢复前会先保存当前索引备份。
+`useradd` 在数据库没有任何用户时会创建首个服主；已有用户后默认创建普通用户，加 `--admin` 可创建管理员。`username`、`passwd`、`useradmin` 会让目标用户现有登录态失效，用户需要重新登录。`clear` 只清空游戏、版本和游戏标签关联，目录配置、用户、OpenList 与刮削配置会保留，然后重新扫描。
+
+### 备份与恢复 Steam 补丁
+
+`senacli backup` / `senacli restore` 用于导出和恢复 Steam 补丁的匹配规则与补丁类型识别关键词，导出的是两份东西：
+
+| 内容 | 来源文件 | 说明 |
+|------|----------|------|
+| 匹配规则 | `steam_patch_index/patches.json` | AppID、游戏名、标签、类型、`patch_dir`、`target_dir`、清单确认状态 |
+| 类型关键词 | `steam_patch_index/patch_type_keywords.json` | 按文件名自动识别补丁类型的词表 |
+
+只导出真正配置过的条目：没有任何规则（AppID、标签、目录、已确认清单、非 `misc` 类型全为空）的补丁不会进备份。
+
+```bash
+# 备份到数据目录下的 backups/steam-patch-rules/
+senacli backup
+
+# 备份到指定目录或指定文件
+senacli backup /path/to/backup-dir
+senacli backup -o /path/to/backup.json
+
+# 恢复（默认同时覆盖匹配规则和类型关键词）
+senacli restore sena-steam-patch-rules-20260909-153000.json
+
+# 只恢复匹配规则，保留服务器上现有的类型关键词
+senacli restore sena-steam-patch-rules-20260909-153000.json --skip-keywords
+
+# 先清空当前规则再恢复，脚本化恢复时加 -y 跳过确认
+senacli restore sena-steam-patch-rules-20260909-153000.json --replace -y
+```
+
+恢复前会打印预览（可恢复、会变更、无效条目、冲突、未匹配、关键词），并分别备份当前的 `patches.json` 和 `patch_type_keywords.json` 到 `backups/steam-patch-rules/`。恢复是覆盖式的：`--replace` 会把现有规则清空再写入，关键词则总是整体覆盖（除非加 `--skip-keywords`）。
+
+匹配靠补丁的路径和文件身份（`source_type` / `source_id` / `file` / `source_path` / 文件名加大小），所以本地重扫、目录改名或网盘换路径都可能导致条目对不上，此时会记在预览的"未匹配"里，不会被写坏。没有 `keywords` 字段的旧版备份只恢复规则，不报错。
 
 默认路径：
 
@@ -441,7 +477,9 @@ Sena 服务端只生成跳转，不代理大文件流量。OpenList 地址必须
 | `extra`（额外） | `_Steam_Extra_Patch` |
 | `misc`（其他） | 无关键词匹配时 |
 
-关键词可在客户端 Steam 补丁页编辑，或直接修改 `patch_type_keywords.json`。
+关键词文件位于数据目录的 `steam_patch_index/patch_type_keywords.json`，可在客户端 Steam 补丁页的"关键词快捷匹配"里编辑，也可以直接改这个文件。文件名（统一转小写）包含任一关键词即归为该类型，按类型顺序取第一个命中的；`misc` 不参与匹配。
+
+这份文件只在不存在时才会写入上面的默认值，之后以文件内容为准——也就是说修改过关键词后，升级服务端不会覆盖你改过的词。它会被 `senacli backup` 一起导出，`senacli restore` 默认一起恢复（加 `--skip-keywords` 可保留服务器上的现有词表）。
 
 ### patches.json 字段说明
 

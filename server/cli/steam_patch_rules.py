@@ -34,6 +34,9 @@ RULE_DEFAULTS = {
     "manifest_updated_at": None,
 }
 
+SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+
 
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -52,6 +55,10 @@ def _load_server_config():
 
 def _patch_index_path(config) -> Path:
     return Path(config.data_path or "/data") / "steam_patch_index" / "patches.json"
+
+
+def _keywords_path(config) -> Path:
+    return Path(config.data_path or "/data") / "steam_patch_index" / "patch_type_keywords.json"
 
 
 def _backup_dir(config) -> Path:
@@ -110,6 +117,41 @@ def _load_patch_index(path: Path) -> dict[str, Any]:
     if not isinstance(patches, list):
         fail(f"补丁索引格式错误，缺少 patches 数组: {path}", 3)
     return data
+
+
+def _normalise_keywords(value: Any) -> dict[str, list[str]] | None:
+    """Return a cleaned keyword map, or None when the payload cannot be trusted."""
+    if not isinstance(value, dict) or not value:
+        return None
+    cleaned: dict[str, list[str]] = {}
+    for group, words in value.items():
+        if not isinstance(group, str) or not group.strip() or group.startswith("_"):
+            continue
+        if not isinstance(words, list):
+            return None
+        entries: list[str] = []
+        for word in words:
+            if not isinstance(word, str):
+                return None
+            text = word.strip()
+            if text and text not in entries:
+                entries.append(text)
+        cleaned[group] = entries
+    return cleaned or None
+
+
+def _read_keywords(path: Path) -> tuple[dict[str, list[str]] | None, str | None]:
+    """Return (keywords, note); note explains why keywords are unavailable."""
+    if not path.is_file():
+        return None, f"未找到 {path.name}，不含关键词"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return None, f"{path.name} 无法读取（{exc}），不含关键词"
+    keywords = _normalise_keywords(data)
+    if keywords is None:
+        return None, f"{path.name} 结构不符合预期，不含关键词"
+    return keywords, None
 
 
 def _norm_text(value: Any) -> str:
@@ -335,21 +377,31 @@ def cmd_backup(args) -> int:
     index_data = _load_patch_index(index_path)
     rules = _rule_entries(index_data["patches"])
     output = _resolve_backup_output(args, config)
+    keywords_path = _keywords_path(config)
+    keywords, keywords_note = _read_keywords(keywords_path)
 
     backup_data = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "kind": "steam_patch_rules",
         "app": "Sena-Repo",
         "exported_at": _utc_iso(),
         "source": {
             "index_path": str(index_path),
+            "keywords_path": str(keywords_path),
         },
         "count": len(rules),
         "rules": rules,
     }
+    if keywords is not None:
+        backup_data["keywords"] = keywords
     _write_json(output, backup_data)
     echo(f"已导出 Steam 补丁匹配规则: {output}")
     echo(f"规则数量: {len(rules)}")
+    if keywords is None:
+        echo(f"关键词: {keywords_note}")
+    else:
+        total_words = sum(len(words) for words in keywords.values())
+        echo(f"关键词: {len(keywords)} 组 / {total_words} 个词")
     return 0
 
 
@@ -363,11 +415,25 @@ def cmd_restore(args) -> int:
     backup_data = _read_json(backup_path)
     if backup_data.get("kind") != "steam_patch_rules":
         fail("备份文件类型不正确，不是 Steam 补丁规则备份", 3)
-    if backup_data.get("schema_version") != 1:
+    if backup_data.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         fail(f"不支持的备份版本: {backup_data.get('schema_version')}", 3)
     backup_rules = backup_data.get("rules")
     if not isinstance(backup_rules, list):
         fail("备份文件格式错误，缺少 rules 数组", 3)
+
+    backup_keywords: dict[str, list[str]] | None = None
+    keywords_note: str
+    if getattr(args, "skip_keywords", False):
+        keywords_note = "已按 --skip-keywords 跳过"
+    elif "keywords" not in backup_data:
+        keywords_note = "备份中未包含关键词（旧版备份）"
+    else:
+        backup_keywords = _normalise_keywords(backup_data.get("keywords"))
+        if backup_keywords is None:
+            keywords_note = "备份中的关键词结构不符合预期，已跳过"
+        else:
+            total_words = sum(len(words) for words in backup_keywords.values())
+            keywords_note = f"将写入 {len(backup_keywords)} 组 / {total_words} 个词（整体覆盖）"
 
     index_data = _load_patch_index(index_path)
     restored_patches, stats = _preview_restore(
@@ -381,6 +447,7 @@ def cmd_restore(args) -> int:
     echo(f"无效条目: {stats['skipped']}")
     echo(f"冲突: {len(stats['conflicts'])}")
     echo(f"未匹配: {len(stats['unmatched'])}")
+    echo(f"关键词: {keywords_note}")
     if stats["conflicts"]:
         echo("冲突示例:")
         for item in stats["conflicts"][:5]:
@@ -404,4 +471,14 @@ def cmd_restore(args) -> int:
     _write_json(index_path, index_data)
     echo(f"已恢复 Steam 补丁匹配规则: {index_path}")
     echo(f"恢复前索引备份: {safety_path}")
+
+    if backup_keywords is not None:
+        keywords_path = _keywords_path(config)
+        if keywords_path.is_file():
+            keywords_safety = _backup_dir(config) / f"keywords-before-restore-{_utc_timestamp()}.json"
+            keywords_safety.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(keywords_path, keywords_safety)
+            echo(f"恢复前关键词备份: {keywords_safety}")
+        _write_json(keywords_path, backup_keywords)
+        echo(f"已恢复补丁类型关键词: {keywords_path}")
     return 0
