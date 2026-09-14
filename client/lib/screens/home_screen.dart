@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
-  bool _mobileToolbarVisible = true;
+  bool _toolbarVisible = true;
   double _lastLibraryScrollOffset = 0;
   int _downloadCount = 0;
   StreamSubscription? _downloadSub;
@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleLibraryScroll() {
-    if (!mounted || !_isMobile(context) || !_scrollController.hasClients) {
+    if (!mounted || !_scrollController.hasClients) {
       return;
     }
     final offset = _scrollController.offset;
@@ -86,8 +86,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _lastLibraryScrollOffset = offset;
 
     final visible = offset <= 8 || delta < 0;
-    if (visible != _mobileToolbarVisible) {
-      setState(() => _mobileToolbarVisible = visible);
+    if (visible != _toolbarVisible) {
+      setState(() => _toolbarVisible = visible);
     }
   }
 
@@ -139,273 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final mobile = _isMobile(context);
     return Column(
       children: [
-        if (mobile) _buildMobileLibraryToolbar(gameProvider),
-        if (!mobile) ...[
-        // ── Search bar ──
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-          child: SizedBox(
-            height: 44,
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: "搜索游戏、会社、补丁关键词...",
-                hintStyle: TextStyle(color: hintColor(context), fontSize: 14),
-                prefixIcon:
-                    Icon(Icons.search, color: hintColor(context), size: 22),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 20),
-                        onPressed: () {
-                          _searchController.clear();
-                          gameProvider.search("");
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: cardBg(context).withValues(alpha: 0.84),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .outline
-                          .withValues(alpha: 0.3)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .outline
-                          .withValues(alpha: 0.3)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: 0.5)),
-                ),
-              ),
-              style: const TextStyle(fontSize: 14),
-              onChanged: (v) => gameProvider.search(v),
-            ),
-          ),
-        ),
-        // ── Filter/Sort bar ──
-        if (!gameProvider.isLoading)
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: cardBorder(context)),
-              boxShadow: [
-                BoxShadow(
-                  color: softShadowColor(context),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text("${gameProvider.games.length} 款游戏",
-                      style: AppText.label.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary)),
-                ),
-                const Spacer(),
-                // Action buttons moved from sidebar
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  onPressed: gameProvider.loadGames,
-                  tooltip: "刷新",
-                  visualDensity: VisualDensity.compact,
-                ),
-                IconButton(
-                  icon: Icon(_isGridView ? Icons.list : Icons.grid_view,
-                      size: 20),
-                  onPressed: () => setState(() => _isGridView = !_isGridView),
-                  tooltip: _isGridView ? "列表视图" : "网格视图",
-                  visualDensity: VisualDensity.compact,
-                ),
-                IconButton(
-                  icon: Icon(
-                      _multiSelect
-                          ? Icons.check_box
-                          : Icons.check_box_outline_blank,
-                      size: 20),
-                  onPressed: _toggleMultiSelect,
-                  tooltip: "多选",
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(width: 4),
-                if (gameProvider.filterPlatform != null ||
-                    gameProvider.filterHasCover != null ||
-                    gameProvider.sortBy != null)
-                  GestureDetector(
-                    onTap: () => gameProvider.clearFilters(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.close, size: 14, color: Colors.red[300]),
-                        const SizedBox(width: 4),
-                        Text("清除",
-                            style: AppText.caption
-                                .copyWith(color: Colors.red[300])),
-                      ]),
-                    ),
-                  ),
-              ]),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: [
-                    _filterChip(
-                        "PC",
-                        Icons.desktop_windows,
-                        gameProvider.filterPlatform == "PC",
-                        () => _togglePlatformFilter("PC")),
-                    _filterChip(
-                        "KRKR",
-                        Icons.android,
-                        gameProvider.filterPlatform == "KRKR",
-                        () => _togglePlatformFilter("KRKR")),
-                    _filterChip(
-                        "ONS",
-                        Icons.language,
-                        gameProvider.filterPlatform == "ONS",
-                        () => _togglePlatformFilter("ONS")),
-                    _filterChip(
-                        "Ty",
-                        Icons.phone_android,
-                        gameProvider.filterPlatform == "Ty",
-                        () => _togglePlatformFilter("Ty")),
-                    _filterChip(
-                        "直装",
-                        Icons.phone_iphone,
-                        gameProvider.filterPlatform == "直装",
-                        () => _togglePlatformFilter("直装")),
-                    Container(width: 1, height: 18, color: cardBorder(context)),
-                    const SizedBox(width: 6),
-                    _filterChip(
-                        "有封面",
-                        Icons.image,
-                        gameProvider.filterHasCover == true,
-                        () => gameProvider.setFilters(
-                            hasCover: gameProvider.filterHasCover == true
-                                ? null
-                                : true)),
-                    _filterChip(
-                        "缺封面",
-                        Icons.hide_image,
-                        gameProvider.filterHasCover == false,
-                        () => gameProvider.setFilters(
-                            hasCover: gameProvider.filterHasCover == false
-                                ? null
-                                : false)),
-                    const SizedBox(width: 8),
-                    PopupMenuButton<String>(
-                      offset: const Offset(0, 36),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      color:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      onSelected: (v) =>
-                          gameProvider.setSort(v == "imported" ? null : v),
-                      itemBuilder: (_) => [
-                        _sortItem("imported", "导入时间 ↓", Icons.schedule,
-                            gameProvider.sortBy == null),
-                        _sortItem("name", "名称 A → Z", Icons.sort_by_alpha,
-                            gameProvider.sortBy == "name"),
-                        _sortItem(
-                            "name_desc",
-                            "名称 Z → A",
-                            Icons.text_rotation_none,
-                            gameProvider.sortBy == "name_desc"),
-                        _sortItem("developer", "会社 A → Z", Icons.business,
-                            gameProvider.sortBy == "developer"),
-                        _sortItem("developer_desc", "会社 Z → A", Icons.business,
-                            gameProvider.sortBy == "developer_desc"),
-                      ],
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: gameProvider.sortBy != null
-                              ? Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.12)
-                              : cardBg(context),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: gameProvider.sortBy != null
-                                  ? Theme.of(context)
-                                      .colorScheme
-                                      .primary
-                                      .withValues(alpha: 0.3)
-                                  : cardBorder(context)),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.sort,
-                              size: 16,
-                              color: gameProvider.sortBy != null
-                                  ? Theme.of(context).colorScheme.primary
-                                  : (Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.grey[500]
-                                      : Colors.grey[600])),
-                          const SizedBox(width: 4),
-                          Text(_sortLabel(gameProvider.sortBy),
-                              style: AppText.label.copyWith(
-                                  fontWeight: FontWeight.w500,
-                                  color: gameProvider.sortBy != null
-                                      ? Theme.of(context).colorScheme.primary
-                                      : (Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.grey[500]
-                                          : Colors.grey[700]))),
-                          const SizedBox(width: 2),
-                          Icon(Icons.arrow_drop_down,
-                              size: 18,
-                              color: gameProvider.sortBy != null
-                                  ? Theme.of(context).colorScheme.primary
-                                  : (Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.grey[500]
-                                      : Colors.grey[600])),
-                        ]),
-                      ),
-                    ),
-                    if (gameProvider.sortBy != null) const SizedBox(width: 4),
-                  ])),
-            ]),
-          ),
-        ],
+        _buildLibraryToolbar(gameProvider, inlineSearch: !mobile),
         Expanded(
           child: gameProvider.isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -444,7 +178,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMobileLibraryToolbar(GameProvider gameProvider) {
+  Widget _buildLibraryToolbar(GameProvider gameProvider,
+      {required bool inlineSearch}) {
     final hasFilters = gameProvider.filterPlatform != null ||
         gameProvider.filterHasCover != null ||
         gameProvider.sortBy != null;
@@ -453,9 +188,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return AnimatedSize(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
-      child: _mobileToolbarVisible
+      child: _toolbarVisible
           ? Container(
-              height: 58,
+              height: inlineSearch ? 62 : 58,
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               decoration: BoxDecoration(
                 color: cardBg(context).withValues(alpha: 0.96),
@@ -467,13 +202,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Row(
                 children: [
-                  _mobileToolbarButton(
-                    icon: Icons.search_rounded,
-                    tooltip: "搜索",
-                    active: _searchController.text.trim().isNotEmpty,
-                    onPressed: () => _showMobileSearch(gameProvider),
-                  ),
-                  const SizedBox(width: 4),
+                  if (inlineSearch)
+                    Expanded(child: _inlineSearchField(gameProvider))
+                  else
+                    _mobileToolbarButton(
+                      icon: Icons.search_rounded,
+                      tooltip: "搜索",
+                      active: _searchController.text.trim().isNotEmpty,
+                      onPressed: () => _showMobileSearch(gameProvider),
+                    ),
+                  const SizedBox(width: 8),
                   Text(
                     "${gameProvider.games.length} 款",
                     style: AppText.label.copyWith(
@@ -481,7 +219,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: subTextColor(context),
                     ),
                   ),
-                  const Spacer(),
+                  if (inlineSearch)
+                    const SizedBox(width: 8)
+                  else
+                    const Spacer(),
                   _mobileToolbarButton(
                     icon: Icons.refresh_rounded,
                     tooltip: "刷新",
@@ -491,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: Icons.tune_rounded,
                     tooltip: "筛选与显示方式",
                     active: hasFilters,
-                    onPressed: () => _showMobileFilters(gameProvider),
+                    onPressed: () => _showLibraryFilters(gameProvider),
                   ),
                   _mobileToolbarButton(
                     icon: _multiSelect
@@ -512,6 +253,55 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             )
           : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _inlineSearchField(GameProvider gameProvider) {
+    final radius = BorderRadius.circular(14);
+    final border = OutlineInputBorder(
+      borderRadius: radius,
+      borderSide: BorderSide(color: cardBorder(context)),
+    );
+    return SizedBox(
+      height: 40,
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: "搜索游戏、会社、补丁关键词...",
+          hintStyle: TextStyle(color: hintColor(context), fontSize: 13.5),
+          prefixIcon: Icon(Icons.search, color: hintColor(context), size: 20),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    gameProvider.search("");
+                    setState(() {});
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: cardBg(context).withValues(alpha: 0.84),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+          border: border,
+          enabledBorder: border,
+          focusedBorder: OutlineInputBorder(
+            borderRadius: radius,
+            borderSide: BorderSide(
+              color: Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+        style: const TextStyle(fontSize: 13.5),
+        onChanged: (value) {
+          gameProvider.search(value);
+          setState(() {});
+        },
+      ),
     );
   }
 
@@ -593,11 +383,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showMobileFilters(GameProvider gameProvider) async {
+  Future<void> _showLibraryFilters(GameProvider gameProvider) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 560),
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
           void refresh(VoidCallback action) {
@@ -1172,49 +963,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _selectedIds.clear();
       _multiSelect = false;
     });
-  }
-
-  String _sortLabel(String? sortBy) {
-    switch (sortBy) {
-      case "name":
-        return "名称 A-Z";
-      case "name_desc":
-        return "名称 Z-A";
-      case "developer":
-        return "会社 A-Z";
-      case "developer_desc":
-        return "会社 Z-A";
-      default:
-        return "排序";
-    }
-  }
-
-  PopupMenuItem<String> _sortItem(
-      String value, String label, IconData icon, bool active) {
-    return PopupMenuItem<String>(
-      value: value,
-      child: Row(children: [
-        Icon(icon,
-            size: 18,
-            color: active
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey[400]),
-        const SizedBox(width: 10),
-        Text(
-          label,
-          style: AppText.bodySmall.copyWith(
-              fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-              color: active
-                  ? Theme.of(context).colorScheme.primary
-                  : subTextColor(context)),
-        ),
-        if (active) ...[
-          const Spacer(),
-          Icon(Icons.check,
-              size: 16, color: Theme.of(context).colorScheme.primary),
-        ],
-      ]),
-    );
   }
 
   void _togglePlatformFilter(String platform) {
