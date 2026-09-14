@@ -473,12 +473,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     active: _searchController.text.trim().isNotEmpty,
                     onPressed: () => _showMobileSearch(gameProvider),
                   ),
-                  _mobileToolbarButton(
-                    icon: Icons.tune_rounded,
-                    tooltip: "筛选",
-                    active: hasFilters,
-                    onPressed: () => _showMobileFilters(gameProvider),
-                  ),
                   const SizedBox(width: 4),
                   Text(
                     "${gameProvider.games.length} 款",
@@ -494,11 +488,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: gameProvider.loadGames,
                   ),
                   _mobileToolbarButton(
-                    icon: _isGridView
-                        ? Icons.view_list_rounded
-                        : Icons.grid_view_rounded,
-                    tooltip: _isGridView ? "列表视图" : "网格视图",
-                    onPressed: () => setState(() => _isGridView = !_isGridView),
+                    icon: Icons.tune_rounded,
+                    tooltip: "筛选与显示方式",
+                    active: hasFilters,
+                    onPressed: () => _showMobileFilters(gameProvider),
                   ),
                   _mobileToolbarButton(
                     icon: _multiSelect
@@ -623,6 +616,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text("显示方式",
+                        style: AppText.label
+                            .copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _viewModeChip(
+                            "网格",
+                            Icons.grid_view_rounded,
+                            _isGridView,
+                            () => refresh(
+                                () => setState(() => _isGridView = true)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _viewModeChip(
+                            "列表",
+                            Icons.view_list_rounded,
+                            !_isGridView,
+                            () => refresh(
+                                () => setState(() => _isGridView = false)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Divider(height: 1, color: cardBorder(context)),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Text("筛选与排序", style: AppText.subtitle),
@@ -1218,6 +1241,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.w700,
                 )),
           ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _viewModeChip(
+      String label, IconData icon, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: _filterChipShell(
+        active: active,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15),
+            const SizedBox(width: 6),
+            Text(label,
+                style: AppText.caption.copyWith(fontWeight: FontWeight.w700)),
+          ],
         ),
       ),
     );
