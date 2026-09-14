@@ -59,7 +59,7 @@ class _GameGridState extends State<GameGrid> {
           if (widget.multiSelect)
             Positioned(
               top: 10,
-              left: 10,
+              right: 10,
               child: Container(
                 width: 24,
                 height: 24,
