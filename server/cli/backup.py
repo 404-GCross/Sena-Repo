@@ -293,7 +293,11 @@ def write_backup(output: Path, payload: dict[str, Any], media: dict[str, list[Pa
         archive.writestr(JSON_NAME, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         for kind, files in media.items():
             for path in files:
-                archive.write(path, f"media/{kind}/{path.name}")
+                archive.write(
+                    path,
+                    f"media/{kind}/{path.name}",
+                    compress_type=zipfile.ZIP_STORED,
+                )
     tmp_path.replace(output)
 
 

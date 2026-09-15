@@ -17,6 +17,7 @@ import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
+import "backup_screen.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/secure_store.dart";
@@ -215,6 +216,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             builder: (_) => _UserManagePage(api: _api)),
                       );
                     }),
+                    _menuItem(
+                      Icons.backup_rounded,
+                      Colors.orange,
+                      "备份与恢复",
+                      "导出、下载与恢复服务端备份",
+                      () {
+                        if (!_isAdmin) {
+                          showDialog(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: const Text("权限不足"),
+                              content: const Text("备份与恢复仅限管理员使用"),
+                              actions: [
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(c),
+                                  child: const Text("确定"),
+                                ),
+                              ],
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => BackupScreen(api: _api)),
+                        );
+                      },
+                    ),
                   ]),
                   const SizedBox(height: 32),
                   _buildStatusSummary(),

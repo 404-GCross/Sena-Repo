@@ -335,6 +335,8 @@ senacli restore sena-backup-20260915-153000.zip -y
 
 上传的 zip 会保留在 `<data>/backups/` 下，名字形如 `uploaded-<时间戳>-<随机>.zip`。
 
+已初始化的服务端还可以在客户端「设置 → 服务端 → 备份与恢复」里导出、下载和恢复备份，走的是同一套逻辑（`/api/backup/*`，仅管理员）：导出会在 `<data>/backups/sena-backup/` 生成 zip 并列在页面里，导入时可直接选恢复范围、合并或清空重建、同名图片跳过或覆盖。
+
 默认路径：
 
 | 路径 | 说明 |
