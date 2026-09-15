@@ -54,19 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     clear.add_argument("--sources", help="刮削源白名单，逗号分隔，例如 hikarinagi,vndb_kana")
 
-    backup = sub.add_parser("backup", help="备份 Steam 补丁匹配规则与类型关键词")
+    backup = sub.add_parser("backup", help="备份补丁规则、游戏库与账号")
     backup.add_argument("directory", nargs="?", help="备份保存目录；不填则保存到数据目录")
     backup.add_argument("-o", "--output", help="输出文件路径")
-
-    restore = sub.add_parser("restore", help="恢复 Steam 补丁匹配规则与类型关键词")
-    restore.add_argument("file", help="规则备份 JSON 文件")
-    restore.add_argument("-y", "--yes", action="store_true", help="跳过确认")
-    restore.add_argument("--replace", action="store_true", help="先清空当前规则再恢复")
-    restore.add_argument(
-        "--skip-keywords",
+    backup.add_argument(
+        "--json-only",
         action="store_true",
-        help="只恢复匹配规则，不覆盖补丁类型关键词",
+        help="只导出 JSON，不包含封面/背景/头像图片",
     )
+
+    restore = sub.add_parser("restore", help="恢复补丁规则、游戏库与账号")
+    restore.add_argument("file", help="备份文件（zip，或 --json-only 导出的 JSON）")
+    restore.add_argument("-y", "--yes", action="store_true", help="全部使用默认选项，不提问")
 
     update = sub.add_parser("update", help="检查并更新裸机部署的服务端")
     update.add_argument("--channel", choices=CHANNELS, default="dev")
@@ -131,11 +130,11 @@ async def dispatch(args: argparse.Namespace) -> int:
     if args.command == "run":
         return _run_title_easter_egg()
     if args.command in {"backup", "restore"}:
-        from cli import steam_patch_rules
+        from cli import backup
 
         if args.command == "backup":
-            return steam_patch_rules.cmd_backup(args)
-        return steam_patch_rules.cmd_restore(args)
+            return await backup.cmd_backup(args)
+        return await backup.cmd_restore(args)
 
     from cli import operations, users
 

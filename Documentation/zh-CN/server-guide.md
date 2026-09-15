@@ -253,9 +253,9 @@ senacli scan --scrape missing
 senacli clear
 senacli backup
 senacli backup /path/to/backup-dir
-senacli backup -o /path/to/backup.json
-senacli restore sena-steam-patch-rules-20260909-153000.json
-senacli restore sena-steam-patch-rules-20260909-153000.json --skip-keywords
+senacli backup -o /path/to/backup.zip
+senacli backup --json-only
+senacli restore sena-backup-20260915-153000.zip
 senacli update --channel dev
 senacli update --channel release
 senacli uninstall
@@ -274,38 +274,57 @@ senacli userdel
 
 `useradd` 在数据库没有任何用户时会创建首个服主；已有用户后默认创建普通用户，加 `--admin` 可创建管理员。`username`、`passwd`、`useradmin` 会让目标用户现有登录态失效，用户需要重新登录。`clear` 只清空游戏、版本和游戏标签关联，目录配置、用户、OpenList 与刮削配置会保留，然后重新扫描。
 
-### 备份与恢复 Steam 补丁
+### 备份与恢复
 
-`senacli backup` / `senacli restore` 用于导出和恢复 Steam 补丁的匹配规则与补丁类型识别关键词，导出的是两份东西：
+`senacli backup` / `senacli restore` 用于在换机、重装前导出服务端数据。默认导出成单个 zip：
 
-| 内容 | 来源文件 | 说明 |
-|------|----------|------|
-| 匹配规则 | `steam_patch_index/patches.json` | AppID、游戏名、标签、类型、`patch_dir`、`target_dir`、清单确认状态 |
-| 类型关键词 | `steam_patch_index/patch_type_keywords.json` | 按文件名自动识别补丁类型的词表 |
-
-只导出真正配置过的条目：没有任何规则（AppID、标签、目录、已确认清单、非 `misc` 类型全为空）的补丁不会进备份。
-
-```bash
-# 备份到数据目录下的 backups/steam-patch-rules/
-senacli backup
-
-# 备份到指定目录或指定文件
-senacli backup /path/to/backup-dir
-senacli backup -o /path/to/backup.json
-
-# 恢复（默认同时覆盖匹配规则和类型关键词）
-senacli restore sena-steam-patch-rules-20260909-153000.json
-
-# 只恢复匹配规则，保留服务器上现有的类型关键词
-senacli restore sena-steam-patch-rules-20260909-153000.json --skip-keywords
-
-# 先清空当前规则再恢复，脚本化恢复时加 -y 跳过确认
-senacli restore sena-steam-patch-rules-20260909-153000.json --replace -y
+```
+sena-backup-<时间戳>.zip
+├── backup.json          # 结构化数据
+└── media/
+    ├── covers/          # 封面
+    ├── backgrounds/     # 横版背景
+    └── avatars/         # 用户头像
 ```
 
-恢复前会打印预览（可恢复、会变更、无效条目、冲突、未匹配、关键词），并分别备份当前的 `patches.json` 和 `patch_type_keywords.json` 到 `backups/steam-patch-rules/`。恢复是覆盖式的：`--replace` 会把现有规则清空再写入，关键词则总是整体覆盖（除非加 `--skip-keywords`）。
+`backup.json` 包含四块：
 
-匹配靠补丁的路径和文件身份（`source_type` / `source_id` / `file` / `source_path` / 文件名加大小），所以本地重扫、目录改名或网盘换路径都可能导致条目对不上，此时会记在预览的"未匹配"里，不会被写坏。没有 `keywords` 字段的旧版备份只恢复规则，不报错。
+| 区块 | 内容 |
+|------|------|
+| `steam_patch` | 补丁匹配规则（AppID、游戏名、标签、类型、`patch_dir`、`target_dir`、清单确认状态）与补丁类型关键词 |
+| `library` | 目录库、会社、游戏（含封面/背景路径、NSFW、VNDB/Steam/Bangumi/Hikarinagi ID、简介等）、版本（含平台、解压密码、校验值）、标签与关联、忽略列表 |
+| `accounts` | 用户（用户名、角色、状态、密码哈希与 salt、头像路径） |
+| `media` | zip 里包含的图片文件名清单 |
+
+不含游戏文件本体和用户登录态（`user_sessions`）。备份文件里有密码哈希与解压密码，**请当作敏感文件保管**。
+
+```bash
+# 备份到数据目录下的 backups/sena-backup/
+senacli backup
+
+# 换目录，或指定文件名
+senacli backup /path/to/backup-dir
+senacli backup -o /path/to/backup.zip
+
+# 只要 JSON，不带图片和头像
+senacli backup --json-only
+
+# 恢复（会依次询问恢复范围、已存在条目怎么处理、同名图片怎么处理）
+senacli restore sena-backup-20260915-153000.zip
+
+# 全部按默认值（全部恢复 / 合并更新 / 跳过同名图片），脚本化用
+senacli restore sena-backup-20260915-153000.zip -y
+```
+
+恢复时的三个选择：
+
+1. **恢复范围**：全部 / 仅补丁规则 / 仅游戏库与账号（备份里两块都有时才问）
+2. **已存在的条目**：合并更新（按路径匹配，保留现有）或清空重建（先删除现有游戏库、账号与忽略列表）
+3. **同名图片**：跳过已有文件或全部覆盖
+
+恢复前会打印备份内容概览，并先把现有的 `patches.json`、`patch_type_keywords.json` 备份到 `backups/sena-backup/`。游戏、版本、标签按路径或名称匹配（目录库按 `path`、游戏按 `folder_path`、版本按 `file_path`、标签按 `name`），id 会重新分配；OpenList 目录库按**文件源名称**重新绑定，找不到同名源时跳过该目录库及其游戏并提示。
+
+旧的 `steam_patch_rules` 备份（`.json`，只有补丁规则和关键词）仍然可以恢复。
 
 默认路径：
 
