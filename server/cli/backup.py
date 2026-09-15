@@ -14,7 +14,9 @@ matter and `-y` accepts the defaults (everything, merge, keep existing files).
 
 from __future__ import annotations
 
+import asyncio
 import json
+import secrets
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -89,6 +91,15 @@ def backup_dir(config) -> Path:
     return Path(config.data_path or "/data") / "backups" / "sena-backup"
 
 
+def backup_file_name(suffix: str) -> str:
+    """Unique backup file name; the random tail avoids same-second collisions."""
+    return f"sena-backup-{utc_timestamp()}-{secrets.token_hex(3)}{suffix}"
+
+
+def new_backup_path(config, suffix: str) -> Path:
+    return backup_dir(config) / backup_file_name(suffix)
+
+
 def media_dirs(config) -> dict[str, Path]:
     return {
         "covers": Path(config.covers_path),
@@ -102,18 +113,17 @@ def resolve_output(args, config, suffix: str) -> Path:
     output = getattr(args, "output", None)
     if directory and output:
         fail("不能同时指定备份目录和 -o 输出文件", 2)
-    name = f"sena-backup-{utc_timestamp()}{suffix}"
     if directory:
         target = Path(directory).expanduser()
         if target.suffix.lower() in {".json", ".zip"}:
             fail("backup 后面的路径表示目录；指定文件请使用 -o", 2)
-        return target / name
+        return target / backup_file_name(suffix)
     if output:
         target = Path(output).expanduser()
         if target.exists() and target.is_dir():
-            return target / name
+            return target / backup_file_name(suffix)
         return target
-    return backup_dir(config) / name
+    return new_backup_path(config, suffix)
 
 
 # ── export ──
@@ -288,7 +298,7 @@ def write_backup(output: Path, payload: dict[str, Any], media: dict[str, list[Pa
     if not include_media:
         patch_rules.write_json(output, payload)
         return
-    tmp_path = output.with_name(f".{output.name}.tmp")
+    tmp_path = output.with_name(f".{output.name}.{secrets.token_hex(3)}.tmp")
     with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(JSON_NAME, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         for kind, files in media.items():
@@ -309,7 +319,9 @@ async def cmd_backup(args) -> int:
     payload = await build_payload(config)
     media = collect_media(config, payload)
     payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
-    write_backup(output, payload, media, include_media=not json_only)
+    await asyncio.to_thread(
+        write_backup, output, payload, media, include_media=not json_only
+    )
 
     library = payload["library"]
     echo(f"已导出备份: {output}")
@@ -775,7 +787,9 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                 patches, stats = patch_rules.preview_restore(
                     index_data["patches"], payload["rules"], replace=(mode == MODE_REPLACE)
                 )
-                safety = safety_dir / f"patches-before-restore-{utc_timestamp()}.json"
+                safety = safety_dir / (
+                    f"patches-before-restore-{utc_timestamp()}-{secrets.token_hex(2)}.json"
+                )
                 safety.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(index_path, safety)
                 lines.append(f"恢复前索引备份: {safety}")
@@ -792,7 +806,9 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
         if payload["keywords"]:
             keywords_path = patch_rules.keywords_path(config)
             if keywords_path.is_file():
-                safety = safety_dir / f"keywords-before-restore-{utc_timestamp()}.json"
+                safety = safety_dir / (
+                    f"keywords-before-restore-{utc_timestamp()}-{secrets.token_hex(2)}.json"
+                )
                 safety.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(keywords_path, safety)
                 lines.append(f"恢复前关键词备份: {safety}")
@@ -823,7 +839,9 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
             lines.append(f"注意: {note}")
 
     if wants_library:
-        media_stats = apply_media(config, archive, payload["media"], policy=media_policy)
+        media_stats = await asyncio.to_thread(
+            apply_media, config, archive, payload["media"], policy=media_policy
+        )
         if media_stats["written"] or media_stats["skipped"]:
             lines.append(
                 f"媒体: 写入 {media_stats['written']} 个，跳过 {media_stats['skipped']} 个"

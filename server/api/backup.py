@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import secrets
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,12 +89,18 @@ async def export_backup(body: ExportRequest, user: User = Depends(require_admin)
     """Create a backup archive on the server; the client downloads it afterwards."""
     config = load_config()
     suffix = ".zip" if body.include_media else ".json"
-    output = backup_cli.backup_dir(config) / f"sena-backup-{backup_cli.utc_timestamp()}{suffix}"
+    output = backup_cli.new_backup_path(config, suffix)
 
     payload = await backup_cli.build_payload(config)
     media = backup_cli.collect_media(config, payload)
     payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
-    backup_cli.write_backup(output, payload, media, include_media=body.include_media)
+    await asyncio.to_thread(
+        backup_cli.write_backup,
+        output,
+        payload,
+        media,
+        include_media=body.include_media,
+    )
 
     library = payload["library"]
     logger.info(
@@ -154,7 +162,7 @@ async def import_backup(
 
     config = load_config()
     stored = _backups_root() / (
-        f"uploaded-{backup_cli.utc_timestamp()}-{user.id}{suffix}"
+        f"uploaded-{backup_cli.utc_timestamp()}-{user.id}-{secrets.token_hex(3)}{suffix}"
     )
     size = 0
     try:
