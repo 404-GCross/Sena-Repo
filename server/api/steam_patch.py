@@ -1235,10 +1235,9 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     patches = data.get("patches", [])
     target = None
     for p in patches:
-        if str(p.get("app_id", "")) == lookup_key:
-            target = p; break
-        if p.get("file", "") == lookup_key:
-            target = p; break
+        if _patch_lookup_matches(p, lookup_key):
+            target = p
+            break
 
     if target is None:
         raise HTTPException(status_code=404, detail=f"未找到补丁: {lookup_key}")
