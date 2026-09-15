@@ -1,7 +1,9 @@
 /// Multi-step setup wizard for first-time server initialization.
 
 import "dart:convert";
+import "dart:io";
 
+import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -49,6 +51,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   int _step = 0;
   bool _loading = false;
   String? _error;
+  String _mode = "choose"; // choose | new | import
+  bool _importing = false;
+  double _importProgress = 0;
+  String? _importError;
+  String? _importDone;
+  String? _importOwner;
 
   final _userCtrl = TextEditingController(text: "admin");
   final _passCtrl = TextEditingController();
@@ -242,9 +250,91 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return "根目录 -> ... -> 分类 -> 会社 -> 游戏 -> 压缩包";
   }
 
+  Future<void> _importBackup() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ["zip", "json"],
+    );
+    final filePath = picked?.files.single.path;
+    if (filePath == null) return;
+    final fileName = picked!.files.single.name;
+
+    setState(() {
+      _importing = true;
+      _importProgress = 0;
+      _importError = null;
+      _importDone = null;
+    });
+    try {
+      final localFile = File(filePath);
+      final total = await localFile.length();
+      var sent = 0;
+      var reported = 0.0;
+      final stream = localFile.openRead().transform(
+        StreamTransformer<List<int>, List<int>>.fromHandlers(
+          handleData: (chunk, sink) {
+            sent += chunk.length;
+            final progress = total > 0 ? sent / total : 0.0;
+            if (progress - reported >= 0.02 || progress >= 1) {
+              reported = progress;
+              if (mounted) {
+                setState(() => _importProgress = progress.clamp(0.0, 1.0));
+              }
+            }
+            sink.add(chunk);
+          },
+        ),
+      );
+      final request = http.MultipartRequest(
+          "POST", Uri.parse("${widget.api.baseUrl}/api/setup/import"))
+        ..files.add(
+          http.MultipartFile("file", stream, total, filename: fileName),
+        );
+      final response = await request.send();
+      final body = await response.stream.bytesToString();
+      if (response.statusCode != 200) {
+        String detail = "导入失败";
+        try {
+          detail = (jsonDecode(body) as Map)["detail"]?.toString() ?? detail;
+        } catch (_) {}
+        setState(() {
+          _importing = false;
+          _importError = detail;
+        });
+        return;
+      }
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      setState(() {
+        _importing = false;
+        _importProgress = 1;
+        _importDone = data["message"]?.toString() ?? "备份已导入";
+        _importOwner = data["owner"]?.toString();
+      });
+    } catch (e) {
+      setState(() {
+        _importing = false;
+        _importError = "$e";
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 760;
+    if (_mode != "new") {
+      return AppScaffold(
+        title: "Sena Repo 初始化",
+        subtitle: _mode == "import" ? "导入备份" : "选择初始化方式",
+        leading: const Icon(Icons.auto_fix_high_outlined, size: 24),
+        scrollable: false,
+        padding: EdgeInsets.zero,
+        maxWidth: 900,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.all(compact ? AppGap.md : AppGap.xl),
+          child: _mode == "import" ? _buildImportPane() : _buildModeChooser(),
+        ),
+      );
+    }
     return AppScaffold(
       title: "Sena Repo 初始化",
       subtitle: "${_step + 1}/3 · ${_titles[_step]}",
@@ -275,6 +365,200 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 ),
               ),
       ),
+    );
+  }
+
+  Widget _buildModeChooser() {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppSurface(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("开始使用 Sena Repo",
+                  style: AppText.title.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text(
+                "可以新建一个服务端，也可以直接导入之前用 senacli backup 导出的备份。",
+                style: AppText.caption
+                    .copyWith(color: hintColor(context), height: 1.35),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppGap.md),
+        _modeOption(
+          icon: Icons.auto_awesome_rounded,
+          title: "新建服务端",
+          description: "创建服主账户，配置游戏库目录、Steam 补丁库与刮削源。",
+          onTap: () => setState(() {
+            _mode = "new";
+            _error = null;
+          }),
+        ),
+        const SizedBox(height: AppGap.sm),
+        _modeOption(
+          icon: Icons.settings_backup_restore_rounded,
+          title: "导入备份",
+          description:
+              "上传 senacli backup 导出的 zip，恢复游戏库、补丁规则、账号和封面图片；导入后用备份里的账号登录。",
+          highlight: cs.primary,
+          onTap: () => setState(() {
+            _mode = "import";
+            _importError = null;
+            _importDone = null;
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _modeOption({
+    required IconData icon,
+    required String title,
+    required String description,
+    required VoidCallback onTap,
+    Color? highlight,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final accent = highlight ?? cs.primary;
+    return AppSurface(
+      padding: const EdgeInsets.all(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Icon(icon, color: accent),
+            ),
+            const SizedBox(width: AppGap.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: AppText.subtitle
+                          .copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 3),
+                  Text(description,
+                      style: AppText.caption
+                          .copyWith(color: hintColor(context), height: 1.35)),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppGap.sm),
+            Icon(Icons.chevron_right_rounded, color: hintColor(context)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImportPane() {
+    final percent = (_importProgress * 100).clamp(0, 100).toStringAsFixed(0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppSurface(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("导入备份",
+                  style: AppText.title.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text(
+                "选择 senacli backup 导出的 .zip（或 --json-only 导出的 .json）。"
+                "导入会把游戏库、补丁规则、账号和图片写入这台服务端，"
+                "完成后请用备份中的账号登录。",
+                style: AppText.caption
+                    .copyWith(color: hintColor(context), height: 1.35),
+              ),
+              const SizedBox(height: AppGap.md),
+              if (_importing) ...[
+                LinearProgressIndicator(
+                  value: _importProgress > 0 ? _importProgress : null,
+                ),
+                const SizedBox(height: 8),
+                Text("正在上传并导入… $percent%",
+                    style: AppText.caption.copyWith(color: hintColor(context))),
+                const SizedBox(height: AppGap.sm),
+              ],
+              if (_importError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppGap.sm),
+                  child: Text(_importError!,
+                      style: AppText.caption.copyWith(color: Colors.red[300])),
+                ),
+              if (_importDone != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppGap.sm),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_importDone!,
+                          style: AppText.bodySmall
+                              .copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text(
+                        _importOwner == null || _importOwner!.isEmpty
+                            ? "请用备份中的账号登录。"
+                            : "请用备份中的服主账号「$_importOwner」登录。",
+                        style: AppText.caption
+                            .copyWith(color: hintColor(context)),
+                      ),
+                    ],
+                  ),
+                ),
+              Row(
+                children: [
+                  AppActionButton(
+                    icon: Icons.arrow_back_rounded,
+                    label: "返回",
+                    color: hintColor(context),
+                    onPressed: _importing
+                        ? null
+                        : () => setState(() {
+                              _mode = "choose";
+                              _importError = null;
+                            }),
+                  ),
+                  const Spacer(),
+                  if (_importDone != null)
+                    AppActionButton(
+                      icon: Icons.login_rounded,
+                      label: "去登录",
+                      filled: true,
+                      onPressed: () => Navigator.pop(context, {
+                        "username": _importOwner ?? "",
+                        "password": null,
+                        "imported": true,
+                      }),
+                    )
+                  else
+                    AppActionButton(
+                      icon: Icons.upload_file_rounded,
+                      label: "选择备份文件",
+                      filled: true,
+                      busy: _importing,
+                      onPressed: _importing ? null : _importBackup,
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

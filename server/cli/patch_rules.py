@@ -264,6 +264,48 @@ def _apply_rule(patch: dict[str, Any], rule: dict[str, Any]) -> bool:
     return before != after
 
 
+def materialise_rules(backup_rules: list[Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Rebuild patch entries from a backup when the target has no index yet.
+
+    Only the identified fields are known here; the next patch scan fills in the
+    discovered ones (size, display path, patch_id) through the usual merge.
+    """
+    patches: list[dict[str, Any]] = []
+    skipped = 0
+    for item in backup_rules:
+        normalised = _normalise_backup_rule(item)
+        if normalised is None:
+            skipped += 1
+            continue
+        identity, rule = normalised
+        file_path = _norm_path(identity.get("file") or identity.get("display_file") or identity.get("source_path"))
+        if not file_path:
+            skipped += 1
+            continue
+        entry: dict[str, Any] = {
+            "patch_id": _norm_text(identity.get("patch_id")),
+            "file": file_path,
+            "display_file": _norm_path(identity.get("display_file") or file_path),
+            "source_type": _norm_text(identity.get("source_type") or "local"),
+            "source_id": identity.get("source_id"),
+            "source_name": _norm_text(identity.get("source_name")),
+            "source_path": _norm_path(identity.get("source_path")),
+            "size": _int_or_zero(identity.get("size")),
+        }
+        entry.update({field: rule.get(field, RULE_DEFAULTS[field]) for field in RULE_FIELDS})
+        patches.append(entry)
+    imported = len(patches)
+    return patches, {
+        "imported": imported,
+        "changed": imported,
+        "skipped": skipped,
+        "conflicts": [],
+        "unmatched": [],
+        "total": len(backup_rules),
+        "replace": True,
+    }
+
+
 def preview_restore(
     current_patches: list[Any],
     backup_rules: list[Any],

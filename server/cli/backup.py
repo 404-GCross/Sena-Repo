@@ -766,22 +766,25 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
     if wants_patch and (payload["rules"] or payload["keywords"]):
         index_path = patch_rules.patch_index_path(config)
         if payload["rules"]:
-            if not index_path.is_file():
-                fail(f"补丁索引不存在，请先扫描补丁库: {index_path}", 3)
-            index_data = patch_rules.load_patch_index(index_path)
-            patches, stats = patch_rules.preview_restore(
-                index_data["patches"], payload["rules"], replace=(mode == MODE_REPLACE)
-            )
-            safety = safety_dir / f"patches-before-restore-{utc_timestamp()}.json"
-            safety.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(index_path, safety)
+            if index_path.is_file():
+                index_data = patch_rules.load_patch_index(index_path)
+                patches, stats = patch_rules.preview_restore(
+                    index_data["patches"], payload["rules"], replace=(mode == MODE_REPLACE)
+                )
+                safety = safety_dir / f"patches-before-restore-{utc_timestamp()}.json"
+                safety.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(index_path, safety)
+                lines.append(f"恢复前索引备份: {safety}")
+            else:
+                index_data = {"patches": []}
+                patches, stats = patch_rules.materialise_rules(payload["rules"])
+                lines.append("补丁索引不存在，已按备份内容重建；下次扫描补丁库会自动补全文件信息")
             index_data["patches"] = patches
             patch_rules.write_json(index_path, index_data)
             lines.append(
                 f"补丁规则: 写入 {stats['imported']} 条（变更 {stats['changed']}，"
                 f"冲突 {len(stats['conflicts'])}，未匹配 {len(stats['unmatched'])}）"
             )
-            lines.append(f"恢复前索引备份: {safety}")
         if payload["keywords"]:
             keywords_path = patch_rules.keywords_path(config)
             if keywords_path.is_file():

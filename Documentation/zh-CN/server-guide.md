@@ -326,6 +326,15 @@ senacli restore sena-backup-20260915-153000.zip -y
 
 旧的 `steam_patch_rules` 备份（`.json`，只有补丁规则和关键词）仍然可以恢复。
 
+### 从备份重建服务端
+
+新装一台服务端后，有两种方式导入备份：
+
+1. **客户端向导**：连接到未初始化的服务端时，向导第一页选「导入备份」，直接上传 zip。服务端只在还没有服主时接受这种导入（`POST /api/setup/import`），导入完成后用备份里的账号登录。
+2. **senacli**：把 zip 放到服务端（或挂载目录）后执行 `senacli restore <zip>`，先 `senacli restore <zip> -y` 也可以用默认选项一把过。这条路同样适用于已完成初始化的服务端。
+
+上传的 zip 会保留在 `<data>/backups/` 下，名字形如 `uploaded-<时间戳>-<随机>.zip`。
+
 默认路径：
 
 | 路径 | 说明 |

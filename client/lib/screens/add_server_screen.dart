@@ -83,6 +83,12 @@ class _AddServerScreenState extends State<AddServerScreen> {
       );
       if (setupResult != null && mounted) {
         final creds = setupResult as Map;
+        if (creds["imported"] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("备份已导入，请用备份中的账号登录")),
+          );
+          return;
+        }
         final loginResult = await api.login(
           creds["username"]?.toString() ?? "",
           creds["password"]?.toString() ?? "",

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio, logging, traceback
+import secrets
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,6 +79,98 @@ async def setup_status(session: AsyncSession = Depends(get_session)):
         has_admin=has_admin,
         has_roots=has_roots,
     )
+
+
+@router.post("/import")
+async def import_setup_backup(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Restore a senacli backup archive on a server that has no owner yet."""
+    from cli import backup as backup_cli
+    from cli.common import CliError
+
+    status = await setup_status(session)
+    if status.has_admin:
+        raise HTTPException(
+            status_code=409,
+            detail="服务器已完成初始化，请用 senacli restore 恢复备份",
+        )
+
+    filename = Path(file.filename or "backup.zip").name
+    suffix = Path(filename).suffix.lower() or ".zip"
+    if suffix not in {".zip", ".json"}:
+        raise HTTPException(status_code=400, detail="只支持 .zip 或 .json 备份文件")
+
+    config = load_config()
+    uploads_dir = Path(config.data_path or "/data") / "backups"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    stored = uploads_dir / (
+        f"uploaded-{backup_cli.utc_timestamp()}-{secrets.token_hex(4)}{suffix}"
+    )
+    size = 0
+    try:
+        with stored.open("wb") as handle:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                size += len(chunk)
+    except OSError as exc:
+        stored.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
+    finally:
+        await file.close()
+
+    try:
+        payload = backup_cli.normalise_payload(backup_cli.read_backup_payload(stored))
+    except CliError as exc:
+        stored.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # malformed archives should not 500
+        stored.unlink(missing_ok=True)
+        logger.warning("Setup import failed to read archive: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="备份文件无法解析") from exc
+
+    try:
+        result = await backup_cli.apply_restore(
+            config,
+            stored,
+            payload,
+            scope=backup_cli.SCOPE_ALL,
+            mode=backup_cli.MODE_MERGE,
+            media_policy=backup_cli.MEDIA_OVERWRITE,
+        )
+    except CliError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Setup import failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="导入失败，请查看服务端日志") from exc
+
+    users = payload["accounts"].get("users") or []
+    library = payload["library"]
+    owner = next(
+        (str(u.get("username")) for u in users if u.get("role") == "owner" and u.get("username")),
+        None,
+    )
+    logger.info(
+        "Setup imported backup: file=%s bytes=%s games=%s versions=%s users=%s",
+        stored.name,
+        size,
+        len(library.get("games") or []),
+        len(library.get("versions") or []),
+        len(users),
+    )
+    return {
+        "message": "备份已导入",
+        "owner": owner,
+        "stored": str(stored),
+        "games": len(library.get("games") or []),
+        "versions": len(library.get("versions") or []),
+        "users": len(users),
+        "detail": result["lines"],
+    }
 
 
 @router.post("/initialize")

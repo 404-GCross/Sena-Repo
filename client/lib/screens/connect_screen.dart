@@ -306,6 +306,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
       setState(() => _error = msg);
       return;
     }
+    if (creds["imported"] == true) {
+      const msg = "备份已导入，请用备份中的账号登录";
+      _showToast(msg);
+      setState(() => _error = null);
+      return;
+    }
 
     try {
       final username = creds["username"]?.toString() ?? "";
@@ -1118,6 +1124,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           );
                           if (setupResult != null && mounted) {
                             final creds = setupResult as Map;
+                            if (creds["imported"] == true) {
+                              _showToast("备份已导入，请用备份中的账号登录");
+                              return;
+                            }
                             final loginResult = await api!.login(
                               creds["username"]?.toString() ?? "",
                               creds["password"]?.toString() ?? "",
