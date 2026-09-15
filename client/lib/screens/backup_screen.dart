@@ -275,6 +275,7 @@ class _BackupScreenState extends State<BackupScreen> {
     if (filePath == null) return;
     final fileName = picked!.files.single.name;
 
+    if (!mounted) return;
     final options = await showDialog<Map<String, String>>(
       context: context,
       builder: (dialogContext) => const _ImportOptionsDialog(),
