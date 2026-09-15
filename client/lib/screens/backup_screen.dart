@@ -25,7 +25,6 @@ class _BackupScreenState extends State<BackupScreen> {
   List<Map<String, dynamic>> _backups = [];
   bool _loading = true;
   bool _busy = false;
-  bool _includeMedia = true;
   bool _uploading = false;
   double _uploadProgress = 0;
   String? _error;
@@ -126,7 +125,7 @@ class _BackupScreenState extends State<BackupScreen> {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/backup/export"),
         headers: _jsonHeaders(),
-        body: jsonEncode({"include_media": _includeMedia}),
+        body: jsonEncode({"include_media": true}),
       );
       if (resp.statusCode != 200) {
         _toast("导出失败（HTTP ${resp.statusCode}）", error: true);
@@ -390,17 +389,7 @@ class _BackupScreenState extends State<BackupScreen> {
                         style: AppText.caption
                             .copyWith(color: hintColor(context), height: 1.35),
                       ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        value: _includeMedia,
-                        onChanged: _busy
-                            ? null
-                            : (value) => setState(() => _includeMedia = value),
-                        title: const Text("包含图片与头像"),
-                        subtitle: const Text("关闭后只导出 JSON，不含封面、背景和头像"),
-                      ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: AppGap.sm),
                       Wrap(
                         spacing: AppGap.sm,
                         runSpacing: AppGap.sm,
