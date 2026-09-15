@@ -31,6 +31,8 @@ router = APIRouter(prefix="/api/setup", tags=["setup"])
 
 logger = logging.getLogger(__name__)
 
+_background_tasks: set[asyncio.Task] = set()
+
 
 class SetupStatus(BaseModel):
     needs_setup: bool
@@ -346,7 +348,9 @@ async def initialize_setup(
         raise
 
     # Fire background scans (don't block response — user enters main page immediately)
-    asyncio.create_task(_background_scan(config))
+    task = asyncio.create_task(_background_scan(config))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     # Also trigger scrape on new games after scan completes
     # (handled inside _background_scan via _run_scan)

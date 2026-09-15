@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/roots", tags=["roots"])
 _scan_lock = asyncio.Lock()
+_background_tasks: set[asyncio.Task] = set()
 _scan_state = {
     "status": "idle",
     "roots_total": 0,
@@ -284,7 +285,9 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
                 finished_at=time.time(),
                 message="扫描失败，请查看服务端日志",
             )
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @router.post("/refresh-all")
