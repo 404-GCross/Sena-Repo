@@ -163,28 +163,7 @@ docker exec -it sena-repo senacli scan --scrape missing
 docker exec -it sena-repo senacli useradd
 ```
 
-**Docker 快速更新脚本：**
-
-Docker 部署的升级可以在宿主机上直接跑仓库里的 `server/docker-update.sh`，它会完成「拉取镜像 → 用原配置重建容器 → 健康检查 → 清理旧镜像」，不用手写 `docker run`：
-
-```bash
-# 默认沿用容器当初的镜像引用（例如 404gcross/sena-repo:dev）
-sudo bash server/docker-update.sh
-
-# 换通道、指定镜像、只看会执行什么
-sudo bash server/docker-update.sh --channel release
-sudo bash server/docker-update.sh --image ghcr.io/404-gcross/sena-repo:latest
-sudo bash server/docker-update.sh --dry-run
-
-# 容器名不是 sena-repo 时
-sudo bash server/docker-update.sh --container my-sena
-```
-
-脚本从 `docker inspect` 还原 bind 挂载、端口映射、`SENA_*` 等环境变量（写进临时 env-file，权限 0600，用完即删，值不会打印）、restart 策略、网络模式和 labels；重建前把 `docker inspect` 存到 `<data>/backups/docker/inspect-<时间戳>.json`，健康检查没通过会自动回滚到旧镜像。检测到脚本无法还原的设置（`privileged`、额外 capabilities、`--device`、自定义 DNS/sysctl、覆盖 entrypoint/cmd、容器级 healthcheck 等）时会拒绝重建，除非显式加 `--force`。
-
-如果容器是用 Compose 起的（带 `com.docker.compose.*` label），脚本改走 `docker compose pull && docker compose up -d`，这种情况不做自动回滚，会打印回滚命令。
-
-容器内的 `senacli update` / `senacli uninstall` 只会给出操作提示，不会尝试修改宿主机。
+Docker 部署的升级和卸载仍应在宿主机通过重新拉取镜像、停止旧容器、重建容器完成；容器内的 `senacli update` / `senacli uninstall` 只会给出操作提示，不会尝试修改宿主机。
 
 ### 方式二：Tarball 加载
 
