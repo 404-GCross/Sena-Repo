@@ -29,6 +29,8 @@ class _BackupScreenState extends State<BackupScreen> {
   bool _uploading = false;
   double _uploadProgress = 0;
   String? _error;
+  http.Client? _activeClient;
+  bool _cancelled = false;
 
   @override
   void initState() {
@@ -42,6 +44,17 @@ class _BackupScreenState extends State<BackupScreen> {
       content: Text(message),
       backgroundColor: error ? Colors.red[700] : null,
     ));
+  }
+
+  /// Transfer budget: at least a minute, plus room for a slow 256 KB/s link.
+  Duration _transferTimeout(int bytes) {
+    final seconds = 60 + (bytes / (256 * 1024)).ceil();
+    return Duration(seconds: seconds.clamp(60, 3600));
+  }
+
+  void _cancelTransfer() {
+    _cancelled = true;
+    _activeClient?.close();
   }
 
   String _sizeText(int bytes) {
@@ -134,6 +147,7 @@ class _BackupScreenState extends State<BackupScreen> {
     final name = entry["name"]?.toString() ?? "";
     if (name.isEmpty) return;
     final fileName = name.split("/").last;
+    final totalBytes = (entry["size"] as num?)?.toInt() ?? 0;
     final isMobile = Platform.isAndroid || Platform.isIOS;
 
     String? target;
@@ -145,8 +159,13 @@ class _BackupScreenState extends State<BackupScreen> {
       if (target == null || target.isEmpty) return;
     }
 
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _cancelled = false;
+    });
     File? created;
+    final client = http.Client();
+    _activeClient = client;
     try {
       if (isMobile) {
         final dir = Directory(
@@ -161,13 +180,14 @@ class _BackupScreenState extends State<BackupScreen> {
             "?name=${Uri.encodeQueryComponent(name)}"),
       );
       request.headers.addAll(widget.api.headers);
-      final response = await request.send();
+      final response =
+          await client.send(request).timeout(_transferTimeout(totalBytes));
       if (response.statusCode != 200) {
         _toast("下载失败（HTTP ${response.statusCode}）", error: true);
         return;
       }
       final sink = created.openWrite();
-      await response.stream.pipe(sink);
+      await response.stream.pipe(sink).timeout(_transferTimeout(totalBytes));
       _toast(isMobile ? "已保存到 ${created.path}" : "备份已保存");
     } catch (e) {
       if (created != null && await created.exists()) {
@@ -175,9 +195,16 @@ class _BackupScreenState extends State<BackupScreen> {
           await created.delete();
         } catch (_) {}
       }
-      _toast("下载失败: $e", error: true);
+      _toast(_cancelled ? "已取消" : "下载失败: $e", error: !_cancelled);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      client.close();
+      _activeClient = null;
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _cancelled = false;
+        });
+      }
     }
   }
 
@@ -258,7 +285,10 @@ class _BackupScreenState extends State<BackupScreen> {
       _uploading = true;
       _uploadProgress = 0;
       _error = null;
+      _cancelled = false;
     });
+    final client = http.Client();
+    _activeClient = client;
     try {
       final localFile = File(filePath);
       final total = await localFile.length();
@@ -272,8 +302,11 @@ class _BackupScreenState extends State<BackupScreen> {
         http.MultipartFile("file", _uploadStream(localFile, total), total,
             filename: fileName),
       );
-      final response = await request.send();
-      final body = await response.stream.bytesToString();
+      final response =
+          await client.send(request).timeout(_transferTimeout(total));
+      final body = await response.stream
+          .bytesToString()
+          .timeout(_transferTimeout(total));
       if (response.statusCode != 200) {
         String detail = "导入失败";
         try {
@@ -314,12 +347,15 @@ class _BackupScreenState extends State<BackupScreen> {
         ),
       );
     } catch (e) {
-      _toast("导入失败: $e", error: true);
+      _toast(_cancelled ? "已取消" : "导入失败: $e", error: !_cancelled);
     } finally {
+      client.close();
+      _activeClient = null;
       if (mounted) {
         setState(() {
           _uploading = false;
           _uploadProgress = 0;
+          _cancelled = false;
         });
       }
     }
@@ -381,6 +417,13 @@ class _BackupScreenState extends State<BackupScreen> {
                             busy: _uploading,
                             onPressed: _uploading ? null : _import,
                           ),
+                          if (_uploading || _busy)
+                            AppActionButton(
+                              icon: Icons.close_rounded,
+                              label: "取消",
+                              color: hintColor(context),
+                              onPressed: _cancelTransfer,
+                            ),
                         ],
                       ),
                       if (_uploading) ...[
