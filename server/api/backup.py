@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
 BACKUP_SUFFIXES = {".zip", ".json"}
+BACKUP_PREFIXES = ("sena-backup-", "uploaded-")
 
 
 def _backups_root() -> Path:
@@ -31,6 +32,12 @@ def _backups_root() -> Path:
     root = Path(config.data_path or "/data") / "backups"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _is_backup_file(path: Path) -> bool:
+    """Only archives this API creates count as backups; the directory also holds
+    docker inspect dumps and pre-restore safety copies."""
+    return path.name.startswith(BACKUP_PREFIXES) and path.suffix.lower() in BACKUP_SUFFIXES
 
 
 def _resolve(name: str) -> Path:
@@ -41,7 +48,7 @@ def _resolve(name: str) -> Path:
         candidate.relative_to(root.resolve())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="非法的备份文件名") from exc
-    if candidate.suffix.lower() not in BACKUP_SUFFIXES or not candidate.is_file():
+    if not candidate.is_file() or not _is_backup_file(candidate):
         raise HTTPException(status_code=404, detail="备份文件不存在")
     return candidate
 
@@ -73,7 +80,7 @@ async def list_backups(user: User = Depends(require_admin)):
     root = _backups_root()
     entries = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in BACKUP_SUFFIXES:
+        if not path.is_file() or not _is_backup_file(path):
             continue
         entries.append(_entry(path, root))
     entries.sort(key=lambda item: item["modified_at"], reverse=True)
