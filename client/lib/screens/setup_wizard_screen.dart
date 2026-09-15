@@ -1,5 +1,6 @@
 /// Multi-step setup wizard for first-time server initialization.
 
+import "dart:async";
 import "dart:convert";
 import "dart:io";
 
@@ -250,6 +251,22 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return "根目录 -> ... -> 分类 -> 会社 -> 游戏 -> 压缩包";
   }
 
+  Stream<List<int>> _uploadStream(File file, int total) async* {
+    var sent = 0;
+    var reported = 0.0;
+    await for (final chunk in file.openRead()) {
+      sent += chunk.length;
+      final progress = total > 0 ? sent / total : 0.0;
+      if (progress - reported >= 0.02 || progress >= 1) {
+        reported = progress;
+        if (mounted) {
+          setState(() => _importProgress = progress.clamp(0.0, 1.0));
+        }
+      }
+      yield chunk;
+    }
+  }
+
   Future<void> _importBackup() async {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -268,23 +285,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     try {
       final localFile = File(filePath);
       final total = await localFile.length();
-      var sent = 0;
-      var reported = 0.0;
-      final stream = localFile.openRead().transform(
-        StreamTransformer<List<int>, List<int>>.fromHandlers(
-          handleData: (chunk, sink) {
-            sent += chunk.length;
-            final progress = total > 0 ? sent / total : 0.0;
-            if (progress - reported >= 0.02 || progress >= 1) {
-              reported = progress;
-              if (mounted) {
-                setState(() => _importProgress = progress.clamp(0.0, 1.0));
-              }
-            }
-            sink.add(chunk);
-          },
-        ),
-      );
+      final stream = _uploadStream(localFile, total);
       final request = http.MultipartRequest(
           "POST", Uri.parse("${widget.api.baseUrl}/api/setup/import"))
         ..files.add(
