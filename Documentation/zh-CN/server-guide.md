@@ -309,6 +309,10 @@ senacli backup -o /path/to/backup.zip
 # 只要 JSON，不带图片和头像
 senacli backup --json-only
 
+# 只备份一部分（all 默认：游戏库 + 补丁）
+senacli backup --scope library     # 仅游戏库与账号
+senacli backup --scope patch       # 仅补丁匹配规则与类型关键词
+
 # 恢复（会依次询问恢复范围、已存在条目怎么处理、同名图片怎么处理）
 senacli restore sena-backup-20260915-153000.zip
 

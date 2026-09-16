@@ -45,6 +45,7 @@ MEDIA_KINDS = ("covers", "backgrounds", "avatars")
 SCOPE_ALL = "all"
 SCOPE_PATCH = "patch"
 SCOPE_LIBRARY = "library"
+EXPORT_SCOPES = (SCOPE_ALL, SCOPE_LIBRARY, SCOPE_PATCH)
 MODE_MERGE = "merge"
 MODE_REPLACE = "replace"
 MEDIA_SKIP = "skip"
@@ -91,13 +92,13 @@ def backup_dir(config) -> Path:
     return Path(config.data_path or "/data") / "backups" / "sena-backup"
 
 
-def backup_file_name(suffix: str) -> str:
+def backup_file_name(suffix: str, scope: str = SCOPE_ALL) -> str:
     """Unique backup file name; the random tail avoids same-second collisions."""
-    return f"sena-backup-{utc_timestamp()}-{secrets.token_hex(3)}{suffix}"
+    return f"sena-backup-{utc_timestamp()}-{scope}-{secrets.token_hex(3)}{suffix}"
 
 
-def new_backup_path(config, suffix: str) -> Path:
-    return backup_dir(config) / backup_file_name(suffix)
+def new_backup_path(config, suffix: str, scope: str = SCOPE_ALL) -> Path:
+    return backup_dir(config) / backup_file_name(suffix, scope)
 
 
 def media_dirs(config) -> dict[str, Path]:
@@ -108,7 +109,7 @@ def media_dirs(config) -> dict[str, Path]:
     }
 
 
-def resolve_output(args, config, suffix: str) -> Path:
+def resolve_output(args, config, suffix: str, scope: str = SCOPE_ALL) -> Path:
     directory = getattr(args, "directory", None)
     output = getattr(args, "output", None)
     if directory and output:
@@ -117,13 +118,13 @@ def resolve_output(args, config, suffix: str) -> Path:
         target = Path(directory).expanduser()
         if target.suffix.lower() in {".json", ".zip"}:
             fail("backup 后面的路径表示目录；指定文件请使用 -o", 2)
-        return target / backup_file_name(suffix)
+        return target / backup_file_name(suffix, scope)
     if output:
         target = Path(output).expanduser()
         if target.exists() and target.is_dir():
-            return target / backup_file_name(suffix)
+            return target / backup_file_name(suffix, scope)
         return target
-    return new_backup_path(config, suffix)
+    return new_backup_path(config, suffix, scope)
 
 
 # ── export ──
@@ -236,22 +237,14 @@ async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
     }
 
 
-async def build_payload(config) -> dict[str, Any]:
-    async with db._session_factory() as session:
-        library = await _export_library(session)
-        accounts = await _export_accounts(session)
+async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
+    """Collect the backup payload; `scope` limits it to patch rules or the library."""
+    if scope not in EXPORT_SCOPES:
+        raise ValueError(f"unknown backup scope: {scope}")
 
     index_path = patch_rules.patch_index_path(config)
     keywords_path = patch_rules.keywords_path(config)
-    steam_patch: dict[str, Any] = {}
-    if index_path.is_file():
-        index_data = patch_rules.load_patch_index(index_path)
-        steam_patch["rules"] = patch_rules.rule_entries(index_data["patches"])
-    keywords, _ = patch_rules.read_keywords(keywords_path)
-    if keywords:
-        steam_patch["keywords"] = keywords
-
-    return {
+    payload: dict[str, Any] = {
         "kind": KIND,
         "schema_version": SCHEMA_VERSION,
         "app": "Sena-Repo",
@@ -261,11 +254,29 @@ async def build_payload(config) -> dict[str, Any]:
             "patch_index": str(index_path),
             "keywords": str(keywords_path),
         },
-        "steam_patch": steam_patch,
-        "library": library,
-        "accounts": accounts,
+        "scope": scope,
+        "steam_patch": {},
+        "library": {},
+        "accounts": {},
         "media": {kind: [] for kind in MEDIA_KINDS},
     }
+
+    if scope in (SCOPE_ALL, SCOPE_LIBRARY):
+        async with db._session_factory() as session:
+            payload["library"] = await _export_library(session)
+            payload["accounts"] = await _export_accounts(session)
+
+    if scope in (SCOPE_ALL, SCOPE_PATCH):
+        steam_patch: dict[str, Any] = {}
+        if index_path.is_file():
+            index_data = patch_rules.load_patch_index(index_path)
+            steam_patch["rules"] = patch_rules.rule_entries(index_data["patches"])
+        keywords, _ = patch_rules.read_keywords(keywords_path)
+        if keywords:
+            steam_patch["keywords"] = keywords
+        payload["steam_patch"] = steam_patch
+
+    return payload
 
 
 def collect_media(config, payload: dict[str, Any]) -> dict[str, list[Path]]:
@@ -314,23 +325,28 @@ def write_backup(output: Path, payload: dict[str, Any], media: dict[str, list[Pa
 async def cmd_backup(args) -> int:
     config = await prepare_app()
     json_only = bool(getattr(args, "json_only", False))
-    output = resolve_output(args, config, ".json" if json_only else ".zip")
+    scope = getattr(args, "scope", SCOPE_ALL) or SCOPE_ALL
+    if scope not in EXPORT_SCOPES:
+        fail(f"不支持的备份范围: {scope}", 2)
+    include_media = (not json_only) and scope != SCOPE_PATCH
+    output = resolve_output(args, config, ".zip" if include_media else ".json", scope)
 
-    payload = await build_payload(config)
+    payload = await build_payload(config, scope=scope)
     media = collect_media(config, payload)
     payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
     await asyncio.to_thread(
-        write_backup, output, payload, media, include_media=not json_only
+        write_backup, output, payload, media, include_media=include_media
     )
 
     library = payload["library"]
     echo(f"已导出备份: {output}")
+    echo(f"范围: {scope}")
     echo(f"补丁规则: {len(payload['steam_patch'].get('rules') or [])} 条"
          + ("，含类型关键词" if payload["steam_patch"].get("keywords") else ""))
     echo(f"游戏库: {len(library.get('games') or [])} 个游戏 / "
          f"{len(library.get('versions') or [])} 个版本 / {len(library.get('tags') or [])} 个标签")
     echo(f"账号: {len(payload['accounts'].get('users') or [])} 个")
-    if json_only:
+    if not include_media:
         echo("媒体: 未包含（--json-only）")
     else:
         echo(f"媒体: {sum(len(files) for files in media.values())} 个文件")

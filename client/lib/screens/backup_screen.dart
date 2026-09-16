@@ -120,12 +120,21 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _export() async {
+    final options = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => const _ExportOptionsDialog(),
+    );
+    if (options == null) return;
+
     setState(() => _busy = true);
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/backup/export"),
         headers: _jsonHeaders(),
-        body: jsonEncode({"include_media": true}),
+        body: jsonEncode({
+          "scope": options["scope"] ?? "all",
+          "include_media": options["include_media"] ?? true,
+        }),
       );
       if (resp.statusCode != 200) {
         _toast("导出失败（HTTP ${resp.statusCode}）", error: true);
@@ -384,7 +393,8 @@ class _BackupScreenState extends State<BackupScreen> {
                               .copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
                       Text(
-                        "包含补丁规则、游戏库、账号与图片，导出后可在下方列表下载。"
+                        "点「导出备份」先选范围：仅游戏库（含账号）、仅补丁规则，或两个都；"
+                        "选游戏库时可以带上封面/背景/头像。"
                         "备份里有密码哈希与解压密码，请妥善保管。",
                         style: AppText.caption
                             .copyWith(color: hintColor(context), height: 1.35),
@@ -510,6 +520,85 @@ class _BackupScreenState extends State<BackupScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ExportOptionsDialog extends StatefulWidget {
+  const _ExportOptionsDialog();
+
+  @override
+  State<_ExportOptionsDialog> createState() => _ExportOptionsDialogState();
+}
+
+class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
+  String _scope = "all";
+  bool _includeMedia = true;
+
+  @override
+  Widget build(BuildContext context) {
+    // Images only exist in the library part of a backup.
+    final mediaAvailable = _scope != "patch";
+    return AlertDialog(
+      title: const Text("导出备份"),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RadioListTile<String>(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: "library",
+              groupValue: _scope,
+              onChanged: (value) => setState(() => _scope = value ?? "library"),
+              title: const Text("仅游戏库"),
+              subtitle: const Text("游戏、版本、标签与账号"),
+            ),
+            RadioListTile<String>(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: "patch",
+              groupValue: _scope,
+              onChanged: (value) => setState(() => _scope = value ?? "patch"),
+              title: const Text("仅补丁"),
+              subtitle: const Text("补丁匹配规则与类型关键词"),
+            ),
+            RadioListTile<String>(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: "all",
+              groupValue: _scope,
+              onChanged: (value) => setState(() => _scope = value ?? "all"),
+              title: const Text("两个都备份"),
+              subtitle: const Text("游戏库 + 补丁规则"),
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: mediaAvailable && _includeMedia,
+              onChanged: mediaAvailable
+                  ? (value) => setState(() => _includeMedia = value ?? true)
+                  : null,
+              title: const Text("包含图片与头像"),
+              subtitle: Text(mediaAvailable ? "封面、背景与头像" : "仅补丁备份不含图片"),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("取消"),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, {
+            "scope": _scope,
+            "include_media": mediaAvailable && _includeMedia,
+          }),
+          child: const Text("开始导出"),
+        ),
+      ],
     );
   }
 }

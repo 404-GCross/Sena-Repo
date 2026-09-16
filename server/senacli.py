@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="只导出 JSON，不包含封面/背景/头像图片",
     )
+    backup.add_argument(
+        "--scope",
+        choices=["all", "library", "patch"],
+        default="all",
+        help="备份范围：all=游戏库+补丁（默认），library=仅游戏库与账号，patch=仅补丁规则",
+    )
 
     restore = sub.add_parser("restore", help="恢复补丁规则、游戏库与账号")
     restore.add_argument("file", help="备份文件（zip，或 --json-only 导出的 JSON）")

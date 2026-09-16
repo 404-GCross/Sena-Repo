@@ -88,6 +88,7 @@ async def list_backups(user: User = Depends(require_admin)):
 
 
 class ExportRequest(BaseModel):
+    scope: str = backup_cli.SCOPE_ALL  # all | library | patch
     include_media: bool = True
 
 
@@ -95,10 +96,15 @@ class ExportRequest(BaseModel):
 async def export_backup(body: ExportRequest, user: User = Depends(require_admin)):
     """Create a backup archive on the server; the client downloads it afterwards."""
     config = load_config()
-    suffix = ".zip" if body.include_media else ".json"
-    output = backup_cli.new_backup_path(config, suffix)
+    scope = (body.scope or backup_cli.SCOPE_ALL).strip().lower()
+    if scope not in backup_cli.EXPORT_SCOPES:
+        raise HTTPException(status_code=400, detail="未知的备份范围")
+    # Media only exists in the library part of a backup.
+    include_media = body.include_media and scope != backup_cli.SCOPE_PATCH
+    suffix = ".zip" if include_media else ".json"
+    output = backup_cli.new_backup_path(config, suffix, scope)
 
-    payload = await backup_cli.build_payload(config)
+    payload = await backup_cli.build_payload(config, scope=scope)
     media = backup_cli.collect_media(config, payload)
     payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
     await asyncio.to_thread(
@@ -106,15 +112,16 @@ async def export_backup(body: ExportRequest, user: User = Depends(require_admin)
         output,
         payload,
         media,
-        include_media=body.include_media,
+        include_media=include_media,
     )
 
     library = payload["library"]
     logger.info(
-        "Backup exported: actor_id=%s file=%s bytes=%s games=%s users=%s media=%s",
+        "Backup exported: actor_id=%s file=%s bytes=%s scope=%s games=%s users=%s media=%s",
         user.id,
         output.name,
         output.stat().st_size,
+        scope,
         len(library.get("games") or []),
         len(payload["accounts"].get("users") or []),
         sum(len(files) for files in media.values()),
