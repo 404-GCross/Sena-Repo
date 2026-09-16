@@ -696,7 +696,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                           minimumSize: Size.zero)),
                   OutlinedButton.icon(
                       onPressed: () => _showPatchTreeDialog(m, allowInject: true),
-                      icon: const Icon(Icons.account_tree_outlined, size: 16),
+                      icon: const Icon(Icons.rule_folder_outlined, size: 16),
                       label: Text(ruleLabel,
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
@@ -1061,12 +1061,82 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final locked = p["locked"] == true;
     final manualRules = analysisMode == "manual";
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
+    final badges = <Widget>[
+      _typeBadge(ptype),
+      _manifestBadge(manifestStatus, manualRules: manualRules),
+      if (locked)
+        const AppStatusPill(
+          icon: Icons.lock_rounded,
+          label: "已锁定",
+          color: Colors.amber,
+        ),
+    ];
+    final actions = <Widget>[
+      _patchRowAction(
+        icon: Icons.manage_search_rounded,
+        tooltip: "重新刮削 AppID",
+        onPressed: () => _rescrapeOne(lookupKey),
+      ),
+      _patchRowAction(
+        icon: Icons.rule_folder_outlined,
+        tooltip: "配置规则 / 目录树",
+        onPressed: () => _showPatchTreeDialog(PatchMatch(
+            appId: appId,
+            gameName: label.isNotEmpty ? label : displayFile.split("/").last,
+            installDir: "",
+            patchAvailable: true,
+            patchLookupKey: lookupKey,
+            patchFilename: file,
+            patchDir: patchDir,
+            targetDir: targetDir,
+            label: label,
+            type: ptype,
+            analysisMode: analysisMode,
+            manifestStatus: manifestStatus,
+            manifestReady: manifestStatus == "confirmed")),
+      ),
+      _patchRowAction(
+        icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+        tooltip: locked ? "已锁定元数据，点击解锁" : "锁定元数据（自动扫描不再修改）",
+        active: locked,
+        activeColor: Colors.amber[700],
+        onPressed: () => _togglePatchLock(lookupKey, !locked),
+      ),
+      Container(
+        width: 1,
+        height: 22,
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        color: cardBorder(context),
+      ),
+      _patchRowAction(
+        icon: Icons.edit_outlined,
+        tooltip: "编辑元数据",
+        onPressed: () => _showEditDialog(PatchMatch(
+            appId: appId,
+            gameName: label.isNotEmpty ? label : displayFile.split("/").last,
+            installDir: "",
+            patchAvailable: true,
+            patchLookupKey: lookupKey,
+            patchFilename: file,
+            patchDir: patchDir,
+            targetDir: targetDir,
+            label: label,
+            type: ptype,
+            analysisMode: analysisMode,
+            manifestStatus: manifestStatus,
+            manifestReady: manifestStatus == "confirmed")),
+      ),
+    ];
 
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
       radius: AppRadius.md,
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Wide rows group the badges with the buttons; narrow rows keep the badges
+      // next to the title so the action group stays a clean single control.
+      child: LayoutBuilder(builder: (context, constraints) {
+        final groupBadges = constraints.maxWidth >= 760;
+        return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
             width: 40,
             height: 40,
@@ -1089,18 +1159,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                         .copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: 4),
-            _typeBadge(ptype),
-            const SizedBox(width: 6),
-            _manifestBadge(manifestStatus, manualRules: manualRules),
-            if (locked) ...[
-              const SizedBox(width: 6),
-              const AppStatusPill(
-                icon: Icons.lock_rounded,
-                label: "已锁定",
-                color: Colors.amber,
-              ),
-            ],
+            if (!groupBadges)
+              for (final badge in badges)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: badge,
+                ),
           ]),
           const SizedBox(height: 4),
           Row(children: [
@@ -1149,65 +1213,31 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           ),
           padding: const EdgeInsets.all(2),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            _patchRowAction(
-              icon: Icons.manage_search_rounded,
-              tooltip: "重新刮削 AppID",
-              onPressed: () => _rescrapeOne(lookupKey),
-            ),
-            _patchRowAction(
-              icon: manualRules
-                  ? Icons.rule_folder_outlined
-                  : Icons.account_tree_outlined,
-              tooltip: manualRules ? "配置规则" : "目录树 / 规则",
-              onPressed: () => _showPatchTreeDialog(PatchMatch(
-                appId: appId,
-                gameName: label.isNotEmpty ? label : displayFile.split("/").last,
-                installDir: "",
-                patchAvailable: true,
-                patchLookupKey: lookupKey,
-                patchFilename: file,
-                patchDir: patchDir,
-                targetDir: targetDir,
-                label: label,
-                type: ptype,
-                analysisMode: analysisMode,
-                manifestStatus: manifestStatus,
-                manifestReady: manifestStatus == "confirmed")),
-            ),
-            _patchRowAction(
-              icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-              tooltip: locked ? "已锁定元数据，点击解锁" : "锁定元数据（自动扫描不再修改）",
-              active: locked,
-              activeColor: Colors.amber[700],
-              onPressed: () => _togglePatchLock(lookupKey, !locked),
-            ),
-            Container(
-              width: 1,
-              height: 22,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              color: cardBorder(context),
-            ),
-            _patchRowAction(
-              icon: Icons.edit_outlined,
-              tooltip: "编辑元数据",
-              onPressed: () => _showEditDialog(PatchMatch(
-                appId: appId,
-                gameName: label.isNotEmpty ? label : displayFile.split("/").last,
-                installDir: "",
-                patchAvailable: true,
-                patchLookupKey: lookupKey,
-                patchFilename: file,
-                patchDir: patchDir,
-                targetDir: targetDir,
-                label: label,
-                type: ptype,
-                analysisMode: analysisMode,
-                manifestStatus: manifestStatus,
-                manifestReady: manifestStatus == "confirmed")),
-            ),
+            if (groupBadges) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 6, right: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < badges.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      badges[i],
+                    ],
+                  ],
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 30,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                color: cardBorder(context),
+              ),
+            ],
+            ...actions,
           ]),
         ),
-      ]),
+        ]);
+      }),
     );
   }
 
