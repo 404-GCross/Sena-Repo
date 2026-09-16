@@ -38,6 +38,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _serverLoaded = false;
   bool _rescraping = false;
   String? _serverStatus;
+  // Optimistic lock state so the button flips immediately; cleared once the
+  // server list is reloaded (or reverted when the request fails).
+  final Map<String, bool> _lockedOverrides = {};
 
   @override
   void initState() {
@@ -1058,7 +1061,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final suggestedAppId = (p["suggested_app_id"] ?? "").toString();
     final manifestStatus = (p["manifest_status"] ?? "pending").toString();
     final analysisMode = (p["analysis_mode"] ?? "auto").toString();
-    final locked = p["locked"] == true;
+    final locked = _lockedOverrides[lookupKey] ?? p["locked"] == true;
     final manualRules = analysisMode == "manual";
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
     final badges = <Widget>[
@@ -1403,6 +1406,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _togglePatchLock(String lookupKey, bool locked) async {
     final api = context.read<GameProvider>().api;
+    setState(() => _lockedOverrides[lookupKey] = locked);
     try {
       await SteamService.updatePatch(
         api: api,
@@ -1410,11 +1414,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         lookupKey: lookupKey,
         locked: locked,
       );
-      if (!mounted) return;
-      _showMsg(locked ? "已锁定：自动扫描与重新刮削不会修改这条的元数据" : "已解锁，元数据会随扫描更新");
       await _loadServerPatches();
+      if (mounted) setState(() => _lockedOverrides.remove(lookupKey));
     } catch (e) {
-      if (mounted) _showMsg("操作失败: $e", error: true);
+      if (!mounted) return;
+      setState(() => _lockedOverrides.remove(lookupKey));
+      _showMsg("锁定失败: $e", error: true);
     }
   }
 
