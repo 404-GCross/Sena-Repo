@@ -5215,10 +5215,11 @@ class _HeroBackgroundPickerDialogState
                       children: [
                         Expanded(
                           flex: 3,
-                          child: _HeroPreviewCard(
-                            url: selectedUrl,
-                            label: "当前预览：背景 ${_selectedIndex + 1}",
-                            fillHeight: true,
+                          child: Center(
+                            child: _HeroPreviewCard(
+                              url: selectedUrl,
+                              label: "当前预览：背景 ${_selectedIndex + 1}",
+                            ),
                           ),
                         ),
                         const SizedBox(width: AppGap.lg),
@@ -5513,12 +5514,10 @@ class _HeroPickerIcon extends StatelessWidget {
 class _HeroPreviewCard extends StatelessWidget {
   final String url;
   final String label;
-  final bool fillHeight;
 
   const _HeroPreviewCard({
     required this.url,
     required this.label,
-    this.fillHeight = false,
   });
 
   @override
@@ -5535,10 +5534,9 @@ class _HeroPreviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (fillHeight)
-            Expanded(child: image)
-          else
-            AspectRatio(aspectRatio: 16 / 9, child: image),
+          // Keep the frame at the ratio the app actually stores, so a 16:9
+          // source shows up complete instead of being cropped by the layout.
+          AspectRatio(aspectRatio: 16 / 9, child: image),
           const SizedBox(height: AppGap.sm),
           Row(
             children: [
@@ -5605,8 +5603,9 @@ class _HeroCandidateTile extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   child: SizedBox(
-                    width: 64,
-                    height: 52,
+                    // 16:9 so candidates are not cropped sideways like the final asset.
+                    width: 80,
+                    height: 45,
                     child: _HeroNetworkImage(url: url),
                   ),
                 ),
