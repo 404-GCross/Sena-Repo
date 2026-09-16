@@ -400,6 +400,50 @@ def _normalized_title(value: str) -> str:
     return re.sub(r"\s+", "", text).strip()
 
 
+async def _game_name_values_for_app_id_change(
+    index_dir: Path,
+    patches_dir: Path,
+    lookup_key: str,
+    new_app_id: str | None,
+) -> dict:
+    """Refresh game_name when a patch is pointed at another Steam app.
+
+    Anything else (a manual label, the patch dirs) stays as the user set it; a
+    failed lookup keeps the stored name and only logs a warning.
+    """
+    if not new_app_id or not str(new_app_id).strip().isdigit():
+        return {}
+    current = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir) or {}
+    same_app_id = str(current.get("app_id") or "") == str(new_app_id)
+    if same_app_id and current.get("game_name"):
+        return {}
+    name = await _game_name_for_app_id(new_app_id)
+    if not name:
+        logger.warning(
+            "game_name refresh skipped: lookup_key=%s app_id=%s (lookup failed)",
+            lookup_key,
+            new_app_id,
+        )
+        return {}
+    logger.info(
+        "game_name refreshed: lookup_key=%s app_id=%s name=%s",
+        lookup_key,
+        new_app_id,
+        name,
+    )
+    return {"game_name": name}
+
+
+async def _game_name_for_app_id(app_id: str) -> str | None:
+    from scan_patches import _fetch_game_name
+    try:
+        name = await asyncio.to_thread(_fetch_game_name, int(app_id))
+    except Exception as exc:
+        logger.warning("Steam name lookup failed for app_id=%s: %s", app_id, exc)
+        return None
+    return name or None
+
+
 def _patch_title_candidates(patch: dict) -> set[str]:
     values = {
         str(patch.get("label") or ""),
@@ -984,16 +1028,22 @@ async def update_patch_manifest(
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
+    values = {
+        "patch_dir": body.patch_dir.strip().strip("/"),
+        "target_dir": body.target_dir.strip().strip("/"),
+        "app_id": body.app_id,
+        "manifest_status": "confirmed",
+        "manifest_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    values.update(
+        await _game_name_values_for_app_id_change(
+            index_dir, patches_dir, lookup_key, body.app_id
+        )
+    )
     updated = _update_patch_record(
         index_dir,
         lookup_key,
-        {
-            "patch_dir": body.patch_dir.strip().strip("/"),
-            "target_dir": body.target_dir.strip().strip("/"),
-            "app_id": body.app_id,
-            "manifest_status": "confirmed",
-            "manifest_updated_at": datetime.now(timezone.utc).isoformat(),
-        },
+        values,
         file_hint=body.file,
     )
     logger.info(
@@ -1128,6 +1178,11 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         "type": body.type,
         "app_id": body.app_id,
     }
+    values.update(
+        await _game_name_values_for_app_id_change(
+            index_dir, patches_dir, lookup_key, body.app_id
+        )
+    )
     if (
         body.patch_dir is not None
         or body.target_dir is not None
