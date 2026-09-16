@@ -202,6 +202,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         _loadServerPatches();
       } else if (status == "skipped") {
         _showMsg("已有 AppID，跳过刮削");
+      } else if (status == "locked") {
+        _showMsg("该补丁已锁定，已跳过刮削");
       } else {
         _showMsg("刮削失败: 未找到匹配的 Steam 游戏");
       }
@@ -222,7 +224,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       if (!mounted) return;
       final updated = result["updated"] ?? 0;
       final total = result["total"] ?? 0;
-      _showMsg("批量刮削完成: $updated / $total 个更新");
+      final lockedCount = (result["locked"] as num?)?.toInt() ?? 0;
+      _showMsg("批量刮削完成: $updated / $total 个更新" +
+          (lockedCount > 0 ? "\n跳过已锁定 $lockedCount 条" : ""));
       _loadServerPatches();
     } catch (e) {
       if (mounted) _showMsg("批量刮削失败: $e", error: true);
@@ -1054,6 +1058,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final suggestedAppId = (p["suggested_app_id"] ?? "").toString();
     final manifestStatus = (p["manifest_status"] ?? "pending").toString();
     final analysisMode = (p["analysis_mode"] ?? "auto").toString();
+    final locked = p["locked"] == true;
     final manualRules = analysisMode == "manual";
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
 
@@ -1088,6 +1093,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             _typeBadge(ptype),
             const SizedBox(width: 6),
             _manifestBadge(manifestStatus, manualRules: manualRules),
+            if (locked) ...[
+              const SizedBox(width: 6),
+              const AppStatusPill(
+                icon: Icons.lock_rounded,
+                label: "已锁定",
+                color: Colors.amber,
+              ),
+            ],
           ]),
           const SizedBox(height: 4),
           Row(children: [
@@ -1127,23 +1140,26 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                               .copyWith(color: hintColor(context)))),
                 ])),
         ])),
-        const SizedBox(width: 2),
-        IconButton(
-            icon: const Icon(Icons.manage_search, size: 16),
-            tooltip: "重新刮削 AppID",
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(6),
-            constraints: const BoxConstraints(),
-            onPressed: () => _rescrapeOne(lookupKey)),
-        IconButton(
-            icon: Icon(
-                manualRules ? Icons.rule_folder_outlined : Icons.account_tree_outlined,
-                size: 16),
-            tooltip: manualRules ? "配置规则" : "目录树 / 规则",
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(6),
-            constraints: const BoxConstraints(),
-            onPressed: () => _showPatchTreeDialog(PatchMatch(
+        const SizedBox(width: AppGap.sm),
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg(context).withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          padding: const EdgeInsets.all(2),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            _patchRowAction(
+              icon: Icons.manage_search_rounded,
+              tooltip: "重新刮削 AppID",
+              onPressed: () => _rescrapeOne(lookupKey),
+            ),
+            _patchRowAction(
+              icon: manualRules
+                  ? Icons.rule_folder_outlined
+                  : Icons.account_tree_outlined,
+              tooltip: manualRules ? "配置规则" : "目录树 / 规则",
+              onPressed: () => _showPatchTreeDialog(PatchMatch(
                 appId: appId,
                 gameName: label.isNotEmpty ? label : displayFile.split("/").last,
                 installDir: "",
@@ -1156,14 +1172,25 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 type: ptype,
                 analysisMode: analysisMode,
                 manifestStatus: manifestStatus,
-                manifestReady: manifestStatus == "confirmed"))),
-        IconButton(
-            icon: const Icon(Icons.edit, size: 16),
-            tooltip: "编辑",
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(6),
-            constraints: const BoxConstraints(),
-            onPressed: () => _showEditDialog(PatchMatch(
+                manifestReady: manifestStatus == "confirmed")),
+            ),
+            _patchRowAction(
+              icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+              tooltip: locked ? "已锁定元数据，点击解锁" : "锁定元数据（自动扫描不再修改）",
+              active: locked,
+              activeColor: Colors.amber[700],
+              onPressed: () => _togglePatchLock(lookupKey, !locked),
+            ),
+            Container(
+              width: 1,
+              height: 22,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              color: cardBorder(context),
+            ),
+            _patchRowAction(
+              icon: Icons.edit_outlined,
+              tooltip: "编辑元数据",
+              onPressed: () => _showEditDialog(PatchMatch(
                 appId: appId,
                 gameName: label.isNotEmpty ? label : displayFile.split("/").last,
                 installDir: "",
@@ -1176,7 +1203,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 type: ptype,
                 analysisMode: analysisMode,
                 manifestStatus: manifestStatus,
-                manifestReady: manifestStatus == "confirmed"))),
+                manifestReady: manifestStatus == "confirmed")),
+            ),
+          ]),
+        ),
       ]),
     );
   }
@@ -1314,6 +1344,48 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           : (manualRules ? "规则待配置" : "规则待确认"),
       color: normalized == "confirmed" ? Colors.green : Colors.orange,
     );
+  }
+
+  Widget _patchRowAction({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    bool active = false,
+    Color? activeColor,
+  }) {
+    final color = active
+        ? (activeColor ?? Theme.of(context).colorScheme.primary)
+        : subTextColor(context);
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: 38,
+          height: 38,
+          alignment: Alignment.center,
+          child: Icon(icon, size: 19, color: color),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _togglePatchLock(String lookupKey, bool locked) async {
+    final api = context.read<GameProvider>().api;
+    try {
+      await SteamService.updatePatch(
+        api: api,
+        appId: "",
+        lookupKey: lookupKey,
+        locked: locked,
+      );
+      if (!mounted) return;
+      _showMsg(locked ? "已锁定：自动扫描与重新刮削不会修改这条的元数据" : "已解锁，元数据会随扫描更新");
+      await _loadServerPatches();
+    } catch (e) {
+      if (mounted) _showMsg("操作失败: $e", error: true);
+    }
   }
 
   Widget _appIdChip(String appId) => Container(

@@ -405,6 +405,14 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
         if old:
             if not old.get("patch_id") and s.get("patch_id"):
                 old["patch_id"] = s["patch_id"]
+            if old.get("locked"):
+                # Locked entries keep their metadata; only refresh facts about the file
+                # itself so the list still shows the current size and source.
+                for key in ("size", "display_file", "source_type", "source_id", "source_path", "analysis_mode"):
+                    if s.get(key) is not None:
+                        old[key] = s[key]
+                merged.append(old)
+                continue
             # Keep user's manual entries but update discovered fields
             if not old.get("app_id") and s.get("app_id"):
                 old["app_id"] = s["app_id"]

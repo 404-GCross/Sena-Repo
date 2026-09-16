@@ -167,12 +167,14 @@ class SteamService {
     String? type,
     String? file,
     String? lookupKey,
+    bool? locked,
   }) async {
     final body = <String, dynamic>{};
     if (label != null) body["label"] = label;
     if (type != null) body["type"] = type;
     if (appId.isNotEmpty && appId != "null" && appId != "None") body["app_id"] = appId;
     if (file != null && file.isNotEmpty) body["file"] = file;
+    if (locked != null) body["locked"] = locked;
     if (body.isEmpty) return;
     final key = patchLookupKey(appId: appId, file: file, lookupKey: lookupKey);
     final resp = await http.put(

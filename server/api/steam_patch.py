@@ -1163,6 +1163,7 @@ class PatchUpdate(BaseModel):
     type: str | None = None
     app_id: str | None = None  # new app_id to update
     file: str | None = None    # lookup by file path if app_id is None/unknown
+    locked: bool | None = None  # freeze metadata against scans and rescrapes
 
 
 @router.put("/patches/{lookup_key}")
@@ -1177,6 +1178,7 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         "label": body.label,
         "type": body.type,
         "app_id": body.app_id,
+        "locked": body.locked,
     }
     values.update(
         await _game_name_values_for_app_id_change(
@@ -1315,7 +1317,7 @@ class RescrapeResult(BaseModel):
     old_app_id: str = ""
     new_app_id: str = ""
     game_name: str = ""
-    status: str = ""  # "updated" / "skipped" / "not_found" / "error"
+    status: str = ""  # "updated" / "skipped" / "not_found" / "locked" / "error"
 
 
 @router.post("/patches/{lookup_key}/rescrape")
@@ -1348,6 +1350,16 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
 
     old_app_id = str(target.get("app_id", "") or "")
     filename = target.get("file", "").split("/")[-1]
+    if target.get("locked"):
+        logger.info("Patch rescrape skipped (locked): lookup_key=%s", lookup_key)
+        return RescrapeResult(
+            lookup_key=lookup_key,
+            file=filename,
+            old_app_id=old_app_id,
+            new_app_id=old_app_id,
+            game_name=str(target.get("game_name") or ""),
+            status="locked",
+        )
     from scan_patches import _extract_game_name, _search_steam_app_id, _fetch_game_name
     game_name_candidate = _extract_game_name(filename)
 
@@ -1422,6 +1434,12 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
 
         r = RescrapeResult(lookup_key=lookup, file=filename, old_app_id=old_id)
 
+        if p.get("locked"):
+            r.new_app_id = old_id
+            r.game_name = str(p.get("game_name") or "")
+            r.status = "locked"
+            return r
+
         if not game_name_candidate:
             r.status = "skipped"
             return r
@@ -1454,12 +1472,24 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
     tasks = [rescrape_one(p) for p in patches]
     results = await _asyncio.gather(*tasks)
     updated = sum(1 for r in results if r.status == "updated")
+    locked = sum(1 for r in results if r.status == "locked")
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    logger.info("Batch patch rescrape finished: updated=%d total=%d", updated, len(patches))
-    return {"message": f"Batch rescrape completed: {updated} updated", "updated": updated, "total": len(patches), "results": [r.model_dump() for r in results]}
+    logger.info(
+        "Batch patch rescrape finished: updated=%d locked=%d total=%d",
+        updated,
+        locked,
+        len(patches),
+    )
+    return {
+        "message": f"Batch rescrape completed: {updated} updated",
+        "updated": updated,
+        "locked": locked,
+        "total": len(patches),
+        "results": [r.model_dump() for r in results],
+    }
 
 
 # Steam game name resolution
