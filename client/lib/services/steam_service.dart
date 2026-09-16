@@ -227,6 +227,31 @@ class SteamService {
     throw HttpException("Failed to scan patches: ${resp.statusCode}");
   }
 
+  /// Ask the server for a short-lived signed URL so aria2 can fetch the patch
+  /// without an Authorization header.
+  static Future<({String url, int expiresAt})> patchDownloadLink(
+    ApiClient api,
+    String lookupKey,
+  ) async {
+    final resp = await http.post(
+      Uri.parse(
+          "${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/link"),
+      headers: api.headers,
+    );
+    if (resp.statusCode != 200) {
+      throw HttpException("Failed to create patch download link: ${resp.statusCode}");
+    }
+    final payload = jsonDecode(resp.body) as Map<String, dynamic>;
+    final url = payload["url"]?.toString() ?? "";
+    if (url.isEmpty) {
+      throw HttpException("Server returned an empty patch download link");
+    }
+    return (
+      url: url,
+      expiresAt: int.tryParse("${payload["expires_at"] ?? 0}") ?? 0,
+    );
+  }
+
   /// Re-scrape a single patch's app_id from Steam search.
   static Future<Map<String, dynamic>> rescrapePatch(ApiClient api, String lookupKey) async {
     final resp = await http.post(
@@ -313,6 +338,10 @@ class SteamService {
     required String patchFilename,
     String? patchDir,
     String? targetDir,
+    String? patchLookupKey,
+    String sourceType = "local",
+    int expiresAt = 0,
+    String? serverBaseUrl,
     void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
     final svc = DownloadService();
@@ -325,6 +354,10 @@ class SteamService {
         installDir: installDir,
         patchDir: patchDir,
         targetDir: targetDir,
+        patchLookupKey: patchLookupKey,
+        sourceType: sourceType,
+        expiresAt: expiresAt,
+        serverBaseUrl: serverBaseUrl,
         onProgress: onProgress,
       );
       if (error != null) return {"error": error};

@@ -165,7 +165,7 @@ from api.file_sources import router as file_sources_router
 from api.settings import router as settings_router
 from api.scraper import router as scraper_router
 from api.files import router as files_router
-from api.steam_patch import router as steam_patch_router
+from api.steam_patch import router as steam_patch_router, signed_router as steam_patch_signed_router
 from api.setup import router as setup_router
 from api.auth import router as auth_router
 from api.backup import router as backup_router
@@ -173,6 +173,9 @@ from api.backup import router as backup_router
 app.include_router(games_router)
 app.include_router(tags_router)
 app.include_router(roots_router)
+# Must come before download_router: /api/download/signed/steam-patch/{key} would
+# otherwise be captured by /api/download/signed/{game_id}/{version_id}.
+app.include_router(steam_patch_signed_router)
 app.include_router(download_router)
 app.include_router(file_sources_router)
 app.include_router(settings_router)

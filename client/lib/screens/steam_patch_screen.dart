@@ -312,9 +312,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     setState(() =>
         _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
+      // Signed URL first: it carries no token, so aria2 can fetch the patch too.
+      final link = await SteamService.patchDownloadLink(api, lookupKey);
       final result = await SteamService.injectPatch(
         appId: m.appId,
-        downloadUrl: "${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/download",
+        downloadUrl: link.url,
+        expiresAt: link.expiresAt,
+        serverBaseUrl: api.baseUrl,
+        patchLookupKey: lookupKey,
+        sourceType: m.sourceType ?? "local",
         installDir: fullPath,
         patchFilename: m.patchFilename ?? "patch_${m.appId}.zip",
         patchDir: patchDirOverride ?? m.patchDir,

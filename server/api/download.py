@@ -178,6 +178,44 @@ def _download_ttl_seconds(file_size: int) -> int:
     return 120 * 60
 
 
+def patch_download_ttl(file_size: int) -> int:
+    """Steam patch archives are large and slow to fetch; keep links valid for a day."""
+    return max(_download_ttl_seconds(file_size), 24 * 60 * 60)
+
+
+def _patch_signature_payload(lookup_key: str, expires_at: int) -> bytes:
+    return f"patch:{lookup_key}:{expires_at}".encode("utf-8")
+
+
+def sign_patch_download(lookup_key: str, expires_at: int) -> str:
+    return hmac.new(
+        _signature_secret(),
+        _patch_signature_payload(lookup_key, expires_at),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_patch_download_signature(
+    lookup_key: str,
+    expires_at: int,
+    signature: str,
+) -> bool:
+    if expires_at <= int(time.time()):
+        return False
+    return hmac.compare_digest(sign_patch_download(lookup_key, expires_at), signature)
+
+
+def build_signed_patch_url(request: Request, lookup_key: str, expires_at: int) -> str:
+    base = str(request.url_for("download_signed_patch", lookup_key=lookup_key))
+    query = urlencode(
+        {
+            "expires_at": str(expires_at),
+            "signature": sign_patch_download(lookup_key, expires_at),
+        }
+    )
+    return f"{base}?{query}"
+
+
 def _archive_format(filename: str) -> str:
     lower = filename.strip().lower()
     for suffix in ("tar.gz", "tar.bz2", "tar.xz", "tar.zst"):

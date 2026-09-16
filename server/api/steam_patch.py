@@ -1,7 +1,7 @@
 """Steam patch injection API - PC client feature."""
 from __future__ import annotations
 
-import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, zipfile
+import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, time, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from database import get_session
 from models.user import User
 from models.file_source import FileSource, SteamPatchRoot
 from api.auth import get_current_user, require_admin
+from api.download import build_signed_patch_url, patch_download_ttl, verify_patch_download_signature
 from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
 from utils.secrets import encrypt_secret
 
@@ -1005,13 +1006,8 @@ async def update_patch_manifest(
     return {"message": "Manifest updated", "lookup_key": lookup_key, "patch": _enrich_patch_record(updated)}
 
 
-@router.get("/patches/{lookup_key}/download")
-async def download_patch(
-    lookup_key: str,
-    request: Request,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-):
+async def serve_patch_file(lookup_key: str, request: Request, session: AsyncSession):
+    """Serve a patch archive: 302 to the OpenList raw URL, or the local file."""
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
@@ -1056,6 +1052,59 @@ async def download_patch(
         media_type="application/octet-stream",
         headers={"Accept-Ranges": "bytes"},
     )
+
+
+@router.get("/patches/{lookup_key}/download")
+async def download_patch(
+    lookup_key: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return await serve_patch_file(lookup_key, request, session)
+
+
+@router.post("/patches/{lookup_key}/link")
+async def create_patch_download_link(
+    lookup_key: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a short-lived signed URL so external downloaders (aria2) can fetch patches."""
+    config = load_config()
+    patches_dir = _get_patches_dir(config)
+    index_dir = _get_patch_index_dir(config)
+    entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
+    size = int((entry or {}).get("size") or 0)
+    expires_at = int(time.time()) + patch_download_ttl(size)
+    url = build_signed_patch_url(request, lookup_key, expires_at)
+    logger.info(
+        "Patch download link requested: lookup_key=%s source_type=%s size=%s expires_at=%s",
+        lookup_key,
+        (entry or {}).get("source_type") or "-",
+        size,
+        expires_at,
+    )
+    return {"url": url, "expires_at": expires_at}
+
+
+signed_router = APIRouter(prefix="/api/download", tags=["steam-patch"])
+
+
+@signed_router.get("/signed/steam-patch/{lookup_key}", name="download_signed_patch")
+async def download_signed_patch(
+    lookup_key: str,
+    request: Request,
+    expires_at: int,
+    signature: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Fetch a patch with a signed URL: no token, no Authorization header."""
+    if not verify_patch_download_signature(lookup_key, expires_at, signature):
+        raise HTTPException(status_code=403, detail="下载链接无效或已过期")
+    return await serve_patch_file(lookup_key, request, session)
+
 
 class PatchUpdate(BaseModel):
     patch_dir: str | None = None

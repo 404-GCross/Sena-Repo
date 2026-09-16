@@ -50,6 +50,8 @@ class DownloadTask {
   final String gameName;
   final String companyName;
   final String sourceType;
+  /// Set for Steam patch injections so an expired signed link can be renewed.
+  final String? patchLookupKey;
 
   String
   status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
@@ -85,6 +87,7 @@ class DownloadTask {
     required this.gameName,
     required this.companyName,
     this.sourceType = "local",
+    this.patchLookupKey,
     this.status = "pending",
     this.progress = 0,
     this.receivedBytes = 0,
@@ -103,6 +106,7 @@ class DownloadTask {
     "gameName": gameName,
     "companyName": companyName,
     "sourceType": sourceType,
+    "patchLookupKey": patchLookupKey,
     "status": status,
     "progress": progress,
     "error": error,
@@ -191,6 +195,7 @@ class DownloadService with WidgetsBindingObserver {
                 gameName: m["gameName"] ?? "",
                 companyName: m["companyName"] ?? "",
                 sourceType: m["sourceType"]?.toString() ?? "local",
+                patchLookupKey: m["patchLookupKey"]?.toString(),
               )
               ..status = m["status"] ?? "failed"
               ..receivedBytes = m["receivedBytes"] ?? 0
@@ -397,6 +402,10 @@ class DownloadService with WidgetsBindingObserver {
     required String installDir,
     String? patchDir,
     String? targetDir,
+    String? patchLookupKey,
+    String sourceType = "local",
+    int expiresAt = 0,
+    String? serverBaseUrl,
     void Function(
       double progress,
       int received,
@@ -421,6 +430,10 @@ class DownloadService with WidgetsBindingObserver {
       downloadUrl: downloadUrl,
       gameName: "Steam Patch",
       companyName: "Steam",
+      sourceType: sourceType,
+      patchLookupKey: patchLookupKey,
+      expiresAt: expiresAt,
+      serverBaseUrl: serverBaseUrl,
     );
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
@@ -1212,14 +1225,15 @@ class DownloadService with WidgetsBindingObserver {
                 host: original.host,
                 port: original.hasPort ? original.port : null,
               ).toString().replaceFirst(RegExp(r"/$"), ""));
-    if (origin == null || task.gameId <= 0 || task.versionId <= 0) {
+    final patchKey = task.patchLookupKey;
+    if (origin == null || (patchKey == null && (task.gameId <= 0 || task.versionId <= 0))) {
       throw DownloadHttpException(401, "下载链接已过期，无法刷新");
     }
     final client = http.Client();
     try {
-      final uri = Uri.parse(
-        "$origin/api/download/${task.gameId}/${task.versionId}/link",
-      );
+      final uri = Uri.parse(patchKey == null
+          ? "$origin/api/download/${task.gameId}/${task.versionId}/link"
+          : "$origin/api/steam/patches/${Uri.encodeComponent(patchKey)}/link");
       final response = await client
           .post(uri, headers: _downloadAuthHeaders())
           .timeout(_downloadConnectTimeout);
@@ -1237,7 +1251,9 @@ class DownloadService with WidgetsBindingObserver {
       task.expiresAt = int.tryParse("${payload["expires_at"] ?? 0}") ?? 0;
       task.serverBaseUrl = origin;
       LoggerService().info(
-        "download link refreshed gameId=${task.gameId} versionId=${task.versionId}",
+        patchKey == null
+            ? "download link refreshed gameId=${task.gameId} versionId=${task.versionId}"
+            : "patch download link refreshed lookupKey=$patchKey",
       );
     } finally {
       client.close();
