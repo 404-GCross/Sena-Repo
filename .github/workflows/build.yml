@@ -106,8 +106,8 @@ jobs:
       - name: Copy bundled download tools (Android ARM64)
         run: |
           mkdir -p assets/binaries
-          cp ../7zip-zstd/Android-arm64/7zz assets/binaries/7zz
-          cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/7zip-zstd/Android-arm64/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
           cp assets/binaries/aria2/android-aarch64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
           chmod +x assets/binaries/aria2c
@@ -169,11 +169,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
-          Copy-Item "../7zip-zstd/Windows-x64/7zz.exe" assets/binaries/7z.exe
-          if (Test-Path "../7zip-zstd/Windows-x64/7z.dll") { Copy-Item "../7zip-zstd/Windows-x64/7z.dll" assets/binaries/7z.dll }
-          if (Test-Path "../7zip-zstd/Windows-x64/License.txt") { Copy-Item "../7zip-zstd/Windows-x64/License.txt" assets/binaries/LICENSE-7z.txt }
-          if (Test-Path "../7zip-zstd/Windows-x64/readme.txt") { Copy-Item "../7zip-zstd/Windows-x64/readme.txt" assets/binaries/README-7z.txt }
-          Copy-Item "../7zip-zstd/NOTICE.txt" assets/binaries/NOTICE-7zip-zstd.txt
+          Copy-Item "assets/binaries/7zip-zstd/Windows-x64/7zz.exe" assets/binaries/7z.exe
+          if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/7z.dll") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/7z.dll" assets/binaries/7z.dll }
+          if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/License.txt") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/License.txt" assets/binaries/LICENSE-7z.txt }
+          if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/readme.txt") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/readme.txt" assets/binaries/README-7z.txt }
+          Copy-Item "assets/binaries/7zip-zstd/NOTICE.txt" assets/binaries/NOTICE-7zip-zstd.txt
           Copy-Item "assets/binaries/aria2/windows-x64/aria2c.exe" assets/binaries/aria2c.exe
 
       - name: Enable Windows + generate platform files
@@ -307,8 +307,8 @@ jobs:
       - name: Copy bundled download tools (Linux)
         run: |
           mkdir -p assets/binaries
-          cp ../7zip-zstd/Linux-x64/7zz assets/binaries/7zz
-          cp ../7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/7zip-zstd/Linux-x64/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
           cp assets/binaries/aria2/linux-x64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
           chmod +x assets/binaries/aria2c

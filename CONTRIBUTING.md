@@ -19,7 +19,7 @@
 | `client/` | Flutter 客户端，支持 Windows / Android / Linux |
 | `Documentation/zh-CN/` | 中文用户文档、技术文档、排障文档和测试清单 |
 | `.github/workflows/` | CI、开发版预发布、正式 Release 和 7-Zip-zstd 构建流程 |
-| `7zip-zstd/` | 构建产物期望存在的 7-Zip-zstd 平台二进制目录 |
+| `client/assets/binaries/` | 内置二进制归档（`aria2/`、`7zip-zstd/`），CI 构建时按平台架构拷贝到扁平路径后打包 |
 | `AGENTS.md` | 本仓库的编码代理规则与提交规范（`CLAUDE.md` 是指向它的软链） |
 
 > `client/linux` 不提交到仓库。Linux runner 由 CI 中的 `flutter create .` 生成，并通过 `.github/scripts/patch_linux_runner_touch.py` 自动补丁。
