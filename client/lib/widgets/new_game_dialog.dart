@@ -233,6 +233,15 @@ class _NewGameDialogState extends State<NewGameDialog> {
     };
     final isNsfw = result["is_nsfw"];
     if (isNsfw is bool) payload["is_nsfw"] = isNsfw;
+    final externalIds = result["external_ids"];
+    if (externalIds is Map) {
+      final anchors = <String, String>{};
+      externalIds.forEach((key, value) {
+        final id = value?.toString().trim() ?? "";
+        if (id.isNotEmpty) anchors[key.toString()] = id;
+      });
+      if (anchors.isNotEmpty) payload["external_ids"] = anchors;
+    }
     final length = _intValue(result["length"]);
     final lengthMinutes = _intValue(result["length_minutes"]);
     if (length != null) payload["length"] = length;

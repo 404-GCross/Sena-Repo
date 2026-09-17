@@ -393,6 +393,7 @@ class GameCreate(BaseModel):
     cover_url: str | None = None
     hero_url: str | None = None
     is_nsfw: bool | None = None
+    external_ids: dict[str, str] | None = None
     length: int | None = None
     length_minutes: int | None = None
     tags: list[GameCreateTag] = Field(default_factory=list)
@@ -477,6 +478,11 @@ async def _apply_create_payload(
     id_field = _source_id_field(source)
     if id_field and source_id:
         setattr(game, id_field, source_id)
+    for anchor, external_id in (body.external_ids or {}).items():
+        anchor_field = _source_id_field(anchor)
+        anchor_value = _clean_create_text(external_id, 64)
+        if anchor_field and anchor_value and not getattr(game, anchor_field, None):
+            setattr(game, anchor_field, anchor_value)
 
     tags = [
         ScrapedTag(

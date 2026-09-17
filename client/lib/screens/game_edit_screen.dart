@@ -417,7 +417,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _dev.text = (r["developer"] ?? "").toString();
       _desc.text = (r["description"] ?? "").toString();
       _date.text = (r["release_date"] ?? "").toString();
-      if (r["is_nsfw"] == true) _isNsfw = true;
+      final nsfw = r["is_nsfw"];
+      if (nsfw is bool) _isNsfw = nsfw;
     });
     _showMsg("已填入 $label 数据");
   }
@@ -2901,6 +2902,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
       currentFields[sourceIdLabel] = sourceFields[src]?.text.trim() ?? "";
       incoming[sourceIdLabel] = sourceId;
     }
+    // Aggregated sources (NextMoe) also carry anchors on other platforms.
+    final externalIds = _metadataExternalIds(r);
+    final externalIdTargets = <String, TextEditingController>{
+      "vndb": _vndb,
+      "bangumi": _bgm,
+      "steam": _steam,
+    };
+    externalIds.forEach((key, value) {
+      final label = _metadataSourceIdLabel(key);
+      final target = externalIdTargets[key];
+      if (label == null || target == null) return;
+      currentFields[label] = target.text.trim();
+      incoming[label] = value;
+    });
     final heroUrl = (r["hero_url"] ?? "").toString();
     final hasCoverDiff = coverUrl.isNotEmpty;
     final hasHeroDiff = heroUrl.isNotEmpty && heroUrl != _bgUrl.text;
@@ -2986,6 +3001,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
           sourceFields.containsKey(src)) {
         sourceFields[src]!.text = sourceId;
       }
+      externalIds.forEach((key, value) {
+        final label = _metadataSourceIdLabel(key);
+        final target = externalIdTargets[key];
+        if (label == null || target == null) return;
+        if (apply[label] == true) target.text = value;
+      });
     });
     if (apply["背景"] == true && heroUrl.isNotEmpty) {
       await _stageImageFromUrl(heroUrl, cover: false);
@@ -4033,9 +4054,22 @@ bool _metadataTagsEqual(
   return true;
 }
 
+/// Platform anchors returned by aggregated sources, keyed by source token.
+Map<String, String> _metadataExternalIds(Map<String, dynamic> result) {
+  final raw = result["external_ids"];
+  if (raw is! Map) return const {};
+  final ids = <String, String>{};
+  raw.forEach((key, value) {
+    final id = value?.toString().trim() ?? "";
+    if (id.isNotEmpty) ids[key.toString()] = id;
+  });
+  return ids;
+}
+
 String? _metadataSourceIdLabel(String sourceKey) {
   switch (sourceKey) {
     case "vndb_kana":
+    case "vndb":
       return "VNDB ID";
     case "bangumi":
       return "Bangumi ID";

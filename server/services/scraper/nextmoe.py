@@ -21,10 +21,11 @@ logger = logging.getLogger(__name__)
 NEXTMOE_API_BASE = "https://api.nextmoe.dev/v2"
 NEXTMOE_USER_AGENT = "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)"
 
-_LIST_INCLUDE = "titles,companies,intros,covers,tags,ratings"
+_LIST_INCLUDE = "titles,refs,companies,intros,covers,tags,ratings"
 _DETAIL_INCLUDE = "screenshots"
 _SEARCH_LIMIT = 5
 _DETAIL_ENRICH_LIMIT = 3
+_EXTERNAL_ID_SOURCES = {"vndb", "bangumi", "steam"}
 _CHINESE_LANGS = ("zh-hans", "zh-cn", "zh-sg", "zh")
 # Maker roles share the top rank so circle/brand credits beat a publisher.
 _COMPANY_ROLE_RANK = {
@@ -219,6 +220,7 @@ def _parse_work(item: dict) -> ScraperResult | None:
         release_date=_normalize_date(item.get("release_date")),
         cover_url=primary_cover or (cover_urls[0] if cover_urls else ""),
         cover_urls=cover_urls,
+        external_ids=_external_ids(item),
         hero_url=_image_url(item.get("banner")),
         screenshot_urls=_image_urls(item.get("screenshots")),
         source_id=work_id,
@@ -368,6 +370,54 @@ def _intro_lang(entry: dict) -> str:
         lang = str(entry.get(key) or "").strip().lower()
         if lang:
             return lang
+    return ""
+
+
+def _external_ids(item: dict) -> dict[str, str]:
+    """Map the work's identity anchors to the id columns we store."""
+    ids: dict[str, str] = {}
+    for source, external_id in _ref_rows(item.get("refs")):
+        key = source.strip().lower()
+        if key not in _EXTERNAL_ID_SOURCES or not external_id or key in ids:
+            continue
+        ids[key] = external_id
+    return ids
+
+
+def _ref_rows(value) -> list[tuple[str, str]]:
+    """Anchors arrive as `source:external_id` strings or as rows."""
+    rows: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        for source, entry in value.items():
+            rows.append((str(source or ""), _ref_id(entry)))
+        return rows
+    if not isinstance(value, list):
+        return []
+    for entry in value:
+        if isinstance(entry, str):
+            source, _, external_id = entry.partition(":")
+            rows.append((source, external_id.strip()))
+        elif isinstance(entry, dict):
+            rows.append(
+                (
+                    _first_text(entry, ("source", "kind", "type", "provider")),
+                    _ref_id(entry),
+                )
+            )
+    return rows
+
+
+def _ref_id(value) -> str:
+    if isinstance(value, dict):
+        return _first_text(value, ("external_id", "id", "value", "slug"))
+    return str(value or "").strip()
+
+
+def _first_text(entry: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        text = str(entry.get(key) or "").strip()
+        if text:
+            return text
     return ""
 
 

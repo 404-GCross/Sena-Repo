@@ -247,6 +247,7 @@ async def search_candidates(
             "results": [
                 {"title": r.title, "cover_url": r.cover_url, "hero_url": r.hero_url,
                  "covers": r.cover_urls, "screenshots": r.screenshot_urls,
+                 "external_ids": r.external_ids,
                  "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
                  "is_nsfw": r.is_nsfw,
@@ -326,8 +327,8 @@ async def scrape_apply(
         game.description = description[:2000]
     if release_date:
         game.release_date = release_date
-    if is_nsfw is True:
-        game.is_nsfw = True
+    if is_nsfw is not None:
+        game.is_nsfw = bool(is_nsfw)
     sfx = ""
     sf = {
         "vndb_kana": "vndb_id",

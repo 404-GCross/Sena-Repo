@@ -653,8 +653,8 @@ async def _apply_result(
         query=result.title or game.name,
         stage="apply_metadata",
     )
-    if result.is_nsfw is True and not game.is_nsfw:
-        game.is_nsfw = True
+    if result.is_nsfw is not None and (overwrite or not game.is_nsfw):
+        game.is_nsfw = result.is_nsfw
         session.add(game)
 
     if not images_only:
@@ -689,6 +689,13 @@ async def _apply_result(
         if col and result.source_id and (overwrite or not getattr(game, col, None)):
             setattr(game, col, result.source_id)
             session.add(game)
+        for anchor, external_id in result.external_ids.items():
+            anchor_col = _id_map.get(anchor)
+            if not anchor_col or not external_id:
+                continue
+            if overwrite or not getattr(game, anchor_col, None):
+                setattr(game, anchor_col, external_id)
+                session.add(game)
         if replace_tags is True and not result.tags:
             await _clear_game_tags(session, game)
         if result.tags:

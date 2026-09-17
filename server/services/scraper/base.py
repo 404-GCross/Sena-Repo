@@ -57,6 +57,7 @@ class ScraperResult:
     hero_url: str = ""   # wide landscape banner (Steam header.jpg, etc.)
     cover_urls: list[str] = field(default_factory=list)  # cover candidates for picker
     screenshot_urls: list[str] = field(default_factory=list)  # all screenshots for picker
+    external_ids: dict[str, str] = field(default_factory=dict)  # vndb/bangumi/steam anchors
     source_id: str = ""
     source_name: str = ""
     length: int = 0         # VNDB length category 1-5
