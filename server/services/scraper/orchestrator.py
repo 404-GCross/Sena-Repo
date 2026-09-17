@@ -653,7 +653,9 @@ async def _apply_result(
         query=result.title or game.name,
         stage="apply_metadata",
     )
-    if result.is_nsfw is not None and (overwrite or not game.is_nsfw):
+    # Only an explicit overwrite run may infer NSFW: the flag changes how
+    # covers render, and a fill-missing run cannot tell "unset" from "false".
+    if overwrite and result.is_nsfw is not None:
         game.is_nsfw = result.is_nsfw
         session.add(game)
 

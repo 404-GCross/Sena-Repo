@@ -2928,6 +2928,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
     useSearch["标签"] = !_metadataTagsEqual(currentTags, incomingTags);
     useSearch["封面"] = hasCoverDiff;
     useSearch["背景"] = hasHeroDiff;
+    // NSFW changes how covers are shown, so it needs an explicit opt-in
+    // instead of riding along with the other preselected fields.
+    useSearch["NSFW"] = false;
 
     final currentCoverUrl = _coverPath != null
         ? "$_baseUrl/api/files/covers${_coverPath!}?v=$_coverVersion"
