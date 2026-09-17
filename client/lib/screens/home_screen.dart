@@ -6,7 +6,6 @@ import "dart:io" show File, Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-import "package:shared_preferences/shared_preferences.dart";
 
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
@@ -736,13 +735,14 @@ class _HomeScreenState extends State<HomeScreen> {
       "steam",
       "nextmoe",
     ];
-    final prefs = await SharedPreferences.getInstance();
-    final defaultSources = allSrc
-        .where(
-          (source) =>
-              prefs.getBool("scrape_src_$source") ?? (source != "nextmoe"),
-        )
-        .toSet();
+    final api = context.read<GameProvider>().api;
+    // The scraper mode lives in the server settings (NextMoe is exclusive);
+    // fall back to the classic set when the server cannot be reached.
+    final enabled = await api.getEnabledScraperSources();
+    if (!mounted) return;
+    final defaultSources = enabled.isEmpty
+        ? allSrc.where((source) => source != "nextmoe").toSet()
+        : enabled.toSet();
     if (defaultSources.contains("nextmoe") && defaultSources.length > 1) {
       defaultSources.retainAll({"nextmoe"});
     }
@@ -827,7 +827,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final mode = (result["mode"] as String?) ?? "missing";
 
     try {
-      final api = context.read<GameProvider>().api;
       final resp = await http.post(Uri.parse("${api.baseUrl}/api/scrape/batch"),
           headers: {"Content-Type": "application/json", ...api.headers},
           body: jsonEncode({
