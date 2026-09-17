@@ -5216,9 +5216,12 @@ class _HeroBackgroundPickerDialogState
                         Expanded(
                           flex: 3,
                           child: Center(
-                            child: _HeroPreviewCard(
-                              url: selectedUrl,
-                              label: "当前预览：背景 ${_selectedIndex + 1}",
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 520),
+                              child: _HeroPreviewCard(
+                                url: selectedUrl,
+                                label: "当前预览：背景 ${_selectedIndex + 1}",
+                              ),
                             ),
                           ),
                         ),
@@ -5532,6 +5535,9 @@ class _HeroPreviewCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppGap.sm),
       color: cardBg(context),
       child: Column(
+        // Hug the content: the card is centred in the dialog, so it must not
+        // stretch to the full available height and leave a blank block below.
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Keep the frame at the ratio the app actually stores, so a 16:9
