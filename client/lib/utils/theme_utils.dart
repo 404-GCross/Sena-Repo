@@ -2,6 +2,24 @@
 
 import "package:flutter/material.dart";
 
+/// Family list used for every text style in the app.
+///
+/// The official Linux arm64 engine is built without fontconfig, and its
+/// fallback font manager returns no typeface for missing characters
+/// (`SkFontMgr_Custom::onMatchFamilyStyleCharacter` returns nullptr). Naming
+/// CJK families explicitly is the only way those builds can resolve Chinese
+/// glyphs, so the list is applied app-wide instead of per style.
+const List<String> appFontFamilyFallback = [
+  "Noto Sans CJK SC",
+  "Noto Sans CJK JP",
+  "Source Han Sans SC",
+  "WenQuanYi Zen Hei",
+  "WenQuanYi Micro Hei",
+  "Microsoft YaHei",
+  "PingFang SC",
+  "sans-serif",
+];
+
 // ── Colors ──
 
 Color appBackgroundTop(BuildContext context) =>

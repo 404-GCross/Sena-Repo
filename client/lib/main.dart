@@ -33,6 +33,7 @@ import "services/logger_service.dart";
 import "services/notification_service.dart";
 import "services/download_service.dart";
 import "utils/font_diagnostics.dart";
+import "utils/theme_utils.dart";
 
 Future<bool> _check7zAvailable() async {
   try {
@@ -181,6 +182,7 @@ Future<bool?> _showDisclaimer() async {
   final result = Completer<bool?>();
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
+    theme: ThemeData(fontFamilyFallback: appFontFamilyFallback),
     home: Builder(
       builder: (context) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -370,6 +372,7 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
             useMaterial3: true,
             visualDensity: VisualDensity.standard,
             scaffoldBackgroundColor: const Color(0xFFECEFF5),
+            fontFamilyFallback: appFontFamilyFallback,
             appBarTheme: const AppBarTheme(
               centerTitle: false,
               elevation: 0,
@@ -380,6 +383,7 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
                 color: Color(0xFF111827),
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
+                fontFamilyFallback: appFontFamilyFallback,
               ),
             ),
             cardTheme: CardThemeData(
@@ -438,7 +442,11 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
                 borderRadius: BorderRadius.circular(18),
               ),
               labelTextStyle: WidgetStateProperty.all(
-                const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  fontFamilyFallback: appFontFamilyFallback,
+                ),
               ),
             ),
             chipTheme: ChipThemeData(
