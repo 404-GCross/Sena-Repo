@@ -2773,20 +2773,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     final r = picked as Map<String, dynamic>;
 
-    // Step 2.5: If multiple screenshots, let user pick hero image.
-    final screenshots =
-        (r["screenshots"] as List<dynamic>?)?.cast<String>() ?? [];
-    if (screenshots.length > 1) {
-      final pickedHero = await _pickHeroImage(
-        screenshots,
-        sourceName: sources[src] ?? src,
-      );
-      if (pickedHero != null) {
-        r["hero_url"] = pickedHero;
-      }
-    }
-
-    // Step 2.6: Sources that carry several covers (NextMoe, Hikarinagi) let
+    // Step 2.5: Sources that carry several covers (NextMoe, Hikarinagi) let
     // the user pick which one to apply.
     final coverCandidates =
         (r["covers"] as List<dynamic>?)?.cast<String>() ?? [];
@@ -2797,6 +2784,19 @@ class _GameEditScreenState extends State<GameEditScreen> {
       );
       if (pickedCover != null) {
         r["cover_url"] = pickedCover;
+      }
+    }
+
+    // Step 2.6: If multiple screenshots, let user pick hero image.
+    final screenshots =
+        (r["screenshots"] as List<dynamic>?)?.cast<String>() ?? [];
+    if (screenshots.length > 1) {
+      final pickedHero = await _pickHeroImage(
+        screenshots,
+        sourceName: sources[src] ?? src,
+      );
+      if (pickedHero != null) {
+        r["hero_url"] = pickedHero;
       }
     }
 
