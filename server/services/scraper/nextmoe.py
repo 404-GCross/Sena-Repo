@@ -12,6 +12,7 @@ from .base import (
     ScrapedTag,
     ScraperResult,
     clean_title,
+    cover_candidates,
     pick_best_scraper_result,
 )
 
@@ -203,12 +204,18 @@ def _parse_work(item: dict) -> ScraperResult | None:
     title = _work_title(item)
     if not work_id and not title:
         return None
+    primary_cover = _image_url(item.get("cover"))
+    cover_urls = cover_candidates(
+        _cover_rows(item.get("covers")),
+        primary=primary_cover,
+    )
     return ScraperResult(
         title=title,
         developer=_companies_label(item),
         description=_work_description(item),
         release_date=_normalize_date(item.get("release_date")),
-        cover_url=_image_url(item.get("cover")),
+        cover_url=primary_cover or (cover_urls[0] if cover_urls else ""),
+        cover_urls=cover_urls,
         hero_url=_image_url(item.get("banner")),
         screenshot_urls=_image_urls(item.get("screenshots")),
         source_id=work_id,
@@ -322,6 +329,53 @@ def _image_urls(value) -> list[str]:
         if url and url not in urls:
             urls.append(url)
     return urls
+
+
+def _cover_rows(value) -> list[tuple[str, int, int, int]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[tuple[str, int, int, int]] = []
+    for entry in value:
+        url = _cover_row_url(entry)
+        if not url:
+            continue
+        width, height = _cover_row_size(entry)
+        rows.append((url, width, height, _cover_row_votes(entry)))
+    return rows
+
+
+def _cover_row_url(value) -> str:
+    url = _image_url(value)
+    if url:
+        return url
+    if isinstance(value, dict):
+        return _image_url(value.get("image")) or _image_url(value.get("media"))
+    return ""
+
+
+def _cover_row_size(value) -> tuple[int, int]:
+    if not isinstance(value, dict):
+        return (0, 0)
+    for candidate in (value, value.get("image"), value.get("media")):
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            width = int(candidate.get("width") or 0)
+            height = int(candidate.get("height") or 0)
+        except (TypeError, ValueError):
+            continue
+        if width > 0 and height > 0:
+            return (width, height)
+    return (0, 0)
+
+
+def _cover_row_votes(value) -> int:
+    if not isinstance(value, dict):
+        return 0
+    try:
+        return int(value.get("votes") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _content_rating_nsfw(item: dict) -> bool | None:

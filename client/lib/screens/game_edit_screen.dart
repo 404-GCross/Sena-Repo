@@ -2786,6 +2786,20 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
     }
 
+    // Step 2.6: Sources that carry several covers (NextMoe, Hikarinagi) let
+    // the user pick which one to apply.
+    final coverCandidates =
+        (r["covers"] as List<dynamic>?)?.cast<String>() ?? [];
+    if (coverCandidates.length > 1) {
+      final pickedCover = await _pickCoverImage(
+        coverCandidates,
+        sourceName: sources[src] ?? src,
+      );
+      if (pickedCover != null) {
+        r["cover_url"] = pickedCover;
+      }
+    }
+
     // Step 3: Preload cover image before showing comparison
     final coverUrl = (r["cover_url"] ?? "").toString();
     if (coverUrl.isNotEmpty) {
@@ -3048,6 +3062,31 @@ class _GameEditScreenState extends State<GameEditScreen> {
       context: context,
       builder: (ctx) => _HeroBackgroundPickerDialog(
         screenshots: screenshots,
+        sourceName: sourceName,
+      ),
+    );
+  }
+
+  Future<String?> _pickCoverImage(
+    List<String> covers, {
+    required String sourceName,
+  }) {
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+    if (isCompact) {
+      return showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => _CoverPickerSheet(
+          covers: covers,
+          sourceName: sourceName,
+        ),
+      );
+    }
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => _CoverPickerDialog(
+        covers: covers,
         sourceName: sourceName,
       ),
     );
@@ -5131,6 +5170,393 @@ String _metadataPreview(String text, int maxLength) {
   final normalized = text.trim().replaceAll(RegExp(r"\s+"), " ");
   if (normalized.length <= maxLength) return normalized;
   return "${normalized.substring(0, maxLength)}...";
+}
+
+class _CoverPickerHeader extends StatelessWidget {
+  final String sourceName;
+  final int count;
+  final bool compact;
+
+  const _CoverPickerHeader({
+    required this.sourceName,
+    required this.count,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: cs.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: Icon(Icons.image_outlined, size: 20, color: cs.primary),
+        ),
+        const SizedBox(width: AppGap.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "选择 $sourceName 封面",
+                style: compact
+                    ? AppText.title.copyWith(fontWeight: FontWeight.w800)
+                    : AppText.headline,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "该来源提供多张竖版封面，选一张应用到游戏。",
+                style: (compact ? AppText.caption : AppText.bodySmall)
+                    .copyWith(color: hintColor(context)),
+              ),
+            ],
+          ),
+        ),
+        AppStatusPill(
+          icon: Icons.collections_rounded,
+          label: "$count 张",
+          color: Colors.green,
+        ),
+      ],
+    );
+  }
+}
+
+class _CoverCandidateTile extends StatelessWidget {
+  final String url;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CoverCandidateTile({
+    required this.url,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: selected ? cs.primary : cardBorder(context),
+                  width: selected ? 2 : 1,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.network(
+                      url,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: placeholderBg(context),
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: placeholderIcon(context),
+                        ),
+                      ),
+                    ),
+                    if (selected)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            size: 13,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.caption.copyWith(
+              color: selected ? cs.primary : hintColor(context),
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CoverCandidateGrid extends StatelessWidget {
+  final List<String> covers;
+  final int selectedIndex;
+  final double tileWidth;
+  final double tileHeight;
+  final ValueChanged<int> onSelect;
+
+  const _CoverCandidateGrid({
+    required this.covers,
+    required this.selectedIndex,
+    required this.tileWidth,
+    required this.tileHeight,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: tileWidth,
+        mainAxisExtent: tileHeight,
+        crossAxisSpacing: AppGap.md,
+        mainAxisSpacing: AppGap.md,
+      ),
+      itemCount: covers.length,
+      itemBuilder: (context, index) => _CoverCandidateTile(
+        url: covers[index],
+        label: "封面 ${index + 1}",
+        selected: index == selectedIndex,
+        onTap: () => onSelect(index),
+      ),
+    );
+  }
+}
+
+class _CoverPickerActions extends StatelessWidget {
+  final VoidCallback onSkip;
+  final VoidCallback onApply;
+
+  const _CoverPickerActions({
+    required this.onSkip,
+    required this.onApply,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: AppActionButton(
+            icon: Icons.close_rounded,
+            label: "跳过",
+            color: hintColor(context),
+            onPressed: onSkip,
+          ),
+        ),
+        const SizedBox(width: AppGap.sm),
+        Expanded(
+          flex: 2,
+          child: AppActionButton(
+            icon: Icons.check_rounded,
+            label: "应用所选封面",
+            filled: true,
+            onPressed: onApply,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CoverPickerDialog extends StatefulWidget {
+  final List<String> covers;
+  final String sourceName;
+
+  const _CoverPickerDialog({
+    required this.covers,
+    required this.sourceName,
+  });
+
+  @override
+  State<_CoverPickerDialog> createState() => _CoverPickerDialogState();
+}
+
+class _CoverPickerDialogState extends State<_CoverPickerDialog> {
+  int _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final dialogWidth = size.width > 1008 ? 900.0 : size.width - 48;
+    final dialogHeight = size.height > 728 ? 660.0 : size.height - 48;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+                  child: _CoverPickerHeader(
+                    sourceName: widget.sourceName,
+                    count: widget.covers.length,
+                  ),
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                Expanded(
+                  child: _CoverCandidateGrid(
+                    covers: widget.covers,
+                    selectedIndex: _selectedIndex,
+                    tileWidth: 150,
+                    tileHeight: 240,
+                    onSelect: (index) =>
+                        setState(() => _selectedIndex = index),
+                  ),
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                  child: _CoverPickerActions(
+                    onSkip: () => Navigator.pop(context),
+                    onApply: () => Navigator.pop(
+                      context,
+                      widget.covers[_selectedIndex],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverPickerSheet extends StatefulWidget {
+  final List<String> covers;
+  final String sourceName;
+
+  const _CoverPickerSheet({
+    required this.covers,
+    required this.sourceName,
+  });
+
+  @override
+  State<_CoverPickerSheet> createState() => _CoverPickerSheetState();
+}
+
+class _CoverPickerSheetState extends State<_CoverPickerSheet> {
+  int _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final sheetHeight = size.height * (size.height < 720 ? 0.88 : 0.78);
+
+    return SafeArea(
+      top: false,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            height: sheetHeight,
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              border: Border(
+                top: BorderSide(color: cardBorder(context)),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: softShadowColor(context),
+                  blurRadius: 30,
+                  offset: const Offset(0, -10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: AppGap.sm),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: cs.outlineVariant,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+                    child: _CoverPickerHeader(
+                      sourceName: widget.sourceName,
+                      count: widget.covers.length,
+                      compact: true,
+                    ),
+                  ),
+                  Divider(height: 1, color: cardBorder(context)),
+                  Expanded(
+                    child: _CoverCandidateGrid(
+                      covers: widget.covers,
+                      selectedIndex: _selectedIndex,
+                      tileWidth: 130,
+                      tileHeight: 210,
+                      onSelect: (index) =>
+                          setState(() => _selectedIndex = index),
+                    ),
+                  ),
+                  Divider(height: 1, color: cardBorder(context)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    child: _CoverPickerActions(
+                      onSkip: () => Navigator.pop(context),
+                      onApply: () => Navigator.pop(
+                        context,
+                        widget.covers[_selectedIndex],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _HeroBackgroundPickerDialog extends StatefulWidget {

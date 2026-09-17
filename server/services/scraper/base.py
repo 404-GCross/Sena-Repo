@@ -55,6 +55,7 @@ class ScraperResult:
     release_date: str = ""
     cover_url: str = ""
     hero_url: str = ""   # wide landscape banner (Steam header.jpg, etc.)
+    cover_urls: list[str] = field(default_factory=list)  # cover candidates for picker
     screenshot_urls: list[str] = field(default_factory=list)  # all screenshots for picker
     source_id: str = ""
     source_name: str = ""
@@ -256,6 +257,33 @@ def pick_best_scraper_result(
     )
     score, _, result = ranked[0]
     return result if score >= min_score else None
+
+
+def cover_candidates(
+    rows: list[tuple[str, int, int, int]],
+    primary: str = "",
+    limit: int = 12,
+) -> list[str]:
+    """Order cover candidates for the picker.
+
+    Rows carry (url, width, height, votes). Portrait covers come first, most
+    voted first, and the source's base cover always leads.
+    """
+    portrait: list[tuple[int, str]] = []
+    others: list[str] = []
+    for url, width, height, votes in rows:
+        if not url:
+            continue
+        if width and height and height > width:
+            portrait.append((votes, url))
+        else:
+            others.append(url)
+    portrait.sort(key=lambda item: item[0], reverse=True)
+    ordered: list[str] = []
+    for url in [primary, *[item[1] for item in portrait], *others]:
+        if url and url not in ordered:
+            ordered.append(url)
+    return ordered[:limit]
 
 
 def rank_scraper_results(

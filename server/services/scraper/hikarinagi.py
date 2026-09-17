@@ -14,6 +14,7 @@ from .base import (
     ScrapedTag,
     ScraperResult,
     clean_title,
+    cover_candidates,
     pick_best_scraper_result,
 )
 
@@ -243,10 +244,12 @@ class HikarinagiScraper(BaseScraper):
         source_id = str(item.get("id") or "").strip()
         if not source_id:
             return None
+        cover_url = _media_url(item.get("cover"))
         return ScraperResult(
             title=(item.get("title") or item.get("subtitle") or "").strip(),
             developer=(item.get("developer") or "").strip(),
-            cover_url=_media_url(item.get("cover")),
+            cover_url=cover_url,
+            cover_urls=[cover_url] if cover_url else [],
             source_id=source_id,
             source_name=self.source_name,
             is_nsfw=bool(item.get("nsfw", False)),
@@ -268,6 +271,9 @@ class HikarinagiScraper(BaseScraper):
         covers = item.get("covers") if isinstance(item.get("covers"), list) else []
         images = item.get("images") if isinstance(item.get("images"), list) else []
         cover_url = _best_cover(covers) or (fallback.cover_url if fallback else "")
+        cover_urls = cover_candidates(_cover_rows(covers), primary=cover_url)
+        if not cover_urls and cover_url:
+            cover_urls = [cover_url]
         screenshots = [_media_url(img) for img in images]
         screenshots = [url for url in screenshots if url]
         hero_url = screenshots[0] if screenshots else ""
@@ -284,6 +290,7 @@ class HikarinagiScraper(BaseScraper):
                 item.get("release_date") or (fallback.release_date if fallback else "") or ""
             ),
             cover_url=cover_url,
+            cover_urls=cover_urls,
             hero_url=hero_url,
             screenshot_urls=screenshots,
             source_id=str(item.get("id") or (fallback.source_id if fallback else "") or "").strip(),
@@ -329,6 +336,33 @@ def _best_cover(covers: list) -> str:
         return ""
     best = max(candidates, key=_cover_votes)
     return _media_url(best)
+
+
+def _cover_rows(covers: list) -> list[tuple[str, int, int, int]]:
+    rows: list[tuple[str, int, int, int]] = []
+    for cover in covers:
+        url = _media_url(cover)
+        if not url:
+            continue
+        width, height = _cover_size(cover)
+        rows.append((url, width, height, _cover_votes(cover)))
+    return rows
+
+
+def _cover_size(cover) -> tuple[int, int]:
+    if not isinstance(cover, dict):
+        return (0, 0)
+    for candidate in (cover, cover.get("media"), cover.get("image")):
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            width = int(candidate.get("width") or 0)
+            height = int(candidate.get("height") or 0)
+        except (TypeError, ValueError):
+            continue
+        if width > 0 and height > 0:
+            return (width, height)
+    return (0, 0)
 
 
 def _cover_votes(cover: dict) -> int:
