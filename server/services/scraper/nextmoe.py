@@ -209,10 +209,13 @@ def _parse_work(item: dict) -> ScraperResult | None:
         _cover_rows(item.get("covers")),
         primary=primary_cover,
     )
+    description = _work_description(item)
+    if not description and item.get("intros"):
+        _log_unparsed_intros(item)
     return ScraperResult(
         title=title,
         developer=_companies_label(item),
-        description=_work_description(item),
+        description=description,
         release_date=_normalize_date(item.get("release_date")),
         cover_url=primary_cover or (cover_urls[0] if cover_urls else ""),
         cover_urls=cover_urls,
@@ -287,25 +290,97 @@ def _companies_label(item: dict) -> str:
     return ", ".join(names[:3])
 
 
+_INTRO_TEXT_KEYS = ("intro", "text", "value", "description", "body", "content")
+_INTRO_LANG_KEYS = ("lang", "intro_lang", "language", "locale")
+
+
 def _work_description(item: dict) -> str:
-    intros = item.get("intros")
-    if not isinstance(intros, list):
-        return ""
-    fallback = ""
-    for entry in intros:
-        if isinstance(entry, str):
-            text, lang = entry.strip(), ""
-        elif isinstance(entry, dict):
-            text = str(entry.get("intro") or entry.get("text") or "").strip()
-            lang = str(entry.get("lang") or "").strip().lower()
-        else:
-            continue
+    """Pick the best intro row.
+
+    The API serves one row per language, machine translations are flagged
+    rather than hidden, so authored rows win and Chinese comes first.
+    """
+    authored_zh = ""
+    machine_zh = ""
+    authored = ""
+    machine = ""
+    for lang, text, is_machine in _intro_rows(item.get("intros")):
         if not text:
             continue
         if lang.startswith("zh"):
-            return text[:2000]
-        fallback = fallback or text
-    return fallback[:2000]
+            if is_machine:
+                machine_zh = machine_zh or text
+            else:
+                authored_zh = authored_zh or text
+        elif is_machine:
+            machine = machine or text
+        else:
+            authored = authored or text
+    best = authored_zh or machine_zh or authored or machine
+    return best[:2000]
+
+
+def _intro_rows(value) -> list[tuple[str, str, bool]]:
+    """Normalise the intro block, which arrives either as rows or as a map."""
+    if isinstance(value, dict):
+        rows: list[tuple[str, str, bool]] = []
+        for lang, entry in value.items():
+            if isinstance(entry, dict):
+                rows.append(
+                    (
+                        _intro_lang(entry) or str(lang or "").strip().lower(),
+                        _intro_text(entry),
+                        bool(entry.get("is_machine")),
+                    )
+                )
+            else:
+                rows.append(
+                    (str(lang or "").strip().lower(), str(entry or "").strip(), False)
+                )
+        return rows
+    if not isinstance(value, list):
+        return []
+    rows = []
+    for entry in value:
+        if isinstance(entry, str):
+            rows.append(("", entry.strip(), False))
+        elif isinstance(entry, dict):
+            rows.append(
+                (
+                    _intro_lang(entry),
+                    _intro_text(entry),
+                    bool(entry.get("is_machine")),
+                )
+            )
+    return rows
+
+
+def _intro_text(entry: dict) -> str:
+    for key in _INTRO_TEXT_KEYS:
+        text = str(entry.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _intro_lang(entry: dict) -> str:
+    for key in _INTRO_LANG_KEYS:
+        lang = str(entry.get(key) or "").strip().lower()
+        if lang:
+            return lang
+    return ""
+
+
+def _log_unparsed_intros(item: dict) -> None:
+    intros = item.get("intros")
+    first = intros[0] if isinstance(intros, list) and intros else intros
+    keys = sorted(first.keys()) if isinstance(first, dict) else None
+    logger.warning(
+        "NextMoe intro block unparsed: type=%s entry_type=%s entry_keys=%s",
+        type(intros).__name__,
+        type(first).__name__,
+        keys,
+    )
 
 
 def _image_url(value) -> str:
