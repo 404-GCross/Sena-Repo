@@ -89,6 +89,38 @@ jobs:
           name: 7zz-zstd-linux-x64
           path: /tmp/7zz-zstd-linux-x64/*
 
+  build-linux-arm64:
+    name: Linux ARM64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git file
+
+      - name: Clone 7-Zip-zstd source
+        run: |
+          git clone --depth 1 --branch "$SEVENZIP_ZSTD_REF" https://github.com/mcmilk/7-Zip-zstd.git /tmp/7zsrc
+          test -d /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          git -C /tmp/7zsrc rev-parse --short HEAD
+
+      - name: Build 7zz-zstd for linux arm64
+        run: |
+          cd /tmp/7zsrc/CPP/7zip/Bundles/Alone2
+          make -j$(nproc) -f makefile.gcc
+          mkdir -p /tmp/7zz-zstd-linux-arm64
+          cp _o/7zz /tmp/7zz-zstd-linux-arm64/7zz
+          cp /tmp/7zsrc/DOC/License.txt /tmp/7zz-zstd-linux-arm64/License.txt || printf 'See https://github.com/mcmilk/7-Zip-zstd for license details.\n' > /tmp/7zz-zstd-linux-arm64/License.txt
+          printf 'Built from mcmilk/7-Zip-zstd ref %s\nSource: https://github.com/mcmilk/7-Zip-zstd\n' "$SEVENZIP_ZSTD_REF" > /tmp/7zz-zstd-linux-arm64/NOTICE.txt
+          file /tmp/7zz-zstd-linux-arm64/7zz
+          sha256sum /tmp/7zz-zstd-linux-arm64/7zz > /tmp/7zz-zstd-linux-arm64/7zz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7zz-zstd-linux-arm64
+          path: /tmp/7zz-zstd-linux-arm64/*
+
   build-windows-x64:
     name: Windows x64
     runs-on: windows-latest
