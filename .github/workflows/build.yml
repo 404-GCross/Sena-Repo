@@ -454,6 +454,199 @@ jobs:
           name: Sena-Repo_Linux
           path: client/dist/Sena-Repo_Linux_*
 
+  # ── Linux (AppImage, ARM64) ─────────────────
+  # Official Flutter Linux SDK archives are x64-only and flutter_tools refuses to
+  # cross-build to linux-arm64, so bootstrap the toolchain from the pinned tag and
+  # let it fetch the arm64 Dart SDK and engine artifacts for the runner's host arch.
+  build-linux-arm64:
+    needs: [server-checks, flutter-analyze]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          V="dev-${GITHUB_SHA::7}"
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
+
+      - name: Sync dev version into source
+        run: |
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
+
+      - name: Checkout Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.44.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Bootstrap Flutter ARM64 toolchain
+        run: |
+          flutter --version
+          uname -m
+          ls -l "$RUNNER_TEMP/flutter/bin/cache/dart-sdk/bin/dart" || true
+          file "$RUNNER_TEMP/flutter/bin/cache/dart-sdk/bin/dart" || true
+          flutter precache --linux
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev zstd file imagemagick \
+            libayatana-appindicator3-dev libsecret-1-dev p7zip-full \
+            ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
+
+      - name: Copy bundled download tools (Linux ARM64)
+        run: |
+          mkdir -p assets/binaries
+          cp assets/binaries/7zip-zstd/Linux-arm64/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/linux-arm64/aria2c assets/binaries/aria2c
+          chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
+
+      - name: Enable Linux + generate platform files
+        run: |
+          flutter config --enable-linux-desktop
+          flutter create . --project-name sena_repo --org senarepo
+          # Remove template Android files that conflict with custom ones under com/github/senarepo
+          rm -rf android/app/src/main/kotlin/senarepo
+          python3 ../.github/scripts/patch_linux_runner_touch.py
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
+
+      - name: Build Linux
+        run: flutter build linux --release
+
+      - name: Bundle add_steam_game.py + vdf
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          cp ../server/add_steam_game.py "$BUNDLE/add_steam_game.py"
+          cp -r ../server/vdf "$BUNDLE/vdf"
+
+      - name: Bundle Linux runtime deps
+        run: bash ../.github/scripts/bundle_linux_runtime_deps.sh build/linux/arm64/release/bundle
+
+      # ── Prepare package directory ──
+      - name: Setup packaging
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          mkdir -p dist
+
+          # Desktop file + icon
+          mkdir -p "$BUNDLE/usr/share/applications"
+          cat > "$BUNDLE/usr/share/applications/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Game;Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+
+      # ── AppImage (universal) ──
+      - name: Build AppImage
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          APPDIR="SenaRepo.AppDir"
+          mkdir -p "$APPDIR" && cp -r "$BUNDLE"/* "$APPDIR/"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$APPDIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$APPDIR/sena-repo.png"
+          fi
+          cp "$APPDIR/sena-repo.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
+          cp "$APPDIR/sena-repo.png" "$APPDIR/.DirIcon"
+          cat > "$APPDIR/AppRun" << 'APPRUN'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/lib:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/sena_repo" "$@"
+          APPRUN
+          chmod +x "$APPDIR/AppRun"
+          cat > "$APPDIR/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-aarch64.AppImage
+          chmod +x appimagetool-aarch64.AppImage
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          ARCH=aarch64 ./appimagetool-aarch64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-aarch64.AppImage"
+          rm -rf "$APPDIR"
+
+      - name: Build Linux tarball
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          PKG="Sena-Repo_Linux_${VERSION}-aarch64"
+          rm -rf "$PKG"
+          mkdir -p "$PKG"
+          cp -a "$BUNDLE"/. "$PKG"/
+          tar -czf "dist/${PKG}.tar.gz" "$PKG"
+          rm -rf "$PKG"
+
+      - name: Build DEB and RPM packages
+        run: |
+          set -euo pipefail
+          BUNDLE=build/linux/arm64/release/bundle
+          STAGE="package-root"
+          APP_DIR="$STAGE/opt/sena-repo"
+          DESKTOP_DIR="$STAGE/usr/share/applications"
+          ICON_DIR="$STAGE/usr/share/icons/hicolor/256x256/apps"
+          rm -rf "$STAGE"
+          mkdir -p "$APP_DIR" "$DESKTOP_DIR" "$ICON_DIR"
+          cp -a "$BUNDLE"/. "$APP_DIR"/
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$ICON_DIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$ICON_DIR/sena-repo.png"
+          fi
+          cat > "$DESKTOP_DIR/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=/opt/sena-repo/sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Game;Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+          DEB_VERSION="0.0.0+${VERSION//-/.}"
+          RPM_RELEASE="0.${VERSION//[^A-Za-z0-9_+.]/.}"
+          fpm -s dir -t deb -n sena-repo -v "$DEB_VERSION" \
+            --architecture arm64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends libgtk-3-0 --depends libayatana-appindicator3-1 --depends libsecret-1-0 \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_arm64.deb" .
+          fpm -s dir -t rpm -n sena-repo -v "0.0.0" --iteration "$RPM_RELEASE" \
+            --architecture aarch64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_aarch64.rpm" .
+
+      - name: Upload Linux ARM64 packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Linux_arm64
+          path: client/dist/Sena-Repo_Linux_*
+
   # ── Docker Server Image ──────────────────────────
   build-server:
     needs: [server-checks, flutter-analyze]
