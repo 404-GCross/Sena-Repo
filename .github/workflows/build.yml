@@ -439,6 +439,7 @@ jobs:
             --url "https://github.com/404-GCross/Sena-Repo" \
             --maintainer "Sena Repo" \
             --depends libgtk-3-0 --depends libayatana-appindicator3-1 --depends libsecret-1-0 \
+            --depends fonts-noto-cjk \
             -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_amd64.deb" .
           fpm -s dir -t rpm -n sena-repo -v "0.0.0" --iteration "$RPM_RELEASE" \
             --architecture x86_64 \
@@ -446,7 +447,20 @@ jobs:
             --url "https://github.com/404-GCross/Sena-Repo" \
             --maintainer "Sena Repo" \
             --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
+            --depends google-noto-sans-cjk-fonts \
             -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_x86_64.rpm" .
+
+      - name: Verify package dependencies
+        run: |
+          set -euo pipefail
+          for deb in dist/*.deb; do
+            echo "== $deb"
+            dpkg-deb -f "$deb" Depends
+          done
+          for rpm in dist/*.rpm; do
+            echo "== $rpm"
+            rpm -qpR "$rpm" | grep -iE "font|gtk|secret" || true
+          done
 
       - name: Upload Linux packages
         uses: actions/upload-artifact@v4
@@ -632,6 +646,7 @@ jobs:
             --url "https://github.com/404-GCross/Sena-Repo" \
             --maintainer "Sena Repo" \
             --depends libgtk-3-0 --depends libayatana-appindicator3-1 --depends libsecret-1-0 \
+            --depends fonts-noto-cjk \
             -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_arm64.deb" .
           fpm -s dir -t rpm -n sena-repo -v "0.0.0" --iteration "$RPM_RELEASE" \
             --architecture aarch64 \
@@ -639,7 +654,20 @@ jobs:
             --url "https://github.com/404-GCross/Sena-Repo" \
             --maintainer "Sena Repo" \
             --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
+            --depends google-noto-sans-cjk-fonts \
             -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_aarch64.rpm" .
+
+      - name: Verify package dependencies
+        run: |
+          set -euo pipefail
+          for deb in dist/*.deb; do
+            echo "== $deb"
+            dpkg-deb -f "$deb" Depends
+          done
+          for rpm in dist/*.rpm; do
+            echo "== $rpm"
+            rpm -qpR "$rpm" | grep -iE "font|gtk|secret" || true
+          done
 
       - name: Upload Linux ARM64 packages
         uses: actions/upload-artifact@v4
@@ -835,6 +863,9 @@ jobs:
             printf '| `Sena-Repo_Linux_%s_aarch64.rpm` | Linux ARM64 Fedora/RHEL/openSUSE | ARM64 RPM 安装包 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_amd64_%s.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
+            printf '\n> [!NOTE]\n'
+            printf '>\n'
+            printf '> Linux 版依赖系统字体渲染中文：deb / rpm 安装包已把中文字体列为依赖；AppImage 与 tar.gz 用户如果界面上中文显示为空白，请自行安装中文字体（Fedora/RHEL: `google-noto-sans-cjk-fonts`，Debian/Ubuntu: `fonts-noto-cjk`）。\n'
           } > release_notes.md
 
       - name: Move dev pre-release tag
