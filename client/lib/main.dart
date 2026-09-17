@@ -32,7 +32,6 @@ import "services/tray_service.dart";
 import "services/logger_service.dart";
 import "services/notification_service.dart";
 import "services/download_service.dart";
-import "utils/font_diagnostics.dart";
 import "utils/theme_utils.dart";
 
 Future<bool> _check7zAvailable() async {
@@ -167,15 +166,9 @@ void main() {
     }
 
     runApp(const SenaRepoApp());
-    unawaited(_runFontDiagnostics());
   }, (error, stackTrace) {
     LoggerService().error("Uncaught zone error", error, stackTrace);
   });
-}
-
-Future<void> _runFontDiagnostics() async {
-  await Future<void>.delayed(const Duration(seconds: 2));
-  await logFontDiagnostics();
 }
 
 Future<bool?> _showDisclaimer() async {
