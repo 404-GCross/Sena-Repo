@@ -721,7 +721,7 @@ jobs:
   # ── Publish Dev Pre-Release ─────────────────────
   publish-dev-pre-release:
     if: github.event_name != 'pull_request'
-    needs: [build-android, build-windows, build-linux, build-server]
+    needs: [build-android, build-windows, build-linux, build-linux-arm64, build-server]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -775,6 +775,10 @@ jobs:
           require_one "Linux tarball" "Sena-Repo_Linux_${VERSION}-x86_64.tar.gz"
           require_one "Linux DEB package" "Sena-Repo_Linux_${VERSION}_amd64.deb"
           require_one "Linux RPM package" "Sena-Repo_Linux_${VERSION}_x86_64.rpm"
+          require_one "Linux ARM64 AppImage" "Sena-Repo_Linux_${VERSION}-aarch64.AppImage"
+          require_one "Linux ARM64 tarball" "Sena-Repo_Linux_${VERSION}-aarch64.tar.gz"
+          require_one "Linux ARM64 DEB package" "Sena-Repo_Linux_${VERSION}_arm64.deb"
+          require_one "Linux ARM64 RPM package" "Sena-Repo_Linux_${VERSION}_aarch64.rpm"
           require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
           require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
 
@@ -825,6 +829,10 @@ jobs:
             printf '| `Sena-Repo_Linux_%s-x86_64.tar.gz` | Linux | Linux 通用压缩包，解压运行 |\n' "$VERSION"
             printf '| `Sena-Repo_Linux_%s_amd64.deb` | Linux Debian/Ubuntu | DEB 安装包 |\n' "$VERSION"
             printf '| `Sena-Repo_Linux_%s_x86_64.rpm` | Linux Fedora/RHEL/openSUSE | RPM 安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s-aarch64.AppImage` | Linux ARM64 | Linux ARM64 AppImage 客户端 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s-aarch64.tar.gz` | Linux ARM64 | Linux ARM64 通用压缩包，解压运行 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_arm64.deb` | Linux ARM64 Debian/Ubuntu | ARM64 DEB 安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_aarch64.rpm` | Linux ARM64 Fedora/RHEL/openSUSE | ARM64 RPM 安装包 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_amd64_%s.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
           } > release_notes.md
