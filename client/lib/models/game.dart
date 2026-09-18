@@ -88,6 +88,7 @@ class GameSummary {
   final String name;
   final String? companyName;
   final String? developer;
+  final String? alias;
   final String folderPath;
   final String entrySource;
   final String? coverPath;
@@ -103,6 +104,7 @@ class GameSummary {
     required this.name,
     this.companyName,
     this.developer,
+    this.alias,
     required this.folderPath,
     this.entrySource = "library",
     this.coverPath,
@@ -120,6 +122,7 @@ class GameSummary {
       name: json["name"] ?? "",
       companyName: json["company_name"],
       developer: json["developer"],
+      alias: json["alias"],
       folderPath: json["folder_path"] ?? "",
       entrySource: json["entry_source"]?.toString() ?? "library",
       coverPath: json["cover_path"],
@@ -144,6 +147,7 @@ class GameDetail {
   final String? bgPath;
   final bool isNsfw;
   final String? developer;
+  final String? alias;
   final String? description;
   final String? releaseDate;
   final String? vndbId;
@@ -169,6 +173,7 @@ class GameDetail {
     this.bgPath,
     this.isNsfw = false,
     this.developer,
+    this.alias,
     this.description,
     this.releaseDate,
     this.vndbId,
@@ -196,6 +201,7 @@ class GameDetail {
       bgPath: json["bg_path"],
       isNsfw: json["is_nsfw"] == true,
       developer: json["developer"],
+      alias: json["alias"],
       description: json["description"],
       releaseDate: json["release_date"],
       vndbId: json["vndb_id"],

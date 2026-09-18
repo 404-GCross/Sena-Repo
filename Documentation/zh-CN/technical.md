@@ -84,7 +84,7 @@ Game ──► GameVersion
   ├─ GameTag ──► Tag
   ├─ RootDirectory（多对一）
   ├─ cover_path, bg_path
-  ├─ developer, description
+  ├─ developer, alias, description
   └─ vndb_id, steam_id, bangumi_id
 
 RootDirectory

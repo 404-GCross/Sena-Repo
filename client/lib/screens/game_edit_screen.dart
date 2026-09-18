@@ -33,6 +33,7 @@ class GameEditScreen extends StatefulWidget {
 class _GameEditScreenState extends State<GameEditScreen> {
   late final TextEditingController _name,
       _dev,
+      _alias,
       _desc,
       _date,
       _vndb,
@@ -95,6 +96,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
     _name = TextEditingController(text: g.name);
     _dev = TextEditingController(text: g.developer ?? "");
+    _alias = TextEditingController(text: g.alias ?? "");
     _desc = TextEditingController(text: g.description ?? "");
     _date = TextEditingController(text: g.releaseDate ?? "");
     _vndb = TextEditingController(text: g.vndbId ?? "");
@@ -105,6 +107,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _notes = TextEditingController();
     for (final controller in [
       _dev,
+      _alias,
       _desc,
       _date,
       _vndb,
@@ -253,6 +256,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       final body = {
         "name": _name.text.trim(),
         "developer": _dev.text.trim(),
+        "alias": _alias.text.trim(),
         "description": _desc.text.trim(),
         "release_date": _date.text.trim(),
         "bg_path": _bgUrl.text.trim(),
@@ -1425,6 +1429,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
               ),
               const SizedBox(height: 14),
               _mobileTextField(
+                "别名",
+                _alias,
+                icon: Icons.alt_route_outlined,
+                hintText: "用于搜索与排序，可留空",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
                 "发售日",
                 _date,
                 icon: Icons.calendar_today_outlined,
@@ -2235,6 +2246,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
           ),
           _divider(),
           _field(
+            "别名",
+            _alias,
+            icon: Icons.alt_route,
+            sourceId: null,
+          ),
+          _divider(),
+          _field(
             "发售日",
             _date,
             icon: Icons.calendar_today,
@@ -3025,6 +3043,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   void dispose() {
     for (final controller in [
       _dev,
+      _alias,
       _desc,
       _date,
       _vndb,
@@ -3037,6 +3056,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
     _name.dispose();
     _dev.dispose();
+    _alias.dispose();
     _desc.dispose();
     _date.dispose();
     _vndb.dispose();

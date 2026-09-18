@@ -550,6 +550,24 @@ class _HomeScreenState extends State<HomeScreen> {
                     RadioListTile<String>(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
+                      title: const Text("别名 A → Z"),
+                      value: "alias",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("alias")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("别名 Z → A"),
+                      value: "alias_desc",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("alias_desc")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
                       title: const Text("会社 A → Z"),
                       value: "developer",
                       groupValue: gameProvider.sortBy,

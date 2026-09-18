@@ -80,6 +80,7 @@ def _game_to_summary(game: Game) -> GameSummary:
         name=game.name,
         company_name=game.company.name if game.company else None,
         developer=game.developer,
+        alias=game.alias,
         folder_path=game.folder_path,
         entry_source=_entry_source(game),
         cover_path=game.cover_path,
@@ -108,7 +109,8 @@ async def list_games(
     """List games with optional filters and sorting.
 
     Filters: tag, platform, root_id, developer, has_cover
-    Sort options: imported (default), name, name_desc, company, developer, developer_desc
+    Sort options: imported (default), name, name_desc, alias, alias_desc,
+    company, developer, developer_desc
     """
     query = (
         select(Game)
@@ -155,6 +157,16 @@ async def list_games(
         query = query.order_by(Game.name.asc(), Game.imported_at.desc())
     elif sort == "name_desc":
         query = query.order_by(Game.name.desc())
+    elif sort == "alias":
+        query = query.order_by(
+            func.lower(func.coalesce(func.nullif(Game.alias, ""), Game.name)).asc(),
+            Game.name.asc(),
+        )
+    elif sort == "alias_desc":
+        query = query.order_by(
+            func.lower(func.coalesce(func.nullif(Game.alias, ""), Game.name)).desc(),
+            Game.name.asc(),
+        )
     else:
         query = query.order_by(Game.imported_at.desc())
 
@@ -176,7 +188,7 @@ async def search_games(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Search games by name, folder path, or tag."""
+    """Search games by name, alias, folder path, or tag."""
     query = (
         select(Game)
         .where(Game.is_deleted == False)
@@ -187,11 +199,12 @@ async def search_games(
         )
     )
 
-    # Full-text-ish search across name, folder_path, and tag names
+    # Full-text-ish search across name, alias, folder_path, and tag names
     search_term = f"%{q}%"
     query = query.where(
         or_(
             Game.name.ilike(search_term),
+            Game.alias.ilike(search_term),
             Game.folder_path.ilike(search_term),
             Game.tags.any(
                 GameTag.tag.has(Tag.name.ilike(search_term))
@@ -250,6 +263,7 @@ async def get_game(
         bg_path=game.bg_path,
         is_nsfw=bool(game.is_nsfw),
         developer=game.developer,
+        alias=game.alias,
         description=game.description,
         release_date=game.release_date,
         vndb_id=game.vndb_id,
@@ -609,6 +623,7 @@ async def create_game(
 class GameUpdate(BaseModel):
     name: str | None = None
     developer: str | None = None
+    alias: str | None = None
     description: str | None = None
     release_date: str | None = None
     bg_path: str | None = None
@@ -642,6 +657,9 @@ async def update_game(
     data = body.model_dump(exclude_unset=True)
     tag_names = data.pop("tag_names", None)
     tag_source = data.pop("tag_source", None)
+    if "alias" in data:
+        alias = str(data.pop("alias") or "").strip()[:512]
+        game.alias = alias or None
     for field, value in data.items():
         setattr(game, field, value)
     if tag_names is not None:

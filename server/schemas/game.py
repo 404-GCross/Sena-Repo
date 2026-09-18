@@ -29,6 +29,7 @@ class GameSummary(BaseModel):
     name: str
     company_name: str | None = None
     developer: str | None = None
+    alias: str | None = None
     folder_path: str
     entry_source: str = "library"
     cover_path: str | None = None
@@ -54,6 +55,7 @@ class GameDetail(BaseModel):
     bg_path: str | None = None
     is_nsfw: bool = False
     developer: str | None = None
+    alias: str | None = None
     description: str | None = None
     release_date: str | None = None
     vndb_id: str | None = None

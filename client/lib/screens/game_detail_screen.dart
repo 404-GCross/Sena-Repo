@@ -507,6 +507,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           ),
                                           _divider(),
                                           _infoRow(
+                                            "别名",
+                                            game.alias,
+                                            Icons.alt_route,
+                                          ),
+                                          _divider(),
+                                          _infoRow(
                                             "发售日",
                                             game.releaseDate,
                                             Icons.calendar_today,
@@ -691,6 +697,12 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                       "开发商",
                                       game.developer,
                                       Icons.business,
+                                    ),
+                                    _divider(),
+                                    _infoRow(
+                                      "别名",
+                                      game.alias,
+                                      Icons.alt_route,
                                     ),
                                     _divider(),
                                     _infoRow(
@@ -1299,6 +1311,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
           child: Column(
             children: [
               _desktopInfoRow("开发商", game.developer),
+              _desktopInfoRow("别名", game.alias),
               _desktopInfoRow("发售日", game.releaseDate),
               _desktopInfoRow("平均时长", _formatPlaytime(game)),
               _desktopInfoRow("平台", platforms),

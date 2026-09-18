@@ -100,6 +100,8 @@ async def create_tables():
                    OR folder_path LIKE 'metadata://%'
                 """
             )
+        if "alias" not in game_columns:
+            await conn.exec_driver_sql("ALTER TABLE games ADD COLUMN alias VARCHAR(512)")
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
         if "extract_password" not in version_columns:
