@@ -21,7 +21,7 @@ from models.game import Game, GameTag
 from models.scrape_job import JobStatus, ScrapeJob
 from models.tag import Tag
 
-from .base import BaseScraper, ScrapedTag, ScraperResult, clean_title
+from .base import BaseScraper, ScrapedTag, ScraperResult, build_alias_value, clean_title
 from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
 from .bangumi import BangumiScraper
 from .steam import SteamScraper
@@ -315,6 +315,7 @@ async def _reuse_existing_metadata(
             "hikarinagi_id",
             "length",
             "length_minutes",
+            "alias",
         ):
             if getattr(game, attr, None):
                 continue
@@ -680,6 +681,14 @@ async def _apply_result(
         ):
             game.length_minutes = result.length_minutes
             session.add(game)
+        if result.aliases and (overwrite or not game.alias):
+            alias_value = build_alias_value(
+                result.aliases,
+                exclude=(game.name, result.title),
+            )
+            if alias_value:
+                game.alias = alias_value
+                session.add(game)
         # Source ID — map scraper to game ID column
         _id_map = {
             "vndb_kana": "vndb_id",

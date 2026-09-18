@@ -13,6 +13,7 @@ from .base import (
     ScraperResult,
     clean_title,
     cover_candidates,
+    normalize_alias_key,
     pick_best_scraper_result,
 )
 
@@ -228,6 +229,7 @@ def _parse_work(item: dict) -> ScraperResult | None:
         source_name=NextMoeScraper.source_name,
         is_nsfw=_content_rating_nsfw(item),
         tags=_work_tags(item),
+        aliases=_title_aliases(item),
     )
 
 
@@ -265,6 +267,32 @@ def _localized_entry(entry) -> tuple[str, bool]:
         value = str(entry.get("value") or entry.get("text") or "").strip()
         return value, bool(entry.get("is_machine"))
     return "", False
+
+
+def _title_aliases(item: dict) -> list[str]:
+    """Collect alias-kind titles, machine translations last.
+
+    The titles block also carries official rows (already used as the display
+    title) and abbreviations, which are not aliases.
+    """
+    titles = item.get("titles")
+    if not isinstance(titles, list):
+        return []
+    authored: list[str] = []
+    machine: list[str] = []
+    for entry in titles:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("title_kind") or "").strip().lower() != "alias":
+            continue
+        target = machine if entry.get("is_machine") else authored
+        title_text = str(entry.get("title") or "").strip()
+        latin_text = str(entry.get("latin") or "").strip()
+        if title_text:
+            target.append(title_text)
+        if latin_text and normalize_alias_key(latin_text) != normalize_alias_key(title_text):
+            target.append(latin_text)
+    return authored + machine
 
 
 def _companies_label(item: dict) -> str:

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 VNDB_FIELDS = (
     "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
+    "aliases,"
     "image.url,image.sexual,screenshots.url,description,rating,released,"
     "length,length_minutes,"
     "developers.name,tags.name,tags.rating,tags.spoiler"
@@ -181,6 +182,12 @@ class VndbKanaScraper(BaseScraper):
             if str(t.get("name", "")).strip()
         ]
 
+        aliases = [
+            str(alias).strip()
+            for alias in (item.get("aliases") or [])
+            if str(alias or "").strip()
+        ]
+
         return ScraperResult(
             title=title,
             developer=developer,
@@ -195,6 +202,7 @@ class VndbKanaScraper(BaseScraper):
             length_minutes=(item.get("length_minutes") or 0),
             is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 2.0,
             tags=tag_items,
+            aliases=aliases,
         )
 
     def _pick_title(self, titles: list[dict]) -> str:

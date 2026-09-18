@@ -60,7 +60,8 @@ class GameProvider extends ChangeNotifier {
 
   String _aliasSortKey(GameSummary game) {
     final alias = (game.alias ?? "").trim();
-    return (alias.isEmpty ? game.name : alias).toLowerCase();
+    if (alias.isEmpty) return game.name.toLowerCase();
+    return alias.split("、").first.trim().toLowerCase();
   }
 
   List<Tag> get tags => _tags;

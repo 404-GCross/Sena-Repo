@@ -64,6 +64,7 @@ class ScraperResult:
     length_minutes: int = 0 # average play time in minutes
     is_nsfw: bool | None = None  # None means this source does not classify NSFW
     tags: list[ScrapedTag] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)  # alternative titles for search
 
 
 class BaseScraper(ABC):
@@ -311,3 +312,53 @@ def _looks_like_source_id(value: str) -> bool:
 def _normalize_number_group(value: str) -> str:
     normalized = value.lstrip("0")
     return normalized or "0"
+
+
+# ── Alias utilities ──
+
+ALIAS_SEPARATOR = "、"
+MAX_ALIASES = 5
+MAX_ALIAS_LENGTH = 200
+
+
+def normalize_alias_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
+def build_alias_value(
+    candidates: list[str],
+    exclude: tuple[str, ...] = (),
+    *,
+    limit: int = MAX_ALIASES,
+    max_length: int = MAX_ALIAS_LENGTH,
+) -> str:
+    """Deduplicate and join alias candidates for the single alias column."""
+    excluded = {normalize_alias_key(value) for value in exclude if value}
+    excluded.discard("")
+    seen: set[str] = set()
+    picked: list[str] = []
+    for raw in candidates:
+        text = re.sub(r"\s+", " ", str(raw or "")).strip()
+        if not text:
+            continue
+        key = normalize_alias_key(text)
+        if not key or key in excluded or key in seen or _is_noise_alias(key):
+            continue
+        seen.add(key)
+        picked.append(text)
+        if len(picked) >= limit:
+            break
+    result = ""
+    for text in picked:
+        merged = text if not result else f"{result}{ALIAS_SEPARATOR}{text}"
+        if len(merged) > max_length:
+            break
+        result = merged
+    return result
+
+
+def _is_noise_alias(key: str) -> bool:
+    if key.isdigit():
+        return True
+    return not any(ch.isalnum() for ch in key)

@@ -281,6 +281,11 @@ class HikarinagiScraper(BaseScraper):
         if nsfw_value is None and fallback is not None:
             nsfw_value = fallback.is_nsfw
         tags = _tags_from_detail(item)
+        aliases = [
+            alias.strip()
+            for alias in (item.get("aliases") or [])
+            if isinstance(alias, str) and alias.strip()
+        ]
 
         return ScraperResult(
             title=title.strip(),
@@ -297,6 +302,7 @@ class HikarinagiScraper(BaseScraper):
             source_name=self.source_name,
             is_nsfw=bool(nsfw_value) if nsfw_value is not None else None,
             tags=tags,
+            aliases=aliases,
         )
 
 

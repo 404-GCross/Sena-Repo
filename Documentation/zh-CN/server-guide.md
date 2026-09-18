@@ -455,6 +455,8 @@ scrapers:
 
 > 游戏时长来自 NextMoe 详情接口的 `playtimes` 块（多上游并列，服务端优先取 `nextmoe` 聚合行、否则取票数最多的行）。由于列表接口不返回该字段，只有单条目刮削（详情）会写入平均时长，批量刮削不会写入，也不额外请求详情。
 
+> 别名自动填充：VNDB（`aliases`）、Bangumi（infobox「别名」）、Hikarinagi（`aliases`）和 NextMoe（`titles` 中 `title_kind=alias`，不收缩写，机器翻译保留但排最后）会在刮削时提取别名，去重后以「、」拼接写入游戏别名（最多 5 条、200 字符）。「补全缺失」只填空，「覆盖」会替换已有别名；Steam 无别名数据。
+
 ---
 
 ## OpenList 文件源
