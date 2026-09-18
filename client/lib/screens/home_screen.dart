@@ -896,7 +896,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _srcLabel(String s) => switch (s) {
-        "vndb_kana" => "VNDB Kana v2",
+        "vndb_kana" => "VNDB",
         "bangumi" => "Bangumi",
         "steam" => "Steam",
         "hikarinagi" => "Hikarinagi",

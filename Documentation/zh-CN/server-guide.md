@@ -445,7 +445,7 @@ scrapers:
 
 | 刮削源 | 认证要求 | 说明 |
 |--------|---------|------|
-| VNDB Kana v2 | 可选 Token | 含游戏时长数据 |
+| VNDB | 可选 Token | 含游戏时长数据 |
 | Bangumi | 可选 Token | 中文元数据丰富 |
 | Steam | 免认证 | 封面、背景、简介 |
 | Hikarinagi | Client ID / Secret | 中文 Galgame 资料站 |

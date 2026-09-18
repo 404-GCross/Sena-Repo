@@ -26,7 +26,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   static const _scraperLabels = {
     "hikarinagi": "Hikarinagi",
-    "vndb_kana": "VNDB Kana v2",
+    "vndb_kana": "VNDB",
     "bangumi": "Bangumi",
     "steam": "Steam",
     "nextmoe": "NextMoe",
@@ -624,7 +624,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             index: 2,
             currentStep: _step,
             title: "刮削源",
-            subtitle: "Hikarinagi、VNDB Kana、Bangumi、Steam 顺序与凭据。",
+            subtitle: "Hikarinagi、VNDB、Bangumi、Steam 顺序与凭据。",
           ),
         ],
       ),
@@ -1271,7 +1271,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Widget _vndbCredentialsCard() {
     return _setupCard(
-      title: "VNDB Kana",
+      title: "VNDB",
       icon: Icons.translate_outlined,
       child: Column(
         children: [

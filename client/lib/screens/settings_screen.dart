@@ -1130,7 +1130,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "nextmoe",
   ];
   static const _scraperLabels = {
-    "vndb_kana": "VNDB Kana v2",
+    "vndb_kana": "VNDB",
     "bangumi": "Bangumi",
     "steam": "Steam",
     "hikarinagi": "Hikarinagi",
