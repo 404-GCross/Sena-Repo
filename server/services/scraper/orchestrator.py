@@ -38,8 +38,9 @@ _MAX_PROGRESS_TEXT_LENGTH = 512
 _UNSET = object()
 
 _VALID_SOURCES = {"vndb_kana", "vndb", "bangumi", "steam", "hikarinagi", "nextmoe"}
-# Average playtime is intentionally sourced from VNDB only.
-_PLAYTIME_SOURCES = {"vndb_kana", "vndb"}
+# Playtime metrics are only trusted from VNDB (category and minutes) and
+# NextMoe's aggregated minutes; other sources must not overwrite them.
+_PLAYTIME_SOURCES = {"vndb_kana", "vndb", "nextmoe"}
 
 
 def _safe_progress_text(value: object, *, limit: int = _MAX_PROGRESS_TEXT_LENGTH) -> str:

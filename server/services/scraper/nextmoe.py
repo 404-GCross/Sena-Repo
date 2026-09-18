@@ -22,7 +22,7 @@ NEXTMOE_API_BASE = "https://api.nextmoe.dev/v2"
 NEXTMOE_USER_AGENT = "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)"
 
 _LIST_INCLUDE = "titles,refs,companies,intros,covers,tags,ratings"
-_DETAIL_INCLUDE = "screenshots"
+_DETAIL_INCLUDE = "screenshots,playtimes"
 _SEARCH_LIMIT = 5
 _DETAIL_ENRICH_LIMIT = 3
 _EXTERNAL_ID_SOURCES = {"vndb", "bangumi", "steam"}
@@ -223,6 +223,7 @@ def _parse_work(item: dict) -> ScraperResult | None:
         external_ids=_external_ids(item),
         hero_url=_image_url(item.get("banner")),
         screenshot_urls=_image_urls(item.get("screenshots")),
+        length_minutes=_playtime_minutes(item),
         source_id=work_id,
         source_name=NextMoeScraper.source_name,
         is_nsfw=_content_rating_nsfw(item),
@@ -419,6 +420,51 @@ def _first_text(entry: dict, keys: tuple[str, ...]) -> str:
         if text:
             return text
     return ""
+
+
+def _playtime_minutes(item: dict) -> int:
+    """Collapse the multi-source playtimes block into a single average.
+
+    NextMoe keeps upstream values side by side instead of normalising them,
+    so prefer its own aggregate row and fall back to the most voted row.
+    """
+    rows = _playtime_rows(item.get("playtimes"))
+    for source, minutes, _ in rows:
+        if source == "nextmoe" and minutes > 0:
+            return minutes
+    best_minutes = 0
+    best_votes = -1
+    for _, minutes, votes in rows:
+        if minutes > 0 and votes > best_votes:
+            best_votes = votes
+            best_minutes = minutes
+    return best_minutes
+
+
+def _playtime_rows(value) -> list[tuple[str, int, int]]:
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    rows: list[tuple[str, int, int]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        rows.append(
+            (
+                str(entry.get("source") or "").strip().lower(),
+                _playtime_int(entry.get("minutes")),
+                _playtime_int(entry.get("vote_count")),
+            )
+        )
+    return rows
+
+
+def _playtime_int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _log_unparsed_intros(item: dict) -> None:
