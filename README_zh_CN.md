@@ -15,16 +15,14 @@
 
 ---
 ## 简介
-**Sena Repo** 是一款面向多平台的视觉小说私有库管理器，适合管理部署在远程服务器（如 NAS）上的游戏，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
-
-服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据<br>客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
+**Sena Repo** 是一款面向多平台的视觉小说私有库管理器，管理部署在远程服务器（如NAS或网盘）上的游戏，让使用者能方便地浏览、搜索、一键下载与安装自己的游戏收藏。
 
 Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的站点
 
 ## 主要功能
 
-- 🖼️ **更直接美观的资源库** — 扫描刮削分类您的视觉小说游戏文件，并在客户端排列显示
-- 🌐 **方便的下载安装** — 客户端能自动下载并解压到指定目录，并提供导入为steam第三方游戏与生成快捷方式的功能
+- 🖼️ **更直接美观的资源库** — 扫描刮削分类您的视觉小说游戏文件，并在客户端排列展示
+- 🌐 **方便的下载安装** — 客户端能一键自动下载并解压安装到指定目录，并提供导入为steam第三方游戏与生成快捷方式的功能
 - 🎮**Steam补丁注入** — 扫描刮削匹配补丁文件，为您在steam上购买的视觉小说游戏注入补丁
 
 
@@ -77,31 +75,15 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 快速开始
 
-服务端一键安装（稳定版 / `main`）：
+安装与使用教程已迁移至文档站：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/main/server/install.sh | sudo bash
-```
-
-开发版 / `dev`：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo SENA_REPO_REF=dev bash
-```
-
-已 `git clone` 的源码安装：
-
-```bash
-cd Sena-Repo/server
-sudo bash install.sh
-```
-
-| 文档 | 说明 |
+| 教程 | 内容 |
 |------|------|
-| **[服务端部署说明书](Documentation/zh-CN/server-guide.md)** | 服务端部署的教程，包含部署前准备，存储来源选择 |
-| **[客户端使用说明书](Documentation/zh-CN/client-guide.md)** | 安装（Windows / Android / Linux）、首次设置、游戏库浏览、下载解压、Steam 补丁注入操作 |
+| **[快速开始](https://sena-repo.github.io/guide/quick-start)** | 文件来源选择 → 服务端部署 → 客户端初始化，最短路径 |
+| **[服务端部署](https://sena-repo.github.io/server/)** | Docker / Docker Compose / 裸机一键安装与完整参数 |
+| **[客户端使用](https://sena-repo.github.io/client/)** | Windows / Android / Linux 安装、首次设置与日常操作 |
 
-附加文档：[技术文档](Documentation/zh-CN/technical.md) · [疑难杂症](Documentation/zh-CN/troubleshooting.md) · [功能测试表](Documentation/zh-CN/test-checklist.md)
+其他专题（Steam 补丁、元数据刮削、下载解压、疑难杂症、技术架构等）见 [文档站首页](https://sena-repo.github.io/)。
 
 ---
 

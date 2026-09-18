@@ -77,31 +77,15 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 快速开始
 
-服务端一键安装（稳定版 / `main`）：
+安装与使用教程已迁移至文档站：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/main/server/install.sh | sudo bash
-```
-
-开发版 / `dev`：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/404-GCross/Sena-Repo/dev/server/install.sh | sudo SENA_REPO_REF=dev bash
-```
-
-已 `git clone` 的源码安装：
-
-```bash
-cd Sena-Repo/server
-sudo bash install.sh
-```
-
-| 文档 | 说明 |
+| 教程 | 内容 |
 |------|------|
-| **[服务端部署说明书](Documentation/zh-CN/server-guide.md)** | 服务端部署的教程，包含部署前准备，存储来源选择 |
-| **[客户端使用说明书](Documentation/zh-CN/client-guide.md)** | 安装（Windows / Android / Linux）、首次设置、游戏库浏览、下载解压、Steam 补丁注入操作 |
+| **[快速开始](https://sena-repo.github.io/guide/quick-start)** | 文件来源选择 → 服务端部署 → 客户端初始化，最短路径 |
+| **[服务端部署](https://sena-repo.github.io/server/)** | Docker / Docker Compose / 裸机一键安装与完整参数 |
+| **[客户端使用](https://sena-repo.github.io/client/)** | Windows / Android / Linux 安装、首次设置与日常操作 |
 
-附加文档：[技术文档](Documentation/zh-CN/technical.md) · [疑难杂症](Documentation/zh-CN/troubleshooting.md) · [功能测试表](Documentation/zh-CN/test-checklist.md)
+其他专题（Steam 补丁、元数据刮削、下载解压、疑难杂症、技术架构等）见 [文档站首页](https://sena-repo.github.io/)。
 
 ---
 
