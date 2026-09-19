@@ -23,6 +23,12 @@ class SteamPatchScreen extends StatefulWidget {
 
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   int _tabIndex = 0; // 0=客户端, 1=服务端
+  bool _isAdmin = false;
+  String _clientQuery = "";
+  String _serverQuery = "";
+  final Set<String> _expandedKeys = {};
+  final TextEditingController _clientSearchCtrl = TextEditingController();
+  final TextEditingController _serverSearchCtrl = TextEditingController();
 
   // Client tab
   String? _commonDir;
@@ -46,6 +52,82 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   void initState() {
     super.initState();
     _loadSavedDir();
+    _loadIsAdmin();
+  }
+
+  Future<void> _loadIsAdmin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isAdmin = prefs.getBool("is_admin") ?? false;
+    if (mounted) setState(() => _isAdmin = isAdmin);
+  }
+
+  @override
+  void dispose() {
+    _clientSearchCtrl.dispose();
+    _serverSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _clientMatchHit(PatchMatch m, String query) {
+    return m.gameName.toLowerCase().contains(query) ||
+        m.installDir.toLowerCase().contains(query) ||
+        m.appId.toLowerCase().contains(query) ||
+        (m.label ?? "").toLowerCase().contains(query) ||
+        (m.patchFilename ?? "").toLowerCase().contains(query);
+  }
+
+  bool _serverPatchHit(Map<String, dynamic> p, String query) {
+    return [p["display_name"], p["label"], p["display_file"], p["file"], p["app_id"]]
+        .whereType<Object>()
+        .any((value) => value.toString().toLowerCase().contains(query));
+  }
+
+  Widget _buildSearchField({
+    required TextEditingController controller,
+    required String hint,
+    required ValueChanged<String> onChanged,
+  }) {
+    return SizedBox(
+      height: 36,
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        style: AppText.bodySmall,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: AppText.bodySmall.copyWith(color: hintColor(context)),
+          prefixIcon: const Icon(Icons.search_rounded, size: 18),
+          prefixIconConstraints:
+              const BoxConstraints(minWidth: 32, minHeight: 32),
+          suffixIcon: controller.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear_rounded, size: 16),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    controller.clear();
+                    onChanged("");
+                  },
+                )
+              : null,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          filled: true,
+          fillColor: cardBg(context).withValues(alpha: 0.6),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: cardBorder(context)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: cardBorder(context)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadSavedDir() async {
@@ -393,8 +475,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               AppSegmentedTabs(
                 selectedIndex: _tabIndex,
                 tabs: const [
-                  AppSegmentedTab(0, Icons.computer, "客户端注入"),
-                  AppSegmentedTab(1, Icons.dns_outlined, "服务端补丁库"),
+                  AppSegmentedTab(0, Icons.computer, "补丁注入"),
+                  AppSegmentedTab(1, Icons.dns_outlined, "补丁配置"),
                 ],
                 onChanged: (index) {
                   setState(() => _tabIndex = index);
@@ -403,11 +485,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   }
                 },
               ),
-              AppActionButton(
-                icon: Icons.manage_search,
-                label: "关键词匹配",
-                onPressed: _showKeywordsDialog,
-              ),
+              if (_isAdmin)
+                AppActionButton(
+                  icon: Icons.manage_search,
+                  label: "关键词匹配",
+                  onPressed: _showKeywordsDialog,
+                ),
             ],
           ),
           if (_tabIndex == 0)
@@ -520,6 +603,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Widget _buildClientResultPanel() {
+    final query = _clientQuery.trim().toLowerCase();
+    final available = query.isEmpty
+        ? _availablePatches
+        : _availablePatches.where((m) => _clientMatchHit(m, query)).toList();
+    final noPatch = query.isEmpty
+        ? _noPatchGames
+        : _noPatchGames.where((m) => _clientMatchHit(m, query)).toList();
     return AppSurface(
       padding: EdgeInsets.zero,
       child: Column(
@@ -530,8 +620,23 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             child: Row(
               children: [
                 Text("补丁匹配结果", style: AppText.title),
-                const Spacer(),
-                if (_matches.isNotEmpty)
+                const SizedBox(width: AppGap.sm),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: _buildSearchField(
+                        controller: _clientSearchCtrl,
+                        hint: "搜索游戏 / 补丁",
+                        onChanged: (value) =>
+                            setState(() => _clientQuery = value),
+                      ),
+                    ),
+                  ),
+                ),
+                if (_matches.isNotEmpty) ...[
+                  const SizedBox(width: AppGap.sm),
                   AppStatusPill(
                     icon: Icons.check_circle_outline,
                     label: "${_readyPatches.length}/${_availablePatches.length} 可直接注入",
@@ -539,6 +644,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                         ? Colors.green
                         : Colors.grey,
                   ),
+                ],
               ],
             ),
           ),
@@ -547,29 +653,37 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_matches.isEmpty)
             Expanded(child: _emptyClientState())
+          else if (available.isEmpty && noPatch.isEmpty)
+            Expanded(
+              child: Center(
+                child: Text("没有匹配的补丁",
+                    style:
+                        AppText.bodyMedium.copyWith(color: hintColor(context))),
+              ),
+            )
           else
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                 children: [
-                  if (_availablePatches.isNotEmpty) ...[
-                    _sectionHeader("已匹配补丁 (${_availablePatches.length})",
+                  if (available.isNotEmpty) ...[
+                    _sectionHeader("已匹配补丁 (${available.length})",
                         Icons.download, Colors.green),
-                    ..._availablePatches.map((m) => _gameCard(m)),
+                    ...available.map((m) => _gameCard(m)),
                   ],
-                  if (_noPatchGames.isNotEmpty) ...[
+                  if (noPatch.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     InkWell(
                       borderRadius: BorderRadius.circular(10),
                       onTap: () => setState(() => _showNoPatch = !_showNoPatch),
                       child: _sectionHeader(
-                        "暂无补丁 (${_noPatchGames.length})",
+                        "暂无补丁 (${noPatch.length})",
                         _showNoPatch ? Icons.expand_less : Icons.expand_more,
                         Colors.grey,
                       ),
                     ),
                     if (_showNoPatch)
-                      ..._noPatchGames.map((m) => _simpleCard(m)),
+                      ...noPatch.map((m) => _simpleCard(m)),
                   ],
                 ],
               ),
@@ -647,13 +761,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _gameCard(PatchMatch m) {
     final state = _injectState[m.appId];
-    final manualRules = m.analysisMode == "manual";
-    final ruleLabel = manualRules
-        ? (m.manifestReady ? "规则" : "配置规则")
-        : (m.manifestReady ? "规则" : "确认规则");
-    final injectLabel = m.manifestReady
-        ? "注入"
-        : (manualRules ? "配置后注入" : "确认后注入");
+    final canInject = m.manifestReady;
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
@@ -697,28 +805,31 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
                           minimumSize: Size.zero)),
-                  OutlinedButton.icon(
-                      onPressed: () => _showPatchTreeDialog(m, allowInject: true),
-                      icon: const Icon(Icons.rule_folder_outlined, size: 16),
-                      label: Text(ruleLabel,
-                          style: AppText.bodySmall
-                              .copyWith(fontWeight: FontWeight.w600)),
-                      style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          minimumSize: Size.zero)),
-                  FilledButton.tonalIcon(
-                      onPressed: m.manifestReady
-                          ? () => _startInjection(m)
-                          : () => _showPatchTreeDialog(m, allowInject: true),
-                      icon: const Icon(Icons.auto_fix_high, size: 16),
-                      label: Text(injectLabel,
-                          style: AppText.bodySmall
-                              .copyWith(fontWeight: FontWeight.w600)),
-                      style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          minimumSize: Size.zero)),
+                  if (canInject)
+                    FilledButton.tonalIcon(
+                        onPressed: () => _startInjection(m),
+                        icon: const Icon(Icons.auto_fix_high, size: 16),
+                        label: Text("注入",
+                            style: AppText.bodySmall
+                                .copyWith(fontWeight: FontWeight.w600)),
+                        style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            minimumSize: Size.zero))
+                  else
+                    Tooltip(
+                      message: "请在「补丁配置」配置规则后注入",
+                      child: FilledButton.tonalIcon(
+                          onPressed: null,
+                          icon: const Icon(Icons.auto_fix_high, size: 16),
+                          label: Text("规则待配置",
+                              style: AppText.bodySmall
+                                  .copyWith(fontWeight: FontWeight.w600)),
+                          style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 8),
+                              minimumSize: Size.zero)),
+                    ),
                 ])
           else if (state == "paused")
             Row(mainAxisSize: MainAxisSize.min, children: [
@@ -806,10 +917,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   m.manifestStatus,
                   manualRules: m.analysisMode == "manual",
                 ),
-                const SizedBox(width: 6),
-                Text(m.label ?? m.patchFilename ?? "",
-                    style: AppText.bodySmall.copyWith(
-                        color: Colors.green[700], fontWeight: FontWeight.w500)),
                 const Spacer(),
                 Text(_formatSize(m.patchSize),
                     style: AppText.bodySmall.copyWith(
@@ -919,35 +1026,37 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               Icon(Icons.dns_outlined,
                   color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: AppGap.sm),
-              Text("服务端补丁库", style: AppText.title),
+              Text("补丁配置", style: AppText.title),
             ],
           ),
           const SizedBox(height: AppGap.lg),
-          Wrap(
-            spacing: AppGap.sm,
-            runSpacing: AppGap.sm,
-            children: [
-              AppActionButton(
-                icon: Icons.refresh,
-                label: "加载索引",
-                onPressed: _serverLoading ? null : _loadServerPatches,
-                busy: _serverLoading,
-                filled: true,
-              ),
-              AppActionButton(
-                icon: Icons.folder,
-                label: "扫描补丁",
-                onPressed: _serverLoading ? null : _scanServerPatches,
-              ),
-              AppActionButton(
-                icon: Icons.search,
-                label: "批量刮削 ID",
-                onPressed: _serverLoading || _rescraping ? null : _rescrapeAll,
-                busy: _rescraping,
-              ),
-            ],
-          ),
-          const SizedBox(height: AppGap.lg),
+          if (_isAdmin) ...[
+            Wrap(
+              spacing: AppGap.sm,
+              runSpacing: AppGap.sm,
+              children: [
+                AppActionButton(
+                  icon: Icons.refresh,
+                  label: "加载索引",
+                  onPressed: _serverLoading ? null : _loadServerPatches,
+                  busy: _serverLoading,
+                  filled: true,
+                ),
+                AppActionButton(
+                  icon: Icons.folder,
+                  label: "扫描补丁",
+                  onPressed: _serverLoading ? null : _scanServerPatches,
+                ),
+                AppActionButton(
+                  icon: Icons.search,
+                  label: "批量刮削 ID",
+                  onPressed: _serverLoading || _rescraping ? null : _rescrapeAll,
+                  busy: _rescraping,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppGap.lg),
+          ],
           if (_serverStatus != null) _buildServerStatusBar(),
           const SizedBox(height: AppGap.lg),
           Wrap(
@@ -986,6 +1095,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Widget _buildServerResultPanel() {
+    final query = _serverQuery.trim().toLowerCase();
+    final patches = query.isEmpty
+        ? _serverPatches
+        : _serverPatches.where((p) => _serverPatchHit(p, query)).toList();
     return AppSurface(
       padding: EdgeInsets.zero,
       child: Column(
@@ -995,14 +1108,30 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
             child: Row(
               children: [
-                Text("服务端补丁库", style: AppText.title),
-                const Spacer(),
-                if (_serverLoaded)
+                Text("补丁配置", style: AppText.title),
+                const SizedBox(width: AppGap.sm),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: _buildSearchField(
+                        controller: _serverSearchCtrl,
+                        hint: "搜索补丁 / AppID",
+                        onChanged: (value) =>
+                            setState(() => _serverQuery = value),
+                      ),
+                    ),
+                  ),
+                ),
+                if (_serverLoaded) ...[
+                  const SizedBox(width: AppGap.sm),
                   AppStatusPill(
                     icon: Icons.inventory_2_outlined,
                     label: "${_serverPatches.length} 个补丁",
                     color: Theme.of(context).colorScheme.primary,
                   ),
+                ],
               ],
             ),
           ),
@@ -1026,12 +1155,19 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 ]),
               ),
             )
+          else if (patches.isEmpty)
+            Expanded(
+              child: Center(
+                child: Text("没有匹配的补丁",
+                    style:
+                        AppText.bodyMedium.copyWith(color: hintColor(context))),
+              ),
+            )
           else
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-                children:
-                    _serverPatches.map((p) => _serverPatchCard(p)).toList(),
+                children: patches.map((p) => _serverPatchCard(p)).toList(),
               ),
             ),
         ],
@@ -1048,11 +1184,33 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
+  Widget _patchDetailRow(String label, String? value) {
+    final text = (value == null || value.trim().isEmpty) ? "—" : value.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 72,
+          child: Text(label,
+              style: AppText.caption.copyWith(color: hintColor(context))),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SelectableText(text,
+              style: AppText.bodySmall.copyWith(
+                  color: text == "—" ? hintColor(context) : null)),
+        ),
+      ]),
+    );
+  }
+
   Widget _serverPatchCard(Map<String, dynamic> p) {
     final file = (p["file"] ?? "").toString();
     final displayFile = (p["display_file"] ?? file).toString();
     final lookupKey = (p["lookup_key"] ?? p["patch_id"] ?? file).toString();
     final label = (p["label"] ?? "").toString();
+    final displayName = (p["display_name"] ?? "").toString();
+    final steamName = (p["game_name"] ?? "").toString();
     final ptype = (p["type"] ?? "misc").toString();
     final patchDir = (p["patch_dir"] ?? "").toString();
     final targetDir = (p["target_dir"] ?? "").toString();
@@ -1063,6 +1221,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final analysisMode = (p["analysis_mode"] ?? "auto").toString();
     final locked = _lockedOverrides[lookupKey] ?? p["locked"] == true;
     final manualRules = analysisMode == "manual";
+    final expanded = _expandedKeys.contains(lookupKey);
+    final size = int.tryParse((p["size"] ?? "").toString()) ?? 0;
+    final sourcePath = (p["source_path"] ?? file).toString();
+    final sourceType = (p["source_type"] ?? "local").toString();
+    final sourceId = (p["source_id"] ?? "").toString();
+    final updatedAtRaw = (p["manifest_updated_at"] ?? "").toString();
+    final updatedAt = updatedAtRaw.isEmpty
+        ? ""
+        : updatedAtRaw.replaceFirst("T", " ").split(".").first;
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
     final badges = <Widget>[
       _typeBadge(ptype),
@@ -1075,6 +1242,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         ),
     ];
     final actions = <Widget>[
+      if (_isAdmin) ...[
       _patchRowAction(
         icon: Icons.manage_search_rounded,
         tooltip: "重新刮削 AppID",
@@ -1117,6 +1285,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         onPressed: () => _showEditDialog(PatchMatch(
             appId: appId,
             gameName: label.isNotEmpty ? label : displayFile.split("/").last,
+            steamName: steamName,
             installDir: "",
             patchAvailable: true,
             patchLookupKey: lookupKey,
@@ -1129,15 +1298,30 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             manifestStatus: manifestStatus,
             manifestReady: manifestStatus == "confirmed")),
       ),
+      ],
     ];
 
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.zero,
       radius: AppRadius.md,
-      // Wide rows group the badges with the buttons; narrow rows keep the badges
-      // next to the title so the action group stays a clean single control.
-      child: LayoutBuilder(builder: (context, constraints) {
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() {
+          if (expanded) {
+            _expandedKeys.remove(lookupKey);
+          } else {
+            _expandedKeys.add(lookupKey);
+          }
+        }),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          // Wide rows group the badges with the buttons; narrow rows keep the
+          // badges next to the title so the action group stays one control.
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LayoutBuilder(builder: (context, constraints) {
         final groupBadges = constraints.maxWidth >= 760;
         return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
@@ -1157,7 +1341,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
-                child: Text(label.isNotEmpty ? label : displayFile.split("/").last,
+                child: Text(
+                    displayName.isNotEmpty
+                        ? displayName
+                        : (label.isNotEmpty
+                            ? label
+                            : displayFile.split("/").last),
                     style: AppText.bodyMedium
                         .copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
@@ -1195,20 +1384,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                     style: AppText.caption
                         .copyWith(color: hintColor(context), fontSize: 10))),
           ]),
-          if (patchDir.isNotEmpty && targetDir.isNotEmpty)
-            Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(children: [
-                  Icon(Icons.folder_copy, size: 10, color: hintColor(context)),
-                  const SizedBox(width: 4),
-                  Expanded(
-                      child: Text("$patchDir → /$targetDir",
-                          style: AppText.caption
-                              .copyWith(color: hintColor(context)))),
-                ])),
         ])),
+        Icon(expanded ? Icons.expand_less : Icons.expand_more,
+            size: 20, color: hintColor(context)),
+        const SizedBox(width: 4),
         const SizedBox(width: AppGap.sm),
-        Container(
+        if (groupBadges || actions.isNotEmpty)
+          Container(
           decoration: BoxDecoration(
             color: cardBg(context).withValues(alpha: 0.55),
             borderRadius: BorderRadius.circular(12),
@@ -1229,18 +1411,41 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   ],
                 ),
               ),
-              Container(
-                width: 1,
-                height: 30,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                color: cardBorder(context),
-              ),
+              if (actions.isNotEmpty)
+                Container(
+                  width: 1,
+                  height: 30,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  color: cardBorder(context),
+                ),
             ],
             ...actions,
           ]),
         ),
         ]);
-      }),
+                }),
+                if (expanded) ...[
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: cardBorder(context)),
+                  const SizedBox(height: 10),
+                  _patchDetailRow("Steam AppID", appId),
+                  _patchDetailRow("Steam 名称", steamName),
+                  _patchDetailRow("文件大小", size > 0 ? _formatSize(size) : ""),
+                  _patchDetailRow(
+                      "注入规则",
+                      (patchDir.isNotEmpty || targetDir.isNotEmpty)
+                          ? "${patchDir.isEmpty ? "." : patchDir} → ${targetDir.isEmpty ? "." : targetDir}"
+                          : ""),
+                  _patchDetailRow("文件位置", sourcePath),
+                  _patchDetailRow("来源",
+                      sourceType == "openlist" ? "OpenList #$sourceId" : "本地"),
+                  _patchDetailRow("匹配游戏", matched),
+                  _patchDetailRow("分析模式", manualRules ? "手动规则" : "自动分析"),
+                  _patchDetailRow("规则更新", updatedAt),
+                ],
+              ]),
+        ),
+      ),
     );
   }
 
@@ -1248,6 +1453,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _showEditDialog(PatchMatch m) async {
     final labelCtrl = TextEditingController(text: m.label ?? "");
+    final gameNameCtrl = TextEditingController(text: m.steamName ?? "");
+    var gameNameDirty = false;
+    gameNameCtrl.addListener(() => gameNameDirty = true);
     final appIdCtrl = TextEditingController(
         text: m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty
             ? m.appId
@@ -1277,6 +1485,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                             hintText: "界面显示的补丁名",
                             isDense: true)),
                     const SizedBox(height: 10),
+                    TextField(
+                        controller: gameNameCtrl,
+                        decoration: const InputDecoration(
+                            labelText: "Steam 名称",
+                            hintText: "留空则回退到显示名称 / 文件名",
+                            isDense: true)),
+                    const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                         value: ptype,
                         items: _typeLabels.entries
@@ -1295,6 +1510,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                     onPressed: () => Navigator.pop(ctx, {
                           "app_id": appIdCtrl.text.trim(),
                           "label": labelCtrl.text.trim(),
+                          if (gameNameDirty)
+                            "game_name": gameNameCtrl.text.trim(),
                           "type": ptype
                         }),
                     child: const Text("保存")),
@@ -1309,6 +1526,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           file: m.patchFilename,
           lookupKey: m.patchLookupKey,
           label: result["label"] ?? "",
+          gameName: result["game_name"],
           type: result["type"] ?? "misc");
       _loadServerPatches();
       if (_tabIndex == 0) _scanAndCheck();

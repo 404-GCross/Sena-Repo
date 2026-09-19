@@ -6,6 +6,7 @@ import "dart:io" show File, Platform;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
@@ -41,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _unreadCount = 0;
   int _scrapeProgress = -1; // -1 = none, 0-100 = %
   bool _multiSelect = false;
+  bool _isAdmin = false;
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
@@ -61,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _scrollController.addListener(_handleLibraryScroll);
     _pollBackground();
+    _loadIsAdmin();
     _downloadSub = DownloadService().tasks.listen((tasks) {
       final count = tasks
           .where((t) =>
@@ -233,14 +236,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     active: hasFilters,
                     onPressed: () => _showLibraryFilters(gameProvider),
                   ),
-                  _mobileToolbarButton(
-                    icon: _multiSelect
-                        ? Icons.check_box_rounded
-                        : Icons.check_box_outline_blank_rounded,
-                    tooltip: "多选",
-                    active: _multiSelect,
-                    onPressed: _toggleMultiSelect,
-                  ),
+                  if (_isAdmin)
+                    _mobileToolbarButton(
+                      icon: _multiSelect
+                          ? Icons.check_box_rounded
+                          : Icons.check_box_outline_blank_rounded,
+                      tooltip: "多选",
+                      active: _multiSelect,
+                      onPressed: _toggleMultiSelect,
+                    ),
                   if (hasFilters)
                     IconButton(
                       icon: Icon(Icons.close_rounded, size: 19, color: cs.error),
@@ -975,6 +979,12 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  Future<void> _loadIsAdmin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isAdmin = prefs.getBool("is_admin") ?? false;
+    if (mounted) setState(() => _isAdmin = isAdmin);
+  }
+
   void _batchClearSelection() {
     setState(() {
       _selectedIds.clear();
@@ -1240,7 +1250,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ]),
             ),
           ]),
-          floatingActionButton: _multiSelect
+          floatingActionButton: _multiSelect || !_isAdmin
               ? null
               : AnimatedScale(
                   duration: const Duration(milliseconds: 250),
