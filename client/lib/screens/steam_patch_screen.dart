@@ -23,6 +23,7 @@ class SteamPatchScreen extends StatefulWidget {
 
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   int _tabIndex = 0; // 0=客户端, 1=服务端
+  bool _isAdmin = false;
 
   // Client tab
   String? _commonDir;
@@ -46,6 +47,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   void initState() {
     super.initState();
     _loadSavedDir();
+    _loadIsAdmin();
+  }
+
+  Future<void> _loadIsAdmin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isAdmin = prefs.getBool("is_admin") ?? false;
+    if (mounted) setState(() => _isAdmin = isAdmin);
   }
 
   Future<void> _loadSavedDir() async {
@@ -403,11 +411,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   }
                 },
               ),
-              AppActionButton(
-                icon: Icons.manage_search,
-                label: "关键词匹配",
-                onPressed: _showKeywordsDialog,
-              ),
+              if (_isAdmin)
+                AppActionButton(
+                  icon: Icons.manage_search,
+                  label: "关键词匹配",
+                  onPressed: _showKeywordsDialog,
+                ),
             ],
           ),
           if (_tabIndex == 0)
@@ -916,31 +925,33 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ],
           ),
           const SizedBox(height: AppGap.lg),
-          Wrap(
-            spacing: AppGap.sm,
-            runSpacing: AppGap.sm,
-            children: [
-              AppActionButton(
-                icon: Icons.refresh,
-                label: "加载索引",
-                onPressed: _serverLoading ? null : _loadServerPatches,
-                busy: _serverLoading,
-                filled: true,
-              ),
-              AppActionButton(
-                icon: Icons.folder,
-                label: "扫描补丁",
-                onPressed: _serverLoading ? null : _scanServerPatches,
-              ),
-              AppActionButton(
-                icon: Icons.search,
-                label: "批量刮削 ID",
-                onPressed: _serverLoading || _rescraping ? null : _rescrapeAll,
-                busy: _rescraping,
-              ),
-            ],
-          ),
-          const SizedBox(height: AppGap.lg),
+          if (_isAdmin) ...[
+            Wrap(
+              spacing: AppGap.sm,
+              runSpacing: AppGap.sm,
+              children: [
+                AppActionButton(
+                  icon: Icons.refresh,
+                  label: "加载索引",
+                  onPressed: _serverLoading ? null : _loadServerPatches,
+                  busy: _serverLoading,
+                  filled: true,
+                ),
+                AppActionButton(
+                  icon: Icons.folder,
+                  label: "扫描补丁",
+                  onPressed: _serverLoading ? null : _scanServerPatches,
+                ),
+                AppActionButton(
+                  icon: Icons.search,
+                  label: "批量刮削 ID",
+                  onPressed: _serverLoading || _rescraping ? null : _rescrapeAll,
+                  busy: _rescraping,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppGap.lg),
+          ],
           if (_serverStatus != null) _buildServerStatusBar(),
           const SizedBox(height: AppGap.lg),
           Wrap(
@@ -1069,6 +1080,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         ),
     ];
     final actions = <Widget>[
+      if (_isAdmin) ...[
       _patchRowAction(
         icon: Icons.manage_search_rounded,
         tooltip: "重新刮削 AppID",
@@ -1123,6 +1135,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             manifestStatus: manifestStatus,
             manifestReady: manifestStatus == "confirmed")),
       ),
+      ],
     ];
 
     return AppSurface(
@@ -1207,7 +1220,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 ])),
         ])),
         const SizedBox(width: AppGap.sm),
-        Container(
+        if (groupBadges || actions.isNotEmpty)
+          Container(
           decoration: BoxDecoration(
             color: cardBg(context).withValues(alpha: 0.55),
             borderRadius: BorderRadius.circular(12),
@@ -1228,12 +1242,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   ],
                 ),
               ),
-              Container(
-                width: 1,
-                height: 30,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                color: cardBorder(context),
-              ),
+              if (actions.isNotEmpty)
+                Container(
+                  width: 1,
+                  height: 30,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  color: cardBorder(context),
+                ),
             ],
             ...actions,
           ]),
