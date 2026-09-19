@@ -1210,6 +1210,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final lookupKey = (p["lookup_key"] ?? p["patch_id"] ?? file).toString();
     final label = (p["label"] ?? "").toString();
     final displayName = (p["display_name"] ?? "").toString();
+    final steamName = (p["game_name"] ?? "").toString();
     final ptype = (p["type"] ?? "misc").toString();
     final patchDir = (p["patch_dir"] ?? "").toString();
     final targetDir = (p["target_dir"] ?? "").toString();
@@ -1284,6 +1285,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         onPressed: () => _showEditDialog(PatchMatch(
             appId: appId,
             gameName: label.isNotEmpty ? label : displayFile.split("/").last,
+            steamName: steamName,
             installDir: "",
             patchAvailable: true,
             patchLookupKey: lookupKey,
@@ -1426,6 +1428,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   const SizedBox(height: 12),
                   Divider(height: 1, color: cardBorder(context)),
                   const SizedBox(height: 10),
+                  _patchDetailRow("Steam AppID", appId),
+                  _patchDetailRow("Steam 名称", steamName),
                   _patchDetailRow("文件大小", size > 0 ? _formatSize(size) : ""),
                   _patchDetailRow(
                       "注入规则",
@@ -1449,6 +1453,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Future<void> _showEditDialog(PatchMatch m) async {
     final labelCtrl = TextEditingController(text: m.label ?? "");
+    final gameNameCtrl = TextEditingController(text: m.steamName ?? "");
+    var gameNameDirty = false;
+    gameNameCtrl.addListener(() => gameNameDirty = true);
     final appIdCtrl = TextEditingController(
         text: m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty
             ? m.appId
@@ -1478,6 +1485,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                             hintText: "界面显示的补丁名",
                             isDense: true)),
                     const SizedBox(height: 10),
+                    TextField(
+                        controller: gameNameCtrl,
+                        decoration: const InputDecoration(
+                            labelText: "Steam 名称",
+                            hintText: "留空则回退到显示名称 / 文件名",
+                            isDense: true)),
+                    const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                         value: ptype,
                         items: _typeLabels.entries
@@ -1496,6 +1510,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                     onPressed: () => Navigator.pop(ctx, {
                           "app_id": appIdCtrl.text.trim(),
                           "label": labelCtrl.text.trim(),
+                          if (gameNameDirty)
+                            "game_name": gameNameCtrl.text.trim(),
                           "type": ptype
                         }),
                     child: const Text("保存")),
@@ -1510,6 +1526,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           file: m.patchFilename,
           lookupKey: m.patchLookupKey,
           label: result["label"] ?? "",
+          gameName: result["game_name"],
           type: result["type"] ?? "misc");
       _loadServerPatches();
       if (_tabIndex == 0) _scanAndCheck();

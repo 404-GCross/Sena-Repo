@@ -1179,6 +1179,7 @@ class PatchUpdate(BaseModel):
     patch_dir: str | None = None
     target_dir: str | None = None
     label: str | None = None
+    game_name: str | None = None
     type: str | None = None
     app_id: str | None = None  # new app_id to update
     file: str | None = None    # lookup by file path if app_id is None/unknown
@@ -1199,11 +1200,14 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         "app_id": body.app_id,
         "locked": body.locked,
     }
-    values.update(
-        await _game_name_values_for_app_id_change(
-            index_dir, patches_dir, lookup_key, body.app_id
+    if body.game_name is None:
+        values.update(
+            await _game_name_values_for_app_id_change(
+                index_dir, patches_dir, lookup_key, body.app_id
+            )
         )
-    )
+    else:
+        values["game_name"] = body.game_name.strip()
     if (
         body.patch_dir is not None
         or body.target_dir is not None
