@@ -1046,6 +1046,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final displayFile = (p["display_file"] ?? file).toString();
     final lookupKey = (p["lookup_key"] ?? p["patch_id"] ?? file).toString();
     final label = (p["label"] ?? "").toString();
+    final displayName = (p["display_name"] ?? "").toString();
     final ptype = (p["type"] ?? "misc").toString();
     final patchDir = (p["patch_dir"] ?? "").toString();
     final targetDir = (p["target_dir"] ?? "").toString();
@@ -1150,7 +1151,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
-                child: Text(label.isNotEmpty ? label : displayFile.split("/").last,
+                child: Text(
+                    displayName.isNotEmpty
+                        ? displayName
+                        : (label.isNotEmpty
+                            ? label
+                            : displayFile.split("/").last),
                     style: AppText.bodyMedium
                         .copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,

@@ -374,7 +374,26 @@ def _enrich_patch_record(patch: dict) -> dict:
     status = _manifest_status(item)
     item["manifest_status"] = status
     item["manifest_ready"] = status == "confirmed"
+    item["display_name"] = _patch_display_name(item)
     return item
+
+
+def _patch_display_name(item: dict) -> str:
+    """Prefer the scraped Steam name, then the derived label, then the filename."""
+    game_name = str(item.get("game_name") or "").strip()
+    if game_name:
+        return game_name
+    label = str(item.get("label") or "").strip()
+    if label:
+        return label
+    try:
+        from scan_patches import _extract_game_name
+
+        return _extract_game_name(
+            str(item.get("display_file") or item.get("file") or "")
+        ).strip()
+    except Exception:
+        return ""
 
 
 def _basename_without_archive_ext(value: str) -> str:
