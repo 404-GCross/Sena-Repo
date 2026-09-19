@@ -620,15 +620,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             child: Row(
               children: [
                 Text("补丁匹配结果", style: AppText.title),
-                const Spacer(),
-                Flexible(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 220),
-                    child: _buildSearchField(
-                      controller: _clientSearchCtrl,
-                      hint: "搜索游戏 / 补丁",
-                      onChanged: (value) =>
-                          setState(() => _clientQuery = value),
+                const SizedBox(width: AppGap.sm),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: _buildSearchField(
+                        controller: _clientSearchCtrl,
+                        hint: "搜索游戏 / 补丁",
+                        onChanged: (value) =>
+                            setState(() => _clientQuery = value),
+                      ),
                     ),
                   ),
                 ),
@@ -1106,15 +1109,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             child: Row(
               children: [
                 Text("补丁配置", style: AppText.title),
-                const Spacer(),
-                Flexible(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 220),
-                    child: _buildSearchField(
-                      controller: _serverSearchCtrl,
-                      hint: "搜索补丁 / AppID",
-                      onChanged: (value) =>
-                          setState(() => _serverQuery = value),
+                const SizedBox(width: AppGap.sm),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: _buildSearchField(
+                        controller: _serverSearchCtrl,
+                        hint: "搜索补丁 / AppID",
+                        onChanged: (value) =>
+                            setState(() => _serverQuery = value),
+                      ),
                     ),
                   ),
                 ),
