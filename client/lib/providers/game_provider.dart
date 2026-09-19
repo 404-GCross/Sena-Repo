@@ -20,12 +20,14 @@ class GameProvider extends ChangeNotifier {
   bool? _filterHasCover;
 
   List<GameSummary> get games {
-    var list = _games;
+    var list = List<GameSummary>.from(_games);
     // Client-side search
     if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
       list = list.where((g) =>
-          g.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          g.tagNames.any((t) => t.toLowerCase().contains(_searchQuery.toLowerCase()))).toList();
+          g.name.toLowerCase().contains(query) ||
+          (g.alias ?? "").toLowerCase().contains(query) ||
+          g.tagNames.any((t) => t.toLowerCase().contains(query))).toList();
     }
     // Client-side platform filter
     if (_filterPlatform != null) {
@@ -42,12 +44,24 @@ class GameProvider extends ChangeNotifier {
       list.sort((a, b) => a.name.compareTo(b.name));
     } else if (_sortBy == "name_desc") {
       list.sort((a, b) => b.name.compareTo(a.name));
+    } else if (_sortBy == "alias") {
+      list.sort((a, b) => _aliasSortKey(a).compareTo(_aliasSortKey(b)));
+    } else if (_sortBy == "alias_desc") {
+      list.sort((a, b) => _aliasSortKey(b).compareTo(_aliasSortKey(a)));
     } else if (_sortBy == "company") {
       list.sort((a, b) => (a.companyName ?? "").toLowerCase().compareTo((b.companyName ?? "").toLowerCase()));
     } else if (_sortBy == "developer") {
       list.sort((a, b) => (a.developer ?? "").toLowerCase().compareTo((b.developer ?? "").toLowerCase()));
+    } else if (_sortBy == "developer_desc") {
+      list.sort((a, b) => (b.developer ?? "").toLowerCase().compareTo((a.developer ?? "").toLowerCase()));
     }
     return list;
+  }
+
+  String _aliasSortKey(GameSummary game) {
+    final alias = (game.alias ?? "").trim();
+    if (alias.isEmpty) return game.name.toLowerCase();
+    return alias.split("、").first.trim().toLowerCase();
   }
 
   List<Tag> get tags => _tags;

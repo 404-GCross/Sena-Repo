@@ -6,7 +6,14 @@ import logging
 
 import httpx
 
-from .base import BaseScraper, ScraperResult, clean_title
+from .base import (
+    MAX_SCRAPED_TAGS,
+    BaseScraper,
+    ScrapedTag,
+    ScraperResult,
+    clean_title,
+    pick_best_scraper_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,34 @@ class BangumiScraper(BaseScraper):
             except Exception as e:
                 logger.debug(f"Bangumi {endpoint} failed: {e}")
         return []
+
+    async def search_best(
+        self,
+        name: str,
+        company_hint: str | None = None,
+    ) -> ScraperResult | None:
+        """Batch path: pick from legacy search, then enrich aliases via v0 detail."""
+        keyword = clean_title(name)
+        if not keyword:
+            return None
+        results = await self.search(name, company_hint)
+        if not results:
+            return None
+        if keyword.isdigit():
+            return results[0]
+        best = pick_best_scraper_result(keyword, results)
+        if best is None or not best.source_id.isdigit():
+            return best
+        for endpoint, timeout in [(BGM_MAIN, 8.0), (BGM_MIRROR, 12.0)]:
+            try:
+                detail = await self._get_subject(endpoint, best.source_id, timeout)
+            except Exception as e:
+                logger.debug(f"Bangumi detail aliases failed: {e}")
+                continue
+            if detail and detail[0].aliases:
+                best.aliases = detail[0].aliases
+                break
+        return best
 
     async def _do_search(
         self, endpoint: str, keyword: str, timeout: float
@@ -93,8 +128,17 @@ class BangumiScraper(BaseScraper):
         if cover.startswith("//"):
             cover = "https:" + cover
 
-        tags = item.get("tags", [])
-        tag_names = [t.get("name", "") for t in tags[:5] if t.get("name")]
+        tag_items: list[ScrapedTag] = []
+        seen_tags: set[str] = set()
+        for tag in item.get("tags", []) or []:
+            name = str(tag.get("name", "")).strip() if isinstance(tag, dict) else ""
+            key = name.casefold()
+            if not name or key in seen_tags:
+                continue
+            seen_tags.add(key)
+            tag_items.append(ScrapedTag(name=name))
+            if len(tag_items) >= MAX_SCRAPED_TAGS:
+                break
 
         return ScraperResult(
             title=item.get("name_cn", "") or item.get("name", ""),
@@ -103,4 +147,29 @@ class BangumiScraper(BaseScraper):
             cover_url=cover,
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
+            is_nsfw=bool(item.get("nsfw", False)),
+            tags=tag_items,
+            aliases=_infobox_aliases(item.get("infobox")),
         )
+
+
+def _infobox_aliases(value) -> list[str]:
+    """Read the 别名 rows from a Bangumi infobox block."""
+    if not isinstance(value, list):
+        return []
+    aliases: list[str] = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("key") or "").strip() != "别名":
+            continue
+        entry = row.get("value")
+        if isinstance(entry, str):
+            aliases.append(entry)
+        elif isinstance(entry, list):
+            for item in entry:
+                if isinstance(item, dict):
+                    aliases.append(str(item.get("v") or ""))
+                elif isinstance(item, str):
+                    aliases.append(item)
+    return [alias.strip() for alias in aliases if alias.strip()]

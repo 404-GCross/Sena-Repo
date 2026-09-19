@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Float,
     Integer,
     String,
     Text,
@@ -47,16 +48,20 @@ class Game(Base):
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     root_id = Column(Integer, ForeignKey("root_directories.id"), nullable=False)
     folder_path = Column(String(1024), nullable=False, unique=True)
+    entry_source = Column(String(32), nullable=False, default="library")
 
     # Metadata (populated by scrapers in Phase 2)
     cover_path = Column(String(1024), nullable=True)
     bg_path = Column(String(1024), nullable=True)
+    is_nsfw = Column(Boolean, nullable=False, default=False)
     developer = Column(String(512), nullable=True)
+    alias = Column(String(512), nullable=True)
     description = Column(Text, nullable=True)
     release_date = Column(String(64), nullable=True)
     vndb_id = Column(String(32), nullable=True)
     steam_id = Column(String(32), nullable=True)
     bangumi_id = Column(String(32), nullable=True)
+    hikarinagi_id = Column(String(64), nullable=True)
 
     length = Column(Integer, default=0)
     length_minutes = Column(Integer, default=0)
@@ -83,6 +88,9 @@ class GameVersion(Base):
     source_path = Column(String(1024), nullable=True)
     file_size = Column(BigInteger, default=0)
     extract_password = Column(String(256), nullable=True)
+    checksum_algo = Column(String(16), nullable=True)
+    checksum = Column(String(128), nullable=True)
+    checksum_updated_at = Column(DateTime, nullable=True)
 
     game = relationship("Game", back_populates="versions")
 
@@ -93,6 +101,9 @@ class GameTag(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
     tag_id = Column(Integer, ForeignKey("tags.id"), nullable=False)
+    source = Column(String(32), nullable=False, default="user")
+    weight = Column(Float, nullable=False, default=0.0)
+    is_spoiler = Column(Boolean, nullable=False, default=False)
 
     game = relationship("Game", back_populates="tags")
     tag = relationship("Tag", back_populates="games")

@@ -8,23 +8,49 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
+from models.game import Game, GameTag, GameVersion
 from models.user import User
 from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
-from services.importer import import_from_root
+from services.importer import cleanup_empty_companies, import_from_root
+from utils.secrets import encrypt_secret, redact_url
+from utils.process_lock import process_lock, scan_lock_path
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/roots", tags=["roots"])
 _scan_lock = asyncio.Lock()
+_background_tasks: set[asyncio.Task] = set()
+_scan_state = {
+    "status": "idle",
+    "roots_total": 0,
+    "roots_completed": 0,
+    "current_root": None,
+    "started_at": None,
+    "finished_at": None,
+    "message": None,
+}
+
+
+def _set_scan_state(**updates):
+    _scan_state.update(updates)
+
+
+def _scan_state_response():
+    return dict(_scan_state)
+
+
+def _scan_active() -> bool:
+    """Return whether a scan is queued or currently holding the scan lock."""
+    return _scan_state["status"] in {"pending", "running"} or _scan_lock.locked()
 
 
 class RootCreate(BaseModel):
@@ -76,18 +102,25 @@ async def add_root(
             if source is None:
                 raise HTTPException(status_code=404, detail="OpenList source not found")
         else:
-            if not body.base_url or not body.username:
-                raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+            if not body.base_url:
+                raise HTTPException(status_code=400, detail="OpenList URL is required")
             source = FileSource(
                 name=source_name or body.base_url,
                 type="openlist",
                 base_url=normalize_base_url(body.base_url),
                 username=body.username,
-                password=body.password or "",
+                password=encrypt_secret(body.password),
             )
             session.add(source)
             await session.flush()
             source_id = source.id
+            logger.info(
+                "OpenList source created from root dialog: actor_id=%s source_id=%s name=%s base_url=%s",
+                user.id,
+                source.id,
+                source.name,
+                redact_url(source.base_url),
+            )
         adapter = adapter_from_source(source, "openlist")
         if not await asyncio.to_thread(adapter.exists, source_path):
             raise HTTPException(status_code=404, detail="OpenList path not found")
@@ -112,6 +145,14 @@ async def add_root(
     session.add(root)
     await session.commit()
     await session.refresh(root)
+    logger.info(
+        "Root added: actor_id=%s root_id=%s source_type=%s source_id=%s path=%s",
+        user.id,
+        root.id,
+        root.source_type,
+        root.source_id,
+        root.source_path or root.path,
+    )
     config = load_config()
     try:
         from api.settings import _load_scan_settings
@@ -148,18 +189,25 @@ async def update_root(
             if source is None:
                 raise HTTPException(status_code=404, detail="OpenList source not found")
         else:
-            if not body.base_url or not body.username:
+            if not body.base_url:
                 raise HTTPException(status_code=400, detail="OpenList source must be selected first")
             source = FileSource(
                 name=source_name or body.base_url,
                 type="openlist",
                 base_url=normalize_base_url(body.base_url),
                 username=body.username,
-                password=body.password or "",
+                password=encrypt_secret(body.password),
             )
             session.add(source)
             await session.flush()
             source_id = source.id
+            logger.info(
+                "OpenList source created from root dialog: actor_id=%s source_id=%s name=%s base_url=%s",
+                user.id,
+                source.id,
+                source.name,
+                redact_url(source.base_url),
+            )
         adapter = adapter_from_source(source, "openlist")
         if not await asyncio.to_thread(adapter.exists, source_path):
             raise HTTPException(status_code=404, detail="OpenList path not found")
@@ -180,6 +228,14 @@ async def update_root(
     root.enable_batch_scrape = body.enable_batch_scrape
     await session.commit()
     await session.refresh(root)
+    logger.info(
+        "Root updated: actor_id=%s root_id=%s source_type=%s source_id=%s path=%s",
+        user.id,
+        root.id,
+        root.source_type,
+        root.source_id,
+        root.source_path or root.path,
+    )
     return root
 
 
@@ -197,6 +253,12 @@ async def delete_root(
     if root is None:
         raise HTTPException(status_code=404, detail="Root directory not found")
 
+    logger.info(
+        "Root deleted: actor_id=%s root_id=%s path=%s",
+        user.id,
+        root.id,
+        root.source_path or root.path,
+    )
     await session.delete(root)
     await session.commit()
     return MessageResponse(message="Root directory removed")
@@ -209,9 +271,23 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
             result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
             if result.get("skipped"):
                 logger.info("Background scan skipped: scan already running")
+                _set_scan_state(
+                    status="idle",
+                    current_root=None,
+                    finished_at=time.time(),
+                    message="已有扫描任务正在运行",
+                )
         except Exception:
             logger.exception("Background scan failed")
-    asyncio.create_task(_run())
+            _set_scan_state(
+                status="failed",
+                current_root=None,
+                finished_at=time.time(),
+                message="扫描失败，请查看服务端日志",
+            )
+    task = asyncio.create_task(_run())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @router.post("/refresh-all")
@@ -220,13 +296,80 @@ async def refresh_all_roots(
     session: AsyncSession = Depends(get_session),
 ):
     """Trigger re-scan of ALL root directories in background. Returns immediately."""
+    if _scan_active():
+        raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再试")
     result = await session.execute(select(RootDirectory))
     roots = result.scalars().all()
     config = load_config()
     from api.settings import _load_scan_settings
     _load_scan_settings(config)
+    _set_scan_state(
+        status="pending",
+        roots_total=len(roots),
+        roots_completed=0,
+        current_root=None,
+        started_at=time.time(),
+        finished_at=None,
+        message="扫描任务正在排队",
+    )
     _bg_scan(config, [r.id for r in roots], update_last=True)
+    logger.info("Full library scan started: actor_id=%s roots=%s", user.id, len(roots))
     return {"message": "扫描已在后台启动", "roots": len(roots)}
+
+
+@router.get("/scan-status")
+async def get_scan_status(user: User = Depends(get_current_user)):
+    """Return the current background game-library scan state."""
+    return _scan_state_response()
+
+
+@router.post("/clear-and-refresh")
+async def clear_and_refresh_roots(
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Clear imported game library records, then re-scan all root directories."""
+    if _scan_active():
+        raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
+
+    config = load_config()
+    with process_lock(scan_lock_path(config.data_path), blocking=False) as locked:
+        if not locked:
+            raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
+
+    count_result = await session.execute(select(func.count()).select_from(Game))
+    cleared_games = int(count_result.scalar_one() or 0)
+    await session.execute(delete(GameTag))
+    await session.execute(delete(GameVersion))
+    await session.execute(delete(Game))
+    await cleanup_empty_companies(session)
+    await session.commit()
+
+    result = await session.execute(select(RootDirectory))
+    roots = result.scalars().all()
+    from api.settings import _load_scan_settings
+    _load_scan_settings(config)
+    _set_scan_state(
+        status="pending",
+        roots_total=len(roots),
+        roots_completed=0,
+        current_root=None,
+        started_at=time.time(),
+        finished_at=None,
+        message="扫描任务正在排队",
+    )
+    _bg_scan(config, [r.id for r in roots], update_last=True)
+    logger.warning(
+        "Library cleared and re-scanned: actor_id=%s cleared_games=%s roots=%s",
+        user.id,
+        cleared_games,
+        len(roots),
+    )
+    return {
+        "message": "游戏库已清空，重新扫描已在后台启动",
+        "cleared_games": cleared_games,
+        "roots": len(roots),
+    }
 
 
 @router.post("/{root_id}/refresh")
@@ -235,7 +378,9 @@ async def refresh_root(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Re-scan a root directory and import/update games, then auto-scrape."""
+    """Re-scan a root directory and import/update games."""
+    if _scan_active():
+        raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再试")
     result = await session.execute(
         select(RootDirectory).where(RootDirectory.id == root_id)
     )
@@ -246,7 +391,22 @@ async def refresh_root(
     config = load_config()
     from api.settings import _load_scan_settings
     _load_scan_settings(config)
+    _set_scan_state(
+        status="pending",
+        roots_total=1,
+        roots_completed=0,
+        current_root=root.source_path or root.path,
+        started_at=time.time(),
+        finished_at=None,
+        message="扫描任务正在排队",
+    )
     _bg_scan(config, [root_id], update_last=True)
+    logger.info(
+        "Root scan started: actor_id=%s root_id=%s path=%s",
+        user.id,
+        root_id,
+        root.source_path or root.path,
+    )
     return {"message": "扫描已在后台启动", "root_id": root_id}
 
 
@@ -259,41 +419,46 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
     from api.settings import _load_scan_settings, _mark_auto_scan
     _load_scan_settings(config)
     total_games = 0
-    async with _scan_lock:
-        async with database._session_factory() as session:
-            query = select(RootDirectory)
-            if root_ids is not None:
-                query = query.where(RootDirectory.id.in_(root_ids))
-            result = await session.execute(query)
-            roots = result.scalars().all()
-            for root in roots:
+    with process_lock(scan_lock_path(config.data_path), blocking=False) as locked:
+        if not locked:
+            return {"skipped": True, "reason": "scan already running"}
+        async with _scan_lock:
+            async with database._session_factory() as session:
+                query = select(RootDirectory)
+                if root_ids is not None:
+                    query = query.where(RootDirectory.id.in_(root_ids))
+                result = await session.execute(query)
+                roots = result.scalars().all()
+                _set_scan_state(
+                    status="running",
+                    roots_total=len(roots),
+                    roots_completed=0,
+                    current_root=None,
+                    started_at=time.time(),
+                    finished_at=None,
+                    message=None,
+                )
+                for root in roots:
+                    _set_scan_state(
+                        current_root=root.source_path or root.path,
+                        roots_completed=_scan_state["roots_completed"],
+                    )
+                    try:
+                        stats = await import_from_root(root.id, config, session)
+                        total_games += stats.get("total_games", 0)
+                    except Exception:
+                        logger.exception("Scan root %s failed", root.id)
+                    finally:
+                        _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
+            if update_last:
                 try:
-                    stats = await import_from_root(root.id, config, session)
-                    total_games += stats.get("total_games", 0)
+                    _mark_auto_scan(config, time.time())
                 except Exception:
-                    logger.exception("Scan root %s failed", root.id)
-        if update_last:
-            try:
-                _mark_auto_scan(config, time.time())
-            except Exception:
-                logger.exception("Failed to persist last auto-scan time")
-        # Auto-scrape games without metadata after scan
-        asyncio.create_task(_auto_scrape(config, "metadata"))
-        asyncio.create_task(_auto_scrape(config, "missing"))
-        return {"total_games": total_games, "roots_scanned": len(roots)}
-
-
-async def _auto_scrape(config, mode: str = "missing"):
-    """Background task: batch scrape games without covers or metadata."""
-    import database
-    from models.scrape_job import JobStatus, ScrapeJob
-    from services.scraper.orchestrator import run_batch_scrape
-
-    try:
-        async with database._session_factory() as session:
-            job = ScrapeJob(status=JobStatus.PENDING)
-            session.add(job)
-            await session.commit()
-            await run_batch_scrape(config, None, session, job, mode=mode)
-    except Exception:
-        logger.exception("Auto-scrape failed")
+                    logger.exception("Failed to persist last auto-scan time")
+            _set_scan_state(
+                status="completed",
+                current_root=None,
+                finished_at=time.time(),
+                message=f"扫描完成，共处理 {len(roots)} 个目录",
+            )
+            return {"total_games": total_games, "roots_scanned": len(roots)}

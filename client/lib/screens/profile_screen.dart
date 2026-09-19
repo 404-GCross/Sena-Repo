@@ -3,7 +3,7 @@
 import "dart:convert";
 
 import "package:flutter/material.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
@@ -11,12 +11,9 @@ import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
-import "../services/secure_store.dart";
-import "profile_switch_screen.dart";
+import "../widgets/app_shell.dart";
 import "settings_screen.dart";
-import "notification_screen.dart";
 import "connect_screen.dart";
-import "download_manager_screen.dart";
 import "../providers/game_provider.dart";
 
 class ProfileScreen extends StatefulWidget {
@@ -28,13 +25,11 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   String _username = "";
-  String _serverInfo = "";
   String _serverVersion = "";
   String? _avatarPath;
   int _userId = 0;
   int _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-  int _lastLoadTime = 0;
-  int _lastVersionLoadTime = 0;
+  bool _loadingUserInfo = false;
 
   String? get _avatarUrl {
     if (_avatarPath == null || _avatarPath!.isEmpty) return null;
@@ -49,19 +44,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadServerVersion();
   }
 
-  Future<void> refresh() async {
-    await _loadUserInfo();
+  Future<void> refresh({bool forceAvatarRefresh = false}) async {
+    await _loadUserInfo(forceAvatarRefresh: forceAvatarRefresh);
     _loadServerVersion();
-  }
-
-  void _maybeRefresh() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastLoadTime > 10000 && _userId > 0) {
-      _loadUserInfo();
-    }
-    if (now - _lastVersionLoadTime > 30000) {
-      _loadServerVersion();
-    }
   }
 
   Future<void> _loadServerVersion() async {
@@ -71,49 +56,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         if (mounted) setState(() => _serverVersion = data["version"] ?? "");
-        _lastVersionLoadTime = DateTime.now().millisecondsSinceEpoch;
       }
     } catch (_) {}
   }
 
-  Future<void> _loadUserInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    final settings = context.read<SettingsProvider>();
-    final token = await SecureStore.getString("auth_token");
-    _userId = int.tryParse(token ?? "") ?? 0;
-    if (mounted) {
-      setState(() {
-        _username = prefs.getString("username") ?? "Sena Repo";
-        _serverInfo = "服务器: ${settings.serverHost}:${settings.serverPort}";
-      });
-    }
-    // Try loading avatar from server
+  Future<void> _loadUserInfo({bool forceAvatarRefresh = false}) async {
+    if (_loadingUserInfo) return;
+    _loadingUserInfo = true;
     try {
+      final prefs = await SharedPreferences.getInstance();
+      await ApiClient.restoreToken();
+      final api = context.read<GameProvider>().api;
+      final cachedUserId = prefs.getInt("user_id") ?? api.cachedUserId ?? 0;
+      final cachedUsername = prefs.getString("username") ?? "Sena Repo";
+      if (mounted && (_userId != cachedUserId || _username != cachedUsername)) {
+        setState(() {
+          _userId = cachedUserId;
+          _username = cachedUsername;
+        });
+      }
       final resp = await http.get(
-        Uri.parse(
-          "${context.read<GameProvider>().api.baseUrl}/api/auth/profile/me",
-        ),
-        headers: {"Authorization": "Bearer ${token ?? ""}"},
+        Uri.parse("${api.baseUrl}/api/auth/profile/me"),
+        headers: api.headers,
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        if (mounted)
+        final userId = data["id"] is int
+            ? data["id"] as int
+            : int.tryParse(data["id"]?.toString() ?? "") ?? 0;
+        final username = data["username"]?.toString() ?? _username;
+        final avatarPath = data["avatar_path"]?.toString();
+        await ApiClient.persistSessionInfo(
+          userId: userId,
+          username: username,
+          isAdmin: data["is_admin"] == true,
+          role: data["role"]?.toString(),
+        );
+        if (mounted) {
+          final avatarChanged = avatarPath != _avatarPath;
           setState(() {
-            _userId = data["id"] ?? 0;
-            _avatarPath = data["avatar_path"];
-            _avatarVersion = DateTime.now().millisecondsSinceEpoch;
-            _lastLoadTime = DateTime.now().millisecondsSinceEpoch;
+            _userId = userId;
+            _username = username;
+            _avatarPath = avatarPath;
+            if (avatarChanged || forceAvatarRefresh) {
+              _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+            }
           });
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _loadingUserInfo = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    _maybeRefresh();
     final settings = context.watch<SettingsProvider>();
-    final hasCover = settings.serverHost.isNotEmpty;
-
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       children: [
@@ -133,27 +132,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 BoxShadow(
                   color: Theme.of(
                     context,
-                  ).colorScheme.primary.withValues(alpha: 0.2),
-                  blurRadius: 20,
+                  ).colorScheme.primary.withValues(alpha: 0.24),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
                 ),
               ],
             ),
             child: CircleAvatar(
               radius: 44,
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              backgroundImage: _avatarUrl != null
-                  ? NetworkImage(_avatarUrl!)
-                  : null,
-              child: _avatarUrl == null
-                  ? Text(
+              child: _avatarUrl != null
+                  ? ClipOval(
+                      child: Image.network(
+                        _avatarUrl!,
+                        headers: mediaAuthHeaders,
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Text(
+                          _username.isNotEmpty
+                              ? _username[0].toUpperCase()
+                              : "S",
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Text(
                       _username.isNotEmpty ? _username[0].toUpperCase() : "S",
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
                         color: Theme.of(context).colorScheme.primary,
                       ),
-                    )
-                  : null,
+                    ),
             ),
           ),
         ),
@@ -179,10 +194,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.settings,
             title: "设置",
             trailing: "服务器、刮削源、显示",
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
+            onTap: () async {
+              final changed = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+              if (changed == true && mounted) {
+                await refresh(forceAvatarRefresh: true);
+              }
+            },
           ),
         ]),
         const SizedBox(height: 16),
@@ -191,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.info_outline,
             title: "关于",
             trailing:
-                "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "..."}",
+                "客户端  $appVersionLabel\n服务端  ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "..."}",
             onTap: () => _showAbout(context),
           ),
         ]),
@@ -220,14 +240,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _menuCard(List<Widget> children) => Container(
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Column(children: children),
-  );
+  Widget _menuCard(List<Widget> children) => AppSurface(
+        padding: EdgeInsets.zero,
+        radius: AppRadius.lg,
+        child: Column(children: children),
+      );
 
   Widget _menuItem({
     required IconData icon,
@@ -245,10 +262,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: cardBorder(context),
-                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
               ),
-              child: Icon(icon, size: 22, color: sectionTextColor(context)),
+              child: Icon(icon,
+                  size: 22, color: Theme.of(context).colorScheme.primary),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -272,15 +293,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
+            Icon(Icons.chevron_right, color: hintColor(context), size: 20),
           ],
         ),
       ),
     );
   }
-
-  Widget _menuDivider() =>
-      Divider(height: 1, indent: 68, color: cardBorder(context));
 
   void _showAbout(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -299,10 +317,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               "Sena Repo",
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 2),
-            Text(
-              "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-              style: TextStyle(fontSize: 13, color: cs.primary),
+            const SizedBox(height: 8),
+            Column(
+              children: [
+                Text(
+                  "客户端  $appVersionLabel",
+                  style: TextStyle(fontSize: 13, color: cs.primary),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  "服务端  ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
+                  style: TextStyle(fontSize: 13, color: cs.primary),
+                ),
+              ],
             ),
           ],
         ),
@@ -357,10 +384,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await ApiClient.clearTokens();
+      await context.read<GameProvider>().api.logout();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
-      await SecureStore.delete("auth_token");
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const ConnectScreen()),

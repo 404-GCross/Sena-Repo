@@ -1,4 +1,4 @@
-/// Download service — stream download with progress + 7z extraction.
+/// Download service — bundled aria2 download with Dart fallback + 7z extraction.
 /// Windows: 7z.exe + 7z.dll (x64, full format support incl. RAR)
 /// Linux:   7zz (standalone x64)
 ///
@@ -7,19 +7,34 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io";
+import "dart:typed_data";
 
-import "package:flutter/foundation.dart" show debugPrint;
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:flutter/widgets.dart"
     show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import "../services/logger_service.dart";
-import "package:http/http.dart" as http;
+import "logged_http.dart" as http;
 import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "package:permission_handler/permission_handler.dart";
 import "api_client.dart" show ApiClient, globalToken;
 import "notification_service.dart";
+
+class DownloadHttpException implements Exception {
+  final int statusCode;
+  final String message;
+  final int? retryAfterSeconds;
+
+  DownloadHttpException(
+    this.statusCode,
+    this.message, {
+    this.retryAfterSeconds,
+  });
+
+  @override
+  String toString() => message;
+}
 
 // ────────────────────────────────────────────────────
 // DownloadTask
@@ -29,9 +44,14 @@ class DownloadTask {
   final int gameId;
   final int versionId;
   final String fileName;
-  final String downloadUrl;
+  String downloadUrl;
+  int expiresAt;
+  String? serverBaseUrl;
   final String gameName;
   final String companyName;
+  final String sourceType;
+  /// Set for Steam patch injections so an expired signed link can be renewed.
+  final String? patchLookupKey;
 
   String
   status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
@@ -43,6 +63,7 @@ class DownloadTask {
   String? outputPath;
   final DateTime startedAt;
   http.Client? _client;
+  Process? _downloadProcess;
   bool _cancelled = false;
   bool headersReceived = false;
   bool needsPassword = false;
@@ -50,6 +71,7 @@ class DownloadTask {
   String? coverUrl;
   String? bgUrl;
   String? extractPassword;
+  final List<http.Client> _clients = <http.Client>[];
   bool _triedPresetPassword = false;
   int _lastBytes = 0;
   DateTime _lastSpeedTime = DateTime.now();
@@ -60,8 +82,12 @@ class DownloadTask {
     required this.versionId,
     required this.fileName,
     required this.downloadUrl,
+    this.expiresAt = 0,
+    this.serverBaseUrl,
     required this.gameName,
     required this.companyName,
+    this.sourceType = "local",
+    this.patchLookupKey,
     this.status = "pending",
     this.progress = 0,
     this.receivedBytes = 0,
@@ -75,8 +101,12 @@ class DownloadTask {
     "versionId": versionId,
     "fileName": fileName,
     "downloadUrl": downloadUrl,
+    "expiresAt": expiresAt,
+    "serverBaseUrl": serverBaseUrl,
     "gameName": gameName,
     "companyName": companyName,
+    "sourceType": sourceType,
+    "patchLookupKey": patchLookupKey,
     "status": status,
     "progress": progress,
     "error": error,
@@ -160,8 +190,12 @@ class DownloadService with WidgetsBindingObserver {
                 versionId: m["versionId"] ?? 0,
                 fileName: m["fileName"] ?? "",
                 downloadUrl: m["downloadUrl"] ?? "",
+                expiresAt: m["expiresAt"] ?? 0,
+                serverBaseUrl: m["serverBaseUrl"],
                 gameName: m["gameName"] ?? "",
                 companyName: m["companyName"] ?? "",
+                sourceType: m["sourceType"]?.toString() ?? "local",
+                patchLookupKey: m["patchLookupKey"]?.toString(),
               )
               ..status = m["status"] ?? "failed"
               ..receivedBytes = m["receivedBytes"] ?? 0
@@ -195,8 +229,11 @@ class DownloadService with WidgetsBindingObserver {
               "versionId": t.versionId,
               "fileName": t.fileName,
               "downloadUrl": t.downloadUrl,
+              "expiresAt": t.expiresAt,
+              "serverBaseUrl": t.serverBaseUrl,
               "gameName": t.gameName,
               "companyName": t.companyName,
+              "sourceType": t.sourceType,
               "status": t.status,
               "receivedBytes": t.receivedBytes,
               "totalBytes": t.totalBytes,
@@ -227,8 +264,7 @@ class DownloadService with WidgetsBindingObserver {
     if (inj == null) return;
     inj.cancelled = true;
     inj.paused = false;
-    inj.task._client?.close();
-    inj.task._client = null;
+    _closeTaskClients(inj.task);
     inj.extractProcess?.kill();
     inj.extractProcess = null;
     // Also kill via instance-level _extractionProcess in case _runTool is mid-flight
@@ -236,9 +272,7 @@ class DownloadService with WidgetsBindingObserver {
     inj.task._cancelled = true;
     inj.task.status = "cancelled";
     inj.task.error = "已取消";
-    try {
-      File(inj.tempPath).delete();
-    } catch (_) {}
+    unawaited(_deleteFileQuietly(inj.tempPath));
     _patchInjections.remove(appId);
     _emit();
   }
@@ -250,8 +284,7 @@ class DownloadService with WidgetsBindingObserver {
     if (inj.task.status == "downloading" ||
         inj.task.status == "retrying" ||
         inj.task.status == "pending") {
-      inj.task._client?.close();
-      inj.task._client = null;
+      _closeTaskClients(inj.task);
     } else if (inj.task.status == "extracting") {
       inj.extractProcess?.kill();
       inj.extractProcess = null;
@@ -369,6 +402,10 @@ class DownloadService with WidgetsBindingObserver {
     required String installDir,
     String? patchDir,
     String? targetDir,
+    String? patchLookupKey,
+    String sourceType = "local",
+    int expiresAt = 0,
+    String? serverBaseUrl,
     void Function(
       double progress,
       int received,
@@ -393,9 +430,28 @@ class DownloadService with WidgetsBindingObserver {
       downloadUrl: downloadUrl,
       gameName: "Steam Patch",
       companyName: "Steam",
+      sourceType: sourceType,
+      patchLookupKey: patchLookupKey,
+      expiresAt: expiresAt,
+      serverBaseUrl: serverBaseUrl,
     );
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
+    String? patchExtractDir;
+    String? patchBackupDir;
+    Future<void> cleanupPatchTempDirs() async {
+      if (patchExtractDir != null) {
+        try {
+          await Directory(patchExtractDir!).delete(recursive: true);
+        } catch (_) {}
+      }
+      if (patchBackupDir != null) {
+        try {
+          await Directory(patchBackupDir!).delete(recursive: true);
+        } catch (_) {}
+      }
+    }
+
     try {
       // Download via proven stream pipeline
       StreamSubscription<List<DownloadTask>>? sub;
@@ -427,6 +483,7 @@ class DownloadService with WidgetsBindingObserver {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       if (task.status == "failed") return (task.error ?? "下载失败", null);
@@ -446,93 +503,78 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
-      if ((patchDir == null || patchDir.isEmpty) &&
-          (targetDir == null || targetDir.isEmpty)) {
-        LoggerService().info("patch extract: $exe x -y -o$destDir ${tmp.path}");
-        await _runTool(
-          exe,
-          ["x", "-y", "-o$destDir", tmp.path],
-          timeout: 1800,
-          injectionAppId: appId,
-          onProgress: (p) {
-            if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
-          },
-        );
-        if (_stopped(task)) {
-          if (task.status != "paused") {
-            try {
-              await tmp.delete();
-            } catch (_) {}
-          }
-          return (task.status == "paused" ? "已暂停" : "已取消", null);
-        }
-        LoggerService().info("patch extract done: $destDir");
-      } else {
-        final tmpExtract =
-            "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
-        LoggerService().info(
-          "patch extract: $exe x -y -o$tmpExtract ${tmp.path}",
-        );
-        await Directory(tmpExtract).create(recursive: true);
-        await _runTool(
-          exe,
-          ["x", "-y", "-o$tmpExtract", tmp.path],
-          timeout: 1800,
-          injectionAppId: appId,
-          onProgress: (p) {
-            if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
-          },
-        );
-        if (_stopped(task)) {
+      final tmpExtract =
+          "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      patchExtractDir = tmpExtract;
+      LoggerService().info(
+        "patch extract: $exe x -y -p- -o$tmpExtract ${tmp.path}",
+      );
+      await Directory(tmpExtract).create(recursive: true);
+      await _runTool(
+        exe,
+        ["x", "-y", "-p-", "-o$tmpExtract", tmp.path],
+        timeout: 1800,
+        injectionAppId: appId,
+        onProgress: (p) {
+          if (onProgress != null) onProgress(p, 0, 0, 0, "extracting");
+        },
+      );
+      if (_stopped(task)) {
+        try {
+          await Directory(tmpExtract).delete(recursive: true);
+        } catch (_) {}
+        if (task.status != "paused") {
           try {
-            await Directory(tmpExtract).delete(recursive: true);
+            await tmp.delete();
           } catch (_) {}
-          if (task.status != "paused") {
-            try {
-              await tmp.delete();
-            } catch (_) {}
-          }
-          return (task.status == "paused" ? "已暂停" : "已取消", null);
         }
-        LoggerService().info(
-          "patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir",
-        );
-        String sourceDir = tmpExtract;
-        if (patchDir != null && patchDir.isNotEmpty) {
-          String pd;
-          try {
-            pd = _resolveSafeRelativePath(tmpExtract, patchDir);
-          } catch (e) {
-            try {
-              await Directory(tmpExtract).delete(recursive: true);
-            } catch (_) {}
-            return ("补丁源目录非法: $patchDir", null);
-          }
-          LoggerService().info("patch resolve: looking for $pd");
-          if (await Directory(pd).exists()) {
-            sourceDir = pd;
-          } else {
-            try {
-              await Directory(tmpExtract).delete(recursive: true);
-            } catch (_) {}
-            return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
-          }
-        } else {
-          final entries = Directory(tmpExtract).listSync();
-          if (entries.length == 1 && entries.first is Directory)
-            sourceDir = entries.first.path;
-        }
-        LoggerService().info("patch merge: $sourceDir -> $destDir");
-        await _copyMerge(sourceDir, destDir);
-        LoggerService().info("patch merge done");
-        await Directory(tmpExtract).delete(recursive: true);
+        await cleanupPatchTempDirs();
+        return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
+      LoggerService().info(
+        "patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir",
+      );
+      String sourceDir = tmpExtract;
+      if (patchDir != null && patchDir.isNotEmpty) {
+        String pd;
+        try {
+          pd = _resolveSafeRelativePath(tmpExtract, patchDir);
+        } catch (e) {
+          await Directory(tmpExtract).delete(recursive: true);
+          return ("补丁源目录非法: $patchDir", null);
+        }
+        LoggerService().info("patch resolve: looking for $pd");
+        if (await Directory(pd).exists()) {
+          sourceDir = pd;
+        } else {
+          await Directory(tmpExtract).delete(recursive: true);
+          return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
+        }
+      }
+      final backupDir =
+          "${dir}${Platform.pathSeparator}.patch_backup_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      patchBackupDir = backupDir;
+      await Directory(backupDir).create(recursive: true);
+      LoggerService().info("patch merge with rollback: $sourceDir -> $destDir");
+      await _copyMergeWithRollback(
+        task,
+        sourceDir,
+        destDir,
+        backupDir,
+      );
+      await Directory(tmpExtract).delete(recursive: true);
+      try {
+        await Directory(backupDir).delete(recursive: true);
+      } catch (_) {}
+      patchBackupDir = null;
+      LoggerService().info("patch merge done");
       if (_stopped(task)) {
         if (task.status != "paused") {
           try {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       try {
@@ -546,11 +588,13 @@ class DownloadService with WidgetsBindingObserver {
             await tmp.delete();
           } catch (_) {}
         }
+        await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
       try {
         await tmp.delete();
       } catch (_) {}
+      await cleanupPatchTempDirs();
       return ("$e", null);
     } finally {
       _patchInjections.remove(appId);
@@ -564,8 +608,10 @@ class DownloadService with WidgetsBindingObserver {
     required int versionId,
     required String fileName,
     required String downloadUrl,
+    int expiresAt = 0,
     required String gameName,
     required String companyName,
+    String sourceType = "local",
     String? coverUrl,
     String? bgUrl,
     String? extractPassword,
@@ -576,8 +622,11 @@ class DownloadService with WidgetsBindingObserver {
             versionId: versionId,
             fileName: fileName,
             downloadUrl: downloadUrl,
+            expiresAt: expiresAt,
+            serverBaseUrl: _serverOrigin(downloadUrl),
             gameName: gameName,
             companyName: companyName,
+            sourceType: sourceType,
           )
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
@@ -594,8 +643,7 @@ class DownloadService with WidgetsBindingObserver {
       // Save state BEFORE closing client
       final received = task.receivedBytes;
       final total = task.totalBytes;
-      task._client?.close();
-      task._client = null;
+      _closeTaskClients(task);
       task.status = "paused";
       // Persist byte counts to a dedicated key for safe resume
       final prefs = await SharedPreferences.getInstance();
@@ -702,8 +750,7 @@ class DownloadService with WidgetsBindingObserver {
         task.status == "retrying" ||
         task.status == "extracting" ||
         task.status == "paused") {
-      task._client?.close();
-      task._client = null;
+      _closeTaskClients(task);
       _killExtractor();
       task._cancelled = true;
       task.status = "cancelled";
@@ -730,6 +777,7 @@ class DownloadService with WidgetsBindingObserver {
   // ── binary management ──
 
   String? _sevenZipPath;
+  String? _aria2Path;
   Process? _extractionProcess;
   bool _userSkippedSetup = false;
   Future<bool> Function()? onSetupNeeded;
@@ -738,7 +786,10 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<int?> _get7zaVersion(String path) async {
     try {
-      final r = await Process.run(path, []);
+      final r = await Process.run(
+        Platform.isAndroid ? "/system/bin/linker64" : path,
+        Platform.isAndroid ? [path] : [],
+      ).timeout(const Duration(seconds: 3));
       final m = RegExp(r'(\d+)\.(\d+)').firstMatch("${r.stdout}${r.stderr}");
       if (m != null) {
         return int.parse(m.group(1)!) * 100 + int.parse(m.group(2)!);
@@ -759,7 +810,10 @@ class DownloadService with WidgetsBindingObserver {
     // Replace old binary (<16.00) or old 7za.exe
     if (await dest.exists()) {
       final v = await _get7zaVersion(dest.path);
-      if (v != null && v < _min7zaVersion) {
+      if (v == null || v < _min7zaVersion) {
+        LoggerService().warn(
+          "Bundled 7zz cache invalid; replacing from assets: version=${v ?? "unknown"}",
+        );
         try {
           await dest.delete();
         } catch (_) {}
@@ -780,12 +834,12 @@ class DownloadService with WidgetsBindingObserver {
       // Extract from bundled assets
       bool ok = false;
       try {
-        debugPrint(
-          "[SenaRepo] Loading 7zz from assets: assets/binaries/$exeName",
+        LoggerService().info(
+          "Loading 7zz from assets: assets/binaries/$exeName",
         );
         final data = await rootBundle.load("assets/binaries/$exeName");
-        debugPrint(
-          "[SenaRepo] 7zz size from assets: ${data.buffer.lengthInBytes} bytes",
+        LoggerService().info(
+          "7zz size from assets: ${data.buffer.lengthInBytes} bytes",
         );
         await dest.writeAsBytes(data.buffer.asUint8List());
         // 7z.dll (Windows only — full format support incl. RAR)
@@ -805,11 +859,36 @@ class DownloadService with WidgetsBindingObserver {
             );
           } catch (_) {}
         }
+        final version = await _get7zaVersion(dest.path);
+        if (version == null || version < _min7zaVersion) {
+          throw Exception("解压组件校验失败");
+        }
         if (await dest.exists()) ok = true;
-      } catch (_) {}
+      } catch (e, stackTrace) {
+        LoggerService().warn("Bundled 7zz setup failed", e, stackTrace);
+        try {
+          await dest.delete();
+        } catch (_) {}
+      }
+
+      if (!ok && Platform.isAndroid) {
+        throw Exception("解压组件校验失败，请重新安装应用");
+      }
+
+      if (!ok && Platform.isLinux) {
+        final systemExe = await _findSystemSevenZip();
+        if (systemExe != null) {
+          LoggerService().info("Using system 7-Zip: $systemExe");
+          _sevenZipPath = systemExe;
+          return _sevenZipPath!;
+        }
+      }
 
       // Download fallback
-      if (!ok && onSetupNeeded != null && !_userSkippedSetup) {
+      if (!ok &&
+          !Platform.isAndroid &&
+          onSetupNeeded != null &&
+          !_userSkippedSetup) {
         if (!await onSetupNeeded!()) {
           _userSkippedSetup = true;
           throw Exception("需要 7-Zip 才能解压。请安装后再试。");
@@ -824,6 +903,14 @@ class DownloadService with WidgetsBindingObserver {
 
     _sevenZipPath = dest.path;
     return _sevenZipPath!;
+  }
+
+  Future<String?> _findSystemSevenZip() async {
+    for (final name in ["7zz", "7z"]) {
+      final version = await _get7zaVersion(name);
+      if (version != null && version >= _min7zaVersion) return name;
+    }
+    return null;
   }
 
   Future<void> _downloadBinary(File dest, String dir) async {
@@ -986,12 +1073,10 @@ class DownloadService with WidgetsBindingObserver {
             return;
           }
           if (t.status == "paused") return;
-          // Encrypted or no-extractor error — throw immediately, don't waste retries
           final errStr = "$e";
           if (_isEncryptedError(errStr)) rethrow;
           if (_isExtractorMissingError(errStr)) rethrow;
-          if (retry < maxExtractRetries) {
-            // Corrupted file — delete and re-download
+          if (_isArchiveIntegrityError(errStr) && retry < maxExtractRetries) {
             try {
               LoggerService().warn("DELETING temp file: $tmp");
               await tmp.delete();
@@ -1057,10 +1142,7 @@ class DownloadService with WidgetsBindingObserver {
     return lower.contains("password") ||
         lower.contains("encrypted") ||
         lower.contains("wrong password") ||
-        lower.contains("can't open encrypted") ||
-        lower.contains("crc error") ||
-        lower.contains("crc_error") ||
-        lower.contains("data error");
+        lower.contains("can't open encrypted");
   }
 
   bool _isExtractorMissingError(String err) {
@@ -1068,7 +1150,52 @@ class DownloadService with WidgetsBindingObserver {
     return lower.contains("permission denied") ||
         lower.contains("cannot run") ||
         lower.contains("no such file") ||
-        lower.contains("解压组件未就绪");
+        lower.contains("process exception") ||
+        lower.contains("not executable") ||
+        lower.contains("bad elf") ||
+        lower.contains("解压组件未就绪") ||
+        lower.contains("解压组件校验失败");
+  }
+
+  bool _isArchiveIntegrityError(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains("crc failed") ||
+        lower.contains("crc error") ||
+        lower.contains("crc_error") ||
+        lower.contains("data error") ||
+        lower.contains("checksum") ||
+        lower.contains("压缩包校验失败") ||
+        lower.contains("文件可能已损坏") ||
+        lower.contains("下载不完整") ||
+        lower.contains("archive is corrupted") ||
+        lower.contains("unexpected end") ||
+        lower.contains("headers error");
+  }
+
+  String _extractFailedArchivePath(String err) {
+    final patterns = [
+      RegExp(r'CRC Failed\s*:\s*([^\r\n]+)', caseSensitive: false),
+      RegExp(r'Data Error\s*:\s*([^\r\n]+)', caseSensitive: false),
+      RegExp(r'ERROR\s*:\s*([^\r\n]+)', caseSensitive: false),
+    ];
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(err);
+      final value = match?.group(1)?.trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return "";
+  }
+
+  String _formatToolError(String err) {
+    final raw = err.trim();
+    if (raw.isEmpty) return "解压工具执行失败";
+    if (_isEncryptedError(raw)) return "压缩包需要密码或密码不正确";
+    if (_isArchiveIntegrityError(raw)) {
+      final failedPath = _extractFailedArchivePath(raw);
+      final suffix = failedPath.isEmpty ? "" : "\n失败文件: $failedPath";
+      return "压缩包校验失败，文件可能已损坏、下载不完整，或源文件本身有问题。请重新下载补丁；如果仍失败，请检查补丁源文件完整性。$suffix";
+    }
+    return raw;
   }
 
   // ── download ──
@@ -1077,13 +1204,106 @@ class DownloadService with WidgetsBindingObserver {
   static const _retryDelays = [1, 3, 7]; // seconds
   static const _downloadConnectTimeout = Duration(seconds: 20);
   static const _downloadIdleTimeout = Duration(seconds: 45);
+  static const _downloadUserAgent = "Sena-Repo Downloader";
+  static const _browserDownloadUserAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+  static const List<int> _openListAria2SplitCandidates = [4, 2, 1];
+  static const _parallelDownloadMinSize = 32 * 1024 * 1024;
+  static const _parallelDownloadMinPartSize = 8 * 1024 * 1024;
+  static const _parallelDownloadMaxParts = 8;
+  static const _parallelDownloadMax429RetriesAtOne = 5;
+  static const _parallelDownloadMaxTransientRetriesAtOne = 3;
+
+  Future<void> _refreshSignedDownloadLink(DownloadTask task) async {
+    final original = Uri.tryParse(task.downloadUrl);
+    final origin = task.serverBaseUrl ??
+        (original == null
+            ? null
+            : Uri(
+                scheme: original.scheme,
+                host: original.host,
+                port: original.hasPort ? original.port : null,
+              ).toString().replaceFirst(RegExp(r"/$"), ""));
+    final patchKey = task.patchLookupKey;
+    if (origin == null || (patchKey == null && (task.gameId <= 0 || task.versionId <= 0))) {
+      throw DownloadHttpException(401, "下载链接已过期，无法刷新");
+    }
+    final client = http.Client();
+    try {
+      final uri = Uri.parse(patchKey == null
+          ? "$origin/api/download/${task.gameId}/${task.versionId}/link"
+          : "$origin/api/steam/patches/${Uri.encodeComponent(patchKey)}/link");
+      final response = await client
+          .post(uri, headers: _downloadAuthHeaders())
+          .timeout(_downloadConnectTimeout);
+      if (response.statusCode != 200) {
+        throw DownloadHttpException(
+          response.statusCode,
+          "刷新下载链接失败: HTTP ${response.statusCode}",
+          retryAfterSeconds: _retryAfterSeconds(response.headers["retry-after"]),
+        );
+      }
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final url = payload["url"]?.toString() ?? "";
+      if (url.isEmpty) throw DownloadHttpException(502, "服务器返回空下载链接");
+      task.downloadUrl = url;
+      task.expiresAt = int.tryParse("${payload["expires_at"] ?? 0}") ?? 0;
+      task.serverBaseUrl = origin;
+      LoggerService().info(
+        patchKey == null
+            ? "download link refreshed gameId=${task.gameId} versionId=${task.versionId}"
+            : "patch download link refreshed lookupKey=$patchKey",
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Map<String, String> _downloadAuthHeaders() {
+    final token = globalToken;
+    return token == null || token.isEmpty
+        ? {}
+        : {"Authorization": "Bearer $token"};
+  }
+
+  static String? _serverOrigin(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) return null;
+    return Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+    ).toString().replaceFirst(RegExp(r"/$"), "");
+  }
+
+  static int? _retryAfterSeconds(String? value) {
+    if (value == null) return null;
+    final seconds = int.tryParse(value.trim());
+    return seconds != null && seconds >= 0 ? seconds : null;
+  }
 
   Future<void> _download(DownloadTask t, File dest) async {
+    var refreshedLink = false;
     for (int attempt = 0; attempt <= _maxRetries; attempt++) {
       if (_stopped(t)) return;
 
-      // Sync counter with disk
-      if (t.receivedBytes > 0) {
+      if (await _hasParallelDownloadState(dest)) {
+        final state = await _readParallelDownloadState(dest);
+        if (state != null) {
+          await _fallbackParallelToStream(
+            t,
+            dest,
+            state.parts,
+            state.totalBytes,
+            "aria2-resume",
+          );
+        } else {
+          await _discardParallelDownloadState(dest);
+          t.receivedBytes = 0;
+          t.totalBytes = 0;
+        }
+      } else if (t.receivedBytes > 0) {
         LoggerService().info("Resume: checking dest=${dest.path}");
         if (await dest.exists()) {
           final sz = await dest.length();
@@ -1103,8 +1323,29 @@ class DownloadService with WidgetsBindingObserver {
 
       try {
         t.headersReceived = false;
-        await _attempt(t, dest);
+        final usedAria2 = await _attemptAria2(t, dest);
+        if (!usedAria2) {
+          final usedParallel = await _attemptParallel(t, dest);
+          if (!usedParallel) {
+            await _attempt(t, dest);
+          }
+        }
         return; // success
+      } on DownloadHttpException catch (e) {
+        if (_stopped(t)) return;
+        if ((e.statusCode == 401 || e.statusCode == 403) && !refreshedLink) {
+          refreshedLink = true;
+          await _refreshSignedDownloadLink(t);
+          continue;
+        }
+        if (attempt >= _maxRetries) {
+          throw Exception("HTTP ${e.statusCode}: ${e.message}");
+        }
+        _setStatus(t, "retrying");
+        final delay = e.retryAfterSeconds ?? _retryDelays[attempt];
+        await Future.delayed(Duration(seconds: delay.clamp(1, 120).toInt()));
+        if (_stopped(t)) return;
+        _setStatus(t, "downloading");
       } on http.ClientException catch (e) {
         if (_stopped(t)) return;
         if (attempt >= _maxRetries)
@@ -1155,21 +1396,939 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _attempt(DownloadTask t, File dest) async {
-    final client = http.Client();
-    t._client = client;
+  File _parallelDownloadStateFile(File dest) =>
+      File("${dest.path}.parallel.json");
+
+  Future<bool> _hasParallelDownloadState(File dest) async {
+    final file = _parallelDownloadStateFile(dest);
+    final tmp = File("${file.path}.tmp");
+    return await file.exists() || await tmp.exists();
+  }
+
+  Future<List<_ParallelDownloadPart>> _parallelDownloadParts(
+    File dest,
+    int totalBytes,
+  ) async {
+    final state = await _readParallelDownloadState(dest);
+    if (state != null && state.totalBytes == totalBytes) return state.parts;
+    if (state != null) {
+      await _deleteParallelDownloadState(dest);
+    }
+
+    final partSize = (totalBytes / _parallelDownloadMaxParts)
+        .ceil()
+        .clamp(_parallelDownloadMinPartSize, totalBytes)
+        .toInt();
+    final parts = <_ParallelDownloadPart>[];
+    var start = 0;
+    var index = 0;
+    while (start < totalBytes) {
+      final end = (start + partSize - 1).clamp(0, totalBytes - 1).toInt();
+      parts.add(
+        _ParallelDownloadPart(
+          index: index,
+          start: start,
+          end: end,
+          path: "${dest.path}.part_$index",
+        ),
+      );
+      start = end + 1;
+      index += 1;
+    }
+    await _writeParallelDownloadState(
+      dest,
+      _ParallelDownloadState(totalBytes: totalBytes, parts: parts),
+    );
+    return parts;
+  }
+
+  Future<_ParallelDownloadState?> _readParallelDownloadState(File dest) async {
+    final file = _parallelDownloadStateFile(dest);
+    if (!await file.exists()) return null;
+    try {
+      final data = Map<String, dynamic>.from(
+        const JsonDecoder().convert(await file.readAsString()) as Map,
+      );
+      final totalBytes = data["totalBytes"];
+      final rawParts = data["parts"];
+      if (totalBytes is! int || rawParts is! List) return null;
+      final parts = <_ParallelDownloadPart>[];
+      for (final rawPart in rawParts) {
+        final part = Map<String, dynamic>.from(rawPart as Map);
+        parts.add(
+          _ParallelDownloadPart(
+            index: part["index"] as int,
+            start: part["start"] as int,
+            end: part["end"] as int,
+            path: part["path"] as String,
+          ),
+        );
+      }
+      return _ParallelDownloadState(totalBytes: totalBytes, parts: parts);
+    } catch (e) {
+      LoggerService().warn("parallel download state invalid: ${dest.path}", e);
+      return null;
+    }
+  }
+
+  Future<void> _writeParallelDownloadState(
+    File dest,
+    _ParallelDownloadState state,
+  ) async {
+    final file = _parallelDownloadStateFile(dest);
+    final tmp = File("${file.path}.tmp");
+    await tmp.writeAsString(
+      const JsonEncoder().convert({
+        "version": 1,
+        "totalBytes": state.totalBytes,
+        "parts": state.parts
+            .map(
+              (part) => {
+                "index": part.index,
+                "start": part.start,
+                "end": part.end,
+                "path": part.path,
+              },
+            )
+            .toList(),
+      }),
+    );
+    try {
+      await file.delete();
+    } catch (_) {}
+    await tmp.rename(file.path);
+  }
+
+  Future<int> _parallelDownloadedBytes(File dest) async {
+    final state = await _readParallelDownloadState(dest);
+    if (state == null) return 0;
+    return _parallelDownloadedBytesForParts(state.parts);
+  }
+
+  Future<int> _parallelDownloadedBytesForParts(
+    List<_ParallelDownloadPart> parts,
+  ) async {
+    var downloaded = 0;
+    for (final part in parts) {
+      final file = File(part.path);
+      if (!await file.exists()) continue;
+      final size = await file.length();
+      if (size > part.length) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        continue;
+      }
+      downloaded += size;
+    }
+    return downloaded;
+  }
+
+  Future<void> _deleteParallelPartFiles(File dest) async {
+    try {
+      final parent = dest.parent;
+      if (!await parent.exists()) return;
+      final prefix = "${dest.path}.part_";
+      await for (final entry in parent.list()) {
+        if (entry is File && entry.path.startsWith(prefix)) {
+          try {
+            await entry.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _discardParallelDownloadState(File dest) async {
+    LoggerService().warn("discard parallel download state: ${dest.path}");
+    try {
+      if (await dest.exists()) await dest.delete();
+    } catch (e) {
+      LoggerService().warn("discard stale parallel download file failed: $e");
+    }
+    await _deleteParallelDownloadState(dest);
+  }
+
+  Future<int> _salvageParallelPrefix(
+    File dest,
+    List<_ParallelDownloadPart> parts,
+  ) async {
+    IOSink? sink;
+    var salvaged = 0;
+    try {
+      sink = dest.openWrite(mode: FileMode.write);
+      final ordered = parts.toList()
+        ..sort((a, b) => a.start.compareTo(b.start));
+      for (final part in ordered) {
+        final file = File(part.path);
+        if (!await file.exists()) break;
+        final size = await file.length();
+        if (size <= 0) break;
+        if (size > part.length) {
+          try {
+            await file.delete();
+          } catch (_) {}
+          break;
+        }
+        await sink.addStream(file.openRead(0, size));
+        salvaged += size;
+        if (size < part.length) break;
+      }
+      await sink.flush();
+      await sink.close();
+      final actual = (await dest.exists()) ? await dest.length() : 0;
+      if (actual != salvaged) {
+        LoggerService().warn(
+          "parallel prefix salvage size mismatch: expected=$salvaged actual=$actual",
+        );
+        return actual;
+      }
+      return salvaged;
+    } catch (e) {
+      LoggerService().warn("parallel prefix salvage failed: ${dest.path}", e);
+      try {
+        if (await dest.exists()) await dest.delete();
+      } catch (_) {}
+      return 0;
+    } finally {
+      try {
+        await sink?.flush();
+      } catch (_) {}
+      try {
+        await sink?.close();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _fallbackParallelToStream(
+    DownloadTask t,
+    File dest,
+    List<_ParallelDownloadPart> parts,
+    int totalBytes,
+    String reason, [
+    Object? error,
+  ]) async {
+    final salvaged = await _salvageParallelPrefix(dest, parts);
+    await _deleteParallelDownloadState(dest);
+    t.receivedBytes = salvaged;
+    t.totalBytes = totalBytes;
+    t.progress = totalBytes > 0 ? salvaged / totalBytes : 0.0;
+    LoggerService().warn(
+      "parallel download fallback to stream: source=${_normalizedSourceType(t)} "
+      "reason=$reason salvaged=$salvaged total=$totalBytes",
+      error,
+    );
+    _emit();
+  }
+
+  Future<void> _deleteParallelDownloadState(File dest) async {
+    final file = _parallelDownloadStateFile(dest);
+    try {
+      await file.delete();
+    } catch (_) {}
+    try {
+      await File("${file.path}.tmp").delete();
+    } catch (_) {}
+    await _deleteParallelPartFiles(dest);
+  }
+
+  Future<void> _deleteFileQuietly(String path) async {
+    try {
+      await File(path).delete();
+    } catch (_) {}
+  }
+
+  String? _aria2AssetPath() {
+    if (Platform.isWindows) return "assets/binaries/aria2c.exe";
+    if (Platform.isLinux) return "assets/binaries/aria2c";
+    if (Platform.isAndroid) return "assets/binaries/aria2c";
+    return null;
+  }
+
+  String? _aria2FallbackAssetPath() {
+    if (Platform.isWindows) {
+      return "assets/binaries/aria2/windows-x64/aria2c.exe";
+    }
+    if (Platform.isLinux) return "assets/binaries/aria2/linux-x64/aria2c";
+    if (Platform.isAndroid) {
+      return "assets/binaries/aria2/android-aarch64/aria2c";
+    }
+    return null;
+  }
+
+  String _aria2FileName() => Platform.isWindows ? "aria2c.exe" : "aria2c";
+
+  Future<ByteData?> _loadAria2Asset() async {
+    for (final asset in [_aria2AssetPath(), _aria2FallbackAssetPath()]) {
+      if (asset == null) continue;
+      try {
+        final data = await rootBundle.load(asset);
+        LoggerService().info(
+          "aria2 asset loaded: $asset size=${data.lengthInBytes}",
+        );
+        return data;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<String?> _getAria2Path() async {
+    if (_aria2Path != null) return _aria2Path;
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isAndroid) {
+      return null;
+    }
+
+    final data = await _loadAria2Asset();
+    if (data == null) {
+      LoggerService().warn(
+        "aria2 asset unavailable for platform=${Platform.operatingSystem}",
+      );
+      return null;
+    }
+
+    final supportDir = await getApplicationSupportDirectory();
+    final platformDir = Directory(
+      "${supportDir.path}${Platform.pathSeparator}aria2"
+      "${Platform.pathSeparator}${Platform.operatingSystem}",
+    );
+    await platformDir.create(recursive: true);
+    final dest = File(
+      "${platformDir.path}${Platform.pathSeparator}${_aria2FileName()}",
+    );
+    final assetBytes = data.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+
+    var shouldWrite = !await dest.exists();
+    if (!shouldWrite) {
+      try {
+        shouldWrite = await dest.length() != assetBytes.length;
+      } catch (_) {
+        shouldWrite = true;
+      }
+    }
+    Future<void> installAsset() async {
+      await dest.writeAsBytes(assetBytes, flush: true);
+    }
+
+    Future<void> chmodExecutable() async {
+      if (!Platform.isLinux && !Platform.isAndroid) return;
+      try {
+        await Process.run(
+          Platform.isAndroid ? "/system/bin/chmod" : "chmod",
+          ["+x", dest.path],
+        );
+      } catch (_) {}
+    }
+
+    if (shouldWrite) await installAsset();
+    await chmodExecutable();
+
+    if (!await _checkAria2(dest.path)) {
+      await installAsset();
+      await chmodExecutable();
+      if (!await _checkAria2(dest.path)) {
+        LoggerService().warn("aria2 binary check failed: ${dest.path}");
+        return null;
+      }
+    }
+
+    _aria2Path = dest.path;
+    return _aria2Path;
+  }
+
+  Future<bool> _checkAria2(String path) async {
+    try {
+      final invocation = _externalToolInvocation(path, ["--version"]);
+      final result = await Process.run(
+        invocation.$1,
+        invocation.$2,
+      ).timeout(const Duration(seconds: 5));
+      final output = "${result.stdout}${result.stderr}";
+      return result.exitCode == 0 && output.contains("aria2 version");
+    } catch (e) {
+      LoggerService().warn("aria2 version check failed", e);
+      return false;
+    }
+  }
+
+  (String, List<String>) _externalToolInvocation(
+    String exe,
+    List<String> args,
+  ) {
+    if (!Platform.isAndroid) return (exe, args);
+    return ("/system/bin/linker64", [exe, ...args]);
+  }
+
+  Future<String?> _androidAria2CaCertificatePath(String aria2) async {
+    if (!Platform.isAndroid) return null;
+    final certDir = Directory("/system/etc/security/cacerts");
+    if (!await certDir.exists()) {
+      LoggerService().warn("Android CA directory not found for aria2");
+      return null;
+    }
+
+    final files = <File>[];
+    await for (final entry in certDir.list()) {
+      if (entry is File) files.add(entry);
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
+    if (files.isEmpty) {
+      LoggerService().warn("Android CA directory is empty for aria2");
+      return null;
+    }
+
+    final output = File(
+      "${File(aria2).parent.path}${Platform.pathSeparator}ca-certificates.pem",
+    );
     IOSink? sink;
     try {
-      final headers = <String, String>{};
+      sink = output.openWrite(mode: FileMode.write);
+      for (final file in files) {
+        sink.add(await file.readAsBytes());
+        sink.add(const Utf8Encoder().convert("\n"));
+      }
+      await sink.flush();
+      await sink.close();
+      return output.path;
+    } catch (e) {
+      LoggerService().warn("Android CA bundle setup failed for aria2", e);
+      return null;
+    } finally {
+      try {
+        await sink?.close();
+      } catch (_) {}
+    }
+  }
 
-      // Always request ranges so OpenList/cloud sources return resumable metadata early.
-      headers["Range"] = "bytes=${t.receivedBytes}-";
+  bool _canUseAria2Download(DownloadTask t) {
+    final uri = Uri.tryParse(t.downloadUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return false;
+    if (uri.path.contains("/api/download/signed/")) return true;
+    if (RegExp(r"(^|/)api/").hasMatch(uri.path)) {
+      LoggerService().info(
+        "aria2 download skipped: authenticated api url "
+        "target=${_downloadLogTarget(uri)}",
+      );
+      return false;
+    }
+    return true;
+  }
+
+  String _downloadUserAgentForTask(DownloadTask t) {
+    if (_normalizedSourceType(t) == "openlist") {
+      return _browserDownloadUserAgent;
+    }
+    return _downloadUserAgent;
+  }
+
+  String _downloadUserAgentProfile(DownloadTask t) =>
+      _normalizedSourceType(t) == "openlist" ? "browser" : "sena";
+
+  List<int> _aria2SplitCandidates(DownloadTask t) {
+    if (_normalizedSourceType(t) != "openlist") {
+      return const [_parallelDownloadMaxParts];
+    }
+    if (t.totalBytes > 0 && t.totalBytes < _parallelDownloadMinSize) {
+      return const [1];
+    }
+    return _openListAria2SplitCandidates;
+  }
+
+  bool _shouldRetryAria2WithLowerSplit(DownloadTask t, int split) =>
+      _normalizedSourceType(t) == "openlist" && split > 1;
+
+  Future<_Aria2DownloadTarget?> _resolveAria2DownloadTarget(
+    DownloadTask t,
+  ) async {
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    Uri? finalUri;
+    try {
+      final resp = await _sendDownloadRequest(
+        client,
+        t.downloadUrl,
+        {
+          "Range": "bytes=0-0",
+          "User-Agent": _downloadUserAgentForTask(t),
+        },
+        onFinalUri: (uri) => finalUri = uri,
+      );
+      final statusCode = resp.statusCode;
+      final total = resp.statusCode == 206
+          ? _parseContentRangeTotal(resp.headers["content-range"])
+          : resp.contentLength;
+      LoggerService().info(
+        "aria2 target resolved: status=$statusCode "
+        "ua=${_downloadUserAgentProfile(t)} "
+        "target=${finalUri == null ? "-" : _downloadLogTarget(finalUri!)} "
+        "contentLength=${resp.contentLength ?? 0} "
+        "contentRange=${resp.headers["content-range"] ?? "-"} "
+        "total=${total ?? 0}",
+      );
+      if (statusCode != 200) {
+        await resp.stream.drain<void>();
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw DownloadHttpException(
+          statusCode,
+          "aria2 target probe HTTP $statusCode",
+          retryAfterSeconds: _retryAfterSeconds(resp.headers["retry-after"]),
+        );
+      }
+      if (statusCode != 200 && statusCode != 206) return null;
+      final uri = finalUri;
+      if (uri == null) return null;
+      return _Aria2DownloadTarget(
+        url: uri.toString(),
+        totalBytes: total != null && total > 0 ? total : null,
+      );
+    } on DownloadHttpException {
+      rethrow;
+    } catch (e) {
+      LoggerService().warn("aria2 target resolve failed", e);
+      return null;
+    } finally {
+      client.close();
+      _untrackTaskClient(t, client);
+    }
+  }
+
+  Future<bool> _attemptAria2(DownloadTask t, File dest) async {
+    if (!_canUseAria2Download(t)) return false;
+
+    final aria2 = await _getAria2Path();
+    if (aria2 == null) return false;
+
+    await dest.parent.create(recursive: true);
+    final target = await _resolveAria2DownloadTarget(t);
+    if (_stopped(t)) return true;
+    if (target == null && _normalizedSourceType(t) == "openlist") {
+      LoggerService().info(
+        "aria2 download skipped: source=openlist final target unavailable",
+      );
+      return false;
+    }
+    final aria2Url = target?.url ?? t.downloadUrl;
+    final totalHint = t.totalBytes > 0 ? t.totalBytes : target?.totalBytes;
+    if (totalHint != null && totalHint > 0) {
+      t.totalBytes = totalHint;
+      if (await dest.exists()) {
+        t.receivedBytes = await dest.length();
+      }
+      t.progress = t.receivedBytes > 0
+          ? t.receivedBytes / t.totalBytes
+          : 0.0;
+    }
+
+    final splitCandidates = _aria2SplitCandidates(t);
+    for (var index = 0; index < splitCandidates.length; index++) {
+      final split = splitCandidates[index];
+      final result = await _runAria2Download(
+        t,
+        dest,
+        aria2,
+        aria2Url,
+        split: split,
+        attemptIndex: index,
+        attemptCount: splitCandidates.length,
+      );
+      if (result.success || result.stopped) return true;
+      final hasLowerSplit = index < splitCandidates.length - 1;
+      if (result.retryWithLowerSplit && hasLowerSplit) {
+        LoggerService().warn(
+          "aria2 download retrying with lower split: "
+          "source=${_normalizedSourceType(t)} split=$split "
+          "nextSplit=${splitCandidates[index + 1]} "
+          "status=${result.statusCode ?? "-"} "
+          "received=${result.receivedBytes}",
+        );
+        continue;
+      }
+      if (result.processStarted) {
+        await _discardOpenListAria2PartialForFallback(t, dest, splitCandidates);
+      }
+      return false;
+    }
+    return false;
+  }
+
+  Future<void> _discardOpenListAria2PartialForFallback(
+    DownloadTask t,
+    File dest,
+    List<int> splitCandidates,
+  ) async {
+    if (_normalizedSourceType(t) != "openlist") return;
+    if (!splitCandidates.any((split) => split > 1)) return;
+    LoggerService().warn(
+      "discard aria2 partial before Dart fallback: source=openlist",
+    );
+    try {
+      if (await dest.exists()) await dest.delete();
+    } catch (e) {
+      LoggerService().warn("discard aria2 partial failed: $e");
+    }
+    await _deleteAria2ControlFile(dest);
+    t.receivedBytes = 0;
+    t.progress = 0.0;
+  }
+
+  Future<_Aria2AttemptResult> _runAria2Download(
+    DownloadTask t,
+    File dest,
+    String aria2,
+    String aria2Url, {
+    required int split,
+    required int attemptIndex,
+    required int attemptCount,
+  }) async {
+    final args = await _aria2DownloadArgs(
+      t,
+      dest,
+      aria2,
+      aria2Url,
+      split: split,
+      userAgent: _downloadUserAgentForTask(t),
+    );
+    final invocation = _externalToolInvocation(aria2, args);
+    LoggerService().info(
+      "aria2 download started: platform=${Platform.operatingSystem} "
+      "source=${_normalizedSourceType(t)} split=$split "
+      "attempt=${attemptIndex + 1}/$attemptCount "
+      "ua=${_downloadUserAgentProfile(t)} exe=${invocation.$1} "
+      "args=${_redactAria2Args(invocation.$2)}",
+    );
+
+    final Process proc;
+    try {
+      proc = await Process.start(invocation.$1, invocation.$2);
+    } catch (e, stackTrace) {
+      LoggerService().warn("aria2 process start failed", e, stackTrace);
+      return _Aria2AttemptResult.failed(
+        retryWithLowerSplit: false,
+        processStarted: false,
+        receivedBytes: t.receivedBytes,
+        summary: e.toString(),
+      );
+    }
+
+    t._downloadProcess = proc;
+    t.headersReceived = true;
+    final startedAt = DateTime.now();
+    var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
+    var lastStateSave = DateTime.now();
+    var lastTraceLog = DateTime.now();
+    var lastTraceBytes = t.receivedBytes;
+    final uiEmitIntervalMs = Platform.isAndroid ? 500 : 250;
+    final stateSaveIntervalMs = Platform.isAndroid ? 5000 : 2000;
+    const notificationIntervalMs = 5000;
+    final stdoutBytes = <int>[];
+    final stderrBytes = <int>[];
+
+    void appendOutput(List<int> target, List<int> chunk) {
+      final remaining = 8192 - target.length;
+      if (remaining <= 0) return;
+      target.addAll(chunk.take(remaining));
+    }
+
+    Future<void> updateProgress({bool force = false}) async {
+      final now = DateTime.now();
+      final received = await dest.exists() ? await dest.length() : 0;
+      if (received > 0 || t.totalBytes > 0) {
+        t.receivedBytes = received;
+        if (t.totalBytes > 0) {
+          t.progress = (received / t.totalBytes)
+              .clamp(0.0, 1.0)
+              .toDouble();
+        }
+      }
+
+      final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
+      if (elapsed >= 1000) {
+        t.speedBytesPerSecond =
+            ((t.receivedBytes - t._lastBytes) / elapsed * 1000).round();
+        t._lastBytes = t.receivedBytes;
+        t._lastSpeedTime = now;
+      }
+
+      if (force ||
+          now.difference(lastUiEmit).inMilliseconds >= uiEmitIntervalMs) {
+        lastUiEmit = now;
+        _emit(save: false);
+      }
+      if (now.difference(lastStateSave).inMilliseconds >= stateSaveIntervalMs) {
+        lastStateSave = now;
+        _saveTasks();
+      }
+      final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
+      if (force || notifyElapsed >= notificationIntervalMs) {
+        t._lastNotifyTime = now;
+        NotificationService().showDownloadProgress(
+          id: t.gameId,
+          gameName: t.gameName,
+          progress: t.progress,
+          receivedBytes: t.receivedBytes,
+          totalBytes: t.totalBytes,
+        );
+      }
+      final traceElapsed = now.difference(lastTraceLog).inMilliseconds;
+      if (traceElapsed >= 10000) {
+        final windowBytes = t.receivedBytes - lastTraceBytes;
+        final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
+        LoggerService().info(
+          "aria2 download trace: platform=${Platform.operatingSystem} "
+          "split=$split received=${t.receivedBytes} total=${t.totalBytes} "
+          "windowSpeed=$windowSpeed",
+        );
+        lastTraceLog = now;
+        lastTraceBytes = t.receivedBytes;
+      }
+    }
+
+    final stdoutSub = proc.stdout.listen((d) => appendOutput(stdoutBytes, d));
+    final stderrSub = proc.stderr.listen((d) => appendOutput(stderrBytes, d));
+    var exited = false;
+    var exitCode = -1;
+    unawaited(proc.exitCode.then((code) {
+      exitCode = code;
+      exited = true;
+    }));
+
+    try {
+      try {
+        await proc.stdin.close();
+      } catch (_) {}
+      t._lastBytes = t.receivedBytes;
+      t._lastSpeedTime = DateTime.now();
+      await updateProgress(force: true);
+
+      while (!exited) {
+        if (_stopped(t)) {
+          proc.kill();
+          return _Aria2AttemptResult.stopped();
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+        await updateProgress();
+      }
+
+      await stdoutSub.cancel();
+      await stderrSub.cancel();
+      await updateProgress(force: true);
+      if (_stopped(t)) return _Aria2AttemptResult.stopped();
+
+      if (exitCode != 0) {
+        final summary = _aria2OutputSummary(stdoutBytes, stderrBytes);
+        final statusCode = _parseAria2HttpStatus(summary);
+        final fileSize = await dest.exists() ? await dest.length() : 0;
+        if (fileSize > 0) {
+          t.receivedBytes = fileSize;
+          if (t.totalBytes > 0) {
+            t.progress = (fileSize / t.totalBytes).clamp(0.0, 1.0).toDouble();
+          }
+        }
+        final retryWithLowerSplit = _shouldRetryAria2WithLowerSplit(t, split);
+        LoggerService().warn(
+          "aria2 download failed: source=${_normalizedSourceType(t)} "
+          "split=$split exit=$exitCode "
+          "status=${statusCode ?? "-"} received=$fileSize "
+          "retryLower=$retryWithLowerSplit "
+          "${summary.isEmpty ? "" : "summary=$summary"}",
+        );
+        if (!retryWithLowerSplit) await _deleteAria2ControlFile(dest);
+        return _Aria2AttemptResult.failed(
+          retryWithLowerSplit: retryWithLowerSplit,
+          processStarted: true,
+          statusCode: statusCode,
+          receivedBytes: fileSize,
+          summary: summary,
+        );
+      }
+
+      final fileSize = await dest.exists() ? await dest.length() : 0;
+      if (fileSize == 0) {
+        final retryWithLowerSplit = _shouldRetryAria2WithLowerSplit(t, split);
+        LoggerService().warn(
+          "aria2 download empty: source=${_normalizedSourceType(t)} "
+          "split=$split retryLower=$retryWithLowerSplit",
+        );
+        if (!retryWithLowerSplit) await _deleteAria2ControlFile(dest);
+        return _Aria2AttemptResult.failed(
+          retryWithLowerSplit: retryWithLowerSplit,
+          processStarted: true,
+          receivedBytes: 0,
+        );
+      }
+      if (t.totalBytes > 0 && fileSize != t.totalBytes) {
+        final retryWithLowerSplit = _shouldRetryAria2WithLowerSplit(t, split);
+        LoggerService().warn(
+          "aria2 download incomplete: source=${_normalizedSourceType(t)} "
+          "split=$split expected=${t.totalBytes} actual=$fileSize "
+          "retryLower=$retryWithLowerSplit",
+        );
+        t.receivedBytes = fileSize > t.totalBytes ? 0 : fileSize;
+        if (fileSize > t.totalBytes) {
+          try {
+            await dest.delete();
+          } catch (_) {}
+          t.progress = 0.0;
+        } else {
+          t.progress = (fileSize / t.totalBytes).clamp(0.0, 1.0).toDouble();
+        }
+        if (!retryWithLowerSplit) await _deleteAria2ControlFile(dest);
+        return _Aria2AttemptResult.failed(
+          retryWithLowerSplit: retryWithLowerSplit,
+          processStarted: true,
+          receivedBytes: t.receivedBytes,
+        );
+      }
+      t.receivedBytes = fileSize;
+      if (t.totalBytes <= 0) t.totalBytes = fileSize;
+      t.progress = 1.0;
+      t.headersReceived = true;
+      await _deleteParallelDownloadState(dest);
+      await _deleteAria2ControlFile(dest);
+      _emit();
+
+      final elapsedMs = DateTime.now()
+          .difference(startedAt)
+          .inMilliseconds
+          .clamp(1, 1 << 31);
+      final avgSpeed = (fileSize * 1000 / elapsedMs).round();
+      LoggerService().info(
+        "aria2 download completed: source=${_normalizedSourceType(t)} "
+        "split=$split bytes=$fileSize elapsedMs=$elapsedMs avgSpeed=$avgSpeed",
+      );
+      return _Aria2AttemptResult.succeeded();
+    } finally {
+      try {
+        await stdoutSub.cancel();
+      } catch (_) {}
+      try {
+        await stderrSub.cancel();
+      } catch (_) {}
+      if (identical(t._downloadProcess, proc)) t._downloadProcess = null;
+    }
+  }
+
+  Future<List<String>> _aria2DownloadArgs(
+    DownloadTask t,
+    File dest,
+    String aria2,
+    String downloadUrl, {
+    required int split,
+    required String userAgent,
+  }) async {
+    final args = <String>[
+      "--continue=true",
+      "--allow-overwrite=true",
+      "--auto-file-renaming=false",
+      "--file-allocation=none",
+      "--max-tries=5",
+      "--retry-wait=2",
+      "--timeout=${_downloadIdleTimeout.inSeconds}",
+      "--connect-timeout=${_downloadConnectTimeout.inSeconds}",
+      "--summary-interval=1",
+      "--console-log-level=warn",
+      "--show-console-readout=true",
+      "--download-result=hide",
+      "--user-agent=$userAgent",
+      "--split=$split",
+      "--max-connection-per-server=$split",
+      "--dir=${dest.parent.path}",
+      "--out=${_safeName(dest.path)}",
+    ];
+    if (Platform.isAndroid) {
+      final caCertificate = await _androidAria2CaCertificatePath(aria2);
+      if (caCertificate == null) {
+        LoggerService().warn(
+          "aria2 Android CA bundle unavailable; disabling certificate check",
+        );
+        args.add("--check-certificate=false");
+      } else {
+        args.add("--ca-certificate=$caCertificate");
+      }
+    }
+    if (split > 1) {
+      args.add("--min-split-size=32M");
+      args.add("--stream-piece-selector=inorder");
+    }
+    final limitKbps = await downloadSpeedLimitKbps;
+    if (limitKbps > 0) args.add("--max-download-limit=${limitKbps}K");
+    args.add(downloadUrl);
+    return args;
+  }
+
+  List<String> _redactAria2Args(List<String> args) {
+    return args.map((arg) {
+      final uri = Uri.tryParse(arg);
+      if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
+        return _downloadLogTarget(uri);
+      }
+      if (arg.toLowerCase().startsWith("--header=authorization:")) {
+        return "--header=Authorization: [REDACTED]";
+      }
+      if (arg.startsWith("--user-agent=")) {
+        return arg == "--user-agent=$_browserDownloadUserAgent"
+            ? "--user-agent=[browser]"
+            : "--user-agent=[sena]";
+      }
+      return arg;
+    }).toList();
+  }
+
+  String _aria2OutputSummary(List<int> stdoutBytes, List<int> stderrBytes) {
+    final raw = utf8.decode(
+      [...stderrBytes, ...stdoutBytes],
+      allowMalformed: true,
+    );
+    final redacted = raw
+        .replaceAll(RegExp(r"https?://\S+"), "[URL]")
+        .replaceAll(RegExp(r"\s+"), " ")
+        .trim();
+    if (redacted.length <= 600) return redacted;
+    return "${redacted.substring(0, 600)}...";
+  }
+
+  int? _parseAria2HttpStatus(String output) {
+    final patterns = [
+      RegExp(r"\bstatus=(\d{3})\b", caseSensitive: false),
+      RegExp(r"\bHTTP(?:/\d(?:\.\d)?)?\s+(\d{3})\b", caseSensitive: false),
+    ];
+    for (final pattern in patterns) {
+      final matches = pattern.allMatches(output).toList();
+      if (matches.isNotEmpty) {
+        return int.tryParse(matches.last.group(1)!);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _deleteAria2ControlFile(File dest) async {
+    try {
+      await File("${dest.path}.aria2").delete();
+    } catch (_) {}
+  }
+
+  Future<void> _attempt(DownloadTask t, File dest) async {
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    IOSink? sink;
+    try {
+      final headers = <String, String>{
+        "User-Agent": _downloadUserAgentForTask(t),
+      };
+
+      if (t.receivedBytes > 0) {
+        headers["Range"] = "bytes=${t.receivedBytes}-";
+      }
 
       final resp = await _sendDownloadRequest(client, t.downloadUrl, headers);
       t.headersReceived = true;
       _emit();
       LoggerService().info(
         "download response: status=${resp.statusCode} "
+        "ua=${_downloadUserAgentProfile(t)} "
         "contentLength=${resp.contentLength ?? 0} "
         "contentRange=${resp.headers["content-range"] ?? "-"} "
         "acceptRanges=${resp.headers["accept-ranges"] ?? "-"}",
@@ -1185,7 +2344,11 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       if (resp.statusCode != 200 && resp.statusCode != 206) {
-        throw Exception("HTTP ${resp.statusCode}");
+        throw DownloadHttpException(
+          resp.statusCode,
+          "HTTP ${resp.statusCode}",
+          retryAfterSeconds: _retryAfterSeconds(resp.headers["retry-after"]),
+        );
       }
 
       // Server doesn't support Range → reset
@@ -1201,9 +2364,24 @@ class DownloadService with WidgetsBindingObserver {
 
       // Stream to file
       int received = t.receivedBytes;
+      final downloadStartedAt = DateTime.now();
       final speedLimitEnabled = await downloadSpeedLimitKbps > 0;
       var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
       var lastStateSave = DateTime.now();
+      var lastTraceLog = DateTime.now();
+      var lastTraceBytes = received;
+      var traceChunks = 0;
+      var traceSmallChunks = 0;
+      final uiEmitIntervalMs = Platform.isAndroid ? 500 : 250;
+      final stateSaveIntervalMs = Platform.isAndroid ? 5000 : 2000;
+      const notificationIntervalMs = 5000;
+      const writeBufferThreshold = 1024 * 1024;
+      final writeBuffer = BytesBuilder(copy: false);
+      void flushWriteBuffer() {
+        if (writeBuffer.length == 0) return;
+        sink?.add(writeBuffer.takeBytes());
+      }
+
       sink = dest.openWrite(
         mode: (resp.statusCode == 206) ? FileMode.append : FileMode.write,
       );
@@ -1224,9 +2402,14 @@ class DownloadService with WidgetsBindingObserver {
         if (speedLimitEnabled) {
           await _throttleDownload(chunk.length);
         }
-        sink.add(chunk);
+        writeBuffer.add(chunk);
+        if (writeBuffer.length >= writeBufferThreshold) {
+          flushWriteBuffer();
+        }
         received += chunk.length;
         t.receivedBytes = received;
+        traceChunks += 1;
+        if (chunk.length < 32 * 1024) traceSmallChunks += 1;
         // Calculate speed every ~1 second
         final now = DateTime.now();
         final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
@@ -1237,17 +2420,18 @@ class DownloadService with WidgetsBindingObserver {
           t._lastSpeedTime = now;
         }
         t.progress = t.totalBytes > 0 ? received / t.totalBytes : 0.0;
-        if (now.difference(lastUiEmit).inMilliseconds >= 250) {
+        if (now.difference(lastUiEmit).inMilliseconds >= uiEmitIntervalMs) {
           lastUiEmit = now;
           _emit(save: false);
         }
-        if (now.difference(lastStateSave).inSeconds >= 2) {
+        if (now.difference(lastStateSave).inMilliseconds >=
+            stateSaveIntervalMs) {
           lastStateSave = now;
           _saveTasks();
         }
-        // Throttle notification updates to ~1 per second
+        // Android notification updates cross the platform channel; keep them sparse.
         final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
-        if (notifyElapsed >= 1000) {
+        if (notifyElapsed >= notificationIntervalMs) {
           t._lastNotifyTime = now;
           NotificationService().showDownloadProgress(
             id: t.gameId,
@@ -1257,8 +2441,24 @@ class DownloadService with WidgetsBindingObserver {
             totalBytes: t.totalBytes,
           );
         }
+        final traceElapsed = now.difference(lastTraceLog).inMilliseconds;
+        if (traceElapsed >= 10000) {
+          final windowBytes = received - lastTraceBytes;
+          final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
+          LoggerService().info(
+            "download trace: platform=${Platform.operatingSystem} "
+            "received=$received total=${t.totalBytes} "
+            "windowSpeed=$windowSpeed chunks=$traceChunks "
+            "smallChunks=$traceSmallChunks buffered=${writeBuffer.length}",
+          );
+          lastTraceLog = now;
+          lastTraceBytes = received;
+          traceChunks = 0;
+          traceSmallChunks = 0;
+        }
       }
       // Tell UI we're done downloading before slow disk flush
+      flushWriteBuffer();
       t.progress = 1.0;
       _emit();
       await sink.flush();
@@ -1272,6 +2472,7 @@ class DownloadService with WidgetsBindingObserver {
         try {
           await dest.delete();
         } catch (_) {}
+        await _deleteParallelDownloadState(dest);
         throw Exception("文件不完整: 预期${t.totalBytes}B 实际${fileSize}B");
       }
       if (fileSize == 0) {
@@ -1279,6 +2480,15 @@ class DownloadService with WidgetsBindingObserver {
       }
       // Sync counter
       if (t.receivedBytes != fileSize) t.receivedBytes = fileSize;
+      await _deleteParallelDownloadState(dest);
+      final elapsedMs = DateTime.now()
+          .difference(downloadStartedAt)
+          .inMilliseconds
+          .clamp(1, 1 << 31);
+      final avgSpeed = (fileSize * 1000 / elapsedMs).round();
+      LoggerService().info(
+        "download completed: bytes=$fileSize elapsedMs=$elapsedMs avgSpeed=$avgSpeed",
+      );
     } finally {
       // Ensure data is flushed to disk before returning
       try {
@@ -1291,7 +2501,7 @@ class DownloadService with WidgetsBindingObserver {
       if (Platform.isAndroid)
         await Future.delayed(const Duration(milliseconds: 200));
       client.close();
-      t._client = null;
+      _untrackTaskClient(t, client);
       // Sync counter with actual file size (critical for resume)
       try {
         final actualSize = await dest.length();
@@ -1304,24 +2514,688 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
+  Future<bool> _attemptParallel(DownloadTask t, File dest) async {
+    final hasParallelState = await _hasParallelDownloadState(dest);
+    if (await downloadSpeedLimitKbps > 0) return false;
+    if (_normalizedSourceType(t) == "openlist") {
+      if (hasParallelState) {
+        final state = await _readParallelDownloadState(dest);
+        if (state != null) {
+          await _fallbackParallelToStream(
+            t,
+            dest,
+            state.parts,
+            state.totalBytes,
+            "openlist-stream",
+          );
+        } else {
+          await _discardParallelDownloadState(dest);
+          t.receivedBytes = 0;
+          t.totalBytes = 0;
+          t.progress = 0.0;
+        }
+      }
+      LoggerService().info(
+        "parallel download skipped: source=openlist mode=stream",
+      );
+      return false;
+    }
+    if (t.receivedBytes > 0 && !hasParallelState) {
+      return false;
+    }
+
+    final probe = await _probeParallelDownload(t);
+    if (probe == null || probe.totalBytes < _parallelDownloadMinSize) {
+      if (hasParallelState) {
+        final state = await _readParallelDownloadState(dest);
+        if (state != null) {
+          await _fallbackParallelToStream(
+            t,
+            dest,
+            state.parts,
+            state.totalBytes,
+            probe == null ? "probe-unavailable" : "file-too-small",
+          );
+        } else {
+          await _discardParallelDownloadState(dest);
+          t.receivedBytes = 0;
+          t.totalBytes = 0;
+          t.progress = 0.0;
+        }
+      }
+      return false;
+    }
+
+    if (await dest.exists()) {
+      try {
+        await dest.delete();
+      } catch (_) {}
+    }
+
+    final parts = await _parallelDownloadParts(dest, probe.totalBytes);
+    var downloaded = await _parallelDownloadedBytesForParts(parts);
+    if (downloaded >= probe.totalBytes) {
+      await _mergeParallelParts(t, dest, parts, probe.totalBytes);
+      return true;
+    }
+
+    t.headersReceived = true;
+    t.totalBytes = probe.totalBytes;
+    t.receivedBytes = downloaded;
+    t.progress = downloaded / probe.totalBytes;
+    _emit();
+
+    var concurrency = _initialParallelConcurrency(parts.length);
+    LoggerService().info(
+      "parallel download started: source=${_normalizedSourceType(t)} "
+      "parts=${parts.length} concurrency=$concurrency "
+      "total=${probe.totalBytes} received=$downloaded",
+    );
+
+    final startedAt = DateTime.now();
+    var rateLimitedAtOne = 0;
+    var transientRetriesAtOne = 0;
+    var lastTransientProgress = -1;
+    var lastUiEmit = DateTime.fromMillisecondsSinceEpoch(0);
+    var lastStateSave = DateTime.now();
+    var lastTraceLog = DateTime.now();
+    var lastTraceBytes = downloaded;
+    var traceChunks = 0;
+    var traceSmallChunks = 0;
+    final uiEmitIntervalMs = Platform.isAndroid ? 500 : 250;
+    final stateSaveIntervalMs = Platform.isAndroid ? 5000 : 2000;
+    const notificationIntervalMs = 5000;
+
+    void recordBytes(int bytes) {
+      downloaded += bytes;
+      t.receivedBytes = downloaded;
+      final now = DateTime.now();
+      final elapsed = now.difference(t._lastSpeedTime).inMilliseconds;
+      if (elapsed >= 1000) {
+        t.speedBytesPerSecond =
+            ((downloaded - t._lastBytes) / elapsed * 1000).round();
+        t._lastBytes = downloaded;
+        t._lastSpeedTime = now;
+      }
+      t.progress = t.totalBytes > 0 ? downloaded / t.totalBytes : 0.0;
+      traceChunks += 1;
+      if (bytes < 32 * 1024) traceSmallChunks += 1;
+
+      if (now.difference(lastUiEmit).inMilliseconds >= uiEmitIntervalMs) {
+        lastUiEmit = now;
+        _emit(save: false);
+      }
+      if (now.difference(lastStateSave).inMilliseconds >=
+          stateSaveIntervalMs) {
+        lastStateSave = now;
+        _saveTasks();
+      }
+      final notifyElapsed = now.difference(t._lastNotifyTime).inMilliseconds;
+      if (notifyElapsed >= notificationIntervalMs) {
+        t._lastNotifyTime = now;
+        NotificationService().showDownloadProgress(
+          id: t.gameId,
+          gameName: t.gameName,
+          progress: t.progress,
+          receivedBytes: downloaded,
+          totalBytes: t.totalBytes,
+        );
+      }
+      final traceElapsed = now.difference(lastTraceLog).inMilliseconds;
+      if (traceElapsed >= 10000) {
+        final windowBytes = downloaded - lastTraceBytes;
+        final windowSpeed = (windowBytes * 1000 / traceElapsed).round();
+        LoggerService().info(
+          "parallel download trace: platform=${Platform.operatingSystem} "
+          "received=$downloaded total=${t.totalBytes} "
+          "windowSpeed=$windowSpeed chunks=$traceChunks "
+          "smallChunks=$traceSmallChunks",
+        );
+        lastTraceLog = now;
+        lastTraceBytes = downloaded;
+        traceChunks = 0;
+        traceSmallChunks = 0;
+      }
+    }
+
+    while (!_stopped(t)) {
+      final pending = await _pendingParallelDownloadParts(parts);
+      if (pending.isEmpty) break;
+      final waveConcurrency = pending.length.clamp(1, concurrency).toInt();
+      LoggerService().info(
+        "parallel download wave: source=${_normalizedSourceType(t)} "
+        "concurrency=$waveConcurrency pending=${pending.length} "
+        "received=$downloaded total=${t.totalBytes}",
+      );
+
+      try {
+        await _downloadParallelWave(t, pending, waveConcurrency, recordBytes);
+        rateLimitedAtOne = 0;
+        transientRetriesAtOne = 0;
+        lastTransientProgress = downloaded;
+      } on _ParallelDownloadUnsupported catch (e) {
+        LoggerService().warn(
+          "parallel download unsupported; fallback to stream",
+          e,
+        );
+        await _fallbackParallelToStream(
+          t,
+          dest,
+          parts,
+          probe.totalBytes,
+          "unsupported",
+          e,
+        );
+        return false;
+      } on DownloadHttpException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        if (_isAdaptiveParallelStatus(e.statusCode)) {
+          final nextConcurrency = _reduceParallelConcurrency(concurrency);
+          if (nextConcurrency < concurrency) {
+            LoggerService().warn(
+              "parallel download throttled: source=${_normalizedSourceType(t)} "
+              "status=${e.statusCode} concurrency=$concurrency -> $nextConcurrency "
+              "received=$downloaded total=${probe.totalBytes}",
+            );
+            concurrency = nextConcurrency;
+            await Future.delayed(_adaptiveParallelRetryDelay(e));
+            continue;
+          }
+          if (e.statusCode == 429) {
+            rateLimitedAtOne += 1;
+            if (rateLimitedAtOne <= _parallelDownloadMax429RetriesAtOne) {
+              LoggerService().warn(
+                "parallel download rate limited at concurrency=1; retrying "
+                "$rateLimitedAtOne/$_parallelDownloadMax429RetriesAtOne "
+                "received=$downloaded total=${probe.totalBytes}",
+                e,
+              );
+              await Future.delayed(_adaptiveParallelRetryDelay(e));
+              continue;
+            }
+          }
+          await _fallbackParallelToStream(
+            t,
+            dest,
+            parts,
+            probe.totalBytes,
+            "http-${e.statusCode}",
+            e,
+          );
+          return false;
+        }
+        rethrow;
+      } on TimeoutException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        final nextConcurrency = _reduceParallelConcurrency(concurrency);
+        if (nextConcurrency < concurrency) {
+          LoggerService().warn(
+            "parallel download timeout; reducing concurrency: "
+            "$concurrency -> $nextConcurrency",
+            e,
+          );
+          concurrency = nextConcurrency;
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (downloaded > lastTransientProgress) {
+          transientRetriesAtOne = 0;
+          lastTransientProgress = downloaded;
+        }
+        transientRetriesAtOne += 1;
+        if (transientRetriesAtOne <= _parallelDownloadMaxTransientRetriesAtOne) {
+          LoggerService().warn(
+            "parallel download timeout at concurrency=1; retrying "
+            "$transientRetriesAtOne/$_parallelDownloadMaxTransientRetriesAtOne",
+            e,
+          );
+          await Future.delayed(const Duration(milliseconds: 1200));
+          continue;
+        }
+        LoggerService().warn("parallel download timeout; fallback to stream", e);
+        await _fallbackParallelToStream(
+          t,
+          dest,
+          parts,
+          probe.totalBytes,
+          "timeout",
+          e,
+        );
+        return false;
+      } on SocketException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        final nextConcurrency = _reduceParallelConcurrency(concurrency);
+        if (nextConcurrency < concurrency) {
+          LoggerService().warn(
+            "parallel download socket error; reducing concurrency: "
+            "$concurrency -> $nextConcurrency",
+            e,
+          );
+          concurrency = nextConcurrency;
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (downloaded > lastTransientProgress) {
+          transientRetriesAtOne = 0;
+          lastTransientProgress = downloaded;
+        }
+        transientRetriesAtOne += 1;
+        if (transientRetriesAtOne <= _parallelDownloadMaxTransientRetriesAtOne) {
+          LoggerService().warn(
+            "parallel download socket error at concurrency=1; retrying "
+            "$transientRetriesAtOne/$_parallelDownloadMaxTransientRetriesAtOne",
+            e,
+          );
+          await Future.delayed(const Duration(milliseconds: 1200));
+          continue;
+        }
+        LoggerService().warn(
+          "parallel download socket error; fallback to stream",
+          e,
+        );
+        await _fallbackParallelToStream(
+          t,
+          dest,
+          parts,
+          probe.totalBytes,
+          "socket",
+          e,
+        );
+        return false;
+      } on http.ClientException catch (e) {
+        downloaded = await _parallelDownloadedBytesForParts(parts);
+        _updateParallelProgress(t, downloaded, probe.totalBytes);
+        final nextConcurrency = _reduceParallelConcurrency(concurrency);
+        if (nextConcurrency < concurrency) {
+          LoggerService().warn(
+            "parallel download client error; reducing concurrency: "
+            "$concurrency -> $nextConcurrency",
+            e,
+          );
+          concurrency = nextConcurrency;
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (downloaded > lastTransientProgress) {
+          transientRetriesAtOne = 0;
+          lastTransientProgress = downloaded;
+        }
+        transientRetriesAtOne += 1;
+        if (transientRetriesAtOne <= _parallelDownloadMaxTransientRetriesAtOne) {
+          LoggerService().warn(
+            "parallel download client error at concurrency=1; retrying "
+            "$transientRetriesAtOne/$_parallelDownloadMaxTransientRetriesAtOne",
+            e,
+          );
+          await Future.delayed(const Duration(milliseconds: 1200));
+          continue;
+        }
+        LoggerService().warn(
+          "parallel download client error; fallback to stream",
+          e,
+        );
+        await _fallbackParallelToStream(
+          t,
+          dest,
+          parts,
+          probe.totalBytes,
+          "client",
+          e,
+        );
+        return false;
+      }
+    }
+
+    if (_stopped(t)) {
+      await _saveTasks();
+      return true;
+    }
+
+    downloaded = await _parallelDownloadedBytesForParts(parts);
+    if (downloaded != probe.totalBytes) {
+      throw http.ClientException(
+        "parallel download incomplete: expected=${probe.totalBytes} actual=$downloaded",
+      );
+    }
+
+    await _mergeParallelParts(t, dest, parts, probe.totalBytes);
+    final elapsedMs = DateTime.now()
+        .difference(startedAt)
+        .inMilliseconds
+        .clamp(1, 1 << 31);
+    final avgSpeed = (probe.totalBytes * 1000 / elapsedMs).round();
+    LoggerService().info(
+      "parallel download completed: bytes=${probe.totalBytes} "
+      "elapsedMs=$elapsedMs avgSpeed=$avgSpeed parts=${parts.length}",
+    );
+    return true;
+  }
+
+  String _normalizedSourceType(DownloadTask t) {
+    final sourceType = t.sourceType.trim().toLowerCase();
+    return sourceType.isEmpty ? "local" : sourceType;
+  }
+
+  int _initialParallelConcurrency(int partCount) {
+    return partCount.clamp(1, _parallelDownloadMaxParts).toInt();
+  }
+
+  int _reduceParallelConcurrency(int current) {
+    if (current <= 1) return 1;
+    final next = current ~/ 2;
+    return next < 1 ? 1 : next;
+  }
+
+  bool _isAdaptiveParallelStatus(int statusCode) =>
+      const {403, 429, 500, 502, 503, 504}.contains(statusCode);
+
+  Duration _adaptiveParallelRetryDelay(DownloadHttpException error) {
+    final seconds = error.retryAfterSeconds ?? (error.statusCode == 429 ? 2 : 1);
+    return Duration(seconds: seconds.clamp(1, 30).toInt());
+  }
+
+  void _updateParallelProgress(DownloadTask t, int downloaded, int totalBytes) {
+    t.headersReceived = true;
+    t.totalBytes = totalBytes;
+    t.receivedBytes = downloaded;
+    t.progress = totalBytes > 0 ? downloaded / totalBytes : 0.0;
+    _emit(save: false);
+  }
+
+  Future<List<_ParallelDownloadPart>> _pendingParallelDownloadParts(
+    List<_ParallelDownloadPart> parts,
+  ) async {
+    final pending = <_ParallelDownloadPart>[];
+    for (final part in parts) {
+      final file = File(part.path);
+      final existing = await file.exists() ? await file.length() : 0;
+      if (existing >= part.length) continue;
+      pending.add(part);
+    }
+    return pending;
+  }
+
+  Future<void> _downloadParallelWave(
+    DownloadTask t,
+    List<_ParallelDownloadPart> pending,
+    int concurrency,
+    void Function(int bytes) onBytes,
+  ) async {
+    var nextIndex = 0;
+    var stopScheduling = false;
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
+    Future<void> worker() async {
+      while (!_stopped(t) && !stopScheduling) {
+        final index = nextIndex;
+        if (index >= pending.length) return;
+        nextIndex += 1;
+        try {
+          await _downloadParallelPart(t, pending[index], onBytes);
+        } catch (e, stackTrace) {
+          stopScheduling = true;
+          firstError ??= e;
+          firstStackTrace ??= stackTrace;
+          _closeTaskClients(t);
+          return;
+        }
+      }
+    }
+
+    final workerCount = pending.length.clamp(0, concurrency).toInt();
+    if (workerCount <= 0) return;
+    await Future.wait(List.generate(workerCount, (_) => worker()));
+    if (firstError != null) {
+      Error.throwWithStackTrace(
+        firstError!,
+        firstStackTrace ?? StackTrace.current,
+      );
+    }
+  }
+
+  Future<_ParallelDownloadProbe?> _probeParallelDownload(DownloadTask t) async {
+    if (_normalizedSourceType(t) == "openlist") {
+      return _probeParallelDownloadWithHead(t);
+    }
+
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    try {
+      final resp = await _sendDownloadRequest(
+        client,
+        t.downloadUrl,
+        {"Range": "bytes=0-0"},
+      );
+      LoggerService().info(
+        "parallel probe response: status=${resp.statusCode} "
+        "contentLength=${resp.contentLength ?? 0} "
+        "contentRange=${resp.headers["content-range"] ?? "-"} "
+        "acceptRanges=${resp.headers["accept-ranges"] ?? "-"}",
+      );
+      if (resp.statusCode != 206) {
+        await resp.stream.drain<void>();
+        return null;
+      }
+      await resp.stream.drain<void>();
+      final total = _parseContentRangeTotal(resp.headers["content-range"]);
+      if (total == null || total <= 0) return null;
+      return _ParallelDownloadProbe(totalBytes: total);
+    } finally {
+      client.close();
+      _untrackTaskClient(t, client);
+    }
+  }
+
+  Future<_ParallelDownloadProbe?> _probeParallelDownloadWithHead(
+    DownloadTask t,
+  ) async {
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    try {
+      final resp = await _sendDownloadRequest(
+        client,
+        t.downloadUrl,
+        const {},
+        method: "HEAD",
+      );
+      final contentLength = resp.contentLength ?? 0;
+      final acceptRanges = resp.headers["accept-ranges"] ?? "";
+      LoggerService().info(
+        "parallel head probe response: source=${_normalizedSourceType(t)} "
+        "status=${resp.statusCode} contentLength=$contentLength "
+        "acceptRanges=${acceptRanges.isEmpty ? "-" : acceptRanges}",
+      );
+      await resp.stream.drain<void>();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        LoggerService().info(
+          "parallel download skipped: source=${_normalizedSourceType(t)} "
+          "headStatus=${resp.statusCode}",
+        );
+        return null;
+      }
+      if (!acceptRanges.toLowerCase().contains("bytes")) {
+        LoggerService().info(
+          "parallel download skipped: source=${_normalizedSourceType(t)} "
+          "acceptRanges=${acceptRanges.isEmpty ? "-" : acceptRanges}",
+        );
+        return null;
+      }
+      if (contentLength <= 0) {
+        LoggerService().info(
+          "parallel download skipped: source=${_normalizedSourceType(t)} "
+          "contentLength=$contentLength",
+        );
+        return null;
+      }
+      return _ParallelDownloadProbe(totalBytes: contentLength);
+    } finally {
+      client.close();
+      _untrackTaskClient(t, client);
+    }
+  }
+
+  int? _parseContentRangeTotal(String? value) {
+    if (value == null) return null;
+    final match = RegExp(r"^bytes\s+\d+-\d+/(\d+)$").firstMatch(value.trim());
+    if (match == null) return null;
+    return int.tryParse(match.group(1)!);
+  }
+
+  Future<void> _downloadParallelPart(
+    DownloadTask t,
+    _ParallelDownloadPart part,
+    void Function(int bytes) onBytes,
+  ) async {
+    final file = File(part.path);
+    var existing = await file.exists() ? await file.length() : 0;
+    if (existing > part.length) {
+      try {
+        await file.delete();
+      } catch (_) {}
+      existing = 0;
+    }
+    if (existing == part.length) return;
+
+    final client = http.Client();
+    _trackTaskClient(t, client);
+    IOSink? sink;
+    try {
+      final start = part.start + existing;
+      final resp = await _sendDownloadRequest(
+        client,
+        t.downloadUrl,
+        {"Range": "bytes=$start-${part.end}"},
+      );
+      if (resp.statusCode == 416 && existing == part.length) return;
+      if (resp.statusCode != 206) {
+        if (resp.statusCode == 200) {
+          throw _ParallelDownloadUnsupported(
+            "range ignored for part=${part.index}",
+          );
+        }
+        throw DownloadHttpException(
+          resp.statusCode,
+          "parallel part ${part.index} failed: HTTP ${resp.statusCode}",
+          retryAfterSeconds: _retryAfterSeconds(resp.headers["retry-after"]),
+        );
+      }
+
+      final contentRange = resp.headers["content-range"];
+      if (!_contentRangeMatchesPart(contentRange, start, part.end)) {
+        throw _ParallelDownloadUnsupported(
+          "unexpected content range for part=${part.index}: $contentRange",
+        );
+      }
+
+      sink = file.openWrite(
+        mode: existing > 0 ? FileMode.append : FileMode.write,
+      );
+      await for (final chunk in resp.stream.timeout(
+        _downloadIdleTimeout,
+        onTimeout: (sink) {
+          sink.addError(
+            TimeoutException("下载连接长时间没有收到数据", _downloadIdleTimeout),
+          );
+        },
+      )) {
+        if (_stopped(t)) return;
+        sink.add(chunk);
+        onBytes(chunk.length);
+      }
+      await sink.flush();
+      await sink.close();
+
+      final actual = await file.length();
+      if (actual != part.length) {
+        throw http.ClientException(
+          "parallel part ${part.index} incomplete: expected=${part.length} actual=$actual",
+        );
+      }
+    } finally {
+      try {
+        await sink?.flush();
+      } catch (_) {}
+      try {
+        await sink?.close();
+      } catch (_) {}
+      client.close();
+      _untrackTaskClient(t, client);
+    }
+  }
+
+  bool _contentRangeMatchesPart(String? value, int start, int end) {
+    if (value == null) return false;
+    final match = RegExp(
+      r"^bytes\s+(\d+)-(\d+)/(\d+)$",
+    ).firstMatch(value.trim());
+    if (match == null) return false;
+    return int.tryParse(match.group(1)!) == start &&
+        int.tryParse(match.group(2)!) == end;
+  }
+
+  Future<void> _mergeParallelParts(
+    DownloadTask t,
+    File dest,
+    List<_ParallelDownloadPart> parts,
+    int totalBytes,
+  ) async {
+    IOSink? sink;
+    try {
+      sink = dest.openWrite(mode: FileMode.write);
+      for (final part in parts) {
+        if (_stopped(t)) return;
+        final file = File(part.path);
+        if (!await file.exists() || await file.length() != part.length) {
+          throw http.ClientException(
+            "parallel part ${part.index} missing before merge",
+          );
+        }
+        await sink.addStream(file.openRead());
+      }
+      await sink.flush();
+      await sink.close();
+      final size = await dest.length();
+      if (size != totalBytes) {
+        throw http.ClientException(
+          "parallel merge incomplete: expected=$totalBytes actual=$size",
+        );
+      }
+      t.receivedBytes = size;
+      t.totalBytes = totalBytes;
+      t.progress = 1.0;
+      _emit();
+      await _deleteParallelDownloadState(dest);
+    } finally {
+      try {
+        await sink?.flush();
+      } catch (_) {}
+      try {
+        await sink?.close();
+      } catch (_) {}
+    }
+  }
+
   Future<http.StreamedResponse> _sendDownloadRequest(
     http.Client client,
     String url,
-    Map<String, String> baseHeaders,
-  ) async {
+    Map<String, String> baseHeaders, {
+    String method = "GET",
+    void Function(Uri uri)? onFinalUri,
+  }) async {
     var current = Uri.parse(url);
     final originalScheme = current.scheme;
     final originalHost = current.host;
     final originalPort = current.hasPort ? current.port : null;
 
     for (var redirectCount = 0; redirectCount < 8; redirectCount++) {
-      final req = http.Request("GET", current)..followRedirects = false;
+      final req = http.Request(method, current)..followRedirects = false;
       req.headers.addAll(baseHeaders);
-      req.headers["User-Agent"] =
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
-      req.headers["Accept"] = "*/*";
-      req.headers["Connection"] = "keep-alive";
+      req.headers.putIfAbsent("User-Agent", () => _downloadUserAgent);
+      req.headers.putIfAbsent("Accept", () => "*/*");
 
       final sameOrigin =
           current.scheme == originalScheme &&
@@ -1332,14 +3206,16 @@ class DownloadService with WidgetsBindingObserver {
       }
 
       LoggerService().info(
-        "download request[$redirectCount]: $current range=${req.headers["Range"] ?? "-"} auth=${req.headers.containsKey("Authorization")}",
+        "download request[$redirectCount]: $method ${_downloadLogTarget(current)} "
+        "range=${req.headers["Range"] ?? "-"} "
+        "auth=${req.headers.containsKey("Authorization")}",
       );
       final resp = await client
           .send(req)
           .timeout(
             _downloadConnectTimeout,
             onTimeout: () => throw TimeoutException(
-              "连接下载地址超时: $current",
+              "连接下载地址超时: ${_downloadLogTarget(current)}",
               _downloadConnectTimeout,
             ),
           );
@@ -1352,19 +3228,33 @@ class DownloadService with WidgetsBindingObserver {
         }
         final next = current.resolve(location.trim());
         LoggerService().info(
-          "download redirect[$redirectCount]: HTTP ${resp.statusCode} $current -> $next",
+          "download redirect[$redirectCount]: HTTP ${resp.statusCode} "
+          "${_downloadLogTarget(current)} -> ${_downloadLogTarget(next)}",
         );
         current = next;
         continue;
       }
 
       LoggerService().info(
-        "download final[$redirectCount]: HTTP ${resp.statusCode} $current",
+        "download final[$redirectCount]: $method HTTP ${resp.statusCode} ${_downloadLogTarget(current)}",
       );
+      onFinalUri?.call(current);
       return resp;
     }
 
     throw Exception("下载重定向次数过多");
+  }
+
+  String _downloadLogTarget(Uri uri) {
+    final port = uri.hasPort ? ":${uri.port}" : "";
+    final name = uri.pathSegments.isEmpty ? "" : uri.pathSegments.last;
+    final safeName = name.length > 96 ? "${name.substring(0, 96)}..." : name;
+    final queryKeys = uri.queryParametersAll.keys.toList()..sort();
+    final query = queryKeys.isEmpty
+        ? ""
+        : " queryKeys=${queryKeys.join(",")}";
+    final suffix = safeName.isEmpty ? "" : "/.../$safeName";
+    return "${uri.scheme}://${uri.host}$port$suffix$query";
   }
 
   // ── extract (desktop only) ──
@@ -1401,13 +3291,15 @@ class DownloadService with WidgetsBindingObserver {
         try {
           await _runTool(
             exe,
-            ["t", filePath],
+            ["t", "-y", "-p-", filePath],
             onProgress: onProgress,
             timeout: 300,
           );
         } catch (_) {}
       }
-      debugPrint("[SenaRepo] _extract: exe=$exe args=$args");
+      LoggerService().info(
+        "extract command: exe=$exe args=${_redactToolArgs(args)}",
+      );
       await _runTool(
         exe,
         args,
@@ -1526,6 +3418,56 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _copyMergeWithRollback(
+    DownloadTask task,
+    String from,
+    String to,
+    String backupDir,
+  ) async {
+    final added = <String>[];
+    final backedUp = <String>[];
+    try {
+      await for (final child in Directory(from).list(recursive: true)) {
+        if (_stopped(task)) {
+          throw Exception("补丁注入已停止");
+        }
+        final rel = child.path
+            .substring(from.length)
+            .replaceFirst(RegExp(r"^[/\\]"), "");
+        final dest = "$to${Platform.pathSeparator}$rel";
+        if (child is Directory) {
+          await Directory(dest).create(recursive: true);
+          continue;
+        }
+        if (child is! File) continue;
+        final target = File(dest);
+        if (await target.exists()) {
+          final backup = File("$backupDir${Platform.pathSeparator}$rel");
+          await backup.parent.create(recursive: true);
+          await target.copy(backup.path);
+          backedUp.add(rel);
+        } else {
+          added.add(rel);
+        }
+        await target.parent.create(recursive: true);
+        await child.copy(dest);
+      }
+    } catch (error) {
+      for (final rel in added.reversed) {
+        try {
+          await File("$to${Platform.pathSeparator}$rel").delete();
+        } catch (_) {}
+      }
+      for (final rel in backedUp) {
+        try {
+          await File("$backupDir${Platform.pathSeparator}$rel")
+              .copy("$to${Platform.pathSeparator}$rel");
+        } catch (_) {}
+      }
+      throw Exception("补丁写入失败，已回滚: $error");
+    }
+  }
+
   String _resolveSafeRelativePath(String base, String relative) {
     final normalizedRelative = relative.replaceAll("\\", "/").trim();
     if (normalizedRelative.isEmpty) return Directory(base).absolute.path;
@@ -1563,6 +3505,12 @@ class DownloadService with WidgetsBindingObserver {
     return targetResolved;
   }
 
+  List<String> _redactToolArgs(List<String> args) {
+    return args
+        .map((arg) => arg.startsWith("-p") && arg != "-p-" ? "-p***" : arg)
+        .toList();
+  }
+
   Future<void> _runTool(
     String exe,
     List<String> args, {
@@ -1577,16 +3525,19 @@ class DownloadService with WidgetsBindingObserver {
     }
     final proc = await Process.start(exe, args);
     _extractionProcess = proc;
+    try {
+      await proc.stdin.close();
+    } catch (_) {}
     // Also track in patch injection state for cross-instance cancellation
     if (injectionAppId != null) {
       _patchInjections[injectionAppId]?.extractProcess = proc;
     }
 
-    // 7z outputs progress (e.g. " 45%") to stderr, not stdout.
-    // Parse stderr for both progress and error messages.
+    // 7z usually writes progress to stderr, but some builds use stdout.
     final stderrChunks = <int>[];
-    final stderrSub = proc.stderr.listen((d) {
-      if (stderrChunks.length < 8192) stderrChunks.addAll(d);
+    final stdoutChunks = <int>[];
+    void handleOutput(List<int> d, List<int> chunks) {
+      if (chunks.length < 8192) chunks.addAll(d.take(8192 - chunks.length));
       if (onProgress != null) {
         final s = String.fromCharCodes(d);
         final m = RegExp(r'\s+(\d+)%').firstMatch(s);
@@ -1594,9 +3545,14 @@ class DownloadService with WidgetsBindingObserver {
           onProgress(int.parse(m.group(1)!) / 100.0);
         }
       }
+    }
+
+    final stderrSub = proc.stderr.listen((d) {
+      handleOutput(d, stderrChunks);
     });
-    // Drain stdout (file listing, not useful for progress)
-    final stdoutSub = proc.stdout.listen((_) {});
+    final stdoutSub = proc.stdout.listen((d) {
+      handleOutput(d, stdoutChunks);
+    });
 
     // Wait with timeout
     int exitCode = -1;
@@ -1627,8 +3583,13 @@ class DownloadService with WidgetsBindingObserver {
       _patchInjections[injectionAppId]?.extractProcess = null;
 
     if (exitCode != 0) {
-      final err = String.fromCharCodes(stderrChunks).trim();
-      throw Exception(err.isNotEmpty ? err : "exit code $exitCode");
+      final err = [
+        String.fromCharCodes(stderrChunks).trim(),
+        String.fromCharCodes(stdoutChunks).trim(),
+      ].where((s) => s.isNotEmpty).join("\n");
+      final rawErr = err.isNotEmpty ? err : "exit code $exitCode";
+      LoggerService().warn("extract tool failed: ${_formatToolError(rawErr)}");
+      throw Exception(_formatToolError(rawErr));
     }
   }
 
@@ -1645,6 +3606,39 @@ class DownloadService with WidgetsBindingObserver {
 
   bool _stopped(DownloadTask t) => t._cancelled || t.status == "paused";
 
+  void _trackTaskClient(DownloadTask t, http.Client client) {
+    t._clients.add(client);
+    t._client = client;
+  }
+
+  void _untrackTaskClient(DownloadTask t, http.Client client) {
+    t._clients.remove(client);
+    if (identical(t._client, client)) {
+      t._client = t._clients.isEmpty ? null : t._clients.last;
+    }
+  }
+
+  void _closeTaskClients(DownloadTask t) {
+    for (final client in List<http.Client>.from(t._clients)) {
+      try {
+        client.close();
+      } catch (_) {}
+    }
+    t._clients.clear();
+    try {
+      t._client?.close();
+    } catch (_) {}
+    t._client = null;
+    _killTaskDownloadProcess(t);
+  }
+
+  void _killTaskDownloadProcess(DownloadTask t) {
+    try {
+      t._downloadProcess?.kill();
+    } catch (_) {}
+    t._downloadProcess = null;
+  }
+
   void _setStatus(DownloadTask t, String s) {
     t.status = s;
     _emit();
@@ -1658,9 +3652,14 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      await File(
+      final tmp = File(
         "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
-      ).delete();
+      );
+      try {
+        await tmp.delete();
+      } catch (_) {}
+      await _deleteParallelDownloadState(tmp);
+      await _deleteAria2ControlFile(tmp);
     } catch (_) {}
   }
 
@@ -1673,6 +3672,98 @@ class DownloadService with WidgetsBindingObserver {
     if (save) _saveTasks();
     if (!_hasActiveDownloads()) _stopForegroundService();
   }
+}
+
+class _Aria2DownloadTarget {
+  final String url;
+  final int? totalBytes;
+
+  _Aria2DownloadTarget({required this.url, required this.totalBytes});
+}
+
+class _Aria2AttemptResult {
+  final bool success;
+  final bool stopped;
+  final bool retryWithLowerSplit;
+  final bool processStarted;
+  final int? statusCode;
+  final int receivedBytes;
+  final String summary;
+
+  const _Aria2AttemptResult({
+    required this.success,
+    required this.stopped,
+    required this.retryWithLowerSplit,
+    required this.processStarted,
+    this.statusCode,
+    this.receivedBytes = 0,
+    this.summary = "",
+  });
+
+  const _Aria2AttemptResult.succeeded()
+      : success = true,
+        stopped = false,
+        retryWithLowerSplit = false,
+        processStarted = true,
+        statusCode = null,
+        receivedBytes = 0,
+        summary = "";
+
+  const _Aria2AttemptResult.stopped()
+      : success = false,
+        stopped = true,
+        retryWithLowerSplit = false,
+        processStarted = true,
+        statusCode = null,
+        receivedBytes = 0,
+        summary = "";
+
+  const _Aria2AttemptResult.failed({
+    required this.retryWithLowerSplit,
+    required this.processStarted,
+    this.statusCode,
+    this.receivedBytes = 0,
+    this.summary = "",
+  })  : success = false,
+        stopped = false;
+}
+
+class _ParallelDownloadState {
+  final int totalBytes;
+  final List<_ParallelDownloadPart> parts;
+
+  _ParallelDownloadState({required this.totalBytes, required this.parts});
+}
+
+class _ParallelDownloadPart {
+  final int index;
+  final int start;
+  final int end;
+  final String path;
+
+  _ParallelDownloadPart({
+    required this.index,
+    required this.start,
+    required this.end,
+    required this.path,
+  });
+
+  int get length => end - start + 1;
+}
+
+class _ParallelDownloadProbe {
+  final int totalBytes;
+
+  _ParallelDownloadProbe({required this.totalBytes});
+}
+
+class _ParallelDownloadUnsupported implements Exception {
+  final String message;
+
+  _ParallelDownloadUnsupported(this.message);
+
+  @override
+  String toString() => message;
 }
 
 // ── Patch injection state (used by downloadPatch + SteamService) ──

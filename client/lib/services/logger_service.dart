@@ -1,9 +1,31 @@
-/// Simple file-based logger with daily rotation (7-day retention).
-/// Pure dart:io, no external dependencies.
+// Simple file-based logger with daily rotation (7-day retention).
+// Pure dart:io, no external dependencies.
 
 import "dart:io";
 
 import "package:path_provider/path_provider.dart";
+
+class LogRecord {
+  final String raw;
+  final DateTime? timestamp;
+  final String timestampLabel;
+  final String level;
+  final String module;
+  final String message;
+
+  const LogRecord({
+    required this.raw,
+    required this.timestamp,
+    required this.timestampLabel,
+    required this.level,
+    required this.module,
+    required this.message,
+  });
+
+  bool get isInfo => level == "INFO";
+  bool get isWarn => level == "WARN";
+  bool get isError => level == "ERROR";
+}
 
 class LoggerService {
   static final LoggerService _instance = LoggerService._();
@@ -11,6 +33,7 @@ class LoggerService {
   LoggerService._();
 
   String? _logDir;
+  Future<void> _writeQueue = Future<void>.value();
 
   Future<String> get _dir async {
     if (_logDir != null) return _logDir!;
@@ -22,28 +45,52 @@ class LoggerService {
 
   String _todayFile() {
     final now = DateTime.now();
-    final d = "${now.year}-${now.month.toString().padLeft(2, "0")}-${now.day.toString().padLeft(2, "0")}";
+    final d =
+        "${now.year}-${now.month.toString().padLeft(2, "0")}-${now.day.toString().padLeft(2, "0")}";
     return "sena_$d.log";
   }
 
-  Future<void> log(String level, String message, [Object? error]) async {
+  Future<void> log(
+    String level,
+    String message, [
+    Object? error,
+    StackTrace? stackTrace,
+  ]) async {
+    final ts = DateTime.now().toString().substring(0, 19);
+    var line = "[$ts] [$level] ${_sanitize(message)}";
+    if (error != null) line += " | error=${_sanitize(error.toString())}";
+    if (stackTrace != null) {
+      line += " | stack=${_sanitize(stackTrace.toString())}";
+    }
+
+    final writeTask = _writeQueue.catchError((_) {}).then((_) {
+      return _writeLine(line);
+    });
+    _writeQueue = writeTask;
+    return writeTask;
+  }
+
+  Future<void> _writeLine(String line) async {
     try {
       final dir = await _dir;
-      final ts = DateTime.now().toString().substring(0, 19);
-      var line = "[$ts] [$level] $message";
-      if (error != null) line += " | $error";
-      await File("$dir${Platform.pathSeparator}${_todayFile()}").writeAsString("$line\n", mode: FileMode.append);
+      await File("$dir${Platform.pathSeparator}${_todayFile()}")
+          .writeAsString("$line\n", mode: FileMode.append, flush: true);
     } catch (_) {}
   }
 
   void info(String message) => log("INFO", message);
-  void warn(String message, [Object? e]) => log("WARN", message, e);
-  void error(String message, [Object? e]) => log("ERROR", message, e);
+  void warn(String message, [Object? e, StackTrace? stackTrace]) =>
+      log("WARN", message, e, stackTrace);
+  void error(String message, [Object? e, StackTrace? stackTrace]) =>
+      log("ERROR", message, e, stackTrace);
+
+  String redact(String value) => _sanitize(value);
 
   Future<List<File>> getLogFiles() async {
     try {
       final dir = await _dir;
-      final files = Directory(dir).listSync()
+      final files = Directory(dir)
+          .listSync()
           .whereType<File>()
           .where((f) => f.path.endsWith(".log"))
           .toList()
@@ -60,6 +107,150 @@ class LoggerService {
     } catch (e) {
       return "读取失败: $e";
     }
+  }
+
+  Future<List<LogRecord>> readLogEntries(File file) async {
+    try {
+      final content = await file.readAsString();
+      return content
+          .split(RegExp(r"\r?\n"))
+          .where((line) => line.trim().isNotEmpty)
+          .map(_parseLine)
+          .toList()
+          .reversed
+          .toList();
+    } catch (e) {
+      return [
+        LogRecord(
+          raw: "读取失败: $e",
+          timestamp: null,
+          timestampLabel: "--:--:--",
+          level: "ERROR",
+          module: "日志",
+          message: "读取日志文件失败",
+        ),
+      ];
+    }
+  }
+
+  LogRecord _parseLine(String raw) {
+    final match =
+        RegExp(r"^\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.*)$").firstMatch(raw.trim());
+    if (match == null) {
+      return LogRecord(
+        raw: raw,
+        timestamp: null,
+        timestampLabel: "--:--:--",
+        level: "INFO",
+        module: _moduleFor(raw),
+        message: raw,
+      );
+    }
+
+    final timestampText = match.group(1) ?? "";
+    final parsed = DateTime.tryParse(timestampText);
+    return LogRecord(
+      raw: raw,
+      timestamp: parsed,
+      timestampLabel: parsed == null
+          ? timestampText
+          : "${parsed.hour.toString().padLeft(2, "0")}:${parsed.minute.toString().padLeft(2, "0")}:${parsed.second.toString().padLeft(2, "0")}",
+      level: (match.group(2) ?? "INFO").toUpperCase(),
+      module: _moduleFor(match.group(3) ?? ""),
+      message: match.group(3) ?? "",
+    );
+  }
+
+  String _moduleFor(String message) {
+    final lower = message.toLowerCase();
+    if (message.contains("连接") ||
+        message.contains("令牌") ||
+        message.contains("账号") ||
+        message.contains("注册") ||
+        message.contains("登录") ||
+        lower.contains("connect") ||
+        lower.contains("auth") ||
+        lower.contains("account") ||
+        lower.contains("register") ||
+        lower.contains("login") ||
+        lower.contains("token")) {
+      return "连接";
+    }
+    if (message.contains("刮削") ||
+        message.contains("Hikarinagi") ||
+        message.contains("VNDB") ||
+        lower.contains("hikarinagi") ||
+        lower.contains("vndb") ||
+        lower.contains("scrape")) {
+      return "刮削";
+    }
+    if (message.contains("扫描") ||
+        message.contains("游戏库") ||
+        lower.contains("scan") ||
+        lower.contains("library")) {
+      return "扫描";
+    }
+    if (message.contains("下载") ||
+        message.contains("补丁") ||
+        message.contains("解压") ||
+        lower.contains("download") ||
+        lower.contains("manager") ||
+        lower.contains("patch") ||
+        lower.contains("extract")) {
+      return "下载";
+    }
+    if (message.contains("设置") ||
+        message.contains("用户") ||
+        lower.contains("setting") ||
+        lower.contains("profile") ||
+        lower.contains("user")) {
+      return "设置";
+    }
+    return "其他";
+  }
+
+  String _sanitize(String value) => _redact(value)
+      .replaceAll("\r", r"\r")
+      .replaceAll("\n", r"\n")
+      .replaceAll(RegExp(r"\s+"), " ")
+      .trim();
+
+  String _redact(String value) {
+    const sensitiveKeys =
+        r"token|access_token|refresh_token|password|passwd|pwd|key|api_key|"
+        r"secret|client_secret|signature|sign|sig|auth|authorization|username|"
+        r"account|email";
+    var redacted = value
+        .replaceAll(
+            RegExp(r"Bearer\s+[A-Za-z0-9._~+/=-]+", caseSensitive: false),
+            "Bearer [REDACTED]")
+        .replaceAll(
+            RegExp(r"Basic\s+[A-Za-z0-9._~+/=-]+", caseSensitive: false),
+            "Basic [REDACTED]");
+
+    redacted = redacted.replaceAllMapped(
+      RegExp(r"(Authorization\s*[:=]\s*)[^,\s}]+", caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    redacted = redacted.replaceAllMapped(
+      RegExp("([?&](?:$sensitiveKeys)=)[^&\\s]+", caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    redacted = redacted.replaceAllMapped(
+      RegExp("(%3[f&](?:$sensitiveKeys)%3[dD])[^%&\\s]+",
+          caseSensitive: false),
+      (match) => "${match.group(1)}[REDACTED]",
+    );
+    redacted = redacted.replaceAllMapped(
+      RegExp("(^|[^A-Za-z0-9_])((?:$sensitiveKeys)\\s*[:=]\\s*)[^,\\s}]+",
+          caseSensitive: false),
+      (match) => "${match.group(1)}${match.group(2)}[REDACTED]",
+    );
+    return redacted.replaceAllMapped(
+      RegExp("([\"'](?:$sensitiveKeys)[\"']\\s*:\\s*)([\"'])[^\"']*([\"'])",
+          caseSensitive: false),
+      (match) => "${match.group(1)}${match.group(2)}[REDACTED]${match.group(3)}",
+    );
   }
 
   /// Delete logs older than 7 days

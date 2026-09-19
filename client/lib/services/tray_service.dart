@@ -6,6 +6,7 @@ import "dart:io" show File, Platform;
 import "dart:typed_data";
 import "dart:ui" as ui;
 
+import "package:flutter/services.dart" show rootBundle;
 import "package:path_provider/path_provider.dart";
 import "package:tray_manager/tray_manager.dart";
 import "package:window_manager/window_manager.dart";
@@ -25,27 +26,60 @@ class TrayService with TrayListener {
 
     trayManager.addListener(this);
 
-    // Generate icon and set
+    // Materialize the bundled app icon for tray_manager.
     String iconPath = "";
     try {
       final dir = await getTemporaryDirectory();
-      final iconFile = File("${dir.path}/sena_tray.png");
-      if (!await iconFile.exists()) {
-        await iconFile.writeAsBytes(await _genIcon());
-      }
+      final iconFile = File("${dir.path}/sena_tray_asset.png");
+      await iconFile.writeAsBytes(await _loadTrayIcon(), flush: true);
       iconPath = iconFile.path;
     } catch (_) {}
     await trayManager.setIcon(iconPath);
-    await trayManager.setToolTip("Sena Repo");
+    if (Platform.isWindows) {
+      await trayManager.setToolTip("Sena Repo");
+    }
 
     final menu = Menu(items: [
-      MenuItem(key: "show", label: "显示窗口"),
+      MenuItem(key: "show", label: "打开主界面"),
       MenuItem.separator(),
       MenuItem(key: "exit", label: "退出"),
     ]);
     await trayManager.setContextMenu(menu);
 
     _initialized = true;
+  }
+
+  Future<void> _showMainWindow() async {
+    if (await windowManager.isMinimized()) {
+      await windowManager.restore();
+    }
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
+  Future<Uint8List> _loadTrayIcon() async {
+    try {
+      final data = await rootBundle.load("assets/icon.png");
+      final bytes = data.buffer.asUint8List(
+        data.offsetInBytes,
+        data.lengthInBytes,
+      );
+      final codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: 64,
+        targetHeight: 64,
+      );
+      final frame = await codec.getNextFrame();
+      final byteData = await frame.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      return byteData!.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+    } catch (_) {
+      return _genIcon();
+    }
   }
 
   Future<Uint8List> _genIcon() async {
@@ -63,24 +97,29 @@ class TrayService with TrayListener {
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-    return byteData!.buffer.asUint8List();
+    return byteData!.buffer.asUint8List(
+      byteData.offsetInBytes,
+      byteData.lengthInBytes,
+    );
   }
 
   @override
   void onTrayIconMouseDown() {
-    windowManager.show();
+    _showMainWindow();
   }
 
   @override
   void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu(bringAppToFront: true);
+    if (Platform.isWindows) {
+      trayManager.popUpContextMenu();
+    }
   }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case "show":
-        windowManager.show();
+        _showMainWindow();
       case "exit":
         _onQuit?.call();
     }

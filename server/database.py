@@ -74,8 +74,34 @@ async def create_tables():
     """Create all tables if they don't exist."""
     if _engine is None:
         raise RuntimeError("Database not initialized. Call init_database() first.")
+    import models  # noqa: F401
+
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        game_columns = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(games)")}
+        if "is_nsfw" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN is_nsfw BOOLEAN NOT NULL DEFAULT 0"
+            )
+        if "hikarinagi_id" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN hikarinagi_id VARCHAR(64)"
+            )
+        if "entry_source" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN entry_source VARCHAR(32) NOT NULL DEFAULT 'library'"
+            )
+            await conn.exec_driver_sql(
+                """
+                UPDATE games
+                SET entry_source = 'manual'
+                WHERE folder_path LIKE '/virtual/%'
+                   OR folder_path LIKE 'manual://%'
+                   OR folder_path LIKE 'metadata://%'
+                """
+            )
+        if "alias" not in game_columns:
+            await conn.exec_driver_sql("ALTER TABLE games ADD COLUMN alias VARCHAR(512)")
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
         if "extract_password" not in version_columns:
@@ -86,6 +112,27 @@ async def create_tables():
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_id INTEGER")
         if "source_path" not in version_columns:
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN source_path VARCHAR(1024)")
+        if "checksum_algo" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum_algo VARCHAR(16)")
+        if "checksum" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum VARCHAR(128)")
+        if "checksum_updated_at" not in version_columns:
+            await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN checksum_updated_at DATETIME")
+
+        columns = await conn.exec_driver_sql("PRAGMA table_info(game_tags)")
+        game_tag_columns = {row[1] for row in columns}
+        if "source" not in game_tag_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_tags ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'user'"
+            )
+        if "weight" not in game_tag_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_tags ADD COLUMN weight FLOAT NOT NULL DEFAULT 0"
+            )
+        if "is_spoiler" not in game_tag_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_tags ADD COLUMN is_spoiler BOOLEAN NOT NULL DEFAULT 0"
+            )
 
         columns = await conn.exec_driver_sql("PRAGMA table_info(root_directories)")
         root_columns = {row[1] for row in columns}
@@ -97,6 +144,112 @@ async def create_tables():
             await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_name VARCHAR(255)")
         if "source_path" not in root_columns:
             await conn.exec_driver_sql("ALTER TABLE root_directories ADD COLUMN source_path VARCHAR(1024)")
+        await conn.exec_driver_sql(
+            """
+            UPDATE root_directories
+            SET source_path = substr(path, length('openlist://') + instr(substr(path, length('openlist://') + 1), '/'))
+            WHERE source_type = 'openlist'
+              AND (source_path IS NULL OR source_path = '')
+              AND path LIKE 'openlist://%/%'
+            """
+        )
+
+        columns = await conn.exec_driver_sql("PRAGMA table_info(steam_patch_roots)")
+        steam_patch_root_columns = {row[1] for row in columns}
+        if "analysis_mode" not in steam_patch_root_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE steam_patch_roots ADD COLUMN analysis_mode VARCHAR(32) NOT NULL DEFAULT 'auto'"
+            )
+            await conn.exec_driver_sql(
+                "UPDATE steam_patch_roots SET analysis_mode = 'manual' WHERE source_type = 'openlist'"
+            )
+
+        columns = await conn.exec_driver_sql("PRAGMA table_info(scrape_jobs)")
+        scrape_job_columns = {row[1] for row in columns}
+        if "processed_games" not in scrape_job_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE scrape_jobs ADD COLUMN processed_games INTEGER NOT NULL DEFAULT 0"
+            )
+            await conn.exec_driver_sql(
+                "UPDATE scrape_jobs SET processed_games = completed_games WHERE processed_games = 0"
+            )
+        if "successful_games" not in scrape_job_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE scrape_jobs ADD COLUMN successful_games INTEGER NOT NULL DEFAULT 0"
+            )
+            await conn.exec_driver_sql(
+                """
+                UPDATE scrape_jobs
+                SET successful_games = CASE
+                    WHEN status = 'COMPLETED' AND total_games > 0 AND completed_games > failed_games
+                        THEN completed_games - failed_games
+                    WHEN status = 'COMPLETED' AND total_games > 0
+                        THEN 0
+                    ELSE completed_games
+                END
+                WHERE successful_games = 0
+                """
+            )
+        if "current_game_id" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_game_id INTEGER")
+        if "current_source" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_source VARCHAR(64)")
+        if "current_query" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_query VARCHAR(512)")
+        if "current_stage" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN current_stage VARCHAR(64)")
+        if "last_error" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN last_error TEXT")
+        if "heartbeat_at" not in scrape_job_columns:
+            await conn.exec_driver_sql("ALTER TABLE scrape_jobs ADD COLUMN heartbeat_at DATETIME")
+
+        # ── users.role migration (v2) ──────────────────────────────────────
+        user_cols = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(users)")}
+        if "role" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'user'"
+            )
+            # promote existing admins
+            await conn.exec_driver_sql("UPDATE users SET role = 'admin' WHERE is_admin = 1")
+            # first admin becomes owner
+            await conn.exec_driver_sql(
+                "UPDATE users SET role = 'owner' WHERE id = "
+                "(SELECT MIN(id) FROM users WHERE is_admin = 1)"
+            )
+        # Keep the oldest owner when upgrading databases created before the
+        # owner uniqueness guard was added.
+        await conn.exec_driver_sql(
+            """
+            UPDATE users
+            SET role = 'admin', is_admin = 1
+            WHERE role = 'owner'
+              AND id != (SELECT MIN(id) FROM users WHERE role = 'owner')
+            """
+        )
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_users_owner_role
+            ON users (role)
+            WHERE role = 'owner'
+            """
+        )
+        from utils.secrets import encrypt_secret, is_encrypted
+
+        source_rows = await conn.exec_driver_sql(
+            "SELECT id, password FROM file_sources WHERE password IS NOT NULL AND password != ''"
+        )
+        for source_id, password in source_rows:
+            if not is_encrypted(password):
+                await conn.exec_driver_sql(
+                    "UPDATE file_sources SET password = ? WHERE id = ?",
+                    (encrypt_secret(password), source_id),
+                )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id)"
+        )
+        await conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_sessions_token_hash ON user_sessions (token_hash)"
+        )
 
 
 async def get_engine():

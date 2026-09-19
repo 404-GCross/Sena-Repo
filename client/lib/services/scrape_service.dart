@@ -1,13 +1,21 @@
 /// Client-side direct scraper — calls external APIs without going through the server.
 /// Used for single-game editing. Batch scraping still uses the server-side scraper.
 
-import "package:http/http.dart" as http;
 import "dart:convert";
+import "dart:math" as math;
+
+import "logged_http.dart" as http;
 
 class ScrapeService {
+  static const int _maxScrapedTags = 20;
+  static const String _steamAssetBaseUrl =
+      "https://shared.akamai.steamstatic.com/store_item_assets/";
+  static const String _steamStoreItemsUrl =
+      "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/";
+
   static const _vndbFields =
       "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
-      "image.url,screenshots.url,description,rating,released,"
+      "image.url,image.sexual,screenshots.url,description,rating,released,"
       "length,length_minutes,"
       "developers.name,tags.name,tags.rating,tags.spoiler";
 
@@ -24,8 +32,6 @@ class ScrapeService {
         return _searchBangumi(query, proxy);
       case "steam":
         return _searchSteam(query, proxy);
-      case "ymgal":
-        return _searchYmgal(query, proxy);
       default:
         return [];
     }
@@ -52,9 +58,8 @@ class ScrapeService {
         uri,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "filters": vndbId != null
-              ? ["id", "=", vndbId]
-              : ["search", "=", query],
+          "filters":
+              vndbId != null ? ["id", "=", vndbId] : ["search", "=", query],
           "fields": _vndbFields,
           if (vndbId == null) "sort": "searchrank",
           "results": vndbId != null ? 1 : 5,
@@ -74,6 +79,22 @@ class ScrapeService {
         }
         final devs = item["developers"] as List? ?? [];
         final cover = await _pickVndbCover(item);
+        final vndbTags = ((item["tags"] as List?) ?? [])
+            .whereType<Map>()
+            .where((tag) => _tagRating(tag["rating"]) >= 1.5)
+            .toList();
+        vndbTags.sort(
+          (a, b) => _tagRating(b["rating"]).compareTo(_tagRating(a["rating"])),
+        );
+        final tags = vndbTags
+            .map((tag) => {
+                  "name": tag["name"]?.toString() ?? "",
+                  "rating": tag["rating"] ?? 0,
+                  "is_spoiler": tag["spoiler"] == true,
+                })
+            .where((tag) => (tag["name"] ?? "").toString().trim().isNotEmpty)
+            .take(_maxScrapedTags)
+            .toList();
         results.add({
           "title": title,
           "developer": devs.isNotEmpty ? (devs.first["name"] ?? "") : "",
@@ -86,12 +107,27 @@ class ScrapeService {
           "length": item["length"] ?? 0,
           "length_minutes": item["length_minutes"] ?? 0,
           "source_id": item["id"] ?? "",
+          "is_nsfw": _isVndbImageNsfw(item["image"]),
+          "tags": tags,
         });
       }
-      return results;
+      return _rankMetadataResults(query, results);
     } catch (_) {
       return [];
     }
+  }
+
+  static bool _isVndbImageNsfw(dynamic image) {
+    if (image is! Map) return false;
+    final sexual = image["sexual"];
+    if (sexual is num) return sexual >= 2.0;
+    final parsed = double.tryParse(sexual?.toString() ?? "");
+    return parsed != null && parsed >= 2.0;
+  }
+
+  static double _tagRating(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? "") ?? 0.0;
   }
 
   static Future<String> _pickVndbCover(dynamic item) async {
@@ -171,19 +207,25 @@ class ScrapeService {
       if (resp.statusCode != 200) return [];
       final data = jsonDecode(resp.body);
       final list = data["list"] as List? ?? [];
-      return list.map<Map<String, dynamic>>((item) {
+      final results = list.map<Map<String, dynamic>>((item) {
         return _parseBangumiSubject(item as Map<String, dynamic>);
       }).toList();
+      return _rankMetadataResults(query, results);
     } catch (_) {
       return [];
     }
   }
 
   static Map<String, dynamic> _parseBangumiSubject(Map<String, dynamic> item) {
-    final cover =
-        (item["images"] ?? {})["large"] ??
+    final cover = (item["images"] ?? {})["large"] ??
         (item["images"] ?? {})["common"] ??
         "";
+    final tags = ((item["tags"] as List?) ?? [])
+        .whereType<Map>()
+        .map((tag) => {"name": tag["name"]?.toString() ?? ""})
+        .where((tag) => (tag["name"] ?? "").toString().trim().isNotEmpty)
+        .take(_maxScrapedTags)
+        .toList();
     return {
       "title": item["name_cn"] ?? item["name"] ?? "",
       "developer": "",
@@ -192,6 +234,8 @@ class ScrapeService {
       "cover_url": cover,
       "screenshots": <String>[],
       "source_id": item["id"]?.toString() ?? "",
+      "is_nsfw": item["nsfw"] == true,
+      "tags": tags,
     };
   }
 
@@ -265,30 +309,28 @@ class ScrapeService {
     return _steamDetails(appid, query);
   }
 
-  /// Name similarity matching — exact > contains > prefix > reverse contains.
+  /// Name similarity matching with sequel-number mismatch protection.
   static Map<String, dynamic>? _pickBestSteam(
     List<Map<String, dynamic>> items,
     String title,
   ) {
-    final norm = title.toLowerCase();
-    // Exact match
-    for (final a in items) {
-      if ((a["name"] ?? "").toString().toLowerCase() == norm) return a;
-    }
-    // Contains match
-    for (final a in items) {
-      if ((a["name"] ?? "").toString().toLowerCase().contains(norm)) return a;
-    }
-    // Prefix match
-    for (final a in items) {
-      if ((a["name"] ?? "").toString().toLowerCase().startsWith(norm)) return a;
-    }
-    // Reverse contains
-    for (final a in items) {
-      final n = (a["name"] ?? "").toString().toLowerCase();
-      if (n.isNotEmpty && norm.contains(n)) return a;
-    }
-    return null;
+    final ranked = items.asMap().entries.toList()
+      ..sort((a, b) {
+        final aScore = _metadataTitleMatchScore(
+          title,
+          (a.value["name"] ?? "").toString(),
+        );
+        final bScore = _metadataTitleMatchScore(
+          title,
+          (b.value["name"] ?? "").toString(),
+        );
+        final scoreCompare = bScore.compareTo(aScore);
+        return scoreCompare != 0 ? scoreCompare : a.key.compareTo(b.key);
+      });
+    if (ranked.isEmpty) return null;
+    final best = ranked.first.value;
+    final score = _metadataTitleMatchScore(title, (best["name"] ?? "").toString());
+    return score >= 70 ? best : null;
   }
 
   /// Fetch full details for an App ID, with Chinese-first cover and hero banner.
@@ -322,26 +364,14 @@ class ScrapeService {
         ? details["short_description"].toString().substring(0, 500)
         : (details["short_description"]?.toString() ?? "");
     final release = ((details["release_date"] ?? {})["date"] ?? "").toString();
+    final tags = _steamTagMaps(details);
     final screenshots = ((details["screenshots"] as List?) ?? [])
         .map<dynamic>((s) => s["path_full"] ?? "")
         .where((u) => u is String && u.isNotEmpty)
         .cast<String>()
         .toList();
 
-    // Cover URL: Chinese → English → default
-    String cover =
-        "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900.jpg";
-    for (final suffix in ["_schinese", "_english", ""]) {
-      try {
-        final url =
-            "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900$suffix.jpg";
-        final r = await http.head(Uri.parse(url));
-        if (r.statusCode == 200) {
-          cover = url;
-          break;
-        }
-      } catch (_) {}
-    }
+    final cover = await _resolveSteamCoverUrl(appid);
 
     // Hero banner: library_hero → header
     String hero =
@@ -366,37 +396,246 @@ class ScrapeService {
         "hero_url": hero,
         "screenshots": screenshots,
         "source_id": appid,
+        "tags": tags,
       },
     ];
   }
-  // ── Ymgal (月幕) ──
 
-  static Future<List<Map<String, dynamic>>> _searchYmgal(
-    String query,
-    String? proxy,
-  ) async {
-    final uri = Uri.parse("https://api.ymgal.games/open/archive/search-game");
-    try {
-      final resp = await http.post(
-        uri,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"keyword": query, "limit": 5}),
-      );
-      if (resp.statusCode != 200) return [];
-      final items = jsonDecode(resp.body)["data"] as List? ?? [];
-      return items.map<Map<String, dynamic>>((item) {
-        return {
-          "title": item["title_cn"] ?? item["title"] ?? "",
-          "developer": item["developer"] ?? "",
-          "release_date": item["release_date"] ?? "",
-          "description": item["description"] ?? "",
-          "cover_url": item["cover"] ?? "",
-          "screenshots": <String>[],
-          "source_id": item["id"]?.toString() ?? "",
-        };
-      }).toList();
-    } catch (_) {
-      return [];
+  static Future<String> _resolveSteamCoverUrl(String appid) async {
+    final assets = await _steamStoreAssets(appid);
+    for (final key in ["library_capsule_2x", "library_capsule"]) {
+      final url = _steamAssetUrl(assets, key);
+      if (url.isNotEmpty) return url;
     }
+
+    for (final suffix in ["_schinese", "_english", ""]) {
+      try {
+        final url =
+            "https://cdn.akamai.steamstatic.com/steam/apps/$appid/library_600x900$suffix.jpg";
+        final r = await http.head(Uri.parse(url));
+        if (r.statusCode == 200) return url;
+      } catch (_) {}
+    }
+    return "";
+  }
+
+  static Future<Map<String, String>> _steamStoreAssets(String appid) async {
+    final appidValue = int.tryParse(appid);
+    if (appidValue == null) return {};
+
+    for (final (lang, cc) in [("schinese", "CN"), ("english", "US")]) {
+      try {
+        final uri = Uri.parse(_steamStoreItemsUrl).replace(
+          queryParameters: {
+            "input_json": jsonEncode({
+              "ids": [
+                {"appid": appidValue},
+              ],
+              "context": {
+                "language": lang,
+                "country_code": cc,
+                "steam_realm": 1,
+              },
+              "data_request": {
+                "include_assets": true,
+                "include_basic_info": true,
+              },
+            }),
+          },
+        );
+        final resp = await http.get(uri);
+        if (resp.statusCode != 200) continue;
+        final data = jsonDecode(resp.body);
+        final items = ((data["response"] ?? {})["store_items"] as List?) ?? [];
+        if (items.isEmpty || items.first is! Map) continue;
+        final assets = (items.first as Map)["assets"];
+        if (assets is! Map) continue;
+        return assets.map(
+          (key, value) => MapEntry(key.toString(), value?.toString() ?? ""),
+        );
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  static String _steamAssetUrl(Map<String, String> assets, String key) {
+    final filename = (assets[key] ?? "").trim();
+    final template = (assets["asset_url_format"] ?? "").trim();
+    if (filename.isEmpty || template.isEmpty) return "";
+    final path = template.replaceAll(r"${FILENAME}", filename);
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      return path;
+    }
+    return "$_steamAssetBaseUrl${path.replaceFirst(RegExp(r'^/+'), '')}";
+  }
+
+  static List<Map<String, dynamic>> _steamTagMaps(
+    Map<String, dynamic> details,
+  ) {
+    final tags = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void addName(dynamic value) {
+      final name = value?.toString().trim() ?? "";
+      final key = name.toLowerCase();
+      if (name.isEmpty || seen.contains(key)) return;
+      seen.add(key);
+      tags.add({"name": name});
+    }
+
+    for (final genre in (details["genres"] as List?) ?? const []) {
+      if (genre is Map) addName(genre["description"]);
+    }
+    for (final category in (details["categories"] as List?) ?? const []) {
+      if (category is Map) addName(category["description"]);
+    }
+
+    return tags.take(_maxScrapedTags).toList();
+  }
+
+  static List<Map<String, dynamic>> _rankMetadataResults(
+    String query,
+    List<Map<String, dynamic>> results,
+  ) {
+    final indexed = results.asMap().entries.toList()
+      ..sort((a, b) {
+        final aScore = _metadataTitleMatchScore(
+          query,
+          (a.value["title"] ?? a.value["name"] ?? "").toString(),
+        );
+        final bScore = _metadataTitleMatchScore(
+          query,
+          (b.value["title"] ?? b.value["name"] ?? "").toString(),
+        );
+        final scoreCompare = bScore.compareTo(aScore);
+        return scoreCompare != 0 ? scoreCompare : a.key.compareTo(b.key);
+      });
+    return indexed.map((entry) => entry.value).toList();
+  }
+
+  static int _metadataTitleMatchScore(String query, String title) {
+    final queryKey = _normalizeSearchKeyNumbers(
+      _metadataSearchKey(_cleanSearchTitle(query)),
+    );
+    final titleKey = _normalizeSearchKeyNumbers(_metadataSearchKey(title));
+    if (queryKey.isEmpty || titleKey.isEmpty) return 0;
+
+    final queryNumbers = _metadataNumberGroups(queryKey);
+    final titleNumbers = _metadataNumberGroups(titleKey);
+    if (queryNumbers.isNotEmpty &&
+        titleNumbers.isNotEmpty &&
+        !_sameStringList(queryNumbers, titleNumbers)) {
+      return 0;
+    }
+
+    var score = 0;
+    if (queryKey == titleKey) {
+      score = 100;
+    } else if (titleKey.startsWith(queryKey) || queryKey.startsWith(titleKey)) {
+      score = 92;
+    } else if (titleKey.contains(queryKey) || queryKey.contains(titleKey)) {
+      score = 88;
+    } else {
+      final titleRunes = titleKey.runes.toSet();
+      var overlap = 0;
+      for (final rune in queryKey.runes) {
+        if (titleRunes.contains(rune)) overlap += 1;
+      }
+      score = (overlap / math.max(1, queryKey.runes.length) * 86).round();
+    }
+
+    if (queryNumbers.isNotEmpty && titleNumbers.isEmpty) {
+      score = math.min(score, 62);
+    } else if (titleNumbers.isNotEmpty && queryNumbers.isEmpty) {
+      score = math.min(score, 66);
+    }
+    return math.max(0, math.min(100, score));
+  }
+
+  static String _cleanSearchTitle(String title) {
+    var result = title.trim();
+    if (RegExp(r'^\d+$').hasMatch(result)) return result;
+    result = result
+        .replaceFirst(RegExp(r'^[\[\(（][A-Za-z]+[\]\)）]'), "")
+        .trim();
+    result = result
+        .replaceFirst(RegExp(r'^直装[_ ]', caseSensitive: false), "")
+        .trim();
+    result = result
+        .replaceFirst(
+          RegExp(
+            r'[-_ ]?(?:v|ver|version)\s*\d+(?:\.\d+)*$',
+            caseSensitive: false,
+          ),
+          "",
+        )
+        .trim();
+    result = result.replaceFirst(RegExp(r'[-_ ]?\d+\.\d+(?:\.\d+)*$'), "").trim();
+    result = result
+        .replaceFirst(
+          RegExp(
+            r'[-_ ]?(汉化|中文|官方中文|完全版|DL版|体験版|体験版Ver[\d.]+).*$',
+            caseSensitive: false,
+          ),
+          "",
+        )
+        .trim();
+    result = result
+        .replaceFirst(
+          RegExp(
+            r'[-_ ]?[（(](?:pc|krkr|ons|ty|android|直装|汉化|中文|官方中文|dl版|'
+            r'r18|r-18|成人|全年龄|全年齡|ver[\d.]+|v[\d.]+)[)）]$',
+            caseSensitive: false,
+          ),
+          "",
+        )
+        .trim();
+    return result;
+  }
+
+  static String _metadataSearchKey(String text) {
+    final buffer = StringBuffer();
+    for (final rune in text.toLowerCase().runes) {
+      final isDigit = rune >= 0x30 && rune <= 0x39;
+      final isFullWidthDigit = rune >= 0xff10 && rune <= 0xff19;
+      final isAsciiLetter = rune >= 0x61 && rune <= 0x7a;
+      final isHiragana = rune >= 0x3040 && rune <= 0x309f;
+      final isKatakana = rune >= 0x30a0 && rune <= 0x30ff;
+      final isCjk = rune >= 0x3400 && rune <= 0x9fff;
+      if (isDigit || isAsciiLetter || isHiragana || isKatakana || isCjk) {
+        buffer.writeCharCode(rune);
+      } else if (isFullWidthDigit) {
+        buffer.writeCharCode(0x30 + rune - 0xff10);
+      }
+    }
+    return buffer.toString();
+  }
+
+  static List<String> _metadataNumberGroups(String normalized) {
+    return RegExp(r'\d+')
+        .allMatches(normalized)
+        .map((match) => _normalizeNumberGroup(match.group(0) ?? ""))
+        .where((value) => value.isNotEmpty)
+        .toList();
+  }
+
+  static String _normalizeSearchKeyNumbers(String value) {
+    return value.replaceAllMapped(
+      RegExp(r'\d+'),
+      (match) => _normalizeNumberGroup(match.group(0) ?? ""),
+    );
+  }
+
+  static String _normalizeNumberGroup(String value) {
+    final normalized = value.replaceFirst(RegExp(r'^0+'), "");
+    return normalized.isEmpty ? "0" : normalized;
+  }
+
+  static bool _sameStringList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i += 1) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 }

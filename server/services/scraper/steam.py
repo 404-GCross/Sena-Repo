@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from urllib.parse import quote as url_encode
 
 import httpx
 
-from .base import BaseScraper, ScraperResult, clean_title
+from .base import (
+    MAX_SCRAPED_TAGS,
+    BaseScraper,
+    ScrapedTag,
+    ScraperResult,
+    clean_title,
+    title_match_score,
+)
 
 logger = logging.getLogger(__name__)
+
+STEAM_ASSET_BASE_URL = "https://shared.akamai.steamstatic.com/store_item_assets/"
+STEAM_STORE_ITEMS_URL = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/"
 
 
 class SteamScraper(BaseScraper):
@@ -109,28 +120,18 @@ class SteamScraper(BaseScraper):
 
     @staticmethod
     def _pick_best(items: list[dict], title: str) -> dict | None:
-        """Pick best match by name similarity. Only returns results that
-        contain or start with the search title — no blind fallback to first."""
-        norm = title.lower()
-        # Exact match
-        exact = next((a for a in items if str(a.get("name", "")).lower() == norm), None)
-        if exact:
-            return exact
-        # Contains match (handles different language / subtitle variations)
-        contains = next((a for a in items if norm in str(a.get("name", "")).lower()), None)
-        if contains:
-            return contains
-        # Prefix match
-        starts = next((a for a in items if str(a.get("name", "")).lower().startswith(norm)), None)
-        if starts:
-            return starts
-        # Search term is contained in item name (reverse contains — handles
-        # cases where store name is longer / has extra info)
-        for a in items:
-            item_name = str(a.get("name", "")).lower()
-            if item_name and item_name in norm:
-                return a
-        return None
+        """Pick best match by title score without blindly accepting sequels."""
+        ranked = sorted(
+            (
+                (title_match_score(title, str(item.get("name", ""))), index, item)
+                for index, item in enumerate(items)
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        if not ranked:
+            return None
+        score, _, item = ranked[0]
+        return item if score >= 70 else None
 
     async def _get_details(self, appid: str, search_title: str = "") -> list[ScraperResult]:
         """Fetch game details, cover, and vendors from App ID.
@@ -167,18 +168,7 @@ class SteamScraper(BaseScraper):
             developer = devs[0] if devs else ""
             description = (details.get("short_description") or "")[:500]
 
-            # Cover URL: prefer Chinese → English → default
-            cover_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
-            # Try Chinese-specific covers first
-            for suffix in ("_schinese", "_english", ""):
-                try:
-                    url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900{suffix}.jpg"
-                    r = await client.head(url)
-                    if r.status_code == 200:
-                        cover_url = url
-                        break
-                except Exception:
-                    continue
+            cover_url = await self._resolve_cover_url(client, appid)
 
             # Background: prefer the Store API image, then fall back to CDN assets.
             header_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
@@ -213,9 +203,16 @@ class SteamScraper(BaseScraper):
                 except Exception:
                     pass
 
-            genres = [g.get("description", "") for g in details.get("genres", []) if g.get("description")]
-            if not genres:
-                genres = [c.get("description", "") for c in details.get("categories", [])[:5] if c.get("description")]
+            tag_names: list[str] = []
+            seen_tags: set[str] = set()
+            for entry in [*(details.get("genres") or []), *(details.get("categories") or [])]:
+                name = str(entry.get("description", "")).strip() if isinstance(entry, dict) else ""
+                key = name.casefold()
+                if not name or key in seen_tags:
+                    continue
+                seen_tags.add(key)
+                tag_names.append(name)
+            tags = [ScrapedTag(name=name) for name in tag_names[:MAX_SCRAPED_TAGS]]
 
             return [ScraperResult(
                 title=title,
@@ -226,4 +223,79 @@ class SteamScraper(BaseScraper):
                 hero_url=hero_url,
                 source_id=appid,
                 source_name=self.source_name,
+                tags=tags,
             )] if title else []
+
+    async def _resolve_cover_url(self, client: httpx.AsyncClient, appid: str) -> str:
+        assets = await self._get_store_assets(client, appid)
+        for key in ("library_capsule_2x", "library_capsule"):
+            url = self._build_store_asset_url(assets, key)
+            if url:
+                return url
+
+        for suffix in ("_schinese", "_english", ""):
+            try:
+                url = (
+                    f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/"
+                    f"library_600x900{suffix}.jpg"
+                )
+                r = await client.head(url)
+                if r.status_code == 200:
+                    return url
+            except Exception:
+                continue
+        return ""
+
+    async def _get_store_assets(
+        self,
+        client: httpx.AsyncClient,
+        appid: str,
+    ) -> dict[str, str]:
+        appid_int = int(appid) if appid.isdigit() else None
+        if appid_int is None:
+            return {}
+
+        for lang, cc in (("schinese", "CN"), ("english", "US")):
+            payload = {
+                "ids": [{"appid": appid_int}],
+                "context": {
+                    "language": lang,
+                    "country_code": cc,
+                    "steam_realm": 1,
+                },
+                "data_request": {
+                    "include_assets": True,
+                    "include_basic_info": True,
+                },
+            }
+            url = (
+                STEAM_STORE_ITEMS_URL
+                + "?input_json="
+                + url_encode(json.dumps(payload, separators=(",", ":")), safe="")
+            )
+            try:
+                resp = await self._request_with_retry(client, "GET", url)
+                items = (resp.json().get("response") or {}).get("store_items") or []
+                if not items:
+                    continue
+                assets = items[0].get("assets") or {}
+                if isinstance(assets, dict):
+                    return {
+                        str(key): str(value)
+                        for key, value in assets.items()
+                        if value is not None
+                    }
+            except Exception as e:
+                logger.debug(f"Steam asset lookup failed for app {appid} ({lang}): {e}")
+        return {}
+
+    @staticmethod
+    def _build_store_asset_url(assets: dict[str, str], key: str) -> str:
+        filename = (assets.get(key) or "").strip()
+        template = (assets.get("asset_url_format") or "").strip()
+        if not filename or not template:
+            return ""
+        path = template.replace("${FILENAME}", filename)
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        return STEAM_ASSET_BASE_URL + path.lstrip("/")

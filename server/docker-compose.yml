@@ -9,7 +9,9 @@ services:
     volumes:
       - /path/to/your/games:/games
       - /path/to/data:/data
+      - /path/to/steam_patches:/steam_patch
     environment:
       - SENA_GAMES_PATH=/games
       - SENA_DATA_PATH=/data
+      - SENA_PATCH_DIR=/steam_patch
     restart: unless-stopped

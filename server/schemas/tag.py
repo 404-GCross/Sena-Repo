@@ -22,5 +22,10 @@ class TagOut(BaseModel):
     name: str
     color: str | None = "#3B82F6"
     created_at: datetime
+    source: str | None = None
+    weight: float = 0.0
+    rating: float = 0.0
+    is_spoiler: bool = False
+    spoiler: bool = False
 
     model_config = {"from_attributes": True}

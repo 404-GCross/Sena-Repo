@@ -3,9 +3,10 @@
 import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
+import "../services/api_response_utils.dart";
 import "../services/logger_service.dart";
 
 class SettingsProvider extends ChangeNotifier {
@@ -15,6 +16,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   double _coverSize = Platform.isAndroid ? 160.0 : 200.0;
+  bool _blurNsfwCovers = true;
 
   String get serverHost => _serverHost;
   int get serverPort => _serverPort;
@@ -22,14 +24,26 @@ class SettingsProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   double get coverSize => _coverSize;
+  bool get blurNsfwCovers => _blurNsfwCovers;
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _serverHost = prefs.getString("server_host") ?? "";
     _serverPort = prefs.getInt("server_port") ?? 11451;
     _useHttps = prefs.getBool("use_https") ?? false;
-    _coverSize = (prefs.getDouble("cover_size") ?? _coverSize).clamp(100.0, 300.0).toDouble();
+    _coverSize = (prefs.getDouble("cover_size") ?? _coverSize)
+        .clamp(100.0, 300.0)
+        .toDouble();
+    _blurNsfwCovers = prefs.getBool("blur_nsfw_covers") ?? true;
     notifyListeners();
+  }
+
+  Future<void> setBlurNsfwCovers(bool value) async {
+    if (_blurNsfwCovers == value) return;
+    _blurNsfwCovers = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool("blur_nsfw_covers", value);
   }
 
   Future<void> setCoverSize(double value) async {
@@ -50,12 +64,16 @@ class SettingsProvider extends ChangeNotifier {
     try {
       final scheme = useHttps ? "https" : "http";
       final uri = Uri.parse("$scheme://$host:$port/api/health");
-      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
-      if (resp.statusCode != 200) {
-        _errorMessage = "服务器返回错误: ${resp.statusCode}";
+      final resp = await _getHealthNoRedirect(uri);
+      if (!isValidSenaHealthResponse(resp)) {
+        _errorMessage = describeUnexpectedApiResponse(
+          resp,
+          expected: "Sena 健康检查",
+          endpointPath: "/api/health",
+        );
         _isLoading = false;
         notifyListeners();
-        LoggerService().warn("连接失败 $host:$port: HTTP ${resp.statusCode}");
+        LoggerService().warn("连接失败 $host:$port: $_errorMessage");
         return false;
       }
 
@@ -83,6 +101,19 @@ class SettingsProvider extends ChangeNotifier {
       notifyListeners();
       LoggerService().error("连接超时 $host:$port", e);
       return false;
+    }
+  }
+
+  Future<http.Response> _getHealthNoRedirect(Uri uri) async {
+    final client = http.Client();
+    try {
+      final request = http.Request("GET", uri)..followRedirects = false;
+      final streamed = await client.send(request).timeout(
+            const Duration(seconds: 5),
+          );
+      return http.Response.fromStream(streamed);
+    } finally {
+      client.close();
     }
   }
 }

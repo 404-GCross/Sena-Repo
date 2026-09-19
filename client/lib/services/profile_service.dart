@@ -6,12 +6,18 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "secure_store.dart";
 
+int parseProfileUserId(Object? value) {
+  final id = value is int ? value : int.tryParse(value?.toString() ?? "");
+  return id != null && id > 0 ? id : 0;
+}
+
 class UserProfile {
   String name;
   String host;
   int port;
   String authToken;
   // String refreshToken; — removed
+  int userId;
   String username;
   bool isAdmin;
   bool useHttps;
@@ -22,6 +28,7 @@ class UserProfile {
     this.port = 11451,
     this.authToken = "",
     // this.refreshToken = "",
+    this.userId = 0,
     this.username = "",
     this.isAdmin = false,
     this.useHttps = false,
@@ -33,6 +40,7 @@ class UserProfile {
     "name": name, "host": host, "port": port,
     "authToken": authToken,
     // "refreshToken": refreshToken,
+    "userId": userId,
     "username": username, "isAdmin": isAdmin,
     "useHttps": useHttps,
   };
@@ -43,6 +51,7 @@ class UserProfile {
     port: json["port"] ?? 11451,
     authToken: json["authToken"] ?? "",
     // refreshToken: json["refreshToken"] ?? "",
+    userId: parseProfileUserId(json["userId"] ?? json["user_id"]),
     username: json["username"] ?? "",
     isAdmin: json["isAdmin"] ?? false,
     useHttps: json["useHttps"] ?? false,
@@ -58,7 +67,6 @@ class ProfileService {
   static const _keyActiveIndex = "active_profile_index";
 
   Future<List<UserProfile>> loadProfiles() async {
-    final prefs = await SharedPreferences.getInstance();
     final raw = await SecureStore.getString(_keyProfiles);
     if (raw == null || raw.isEmpty) return [];
     final list = jsonDecode(raw) as List;
@@ -93,6 +101,11 @@ class ProfileService {
     await SecureStore.setString("auth_token", profile.authToken);
     // final rt = profile.refreshToken; — removed
     // if (rt.isNotEmpty) await prefs.setString("refresh_token", rt);
+    if (profile.userId > 0) {
+      await prefs.setInt("user_id", profile.userId);
+    } else {
+      await prefs.remove("user_id");
+    }
     await prefs.setString("username", profile.username);
     await prefs.setBool("is_admin", profile.isAdmin);
     await prefs.setBool("use_https", profile.useHttps);
@@ -105,6 +118,7 @@ class ProfileService {
     final port = prefs.getInt("server_port") ?? 11451;
     final token = await SecureStore.getString("auth_token") ?? "";
     // final refreshToken = prefs.getString("refresh_token") ?? "";
+    final userId = prefs.getInt("user_id") ?? 0;
     final username = prefs.getString("username") ?? "";
     final isAdmin = prefs.getBool("is_admin") ?? false;
     final useHttps = prefs.getBool("use_https") ?? false;
@@ -117,7 +131,8 @@ class ProfileService {
           p.host == host &&
           p.port == port &&
           p.useHttps == useHttps &&
-          p.username == username,
+          ((userId > 0 && p.userId == userId) ||
+              (userId <= 0 && p.username == username)),
     );
     final profile = UserProfile(
       name: name,
@@ -125,6 +140,7 @@ class ProfileService {
       port: port,
       authToken: token,
       /* refreshToken: refreshToken, */
+      userId: userId,
       username: username,
       isAdmin: isAdmin,
       useHttps: useHttps,

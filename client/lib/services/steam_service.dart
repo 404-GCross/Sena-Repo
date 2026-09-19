@@ -5,7 +5,7 @@ import "dart:convert";
 import "dart:io";
 
 import "package:file_picker/file_picker.dart";
-import "package:http/http.dart" as http;
+import "logged_http.dart" as http;
 
 import "api_client.dart";
 import "download_service.dart";
@@ -29,24 +29,34 @@ class PatchMatch {
   final String gameName;
   final String installDir;
   final bool patchAvailable;
+  final String? patchLookupKey;
   final String? patchFilename;
   final int patchSize;
   final String? patchDir;
   final String? targetDir;
   final String? label;
   final String? type;
+  final String? sourceType;
+  final String analysisMode;
+  final String manifestStatus;
+  final bool manifestReady;
 
   PatchMatch({
     required this.appId,
     required this.gameName,
     required this.installDir,
     required this.patchAvailable,
+    this.patchLookupKey,
     this.patchFilename,
     this.patchSize = 0,
     this.patchDir,
     this.targetDir,
     this.label,
     this.type,
+    this.sourceType,
+    this.analysisMode = "auto",
+    this.manifestStatus = "pending",
+    this.manifestReady = false,
   });
 
   factory PatchMatch.fromJson(Map<String, dynamic> json) => PatchMatch(
@@ -54,12 +64,17 @@ class PatchMatch {
         gameName: json["game_name"] ?? "",
         installDir: json["install_dir"] ?? "",
         patchAvailable: json["patch_available"] ?? false,
+        patchLookupKey: json["patch_lookup_key"] ?? json["lookup_key"] ?? json["patch_id"],
         patchFilename: json["patch_filename"],
         patchSize: json["patch_size"] ?? 0,
         patchDir: json["patch_dir"],
         targetDir: json["target_dir"],
         label: json["label"],
         type: json["type"],
+        sourceType: json["source_type"],
+        analysisMode: json["analysis_mode"] ?? "auto",
+        manifestStatus: json["manifest_status"] ?? "pending",
+        manifestReady: json["manifest_ready"] == true,
       );
 }
 
@@ -137,31 +152,74 @@ class SteamService {
     return data.map((j) => PatchMatch.fromJson(j as Map<String, dynamic>)).toList();
   }
 
+  static String patchLookupKey({required String appId, String? file, String? lookupKey}) {
+    if (lookupKey != null && lookupKey.isNotEmpty) return lookupKey;
+    if (file != null && file.isNotEmpty && file.startsWith("sp_")) return file;
+    if (appId.isNotEmpty && appId != "null" && appId != "None") return appId;
+    return file ?? appId;
+  }
+
   /// Update patch metadata in server's patches.json.
   static Future<void> updatePatch({
     required ApiClient api,
     required String appId,
-    String? patchDir,
-    String? targetDir,
     String? label,
     String? type,
     String? file,
+    String? lookupKey,
+    bool? locked,
   }) async {
     final body = <String, dynamic>{};
-    if (patchDir != null) body["patch_dir"] = patchDir;
-    if (targetDir != null) body["target_dir"] = targetDir;
     if (label != null) body["label"] = label;
     if (type != null) body["type"] = type;
     if (appId.isNotEmpty && appId != "null" && appId != "None") body["app_id"] = appId;
     if (file != null && file.isNotEmpty) body["file"] = file;
+    if (locked != null) body["locked"] = locked;
     if (body.isEmpty) return;
-    final lookupKey = (appId.isNotEmpty && appId != "null" && appId != "None") ? appId : (file ?? appId);
+    final key = patchLookupKey(appId: appId, file: file, lookupKey: lookupKey);
     final resp = await http.put(
-      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}"),
+      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(key)}"),
       headers: {"Content-Type": "application/json", ...api.headers},
       body: jsonEncode(body),
     );
     if (resp.statusCode != 200) throw HttpException("Failed to update patch: ${resp.statusCode}");
+  }
+
+  static Future<Map<String, dynamic>> getPatchTree(
+    ApiClient api, {
+    required String appId,
+    String? file,
+    String? lookupKey,
+  }) async {
+    final key = patchLookupKey(appId: appId, file: file, lookupKey: lookupKey);
+    final resp = await http.get(
+      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(key)}/tree"),
+      headers: api.headers,
+    );
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to load patch tree: ${resp.statusCode}");
+  }
+
+  static Future<void> updatePatchManifest({
+    required ApiClient api,
+    required String appId,
+    required String patchDir,
+    required String targetDir,
+    String? file,
+    String? lookupKey,
+  }) async {
+    final key = patchLookupKey(appId: appId, file: file, lookupKey: lookupKey);
+    final resp = await http.put(
+      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(key)}/manifest"),
+      headers: {"Content-Type": "application/json", ...api.headers},
+      body: jsonEncode({
+        "patch_dir": patchDir,
+        "target_dir": targetDir,
+        if (appId.isNotEmpty && appId != "null" && appId != "None") "app_id": appId,
+        if (file != null && file.isNotEmpty) "file": file,
+      }),
+    );
+    if (resp.statusCode != 200) throw HttpException("Failed to update patch manifest: ${resp.statusCode}");
   }
 
   /// Trigger server-side patch directory scan.
@@ -169,6 +227,31 @@ class SteamService {
     final resp = await http.post(Uri.parse("${api.baseUrl}/api/steam/scan-patches"), headers: api.headers);
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
     throw HttpException("Failed to scan patches: ${resp.statusCode}");
+  }
+
+  /// Ask the server for a short-lived signed URL so aria2 can fetch the patch
+  /// without an Authorization header.
+  static Future<({String url, int expiresAt})> patchDownloadLink(
+    ApiClient api,
+    String lookupKey,
+  ) async {
+    final resp = await http.post(
+      Uri.parse(
+          "${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/link"),
+      headers: api.headers,
+    );
+    if (resp.statusCode != 200) {
+      throw HttpException("Failed to create patch download link: ${resp.statusCode}");
+    }
+    final payload = jsonDecode(resp.body) as Map<String, dynamic>;
+    final url = payload["url"]?.toString() ?? "";
+    if (url.isEmpty) {
+      throw HttpException("Server returned an empty patch download link");
+    }
+    return (
+      url: url,
+      expiresAt: int.tryParse("${payload["expires_at"] ?? 0}") ?? 0,
+    );
   }
 
   /// Re-scrape a single patch's app_id from Steam search.
@@ -257,6 +340,10 @@ class SteamService {
     required String patchFilename,
     String? patchDir,
     String? targetDir,
+    String? patchLookupKey,
+    String sourceType = "local",
+    int expiresAt = 0,
+    String? serverBaseUrl,
     void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
     final svc = DownloadService();
@@ -269,6 +356,10 @@ class SteamService {
         installDir: installDir,
         patchDir: patchDir,
         targetDir: targetDir,
+        patchLookupKey: patchLookupKey,
+        sourceType: sourceType,
+        expiresAt: expiresAt,
+        serverBaseUrl: serverBaseUrl,
         onProgress: onProgress,
       );
       if (error != null) return {"error": error};

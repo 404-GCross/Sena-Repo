@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-from models.game import Platform
 from utils.regex_patterns import (
     ExtractionResult,
     compile_custom_patterns,

@@ -7,16 +7,30 @@ import re
 
 import httpx
 
-from .base import BaseScraper, ScraperResult
+from .base import (
+    MAX_SCRAPED_TAGS,
+    BaseScraper,
+    ScrapedTag,
+    ScraperResult,
+    pick_best_scraper_result,
+)
 
 logger = logging.getLogger(__name__)
 
 VNDB_FIELDS = (
     "id,title,titles.lang,titles.title,titles.latin,titles.official,titles.main,"
-    "image.url,screenshots.url,description,rating,released,"
+    "aliases,"
+    "image.url,image.sexual,screenshots.url,description,rating,released,"
     "length,length_minutes,"
     "developers.name,tags.name,tags.rating,tags.spoiler"
 )
+
+
+def _tag_rating(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _normalize_vndb_id(value: str) -> str | None:
@@ -60,8 +74,11 @@ class VndbKanaScraper(BaseScraper):
         name: str,
         company_hint: str | None = None,
     ) -> ScraperResult | None:
-        results = await self._search(name, results=1)
-        return results[0] if results else None
+        if _normalize_vndb_id(name):
+            results = await self._search(name, results=1)
+            return results[0] if results else None
+        results = await self._search(name, results=5)
+        return pick_best_scraper_result(name, results)
 
     async def _search(self, name: str, *, results: int) -> list[ScraperResult]:
         client = await self._get_client()
@@ -151,10 +168,25 @@ class VndbKanaScraper(BaseScraper):
         hero = screenshots[0].get("url", "") if screenshots else ""
         all_shots = [s.get("url", "") for s in screenshots if s.get("url")]
 
-        # Tags (filter rating >= 1.5, sort by rating desc, top 5)
+        # Tags (filter rating >= 1.5, sort by rating desc)
         tags = item.get("tags", [])
-        filtered = [t for t in tags if t.get("rating", 0) >= 1.5]
-        filtered.sort(key=lambda t: t.get("rating", 0), reverse=True)
+        filtered = [t for t in tags if _tag_rating(t.get("rating")) >= 1.5]
+        filtered.sort(key=lambda t: _tag_rating(t.get("rating")), reverse=True)
+        tag_items = [
+            ScrapedTag(
+                name=str(t.get("name", "")).strip(),
+                rating=_tag_rating(t.get("rating")),
+                is_spoiler=bool(t.get("spoiler")),
+            )
+            for t in filtered[:MAX_SCRAPED_TAGS]
+            if str(t.get("name", "")).strip()
+        ]
+
+        aliases = [
+            str(alias).strip()
+            for alias in (item.get("aliases") or [])
+            if str(alias or "").strip()
+        ]
 
         return ScraperResult(
             title=title,
@@ -168,6 +200,9 @@ class VndbKanaScraper(BaseScraper):
             source_name=self.source_name,
             length=(item.get("length") or 0),
             length_minutes=(item.get("length_minutes") or 0),
+            is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 2.0,
+            tags=tag_items,
+            aliases=aliases,
         )
 
     def _pick_title(self, titles: list[dict]) -> str:
@@ -208,7 +243,7 @@ class VndbTitlesScraper(BaseScraper):
         client = await self._get_client()
         results = []
         try:
-            fields = "id,title,image.url,screenshots.url,description,rating,released,developers.name"
+            fields = "id,title,image.url,image.sexual,screenshots.url,description,rating,released,developers.name"
             body = _build_vndb_body(name, fields=fields)
             resp = await self._request_with_retry(
                 client, "POST", self.base_url,
@@ -231,6 +266,7 @@ class VndbTitlesScraper(BaseScraper):
                     screenshot_urls=all_shots,
                     source_id=str(item.get("id", "")),
                     source_name=self.source_name,
+                    is_nsfw=float((image.get("sexual") or 0)) >= 2.0,
                 ))
         except Exception as e:
             logger.warning(f"VNDB failed for '{name}': {e}")

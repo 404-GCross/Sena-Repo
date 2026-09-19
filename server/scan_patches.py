@@ -6,12 +6,12 @@ Usage:
   python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2" "translation"
                                                         # add one entry
 """
-import json, os, sys, argparse, re
+import argparse, hashlib, json, logging, re, unicodedata
 from pathlib import Path
 
-# Default keywords for auto type detection (mirrors steam_patch.py)
-_KEYWORD_VERSION = 1  # bump when DEFAULT_TYPE_KEYWORDS changes to force migration
+logger = logging.getLogger(__name__)
 
+# Default keywords for auto type detection (mirrors steam_patch.py)
 DEFAULT_TYPE_KEYWORDS = {
     "translation": ["_Steam_Chinese_Patch"],
     "voice": ["_Steam_Voice_Patch"],
@@ -41,15 +41,14 @@ def _load_keywords(base_dir: Path) -> dict[str, list[str]]:
         try:
             with open(kw_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, dict) and data.get("_version") == _KEYWORD_VERSION:
-                return {k: v for k, v in data.items() if k != "_version" and isinstance(v, list)}
+            if isinstance(data, dict):
+                return {k: v for k, v in data.items() if isinstance(v, list)}
         except Exception:
             pass
-    # Create / overwrite with current defaults
+    # Create with current defaults
     base_dir.mkdir(parents=True, exist_ok=True)
-    defaults = {"_version": _KEYWORD_VERSION, **DEFAULT_TYPE_KEYWORDS}
     with open(kw_path, "w", encoding="utf-8") as f:
-        json.dump(defaults, f, ensure_ascii=False, indent=2)
+        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
     return dict(DEFAULT_TYPE_KEYWORDS)
 
 
@@ -63,6 +62,12 @@ def _guess_type(filename: str, keywords: dict[str, list[str]]) -> str:
             if w.lower() in lower:
                 return ptype
     return "misc"
+
+
+def _make_patch_id(source_type: str, source_id: int | None, path: str) -> str:
+    identity = f"{source_type or 'local'}|{source_id or ''}|{path}"
+    digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
+    return f"sp_{digest}"
 
 
 def _extract_game_name(filename: str) -> str:
@@ -81,40 +86,200 @@ def _extract_game_name(filename: str) -> str:
     return name
 
 
-def _search_steam_app_id(game_name: str) -> int | None:
-    """Search Steam store for a game by name and return its app_id."""
-    import urllib.request
-    import urllib.parse
-    try:
-        url = "https://store.steampowered.com/api/storesearch/?term=" + urllib.parse.quote(game_name) + "&l=schinese&cc=CN"
-        req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-        items = data.get("items", [])
-        if items:
-            # Return the first match's app_id
-            return items[0].get("id")
-    except Exception:
-        pass
-    return None
+_STEAM_SEARCH_LIMIT = 5
+_MATCH_ACCEPT_SCORE = 60
+_MATCH_MARGIN = 15
+
+# Words that usually mark a derivative release rather than the base game.
+_DERIVATIVE_MARKERS = (
+    "凸", "hd", "fhd", "remaster", "remastered", "完全版", "体験版", "体验版",
+    "demo", "dlc", "fd", "fandisc", "append", "plus", "special", "deluxe",
+    "ultimate", "collection", "限定版", "中文版", "汉化版", "汉化", "r18",
+)
+
+_APPDETAILS_CACHE: dict[int, dict] = {}
+_APPDETAILS_LANGS: dict[int, set[str]] = {}
 
 
-def _fetch_game_name(app_id: int) -> str:
-    """Fetch game name from Steam Store API by app_id. Prefers schinese, falls back to english."""
+def _load_appdetails(app_id: int, langs: tuple[str, ...] = ("schinese",)) -> dict:
+    """Cached Steam appdetails lookup: names, type and the parent app of a DLC.
+
+    Titles differ per language ("LOVEPICAL-POPPY!" is "缘起甜韵趣恋丛生！" on the
+    Chinese store), so callers can ask for the languages they need.
+    """
+    entry = _APPDETAILS_CACHE.setdefault(app_id, {"names": [], "type": "", "fullgame": None})
+    fetched = _APPDETAILS_LANGS.setdefault(app_id, set())
     import urllib.request
-    try:
-        for lang in ("schinese", "english"):
+    for lang in langs:
+        if lang in fetched:
+            continue
+        fetched.add(lang)
+        try:
             url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l={lang}"
             req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
             details = (data.get(str(app_id)) or {}).get("data") or {}
-            name = details.get("name", "")
-            if name:
-                return name
-    except Exception:
-        pass
-    return ""
+        except Exception as exc:
+            logger.warning("Steam appdetails failed for app_id=%s lang=%s: %s", app_id, lang, exc)
+            continue
+        if not details:
+            continue
+        name = str(details.get("name") or "")
+        if name and name not in entry["names"]:
+            entry["names"].append(name)
+        if not entry["type"] and details.get("type"):
+            entry["type"] = str(details["type"]).lower()
+        fullgame = details.get("fullgame")
+        if entry["fullgame"] is None and isinstance(fullgame, dict) and fullgame.get("appid"):
+            try:
+                entry["fullgame"] = int(fullgame["appid"])
+            except (TypeError, ValueError):
+                entry["fullgame"] = None
+    return entry
+
+
+def _appdetails(app_id: int) -> dict:
+    return _load_appdetails(int(app_id), ("schinese", "english"))
+
+
+def _fetch_game_name(app_id: int) -> str:
+    """Fetch game name from Steam Store API by app_id. Prefers schinese, falls back to english."""
+    try:
+        names = _appdetails(int(app_id)).get("names") or []
+    except (TypeError, ValueError):
+        return ""
+    return names[0] if names else ""
+
+
+def _normalize_for_match(value: str) -> str:
+    """Normalize a title for comparison: strip patch/extension noise, full-width
+    forms, separators and case."""
+    text = unicodedata.normalize("NFKC", _extract_game_name(value or ""))
+    text = text.casefold()
+    # Drop every separator/symbol ("Making*Lovers" vs "Making Lovers") but keep letters, digits and CJK.
+    return re.sub(r"\W+", "", text)
+
+
+def _has_derivative_marker(text: str) -> bool:
+    return any(marker in text for marker in _DERIVATIVE_MARKERS)
+
+
+def _name_match_score(query: str, candidate: str) -> int:
+    """Score how well a Steam title matches the wanted game name."""
+    if not query or not candidate:
+        return 0
+    if query == candidate:
+        return 100
+    if candidate.startswith(query):
+        extra = candidate[len(query):]
+        score = 85 - min(30, 5 * len(extra))
+        if _has_derivative_marker(extra) or any(ch.isdigit() for ch in extra):
+            score -= 25
+        return max(0, score)
+    if query.startswith(candidate):
+        extra = query[len(candidate):]
+        return max(0, 70 - 5 * len(extra))
+    if query in candidate or candidate in query:
+        return 45
+    return 0
+
+
+def _search_steam_app_id(game_name: str) -> int | None:
+    """Search Steam for the base game of a patch.
+
+    Steam's search ranks DLC and derivative releases first (for example
+    "常轨脱离Creative凸" is a DLC of "常轨脱离Creative"), so candidates are scored
+    by name and non-game entries are followed back to their ``fullgame``.
+    Anything ambiguous returns None instead of guessing.
+    """
+    import urllib.request
+    import urllib.parse
+
+    query = _normalize_for_match(game_name)
+    if not query:
+        return None
+    try:
+        url = "https://store.steampowered.com/api/storesearch/?term=" + urllib.parse.quote(game_name) + "&l=schinese&cc=CN"
+        req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        logger.warning("Steam search failed for %r: %s", game_name, exc)
+        return None
+
+    items = [item for item in (data.get("items") or [])[:_STEAM_SEARCH_LIMIT] if isinstance(item.get("id"), int)]
+
+    def collect(langs: tuple[str, ...]) -> list[dict]:
+        collected: list[dict] = []
+        for item in items:
+            app_id = int(item["id"])
+            info = _load_appdetails(app_id, langs)
+            names = info.get("names") or [str(item.get("name") or "")]
+            best_name = names[0]
+            best_score = _name_match_score(query, _normalize_for_match(best_name))
+            for candidate_name in names[1:]:
+                score = _name_match_score(query, _normalize_for_match(candidate_name))
+                if score > best_score:
+                    best_name, best_score = candidate_name, score
+            collected.append({
+                "app_id": app_id,
+                "name": best_name,
+                "normalized": _normalize_for_match(best_name),
+                "type": info.get("type") or "",
+                "fullgame": info.get("fullgame"),
+                "score": best_score,
+            })
+        return collected
+
+    candidates = collect(("schinese",))
+    # Romanized titles are listed under a totally different Chinese name, so only
+    # then pay for the extra languages (the schinese lookup stays cached).
+    if query.isascii() and not any(
+        c["normalized"] == query or (c["type"] == "game" and c["score"] >= _MATCH_ACCEPT_SCORE)
+        for c in candidates
+    ):
+        candidates = collect(("schinese", "english", "japanese"))
+    if not candidates:
+        return None
+
+    # 1) The patch name itself matches an entry exactly (base game or the DLC it targets).
+    for candidate in sorted(candidates, key=lambda c: (c["type"] != "game", -c["score"])):
+        if candidate["normalized"] == query:
+            return candidate["app_id"]
+
+    # 2) Closest candidate is a DLC/demo: fall back to its base game.
+    best = max(candidates, key=lambda c: c["score"])
+    if best["score"] > 0 and best["type"] != "game" and best["fullgame"]:
+        parent_id = best["fullgame"]
+        parent = _load_appdetails(parent_id, ("schinese", "english", "japanese"))
+        parent_names = parent.get("names") or []
+        parent_score = max(
+            (_name_match_score(query, _normalize_for_match(name)) for name in parent_names),
+            default=0,
+        )
+        if (parent.get("type") or "game") == "game" and parent_score >= _MATCH_ACCEPT_SCORE:
+            logger.info(
+                "Steam search %r: %s(%s) is %s, using base game %s(%s)",
+                game_name, best["app_id"], best["name"], best["type"] or "not-a-game",
+                parent_id, parent_names[0] if parent_names else "",
+            )
+            return parent_id
+
+    # 3) Best plain game title, but only when it clearly wins.
+    games = sorted(
+        [c for c in candidates if c["type"] == "game" and c["score"] >= _MATCH_ACCEPT_SCORE],
+        key=lambda c: -c["score"],
+    )
+    if games and (len(games) == 1 or games[0]["score"] - games[1]["score"] >= _MATCH_MARGIN):
+        return games[0]["app_id"]
+
+    logger.warning(
+        "Steam search %r is ambiguous, leaving app_id empty; candidates=%s",
+        game_name,
+        [(c["app_id"], c["name"], c["type"] or "?", c["score"]) for c in candidates],
+    )
+    return None
 
 
 def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
@@ -141,7 +306,7 @@ def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
     return None
 
 
-def scan_patches_dir(base_dir: Path) -> list[dict]:
+def scan_patches_dir(base_dir: Path, analysis_mode: str = "auto") -> list[dict]:
     """Scan recurisvely for archive files, auto-detect app_id and type from name."""
     base_dir.mkdir(parents=True, exist_ok=True)
     keywords = _load_keywords(base_dir)
@@ -155,10 +320,14 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
             # Use extracted game name as label if available
             label = _extract_game_name(f.name) if not app_id else ""
             archives.append({
+                "patch_id": _make_patch_id("local", None, rel),
                 "app_id": app_id,
                 "file": rel,
+                "size": f.stat().st_size,
+                "analysis_mode": analysis_mode,
                 "patch_dir": "",
                 "target_dir": "",
+                "manifest_status": "pending",
                 "label": label,
                 "type": ptype,
                 "game_name": _fetch_game_name(app_id) if app_id else "",
@@ -166,7 +335,13 @@ def scan_patches_dir(base_dir: Path) -> list[dict]:
     return archives
 
 
-def scan_patches_source(source, root_path: str, source_type: str = "local", source_id: int | None = None) -> list[dict]:
+def scan_patches_source(
+    source,
+    root_path: str,
+    source_type: str = "local",
+    source_id: int | None = None,
+    analysis_mode: str = "auto",
+) -> list[dict]:
     """Scan a generic file source for patch archive files."""
     from services.file_source import canonical_source_path
 
@@ -188,14 +363,18 @@ def scan_patches_source(source, root_path: str, source_type: str = "local", sour
             ptype = _guess_type(entry.name, keywords)
             label = _extract_game_name(entry.name) if not app_id else ""
             archives.append({
+                "patch_id": _make_patch_id(source_type, source_id, entry.path),
                 "app_id": app_id,
                 "file": canonical_source_path(source_type, source_id, entry.path),
                 "source_type": source_type,
                 "source_id": source_id,
                 "source_path": entry.path,
                 "display_file": rel,
+                "size": entry.size,
+                "analysis_mode": analysis_mode,
                 "patch_dir": "",
                 "target_dir": "",
+                "manifest_status": "pending",
                 "label": label,
                 "type": ptype,
                 "game_name": _fetch_game_name(app_id) if app_id else "",
@@ -224,6 +403,16 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
     for s in scanned:
         old = existing_by_file.get(s["file"])
         if old:
+            if not old.get("patch_id") and s.get("patch_id"):
+                old["patch_id"] = s["patch_id"]
+            if old.get("locked"):
+                # Locked entries keep their metadata; only refresh facts about the file
+                # itself so the list still shows the current size and source.
+                for key in ("size", "display_file", "source_type", "source_id", "source_path", "analysis_mode"):
+                    if s.get(key) is not None:
+                        old[key] = s[key]
+                merged.append(old)
+                continue
             # Keep user's manual entries but update discovered fields
             if not old.get("app_id") and s.get("app_id"):
                 old["app_id"] = s["app_id"]
@@ -232,6 +421,11 @@ def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
                     old["type"] = s["type"]
             if not old.get("game_name") and s.get("game_name"):
                 old["game_name"] = s["game_name"]
+            if s.get("size") and not old.get("size"):
+                old["size"] = s["size"]
+            for key in ("source_type", "source_id", "source_path", "display_file", "analysis_mode"):
+                if s.get(key) is not None:
+                    old[key] = s[key]
             merged.append(old)
         else:
             merged.append(s)
@@ -260,6 +454,7 @@ def main():
             "target_dir": target_dir,
             "label": label,
             "type": ptype,
+            "manifest_status": "confirmed",
         })
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)
@@ -281,20 +476,21 @@ def main():
     print(f"扫描 {base_dir}")
     print(f"找到 {len(scanned)} 个补丁文件\n")
     for p in patches:
-        status = "✓" if p.get("patch_dir") and p.get("target_dir") else "○"
+        configured = p.get("manifest_status") == "confirmed"
+        status = "✓" if configured else "○"
         app_id = p.get("app_id")
         print(f"  [{status}] AppID={app_id}  {p['file']}")
-        if p.get("patch_dir"):
-            print(f"       patch={p['patch_dir']} -> target={p['target_dir']}")
+        if configured or p.get("patch_dir") or p.get("target_dir"):
+            print(f"       patch={p.get('patch_dir', '')} -> target={p.get('target_dir', '')}")
         if p.get("label"):
             print(f"       label={p['label']}")
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)
 
-    todo = sum(1 for p in patches if not p.get("patch_dir") or not p.get("target_dir"))
+    todo = sum(1 for p in patches if p.get("manifest_status") != "confirmed")
     if todo:
-        print(f"\n⚠ {todo} 个补丁尚未配置 patch_dir / target_dir，请编辑 {json_path} 补填")
+        print(f"\n⚠ {todo} 个补丁尚未确认注入规则，请编辑 {json_path} 或在客户端保存规则")
     else:
         print(f"\n✓ 全部配置完成，共 {len(patches)} 个补丁")
 

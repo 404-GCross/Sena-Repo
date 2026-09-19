@@ -1,9 +1,10 @@
 /// Settings screen with menu-like sub-pages.
 
+import "dart:async";
 import "package:flutter/material.dart";
 import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "dart:convert";
 import "dart:io" show Platform;
@@ -11,13 +12,16 @@ import "dart:io" show Platform;
 import "../providers/game_provider.dart";
 import "../providers/settings_provider.dart";
 import "../providers/theme_provider.dart";
+import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
+import "backup_screen.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/secure_store.dart";
+import "../widgets/app_shell.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
 import "profile_edit_screen.dart";
@@ -32,7 +36,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late ApiClient _api;
   bool _isAdmin = false;
+  String _currentRole = "user";
   String _serverVersion = "";
+  bool _profileChanged = false;
 
   @override
   void initState() {
@@ -55,6 +61,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadIsAdmin() async {
     final prefs = await SharedPreferences.getInstance();
     var isAdmin = prefs.getBool("is_admin") ?? false;
+    if (mounted)
+      setState(() => _currentRole = prefs.getString("role") ?? "user");
     try {
       final resp = await http
           .get(
@@ -67,14 +75,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final username = data["username"]?.toString();
         isAdmin = data["is_admin"] == true;
         await ApiClient.persistSessionInfo(
+          userId: parseProfileUserId(data["id"]),
           username: username,
           isAdmin: isAdmin,
+          role: data["role"]?.toString(),
         );
         final ps = ProfileService();
         final profiles = await ps.loadProfiles();
         final index = await ps.getActiveIndex();
         if (index >= 0 && index < profiles.length) {
           profiles[index].username = username ?? profiles[index].username;
+          final userId = parseProfileUserId(data["id"]);
+          if (userId > 0) profiles[index].userId = userId;
           profiles[index].isAdmin = isAdmin;
           await ps.saveProfiles(profiles);
         }
@@ -86,167 +98,318 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("设置")),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _sectionHeader("客户端", Icons.phone_android_outlined),
-          const SizedBox(height: 8),
-          _menuCard([
-            _menuItem(
-              Icons.person,
-              Colors.indigo,
-              "个人信息",
-              "修改用户名、密码、头像",
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
-              ),
+      backgroundColor: Colors.transparent,
+      body: AppBackdrop(
+        child: Column(
+          children: [
+            AppPageHeader(
+              showBack: true,
+              leading: const Icon(Icons.settings_outlined, size: 26),
+              title: "设置",
+              subtitle: "管理客户端体验、下载、扫描和服务端权限",
+              onBack: () => Navigator.pop(context, _profileChanged),
             ),
-            _menuItem(
-              Icons.grid_view,
-              Colors.teal,
-              "显示",
-              "封面大小、托盘设置",
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const _DisplayPage()),
-              ),
-            ),
-            _menuItem(
-              Icons.download_outlined,
-              Colors.green,
-              "下载设置",
-              "目录、并发数、限速",
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const _DownloadSettingsPage(),
-                ),
-              ),
-            ),
-            _menuItem(
-              Icons.palette,
-              Colors.pink,
-              "美化",
-              "主题色",
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const BeautifyScreen()),
-              ),
-            ),
-            _menuItem(
-              Icons.bug_report,
-              Colors.grey,
-              "日志",
-              "查看客户端运行日志",
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LogScreen()),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 24),
-          _sectionHeader("服务端", Icons.dns_outlined),
-          const SizedBox(height: 8),
-          _menuCard([
-            _menuItem(
-              Icons.manage_search,
-              Colors.blue,
-              "扫描设置",
-              "根目录、刮削源、扫描选项",
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => _ScanSettingsPage(api: _api)),
-              ),
-            ),
-            _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户", () {
-              if (!_isAdmin) {
-                showDialog(
-                  context: context,
-                  builder: (c) => AlertDialog(
-                    title: const Text("权限不足"),
-                    content: const Text("用户管理仅限管理员使用"),
-                    actions: [
-                      FilledButton(
-                        onPressed: () => Navigator.pop(c),
-                        child: const Text("确定"),
-                      ),
-                    ],
-                  ),
-                );
-                return;
-              }
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => _UserManagePage(api: _api)),
-              );
-            }),
-          ]),
-          const SizedBox(height: 32),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
                 children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 6),
-                  Text(
-                    "客户端 $appVersionLabel  ·  服务端 ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                  ),
+                  _sectionHeader("客户端", Icons.phone_android_outlined),
+                  const SizedBox(height: 8),
+                  _menuCard([
+                    _menuItem(
+                      Icons.person,
+                      Colors.indigo,
+                      "个人信息",
+                      "修改用户名、密码、头像",
+                      () async {
+                        final changed = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const ProfileEditScreen()),
+                        );
+                        if (changed == true && mounted) {
+                          _profileChanged = true;
+                          await _loadIsAdmin();
+                        }
+                      },
+                    ),
+                    _menuItem(
+                      Icons.grid_view,
+                      Colors.teal,
+                      "显示",
+                      "封面大小、托盘设置",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const _DisplayPage()),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.download_outlined,
+                      Colors.green,
+                      "下载设置",
+                      "目录、并发数、限速",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const _DownloadSettingsPage(),
+                        ),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.palette,
+                      Colors.pink,
+                      "美化",
+                      "主题色",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const BeautifyScreen()),
+                      ),
+                    ),
+                    _menuItem(
+                      Icons.bug_report,
+                      Colors.grey,
+                      "日志",
+                      "查看客户端运行日志",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LogScreen()),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 24),
+                  _sectionHeader("服务端", Icons.dns_outlined),
+                  const SizedBox(height: 8),
+                  _menuCard([
+                    _menuItem(
+                      Icons.manage_search,
+                      Colors.blue,
+                      "扫描设置",
+                      "根目录、刮削源、扫描选项",
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => _ScanSettingsPage(api: _api)),
+                      ),
+                    ),
+                    _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户",
+                        () {
+                      if (!_isAdmin) {
+                        showDialog(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            title: const Text("权限不足"),
+                            content: const Text("用户管理仅限管理员使用"),
+                            actions: [
+                              FilledButton(
+                                onPressed: () => Navigator.pop(c),
+                                child: const Text("确定"),
+                              ),
+                            ],
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => _UserManagePage(api: _api)),
+                      );
+                    }),
+                    _menuItem(
+                      Icons.backup_rounded,
+                      Colors.orange,
+                      "备份与恢复",
+                      "导出、下载与恢复服务端备份",
+                      () {
+                        if (!_isAdmin) {
+                          showDialog(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: const Text("权限不足"),
+                              content: const Text("备份与恢复仅限管理员使用"),
+                              actions: [
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(c),
+                                  child: const Text("确定"),
+                                ),
+                              ],
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => BackupScreen(api: _api)),
+                        );
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 32),
+                  _buildStatusSummary(),
+                  const SizedBox(height: 16),
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Color _dimColor(BuildContext c) => hintColor(c);
+  static Color _boldColor(BuildContext c) => sectionTextColor(c);
+
+  Widget _buildStatusSummary() {
+    final cs = Theme.of(context).colorScheme;
+    final serverValue =
+        _serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知";
+    final serverColor =
+        _serverVersion.isNotEmpty ? Colors.green : Colors.orange;
+    final roleColor = _isAdmin ? Colors.purple : Colors.grey;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 560) {
+          return AppSurface(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Column(
+              children: [
+                _statusRow(
+                  icon: Icons.phone_android_outlined,
+                  label: "客户端",
+                  value: appVersionLabel,
+                  color: cs.primary,
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                _statusRow(
+                  icon: Icons.dns_outlined,
+                  label: "服务端",
+                  value: serverValue,
+                  color: serverColor,
+                ),
+                Divider(height: 1, color: cardBorder(context)),
+                _statusRow(
+                  icon: _isAdmin
+                      ? Icons.admin_panel_settings_outlined
+                      : Icons.person_outline,
+                  label: "权限",
+                  value: _isAdmin ? "管理员" : "普通用户",
+                  color: roleColor,
+                ),
+              ],
+            ),
+          );
+        }
+
+        return AppSurface(
+          padding: const EdgeInsets.all(12),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              AppStatusPill(
+                icon: Icons.phone_android_outlined,
+                label: "客户端 $appVersionLabel",
+                color: cs.primary,
+              ),
+              AppStatusPill(
+                icon: Icons.dns_outlined,
+                label: "服务端 $serverValue",
+                color: serverColor,
+              ),
+              AppStatusPill(
+                icon: _isAdmin
+                    ? Icons.admin_panel_settings_outlined
+                    : Icons.person_outline,
+                label: _isAdmin ? "管理员" : "普通用户",
+                color: roleColor,
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
+        );
+      },
+    );
+  }
+
+  Widget _statusRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(icon, size: 17, color: color),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: AppText.bodySmall.copyWith(
+              color: subTextColor(context),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: AppText.bodySmall.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  static Color _dimColor(BuildContext c) => Colors.black54;
-  static Color _boldColor(BuildContext c) => Colors.black87;
-
   Widget _sectionHeader(String title, IconData icon) => Row(
-    children: [
-      Icon(icon, size: 18, color: _dimColor(context)),
-      const SizedBox(width: 6),
-      Text(
-        title,
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: _boldColor(context),
-        ),
-      ),
-    ],
-  );
+        children: [
+          Icon(icon, size: 18, color: _dimColor(context)),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: _boldColor(context),
+            ),
+          ),
+        ],
+      );
 
-  Widget _menuCard(List<Widget> children) => Container(
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Column(
-      children: children.asMap().entries.map((e) {
-        final isLast = e.key == children.length - 1;
-        return Column(
-          children: [
-            e.value,
-            if (!isLast)
-              Divider(height: 1, indent: 60, color: cardBorder(context)),
-          ],
-        );
-      }).toList(),
-    ),
-  );
+  Widget _menuCard(List<Widget> children) => AppSurface(
+        padding: EdgeInsets.zero,
+        radius: AppRadius.lg,
+        child: Column(
+          children: children.asMap().entries.map((e) {
+            final isLast = e.key == children.length - 1;
+            return Column(
+              children: [
+                e.value,
+                if (!isLast)
+                  Divider(height: 1, indent: 60, color: cardBorder(context)),
+              ],
+            );
+          }).toList(),
+        ),
+      );
 
   Widget _menuItem(
     IconData icon,
@@ -255,40 +418,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String subtitle,
     VoidCallback onTap,
   ) {
-    return InkWell(
+    return _SettingsMenuItem(
+      icon: icon,
+      color: color,
+      title: title,
+      subtitle: subtitle,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 20, color: color.withValues(alpha: 0.9)),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+}
+
+class _SettingsMenuItem extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SettingsMenuItem({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  State<_SettingsMenuItem> createState() => _SettingsMenuItemState();
+}
+
+class _SettingsMenuItemState extends State<_SettingsMenuItem> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final active = _pressed || _hovered;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: AppMotion.fast,
+        curve: AppMotion.curve,
+        transform: Matrix4.translationValues(0, _hovered ? -1 : 0, 0),
+        decoration: BoxDecoration(
+          color: active
+              ? cs.primary.withValues(alpha: _pressed ? 0.12 : 0.06)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: _hovered
+                ? cs.primary.withValues(alpha: 0.20)
+                : Colors.transparent,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: InkWell(
+            onTap: widget.onTap,
+            onHighlightChanged: (value) => setState(() => _pressed = value),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              child: Row(
                 children: [
-                  Text(
-                    title,
-                    style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color:
+                          widget.color.withValues(alpha: active ? 0.18 : 0.12),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: Icon(widget.icon,
+                        size: 20, color: widget.color.withValues(alpha: 0.9)),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: AppText.label.copyWith(color: hintColor(context)),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: AppText.body.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: active ? cs.primary : null,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle,
+                          style:
+                              AppText.label.copyWith(color: hintColor(context)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedSlide(
+                    offset: _hovered ? const Offset(0.18, 0) : Offset.zero,
+                    duration: AppMotion.fast,
+                    curve: AppMotion.curve,
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: active ? cs.primary : Colors.grey[600],
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[600], size: 20),
-          ],
+          ),
         ),
       ),
     );
@@ -377,261 +617,144 @@ class _DownloadSettingsPageState extends State<_DownloadSettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("下载设置")),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _sectionTitle("下载目录"),
-              Container(
-                decoration: BoxDecoration(
-                  color: cardBg(context),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cardBorder(context)),
-                ),
-                child: ListTile(
-                  leading: const Icon(Icons.folder_outlined),
-                  title: Text(
-                    _downloadDir.isEmpty ? "未设置" : _downloadDir,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: TextButton.icon(
-                    onPressed: _changeDir,
-                    icon: const Icon(Icons.edit, size: 16),
-                    label: const Text("更改"),
-                  ),
-                ),
-              ),
-              if (Platform.isWindows) ...[
-                const SizedBox(height: 12),
-                Container(
-                  decoration: BoxDecoration(
-                    color: cardBg(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cardBorder(context)),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(Icons.desktop_windows),
-                    title: Text(
-                      _shortcutDir.isEmpty ? "桌面" : _shortcutDir,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+  Widget build(BuildContext context) => AppScaffold(
+        title: "下载设置",
+        subtitle: "管理下载目录、快捷方式、并发数和速度限制",
+        leading: const Icon(Icons.download_outlined, size: 24),
+        scrollable: false,
+        padding: EdgeInsets.zero,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _sectionTitle("下载目录"),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: cardBg(context),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cardBorder(context)),
                     ),
-                    subtitle: const Text("快捷方式存放目录"),
-                    trailing: TextButton.icon(
-                      onPressed: _changeShortcutDir,
-                      icon: const Icon(Icons.edit, size: 16),
-                      label: const Text("更改"),
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 20),
-              _sectionTitle("下载性能"),
-              Container(
-                decoration: BoxDecoration(
-                  color: cardBg(context),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cardBorder(context)),
-                ),
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.queue),
-                      title: const Text("最大同时下载数"),
-                      subtitle: const Text("最高 10 个任务"),
-                      trailing: DropdownButton<int>(
-                        value: _maxConcurrent,
-                        underline: const SizedBox(),
-                        items: List.generate(10, (i) => i + 1)
-                            .map(
-                              (v) =>
-                                  DropdownMenuItem(value: v, child: Text("$v")),
-                            )
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) _changeMaxConcurrent(v);
-                        },
+                    child: ListTile(
+                      leading: const Icon(Icons.folder_outlined),
+                      title: Text(
+                        _downloadDir.isEmpty ? "未设置" : _downloadDir,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: TextButton.icon(
+                        onPressed: _changeDir,
+                        icon: const Icon(Icons.edit, size: 16),
+                        label: const Text("更改"),
                       ),
                     ),
-                    Divider(height: 1, color: cardBorder(context)),
-                    ListTile(
-                      leading: const Icon(Icons.speed),
-                      title: const Text("下载限速"),
-                      subtitle: const Text("留空或 0 表示不限速"),
-                      trailing: SizedBox(
-                        width: 132,
-                        child: TextField(
-                          controller: _speedCtrl,
-                          textAlign: TextAlign.end,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            suffixText: "KB/s",
-                            isDense: true,
-                          ),
-                          onSubmitted: (_) => _saveSpeedLimit(),
+                  ),
+                  if (Platform.isWindows) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: cardBg(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: cardBorder(context)),
+                      ),
+                      child: ListTile(
+                        leading: const Icon(Icons.desktop_windows),
+                        title: Text(
+                          _shortcutDir.isEmpty ? "桌面" : _shortcutDir,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton(
-                          onPressed: _saveSpeedLimit,
-                          child: const Text("保存限速"),
+                        subtitle: const Text("快捷方式存放目录"),
+                        trailing: TextButton.icon(
+                          onPressed: _changeShortcutDir,
+                          icon: const Icon(Icons.edit, size: 16),
+                          label: const Text("更改"),
                         ),
                       ),
                     ),
                   ],
-                ),
+                  const SizedBox(height: 20),
+                  _sectionTitle("下载性能"),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: cardBg(context),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cardBorder(context)),
+                    ),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.queue),
+                          title: const Text("最大同时下载数"),
+                          subtitle: const Text("最高 10 个任务"),
+                          trailing: DropdownButton<int>(
+                            value: _maxConcurrent,
+                            underline: const SizedBox(),
+                            items: List.generate(10, (i) => i + 1)
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                      value: v, child: Text("$v")),
+                                )
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) _changeMaxConcurrent(v);
+                            },
+                          ),
+                        ),
+                        Divider(height: 1, color: cardBorder(context)),
+                        ListTile(
+                          leading: const Icon(Icons.speed),
+                          title: const Text("下载限速"),
+                          subtitle: const Text("留空或 0 表示不限速"),
+                          trailing: SizedBox(
+                            width: 132,
+                            child: TextField(
+                              controller: _speedCtrl,
+                              textAlign: TextAlign.end,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                suffixText: "KB/s",
+                                isDense: true,
+                              ),
+                              onSubmitted: (_) => _saveSpeedLimit(),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton(
+                              onPressed: _saveSpeedLimit,
+                              child: const Text("保存限速"),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-  );
+      );
 
   Widget _sectionTitle(String t) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      t,
-      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-    ),
-  );
-}
-
-// ── Batch scrape config dialog ──
-class _BatchScrapeDialog extends StatefulWidget {
-  @override
-  State<_BatchScrapeDialog> createState() => _BatchScrapeDialogState();
-}
-
-class _BatchScrapeDialogState extends State<_BatchScrapeDialog> {
-  String _source = "vndb_kana";
-  String _mode = "missing";
-
-  static const _sourceLabels = {
-    "vndb_kana": "VNDB Kana v2",
-    "bangumi": "Bangumi",
-    "steam": "Steam",
-    "ymgal": "月幕GalGame",
-  };
-  static const _modeLabels = {
-    "missing": "仅填充缺失",
-    "overwrite": "全部覆盖",
-    "images": "仅图片",
-    "metadata": "仅元数据",
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.image_search, color: Colors.orange, size: 22),
-          const SizedBox(width: 8),
-          Text("批量刮削"),
-        ],
-      ),
-      content: SizedBox(
-        width: 320,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              "选择刮削来源（一次只能选一种）",
-              style: AppText.bodySmall.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cardBorder(context)),
-              ),
-              child: Column(
-                children: _sourceLabels.entries.map((e) {
-                  return RadioListTile<String>(
-                    title: Text(e.value, style: const TextStyle(fontSize: 14)),
-                    value: e.key,
-                    groupValue: _source,
-                    onChanged: (v) => setState(() => _source = v!),
-                    dense: true,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text("刮削模式", style: AppText.bodySmall.copyWith(color: Colors.grey)),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cardBorder(context)),
-              ),
-              child: Column(
-                children: _modeLabels.entries.map((e) {
-                  final descs = {
-                    "missing": "空字段才填，已有数据不覆盖",
-                    "overwrite": "全部刷新，覆盖已有数据",
-                    "images": "只下载封面和横版大图",
-                    "metadata": "只补文本，不下载图片",
-                  };
-                  return RadioListTile<String>(
-                    title: Text(e.value, style: const TextStyle(fontSize: 14)),
-                    subtitle: Text(
-                      descs[e.key] ?? "",
-                      style: AppText.bodySmall.copyWith(color: Colors.grey),
-                    ),
-                    value: e.key,
-                    groupValue: _mode,
-                    onChanged: (v) => setState(() => _mode = v!),
-                    dense: true,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          t,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("取消"),
-        ),
-        FilledButton.icon(
-          onPressed: () {
-            Navigator.pop(context, {
-              "sources": [_source],
-              "mode": _mode,
-            });
-          },
-          icon: const Icon(Icons.play_arrow, size: 18),
-          label: const Text("开始刮削"),
-        ),
-      ],
-    );
-  }
+      );
 }
 
 class _SourceDirectoryDialog extends StatefulWidget {
   final List<Map<String, dynamic>> fileSources;
   final String purposeLabel;
+  final bool patchRoot;
   final Map<String, dynamic>? initial;
   const _SourceDirectoryDialog({
     required this.fileSources,
     required this.purposeLabel,
+    this.patchRoot = false,
     this.initial,
   });
 
@@ -642,6 +765,7 @@ class _SourceDirectoryDialog extends StatefulWidget {
 class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
   String _sourceType = "local";
   int? _sourceId;
+  String _analysisMode = "auto";
   final _pathCtrl = TextEditingController();
 
   @override
@@ -653,8 +777,13 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
           ? "openlist"
           : "local";
       _sourceId = initial["source_id"] as int?;
-      _pathCtrl.text = (initial["source_path"] ?? initial["path"] ?? "")
-          .toString();
+      final initialMode = initial["analysis_mode"]?.toString();
+      _analysisMode = initialMode == "manual" ||
+              (initialMode == null && _sourceType == "openlist")
+          ? "manual"
+          : "auto";
+      _pathCtrl.text =
+          (initial["source_path"] ?? initial["path"] ?? "").toString();
     }
   }
 
@@ -664,16 +793,102 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
     super.dispose();
   }
 
+  Widget _analysisModeCard({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppText.bodySmall.copyWith(color: Colors.grey)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardBorder(context)),
+          ),
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+
+  Widget _localPatchAnalysisSelector() {
+    return _analysisModeCard(
+      title: "补丁规则模式",
+      children: [
+        RadioListTile<String>(
+          value: "auto",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "auto"),
+          dense: true,
+          title: const Text("自动分析压缩包"),
+          subtitle: Text(
+            "适合服务端本地目录，可读取目录树并推荐规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+        RadioListTile<String>(
+          value: "manual",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "manual"),
+          dense: true,
+          title: const Text("手动配置规则"),
+          subtitle: Text(
+            "不扫描压缩包目录树，按补丁说明手写注入规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _openListPatchStorageSelector() {
+    return _analysisModeCard(
+      title: "OpenList 存储类型",
+      children: [
+        RadioListTile<String>(
+          value: "auto",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "auto"),
+          dense: true,
+          title: const Text("本地映射"),
+          subtitle: Text(
+            "OpenList 挂载的是服务端本地磁盘，可以读取压缩包目录树并自动推荐规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+        RadioListTile<String>(
+          value: "manual",
+          groupValue: _analysisMode,
+          onChanged: (value) =>
+              setState(() => _analysisMode = value ?? "manual"),
+          dense: true,
+          title: const Text("网盘"),
+          subtitle: Text(
+            "OpenList 挂载的是云盘或远程存储，不下载整包探测目录，只手写注入规则。",
+            style: AppText.bodySmall.copyWith(color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final openListSources = widget.fileSources
-        .where((s) => s["type"] == "openlist")
-        .toList();
-    final selectedSourceId = openListSources.any((s) => s["id"] == _sourceId)
-        ? _sourceId
-        : null;
+    final openListSources =
+        widget.fileSources.where((s) => s["type"] == "openlist").toList();
+    final selectedSourceId =
+        openListSources.any((s) => s["id"] == _sourceId) ? _sourceId : null;
+    final localLabel =
+        widget.patchRoot ? "服务端本地补丁库" : "\u672c\u5730\u6587\u4ef6\u6e90";
+    final openListLabel = widget.patchRoot ? "OpenList 补丁库" : "OpenList";
     return AlertDialog(
-      title: Text("\u6dfb\u52a0${widget.purposeLabel}\u76ee\u5f55"),
+      title: Text("${widget.initial == null ? "\u6dfb\u52a0" : "\u7f16\u8f91"}${widget.purposeLabel}\u76ee\u5f55"),
       content: SizedBox(
         width: 380,
         child: SingleChildScrollView(
@@ -683,21 +898,25 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
             children: [
               Center(
                 child: SegmentedButton<String>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: "local",
-                      label: Text("\u672c\u5730\u6587\u4ef6\u6e90"),
-                      icon: Icon(Icons.folder_outlined),
+                      label: Text(localLabel),
+                      icon: const Icon(Icons.folder_outlined),
                     ),
                     ButtonSegment(
                       value: "openlist",
-                      label: Text("OpenList"),
-                      icon: Icon(Icons.cloud_outlined),
+                      label: Text(openListLabel),
+                      icon: const Icon(Icons.cloud_outlined),
                     ),
                   ],
                   selected: {_sourceType},
                   onSelectionChanged: (v) => setState(() {
                     _sourceType = v.first;
+                    if (widget.patchRoot) {
+                      _analysisMode =
+                          _sourceType == "openlist" ? "manual" : "auto";
+                    }
                     if (_sourceType == "openlist" &&
                         _sourceId == null &&
                         openListSources.isNotEmpty) {
@@ -740,13 +959,20 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
                 controller: _pathCtrl,
                 decoration: InputDecoration(
                   labelText: _sourceType == "openlist"
-                      ? "\u8fdc\u7a0b\u76ee\u5f55"
-                      : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55",
+                      ? (widget.patchRoot ? "OpenList 补丁目录" : "\u8fdc\u7a0b\u76ee\u5f55")
+                      : (widget.patchRoot ? "服务端本地补丁目录" : "\u670d\u52a1\u7aef\u672c\u5730\u76ee\u5f55"),
                   hintText: _sourceType == "openlist"
-                      ? "/Games"
-                      : "/data/games",
+                      ? (widget.patchRoot ? "/Patches" : "/Games")
+                      : (widget.patchRoot ? "/steam_patch" : "/data/games"),
                 ),
               ),
+              if (widget.patchRoot) ...[
+                const SizedBox(height: 16),
+                if (_sourceType == "openlist")
+                  _openListPatchStorageSelector()
+                else
+                  _localPatchAnalysisSelector(),
+              ],
             ],
           ),
         ),
@@ -764,6 +990,9 @@ class _SourceDirectoryDialogState extends State<_SourceDirectoryDialog> {
               "source_type": _sourceType,
               "path": path,
             };
+            if (widget.patchRoot) {
+              payload["analysis_mode"] = _analysisMode;
+            }
             if (_sourceType == "openlist") {
               if (_sourceId == null) return;
               payload["source_id"] = _sourceId;
@@ -840,16 +1069,14 @@ class _OpenListSourceDialogState extends State<_OpenListSourceDialog> {
               TextField(
                 controller: _usernameCtrl,
                 decoration: const InputDecoration(
-                  labelText: "\u7528\u6237\u540d",
+                  labelText: "用户名（留空则使用访客模式）",
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _passwordCtrl,
                 decoration: InputDecoration(
-                  labelText: widget.initial == null
-                      ? "\u5bc6\u7801"
-                      : "\u5bc6\u7801\uff08\u7559\u7a7a\u5219\u4fdd\u6301\u4e0d\u53d8\uff09",
+                  labelText: widget.initial == null ? "密码" : "密码（留空则保持不变）",
                 ),
                 obscureText: true,
               ),
@@ -867,7 +1094,7 @@ class _OpenListSourceDialogState extends State<_OpenListSourceDialog> {
             final name = _nameCtrl.text.trim();
             final baseUrl = _baseUrlCtrl.text.trim();
             final username = _usernameCtrl.text.trim();
-            if (baseUrl.isEmpty || username.isEmpty) return;
+            if (baseUrl.isEmpty) return;
             final payload = <String, dynamic>{
               "name": name.isEmpty ? "OpenList" : name,
               "type": "openlist",
@@ -895,24 +1122,52 @@ class _ScanSettingsPage extends StatefulWidget {
 }
 
 class _ScanSettingsPageState extends State<_ScanSettingsPage> {
+  static const _defaultScraperOrder = [
+    "hikarinagi",
+    "vndb_kana",
+    "bangumi",
+    "steam",
+    "nextmoe",
+  ];
+  static const _scraperLabels = {
+    "vndb_kana": "VNDB",
+    "bangumi": "Bangumi",
+    "steam": "Steam",
+    "hikarinagi": "Hikarinagi",
+    "nextmoe": "NextMoe",
+  };
+  static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
+  List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
   List<Map<String, dynamic>> _roots = [];
   List<Map<String, dynamic>> _patchRoots = [];
   List<Map<String, dynamic>> _fileSources = [];
-  String _structure = "company_game";
+  int _scanDepth = 2;
   bool _autoScan = false;
   int _interval = 24;
   bool _loading = false;
+  Map<String, dynamic>? _scanStatus;
+  Timer? _scanStatusTimer;
+  bool _scanStatusRequestInFlight = false;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
+  bool _scrapeAfterScan = false;
+  bool _testingHikarinagi = false;
+  bool _testingNextMoe = false;
+  final Set<int> _testingOpenListSources = {};
   // Scraper sources
   final _sources = {
     "vndb_kana": true,
     "bangumi": true,
     "steam": true,
-    "ymgal": true,
+    "hikarinagi": true,
+    "nextmoe": false,
   };
   final _keys = {
     "vndb_token": TextEditingController(),
+    "hikarinagi_client_id": TextEditingController(),
+    "hikarinagi_client_secret": TextEditingController(),
+    "hikarinagi_scope": TextEditingController(text: "catalog:full"),
+    "nextmoe_api_key": TextEditingController(),
     "proxy": TextEditingController(),
   };
 
@@ -925,6 +1180,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadScanSettings();
     _loadScraperSettings();
     _checkActiveJob();
+    _startScanStatusPolling();
   }
 
   Future<void> _loadRoots() async {
@@ -949,8 +1205,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       );
       if (resp.statusCode == 200 && mounted)
         setState(
-          () => _patchRoots = (jsonDecode(resp.body) as List)
-              .cast<Map<String, dynamic>>(),
+          () => _patchRoots =
+              (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>(),
         );
     } catch (_) {}
   }
@@ -963,8 +1219,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       );
       if (resp.statusCode == 200 && mounted)
         setState(
-          () => _fileSources = (jsonDecode(resp.body) as List)
-              .cast<Map<String, dynamic>>(),
+          () => _fileSources =
+              (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>(),
         );
     } catch (_) {}
   }
@@ -981,7 +1237,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           setState(() {
             _autoScan = data["auto_scan"] ?? false;
             _interval = data["scan_interval"] ?? 24;
-            _structure = data["scan_structure"] ?? "company_game";
+            _scanDepth = _coerceScanDepth(
+              data["scan_depth"],
+              data["scan_structure"],
+            );
           });
       }
     } catch (_) {}
@@ -995,7 +1254,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         body: jsonEncode({
           "auto_scan": _autoScan,
           "scan_interval": _interval,
-          "scan_structure": _structure,
+          "scan_structure": _structureFromDepth(_scanDepth),
+          "scan_depth": _scanDepth,
         }),
       );
       if (resp.statusCode != 200) {
@@ -1004,6 +1264,33 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } catch (e) {
       if (mounted) _toast(context, "保存扫描设置失败: $e");
     }
+  }
+
+  int _coerceScanDepth(dynamic value, dynamic structure) {
+    final parsed = value is int ? value : int.tryParse(value?.toString() ?? "");
+    return (parsed ?? _depthFromStructure(structure)).clamp(0, 8).toInt();
+  }
+
+  int _depthFromStructure(dynamic value) {
+    return switch (value?.toString()) {
+      "flat" => 0,
+      "game_only" => 1,
+      _ => 2,
+    };
+  }
+
+  String _structureFromDepth(int depth) {
+    if (depth <= 0) return "flat";
+    if (depth == 1) return "game_only";
+    return "company_game";
+  }
+
+  String _scanDepthLabel(int depth) {
+    if (depth <= 0) return "根目录 -> 压缩包";
+    if (depth == 1) return "根目录 -> 游戏 -> 压缩包";
+    if (depth == 2) return "根目录 -> 会社 -> 游戏 -> 压缩包";
+    if (depth == 3) return "根目录 -> 分类 -> 会社 -> 游戏 -> 压缩包";
+    return "根目录 -> ... -> 分类 -> 会社 -> 游戏 -> 压缩包";
   }
 
   String _responseMessage(http.Response resp) {
@@ -1054,14 +1341,46 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
+  Future<void> _testOpenListSource(int sourceId) async {
+    if (_testingOpenListSources.contains(sourceId)) return;
+    setState(() => _testingOpenListSources.add(sourceId));
+    final stopwatch = Stopwatch()..start();
+    try {
+      final resp = await http
+          .post(
+            Uri.parse("${widget.api.baseUrl}/api/file-sources/test"),
+            headers: {
+              "Content-Type": "application/json",
+              ...widget.api.headers,
+            },
+            body: jsonEncode({"source_id": sourceId, "path": "/"}),
+          )
+          .timeout(const Duration(seconds: 25));
+      stopwatch.stop();
+      if (!mounted) return;
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        _toast(context, "OpenList 连接正常（${stopwatch.elapsedMilliseconds}ms）");
+      } else {
+        _toast(context, "OpenList 连接失败: ${_responseMessage(resp)}");
+      }
+    } catch (e) {
+      stopwatch.stop();
+      if (mounted) _toast(context, "OpenList 连接失败: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _testingOpenListSources.remove(sourceId));
+      }
+    }
+  }
+
   Future<void> _addDirectory({required bool patchRoot}) async {
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => _SourceDirectoryDialog(
         fileSources: _fileSources,
-        purposeLabel: patchRoot
-            ? "Steam \u8865\u4e01\u5e93"
-            : "\u6e38\u620f\u5e93",
+        purposeLabel:
+            patchRoot ? "Steam \u8865\u4e01\u5e93" : "\u6e38\u620f\u5e93",
+        patchRoot: patchRoot,
       ),
     );
     if (payload == null) return;
@@ -1094,9 +1413,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       context: context,
       builder: (ctx) => _SourceDirectoryDialog(
         fileSources: _fileSources,
-        purposeLabel: patchRoot
-            ? "Steam \u8865\u4e01\u5e93"
-            : "\u6e38\u620f\u5e93",
+        purposeLabel:
+            patchRoot ? "Steam \u8865\u4e01\u5e93" : "\u6e38\u620f\u5e93",
+        patchRoot: patchRoot,
         initial: item,
       ),
     );
@@ -1137,14 +1456,136 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadPatchRoots();
   }
 
-  Future<void> _scanNow() async {
-    setState(() => _loading = true);
-    await http.post(
-      Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"),
-      headers: widget.api.headers,
+  List<String> _enabledScraperSources() =>
+      _scraperOrder.where((source) => _sources[source] ?? false).toList();
+
+  Future<void> _scanAndScrapeNow() async {
+    final sources = _enabledScraperSources();
+    if (sources.isEmpty) {
+      _toast(context, "请先启用至少一个刮削源");
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _scrapeJob = null;
+    });
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception(_responseMessage(resp));
+      }
+      await _loadRoots();
+      _scrapeAfterScan = true;
+      _startScanStatusPolling();
+      if (mounted) _toast(context, "扫描已触发，完成后会自动刮削");
+    } catch (e) {
+      _scrapeAfterScan = false;
+      if (mounted) _toast(context, "扫描启动失败: $e");
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _clearAndRescan() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("清空游戏库并重新扫描？"),
+        content: const Text(
+          "此操作会清除数据库中已扫描出的游戏条目、版本、分类关联和刮削数据，然后重新扫描所有游戏库目录。\n\n"
+          "不会删除本地文件、网盘文件、游戏库目录设置或 Steam 补丁库设置。",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("清空并重扫"),
+          ),
+        ],
+      ),
     );
-    _loadRoots();
-    if (mounted) _toast(context, "扫描已触发");
+    if (confirmed != true) return;
+
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/roots/clear-and-refresh"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception(_responseMessage(resp));
+      }
+      await _loadRoots();
+      _startScanStatusPolling();
+      if (mounted) _toast(context, "游戏库已清空，重新扫描已触发");
+    } catch (e) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("操作失败"),
+          content: Text("$e"),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("确定"),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _startScanStatusPolling() {
+    _scanStatusTimer?.cancel();
+    unawaited(_loadScanStatus());
+    _scanStatusTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _loadScanStatus(),
+    );
+  }
+
+  Future<void> _loadScanStatus() async {
+    if (_scanStatusRequestInFlight || !mounted) return;
+    _scanStatusRequestInFlight = true;
+    try {
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/roots/scan-status"),
+        headers: widget.api.headers,
+      );
+      if (resp.statusCode != 200 || !mounted) {
+        if (resp.statusCode >= 400 && mounted) {
+          _scanStatusTimer?.cancel();
+          _scanStatusTimer = null;
+        }
+        return;
+      }
+      final status = jsonDecode(resp.body) as Map<String, dynamic>;
+      setState(() => _scanStatus = status);
+      final state = status["status"]?.toString();
+      if (state != "pending" && state != "running") {
+        _scanStatusTimer?.cancel();
+        _scanStatusTimer = null;
+        final wasWaitingForScrape = _scrapeAfterScan;
+        final shouldScrape = wasWaitingForScrape && state == "completed";
+        _scrapeAfterScan = false;
+        if (shouldScrape) {
+          unawaited(_startBatchScrape());
+        } else if (wasWaitingForScrape && state == "failed" && mounted) {
+          _toast(context, "扫描失败，已停止自动刮削");
+        }
+      }
+    } catch (_) {
+      // The settings page can still be used when an older server lacks this endpoint.
+    } finally {
+      _scanStatusRequestInFlight = false;
+    }
   }
 
   Future<void> _checkActiveJob() async {
@@ -1154,12 +1595,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         headers: widget.api.headers,
       );
       if (resp.statusCode == 200) {
-        final jobs = (jsonDecode(resp.body) as List)
-            .cast<Map<String, dynamic>>();
+        final jobs =
+            (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
         final running = jobs.cast<Map<String, dynamic>?>().firstWhere(
-          (j) => j?["status"] == "running" || j?["status"] == "pending",
-          orElse: () => null,
-        );
+              (j) => j?["status"] == "running" || j?["status"] == "pending",
+              orElse: () => null,
+            );
         if (running != null && mounted) {
           setState(() {
             _scrapeJob = running;
@@ -1171,32 +1612,34 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } catch (_) {}
   }
 
-  Future<void> _scrapeNow() async {
-    // Show batch scrape config dialog
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => _BatchScrapeDialog(),
-    );
-    if (result == null || !mounted) return;
+  Future<void> _startBatchScrape() async {
+    final sources = _enabledScraperSources();
+    if (sources.isEmpty) {
+      _toast(context, "请先启用至少一个刮削源");
+      return;
+    }
     setState(() => _scraping = true);
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
         headers: {"Content-Type": "application/json", ...widget.api.headers},
-        body: jsonEncode(result),
+        body: jsonEncode({
+          "sources": sources,
+          "mode": "missing",
+        }),
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final jobId = data["job_id"] as int;
+        if (mounted) _toast(context, "扫描完成，已开始批量刮削");
         if (mounted) _pollJob(jobId);
       } else {
-        final body = resp.body;
-        if (mounted) _toast(context, "刮削启动失败: $body");
-        setState(() => _scraping = false);
+        if (mounted) _toast(context, "刮削启动失败: ${_responseMessage(resp)}");
+        if (mounted) setState(() => _scraping = false);
       }
     } catch (e) {
       if (mounted) _toast(context, "刮削启动失败: $e");
-      setState(() => _scraping = false);
+      if (mounted) setState(() => _scraping = false);
     }
   }
 
@@ -1213,7 +1656,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           final job = jsonDecode(resp.body) as Map<String, dynamic>;
           if (mounted) setState(() => _scrapeJob = job);
           if (job["status"] == "completed" || job["status"] == "failed") {
-            if (mounted) _scraping = false;
+            if (mounted) setState(() => _scraping = false);
             return;
           }
         }
@@ -1227,101 +1670,29 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     required VoidCallback onAdd,
     required void Function(Map<String, dynamic> item) onEdit,
     required void Function(int id) onDelete,
-  }) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _sectionHeader(title, Icons.folder_outlined),
-      const SizedBox(height: 8),
-      if (items.isEmpty)
-        _hintCard("\u6682\u65e0\u76ee\u5f55")
-      else
-        ...items.map(
-          (r) => Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cardBorder(context)),
+    String? description,
+    bool patchRoot = false,
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader(title, Icons.folder_outlined),
+          if (description != null && description.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              description,
+              style: AppText.bodySmall.copyWith(color: hintColor(context)),
             ),
-            child: Row(
-              children: [
-                Icon(
-                  (r["source_type"] == "openlist")
-                      ? Icons.cloud_outlined
-                      : Icons.folder,
-                  size: 20,
-                  color: hintColor(context),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (r["source_type"] == "openlist")
-                            ? "OpenList \u6e90"
-                            : "\u672c\u5730\u6587\u4ef6\u6e90",
-                        style: AppText.bodySmall.copyWith(
-                          color: hintColor(context),
-                        ),
-                      ),
-                      Text(
-                        (r["source_path"] ?? r["path"] ?? "").toString(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined, size: 20),
-                  onPressed: () => onEdit(r),
-                  tooltip: "\u7f16\u8f91",
-                ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.red,
-                    size: 20,
-                  ),
-                  onPressed: () => onDelete(r["id"] as int),
-                  tooltip: "\u5220\u9664",
-                ),
-              ],
-            ),
-          ),
-        ),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: FilledButton.icon(
-          onPressed: onAdd,
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text("\u6dfb\u52a0\u76ee\u5f55"),
-        ),
-      ),
-      const SizedBox(height: 24),
-    ],
-  );
-
-  Widget _openListSourceSection() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _sectionHeader("OpenList \u670d\u52a1\u5668", Icons.cloud_outlined),
-      const SizedBox(height: 8),
-      if (_fileSources.where((s) => s["type"] == "openlist").isEmpty)
-        _hintCard("\u6682\u65e0 OpenList \u670d\u52a1\u5668")
-      else
-        ..._fileSources
-            .where((s) => s["type"] == "openlist")
-            .map(
-              (s) => Container(
+          ],
+          const SizedBox(height: 8),
+          if (items.isEmpty)
+            _hintCard("\u6682\u65e0\u76ee\u5f55")
+          else
+            ...items.map(
+              (r) => Container(
                 margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: cardBg(context),
                   borderRadius: BorderRadius.circular(10),
@@ -1330,7 +1701,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                 child: Row(
                   children: [
                     Icon(
-                      Icons.cloud_outlined,
+                      (r["source_type"] == "openlist")
+                          ? Icons.cloud_outlined
+                          : Icons.folder,
                       size: 20,
                       color: hintColor(context),
                     ),
@@ -1340,420 +1713,616 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            (s["name"] ?? "OpenList").toString(),
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          Text(
-                            (s["base_url"] ?? "").toString(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            (r["source_type"] == "openlist")
+                                ? (patchRoot
+                                    ? (r["analysis_mode"] == "auto"
+                                        ? "OpenList 本地映射补丁库"
+                                        : "OpenList 网盘补丁库")
+                                    : "OpenList 游戏库")
+                                : (patchRoot ? "服务端本地补丁库" : "\u672c\u5730\u6587\u4ef6\u6e90"),
                             style: AppText.bodySmall.copyWith(
                               color: hintColor(context),
                             ),
                           ),
+                          Text(
+                            (r["source_path"] ?? r["path"] ?? "").toString(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          if (r.containsKey("analysis_mode"))
+                            Text(
+                              r["analysis_mode"] == "manual"
+                                  ? "手动配置规则"
+                                  : "自动分析压缩包",
+                              style: AppText.bodySmall.copyWith(
+                                color: hintColor(context),
+                              ),
+                            ),
                         ],
                       ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.edit_outlined, size: 20),
-                      onPressed: () => _saveOpenListSource(initial: s),
+                      onPressed: () => onEdit(r),
                       tooltip: "\u7f16\u8f91",
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                        size: 20,
+                      ),
+                      onPressed: () => onDelete(r["id"] as int),
+                      tooltip: "\u5220\u9664",
                     ),
                   ],
                 ),
               ),
             ),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: FilledButton.icon(
-          onPressed: () => _saveOpenListSource(),
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text("\u6dfb\u52a0 OpenList \u670d\u52a1\u5668"),
-        ),
-      ),
-      const SizedBox(height: 24),
-    ],
-  );
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text("\u6dfb\u52a0\u76ee\u5f55"),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      );
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("扫描设置")),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _openListSourceSection(),
-              _directorySection(
-                title: "\u6e38\u620f\u5e93\u76ee\u5f55",
-                items: _roots,
-                onAdd: () => _addDirectory(patchRoot: false),
-                onEdit: (item) => _editDirectory(item, patchRoot: false),
-                onDelete: _delRoot,
-              ),
-              _directorySection(
-                title: "Steam \u8865\u4e01\u5e93\u76ee\u5f55",
-                items: _patchRoots,
-                onAdd: () => _addDirectory(patchRoot: true),
-                onEdit: (item) => _editDirectory(item, patchRoot: true),
-                onDelete: _delPatchRoot,
-              ),
-              // ── Actions ──
-              _sectionHeader("操作", Icons.play_arrow_outlined),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: _scanNow,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text("开始扫描"),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
+  Widget _openListSourceSection() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader("OpenList \u670d\u52a1\u5668", Icons.cloud_outlined),
+          const SizedBox(height: 8),
+          if (_fileSources.where((s) => s["type"] == "openlist").isEmpty)
+            _hintCard("\u6682\u65e0 OpenList \u670d\u52a1\u5668")
+          else
+            ..._fileSources.where((s) => s["type"] == "openlist").map(
+              (s) {
+                final sourceId = s["id"] as int;
+                final isTesting = _testingOpenListSources.contains(sourceId);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _scrapeNow,
-                      icon: const Icon(Icons.image_search, size: 18),
-                      label: const Text("批量刮削"),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              // ── Scrape job progress ──
-              if (_scrapeJob != null) ...[
-                const SizedBox(height: 20),
-                _sectionHeader("刮削进度", Icons.cloud_sync),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: cardBg(context),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: cardBorder(context)),
                   ),
-                  child: Column(
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          _jobStatusIcon(_scrapeJob!["status"]),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _jobStatusLabel(_scrapeJob!["status"]),
-                                  style: AppText.body.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                if (_scrapeJob!["current_game"] != null)
-                                  Text(
-                                    "正在处理: ${_scrapeJob!["current_game"]}",
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppText.label.copyWith(
-                                      color: hintColor(context),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          if (_scrapeJob!["status"] == "running" ||
-                              _scrapeJob!["status"] == "pending")
-                            TextButton(
-                              onPressed: () =>
-                                  _cancelJob(_scrapeJob!["id"] as int),
-                              child: Text(
-                                "取消",
-                                style: AppText.label.copyWith(
-                                  color: Colors.red,
-                                ),
-                              ),
-                            ),
-                        ],
+                      Icon(
+                        Icons.cloud_outlined,
+                        size: 20,
+                        color: hintColor(context),
                       ),
-                      if (_scrapeJob!["total_games"] != null &&
-                          (_scrapeJob!["total_games"] as int) > 0) ...[
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: LinearProgressIndicator(
-                            value:
-                                ((_scrapeJob!["completed_games"] ?? 0) as int) /
-                                ((_scrapeJob!["total_games"] as int)).clamp(
-                                  1,
-                                  99999,
-                                ),
-                            minHeight: 6,
-                            backgroundColor: cardBorder(context),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "${_scrapeJob!["completed_games"]} / ${_scrapeJob!["total_games"]}",
-                              style: AppText.label.copyWith(
+                              (s["name"] ?? "OpenList").toString(),
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            Text(
+                              (s["base_url"] ?? "").toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.bodySmall.copyWith(
                                 color: hintColor(context),
                               ),
                             ),
-                            if (_scrapeJob!["failed_games"] != null &&
-                                (_scrapeJob!["failed_games"] as int) > 0)
-                              Text(
-                                "失败: ${_scrapeJob!["failed_games"]}",
-                                style: AppText.label.copyWith(
-                                  color: Colors.red[300],
-                                ),
-                              ),
                           ],
                         ),
-                      ],
-                      // Completed summary
-                      if (_scrapeJob!["status"] == "completed")
-                        _buildCompletedSummary(),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                        onPressed: () => _saveOpenListSource(initial: s),
+                        tooltip: "\u7f16\u8f91",
+                      ),
+                      IconButton(
+                        icon: isTesting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.wifi_tethering_outlined,
+                                size: 20,
+                              ),
+                        onPressed: isTesting
+                            ? null
+                            : () => _testOpenListSource(sourceId),
+                        tooltip: "测试连接",
+                      ),
                     ],
                   ),
-                ),
-              ],
+                );
+              },
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: () => _saveOpenListSource(),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text("\u6dfb\u52a0 OpenList \u670d\u52a1\u5668"),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      );
 
-              const SizedBox(height: 24),
-
-              // ── Options ──
-              _sectionHeader("选项", Icons.tune),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: cardBg(context),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cardBorder(context)),
-                ),
-                child: Column(
-                  children: [
-                    ListTile(
-                      title: const Text("目录结构", style: TextStyle(fontSize: 14)),
-                      subtitle: Text(
-                        _structure == "company_game"
-                            ? "会社 / 游戏"
-                            : _structure == "game_only"
-                            ? "仅游戏"
-                            : "扁平",
-                        style: AppText.bodySmall.copyWith(
-                          color: hintColor(context),
-                        ),
-                      ),
-                      trailing: DropdownButton<String>(
-                        value: _structure,
-                        underline: const SizedBox(),
-                        items: const [
-                          DropdownMenuItem(
-                            value: "company_game",
-                            child: Text("会社 / 游戏"),
-                          ),
-                          DropdownMenuItem(
-                            value: "game_only",
-                            child: Text("仅游戏"),
-                          ),
-                          DropdownMenuItem(value: "flat", child: Text("扁平")),
-                        ],
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() => _structure = v);
-                          _saveScanSettings();
-                        },
-                      ),
-                    ),
-                    _divider(),
-                    SwitchListTile(
-                      title: const Text("自动扫描", style: TextStyle(fontSize: 14)),
-                      subtitle: Text(
-                        _autoScan ? "每 $_interval 小时" : "关闭",
-                        style: AppText.bodySmall.copyWith(
-                          color: hintColor(context),
-                        ),
-                      ),
-                      value: _autoScan,
-                      onChanged: (v) {
-                        setState(() => _autoScan = v);
-                        _saveScanSettings();
-                      },
-                      dense: true,
-                    ),
-                    if (_autoScan) ...[
-                      _divider(),
-                      ListTile(
-                        title: const Text(
-                          "扫描间隔（小时）",
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        trailing: SizedBox(
-                          width: 80,
-                          child: TextField(
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              isDense: true,
-                              hintText: "$_interval",
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
+  @override
+  Widget build(BuildContext context) => AppScaffold(
+        title: "扫描设置",
+        subtitle: "配置游戏库、补丁库、OpenList 和刮削来源",
+        leading: const Icon(Icons.manage_search_outlined, size: 24),
+        scrollable: false,
+        padding: EdgeInsets.zero,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _openListSourceSection(),
+                  _directorySection(
+                    title: "\u6e38\u620f\u5e93\u76ee\u5f55",
+                    items: _roots,
+                    onAdd: () => _addDirectory(patchRoot: false),
+                    onEdit: (item) => _editDirectory(item, patchRoot: false),
+                    onDelete: _delRoot,
+                  ),
+                  _directorySection(
+                    title: "Steam \u8865\u4e01\u5e93\u76ee\u5f55",
+                    items: _patchRoots,
+                    description:
+                        "添加补丁目录时选择“服务端本地补丁库”或“OpenList 补丁库”；OpenList 再选择本地映射或网盘，网盘模式不会下载远程压缩包探测目录树。",
+                    onAdd: () => _addDirectory(patchRoot: true),
+                    onEdit: (item) => _editDirectory(item, patchRoot: true),
+                    onDelete: _delPatchRoot,
+                    patchRoot: true,
+                  ),
+                  // ── Actions ──
+                  _sectionHeader("操作", Icons.play_arrow_outlined),
+                  const SizedBox(height: 8),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final narrow = constraints.maxWidth < 620;
+                      final width = narrow
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 12) / 2;
+                      final scanActive = _scanStatus?["status"] == "pending" ||
+                          _scanStatus?["status"] == "running";
+                      final scrapeStatus = _scrapeJob?["status"]?.toString();
+                      final scrapeActive = _scraping ||
+                          scrapeStatus == "pending" ||
+                          scrapeStatus == "running";
+                      final actionActive = _loading || scanActive || scrapeActive;
+                      final hasScrapers = _enabledScraperSources().isNotEmpty;
+                      final actionLabel = scanActive
+                          ? "扫描中..."
+                          : (scrapeActive ? "刮削中..." : "扫描并刮削");
+                      return Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          SizedBox(
+                            width: width,
+                            child: FilledButton.tonalIcon(
+                              onPressed: !actionActive && hasScrapers
+                                  ? _scanAndScrapeNow
+                                  : null,
+                              icon: actionActive
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.sync, size: 18),
+                              label: Text(
+                                hasScrapers ? actionLabel : "未启用刮削源",
                               ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
+                              style: FilledButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             ),
-                            onChanged: (v) {
-                              final n = int.tryParse(v);
-                              if (n != null && n > 0)
-                                setState(() => _interval = n);
-                            },
-                            onSubmitted: (_) => _saveScanSettings(),
-                            onEditingComplete: _saveScanSettings,
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: OutlinedButton.icon(
+                              onPressed: actionActive ? null : _clearAndRescan,
+                              icon: const Icon(Icons.delete_sweep, size: 18),
+                              label: const Text("清空并重扫"),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+
+                  // ── Scan progress ──
+                  if (_scanStatus != null &&
+                      (_scanStatus!["status"] == "pending" ||
+                          _scanStatus!["status"] == "running" ||
+                          _scanStatus!["status"] == "completed" ||
+                          _scanStatus!["status"] == "failed")) ...[
+                    const SizedBox(height: 20),
+                    _sectionHeader("扫描进度", Icons.sync),
+                    const SizedBox(height: 8),
+                    _buildScanStatusCard(),
+                  ],
+
+                  // ── Scrape job progress ──
+                  if (_scrapeJob != null) ...[
+                    const SizedBox(height: 20),
+                    _sectionHeader("刮削进度", Icons.cloud_sync),
+                    const SizedBox(height: 8),
+                    _buildScrapeJobStatusCard(),
+                  ],
+
+                  const SizedBox(height: 24),
+
+                  // ── Options ──
+                  _sectionHeader("选项", Icons.tune),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: cardBg(context),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cardBorder(context)),
+                    ),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          title: const Text("游戏目录层级",
+                              style: TextStyle(fontSize: 14)),
+                          subtitle: Text(
+                            _scanDepthLabel(_scanDepth),
+                            style: AppText.bodySmall.copyWith(
+                              color: hintColor(context),
+                            ),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: "减少层级",
+                                icon: const Icon(Icons.remove_circle_outline),
+                                onPressed: _scanDepth <= 0
+                                    ? null
+                                    : () {
+                                        setState(() => _scanDepth--);
+                                        _saveScanSettings();
+                                      },
+                              ),
+                              SizedBox(
+                                width: 28,
+                                child: Text(
+                                  "$_scanDepth",
+                                  textAlign: TextAlign.center,
+                                  style: AppText.bodyMedium.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: "增加层级",
+                                icon: const Icon(Icons.add_circle_outline),
+                                onPressed: _scanDepth >= 8
+                                    ? null
+                                    : () {
+                                        setState(() => _scanDepth++);
+                                        _saveScanSettings();
+                                      },
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+                        _divider(),
+                        SwitchListTile(
+                          title: const Text("自动扫描",
+                              style: TextStyle(fontSize: 14)),
+                          subtitle: Text(
+                            _autoScan ? "每 $_interval 小时" : "关闭",
+                            style: AppText.bodySmall.copyWith(
+                              color: hintColor(context),
+                            ),
+                          ),
+                          value: _autoScan,
+                          onChanged: (v) {
+                            setState(() => _autoScan = v);
+                            _saveScanSettings();
+                          },
+                          dense: true,
+                        ),
+                        if (_autoScan) ...[
+                          _divider(),
+                          ListTile(
+                            title: const Text(
+                              "扫描间隔（小时）",
+                              style: TextStyle(fontSize: 14),
+                            ),
+                            trailing: SizedBox(
+                              width: 80,
+                              child: TextField(
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  hintText: "$_interval",
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onChanged: (v) {
+                                  final n = int.tryParse(v);
+                                  if (n != null && n > 0)
+                                    setState(() => _interval = n);
+                                },
+                                onSubmitted: (_) => _saveScanSettings(),
+                                onEditingComplete: _saveScanSettings,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
 
-              // ── Scraper sources ──
-              const SizedBox(height: 24),
-              _sectionHeader("刮削源", Icons.image_search),
-              const SizedBox(height: 8),
-              _srcCard("VNDB Kana v2", "vndb_kana", "免认证，中文标题"),
-              _srcCard("Bangumi", "bangumi", "免认证，填 Token 提速率"),
-              _srcCard("Steam", "steam", "免认证"),
-              _srcCard("月幕GalGame", "ymgal", "免认证，中文名+简介"),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cardBg(context),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cardBorder(context)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "HTTP 代理",
-                      style: AppText.bodySmall.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: subTextColor(context),
-                      ),
+                  // ── Scraper sources ──
+                  const SizedBox(height: 24),
+                  _sectionHeader("刮削源", Icons.image_search),
+                  const SizedBox(height: 8),
+                  _scraperModePicker(),
+                  const SizedBox(height: 10),
+                  if (_scraperMode == "nextmoe")
+                    _nextmoeSourceCard()
+                  else
+                    _classicScraperList(),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cardBg(context),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cardBorder(context)),
                     ),
-                    Text(
-                      "刮削源通过代理访问，如日本代理",
-                      style: AppText.label.copyWith(color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _keys["proxy"],
-                            decoration: InputDecoration(
-                              hintText: "http://127.0.0.1:7890",
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
+                        Text(
+                          "HTTP 代理",
+                          style: AppText.bodySmall.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: subTextColor(context),
+                          ),
+                        ),
+                        Text(
+                          "刮削源通过代理访问，如日本代理",
+                          style:
+                              AppText.label.copyWith(color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _keys["proxy"],
+                                decoration: InputDecoration(
+                                  hintText: "http://127.0.0.1:7890",
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: _testProxy,
+                              child: const Text("测试"),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton.icon(
+                            onPressed: _saveProxy,
+                            icon: const Icon(Icons.save_outlined, size: 17),
+                            label: const Text("保存代理"),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
                                 vertical: 10,
                               ),
-                              border: OutlineInputBorder(
+                              shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        OutlinedButton(
-                          onPressed: _testProxy,
-                          child: const Text("测试"),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _saveScraperConfig,
-                icon: const Icon(Icons.save, size: 18),
-                label: const Text("保存刮削配置"),
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
+                ],
               ),
-            ],
+      );
+
+  Widget _hikarinagiCredentialSettings() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Hikarinagi 凭据",
+            style: AppText.bodySmall.copyWith(
+              fontWeight: FontWeight.w600,
+              color: subTextColor(context),
+            ),
           ),
-  );
+          Text(
+            "使用 Client ID / Secret 获取 catalog API token，密钥保存在服务端配置中",
+            style: AppText.label.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["hikarinagi_client_id"],
+            decoration: InputDecoration(
+              labelText: "Client ID",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onChanged: (_) => _scheduleScraperSave(),
+            onEditingComplete: () => _scheduleScraperSave(immediate: true),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["hikarinagi_client_secret"],
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: "Client Secret",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onChanged: (_) => _scheduleScraperSave(),
+            onEditingComplete: () => _scheduleScraperSave(immediate: true),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _hikarinagiScopes.contains(_keys["hikarinagi_scope"]!.text)
+                ? _keys["hikarinagi_scope"]!.text
+                : "catalog:full",
+            decoration: InputDecoration(
+              labelText: "Scope",
+              helperText: "catalog:full 包含 NSFW 与乙女向条目",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            items: _hikarinagiScopes
+                .map(
+                  (scope) => DropdownMenuItem<String>(
+                    value: scope,
+                    child: Text(scope),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _keys["hikarinagi_scope"]!.text = value);
+                _scheduleScraperSave(immediate: true);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _testingHikarinagi ? null : _testHikarinagi,
+              icon: _testingHikarinagi
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.wifi_tethering_outlined, size: 17),
+              label: const Text("测试连接"),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _sectionHeader(String title, IconData icon) => Row(
-    children: [
-      Icon(icon, size: 18, color: sectionIconColor(context)),
-      const SizedBox(width: 6),
-      Text(
-        title,
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: sectionTextColor(context),
-        ),
-      ),
-    ],
-  );
+        children: [
+          Icon(icon, size: 18, color: sectionIconColor(context)),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: sectionTextColor(context),
+            ),
+          ),
+        ],
+      );
 
   Widget _hintCard(String text) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: cardBg(context),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cardBorder(context)),
-    ),
-    child: Row(
-      children: [
-        Icon(Icons.info_outline, size: 18, color: hintColor(context)),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cardBg(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cardBorder(context)),
         ),
-      ],
-    ),
-  );
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 18, color: hintColor(context)),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+            ),
+          ],
+        ),
+      );
 
   Widget _divider() =>
       Divider(height: 1, thickness: 0.5, color: cardBorder(context));
 
-  Widget _jobStatusIcon(String? status) {
-    switch (status) {
+  Widget _jobStatusIcon(Object? status) {
+    switch (status?.toString()) {
       case "running":
         return Icon(Icons.sync, size: 24, color: Colors.blue[300]);
       case "completed":
@@ -1763,6 +2332,286 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       default:
         return Icon(Icons.schedule, size: 24, color: subTextColor(context));
     }
+  }
+
+  Widget _buildScanStatusCard() {
+    final status = _scanStatus!["status"]?.toString() ?? "idle";
+    final total = (_scanStatus!["roots_total"] as num?)?.toInt() ?? 0;
+    final completed = (_scanStatus!["roots_completed"] as num?)?.toInt() ?? 0;
+    final progress = total > 0
+        ? (completed / total).clamp(0.0, 1.0).toDouble()
+        : null;
+    final isActive = status == "pending" || status == "running";
+    final title = switch (status) {
+      "pending" => "扫描排队中...",
+      "running" => "正在扫描...",
+      "completed" => "扫描完成",
+      "failed" => "扫描失败",
+      _ => "扫描状态未知",
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isActive
+                    ? Icons.sync
+                    : (status == "failed" ? Icons.error : Icons.check_circle),
+                size: 24,
+                color: isActive
+                    ? Colors.blue[300]
+                    : (status == "failed" ? Colors.red[300] : Colors.green[300]),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppText.body.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          if (_scanStatus!["current_root"] != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              "正在处理: ${_scanStatus!["current_root"]}",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.label.copyWith(color: hintColor(context)),
+            ),
+          ],
+          if (_scanStatus!["message"] != null && !isActive) ...[
+            const SizedBox(height: 4),
+            Text(
+              _scanStatus!["message"].toString(),
+              style: AppText.label.copyWith(color: hintColor(context)),
+            ),
+          ],
+          if (progress != null && isActive) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: cardBorder(context),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "$completed / $total 个目录",
+              style: AppText.label.copyWith(color: hintColor(context)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  int _jobInt(String key, [String? fallbackKey]) {
+    final value = _scrapeJob?[key] ??
+        (fallbackKey == null ? null : _scrapeJob?[fallbackKey]);
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? "") ?? 0;
+  }
+
+  String? _jobText(String key) {
+    final value = _scrapeJob?[key];
+    final text = value?.toString().trim() ?? "";
+    return text.isEmpty ? null : text;
+  }
+
+  String _scrapeStageLabel(String? stage) => switch (stage) {
+        "queued" => "排队中",
+        "started" => "已开始",
+        "game" => "准备处理游戏",
+        "reuse_metadata" => "复用已有元数据",
+        "reused" => "已复用已有元数据",
+        "search" => "搜索元数据",
+        "matched" => "已匹配结果",
+        "search_timeout" => "搜索超时",
+        "search_failed" => "搜索失败",
+        "download_cover" => "下载封面",
+        "download_hero" => "下载背景图",
+        "apply_metadata" => "写入元数据",
+        "completed_game" => "单个游戏完成",
+        "game_timeout" => "单个游戏超时",
+        "game_failed" => "单个游戏失败",
+        "completed" => "任务完成",
+        "cancelled" => "已取消",
+        "interrupted" => "服务重启中断",
+        "stale" => "心跳超时",
+        "failed" => "任务失败",
+        null => "未知阶段",
+        _ => stage,
+      };
+
+  String _scrapeSourceLabel(String? source) {
+    if (source == null) return "";
+    if (source == "metadata_cache") return "已有元数据";
+    return _scraperLabels[source] ?? source;
+  }
+
+  String _formatScrapeTime(String? raw) {
+    if (raw == null || raw.isEmpty) return "";
+    try {
+      final value = DateTime.parse(raw).toLocal();
+      String two(int input) => input.toString().padLeft(2, "0");
+      return "${two(value.hour)}:${two(value.minute)}:${two(value.second)}";
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  Widget _scrapeMetaChip(String label, String value) => Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: cardBorder(context).withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          "$label: $value",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppText.label.copyWith(color: subTextColor(context)),
+        ),
+      );
+
+  Widget _buildScrapeJobStatusCard() {
+    final job = _scrapeJob;
+    if (job == null) return const SizedBox.shrink();
+    final status = _jobText("status") ?? "unknown";
+    final total = _jobInt("total_games");
+    final processed = _jobInt("processed_games", "completed_games");
+    final successful = _jobInt("successful_games");
+    final failed = _jobInt("failed_games");
+    final currentGame = _jobText("current_game");
+    final currentGameId = _jobInt("current_game_id");
+    final currentSource = _scrapeSourceLabel(_jobText("current_source"));
+    final currentQuery = _jobText("current_query");
+    final currentStage = _scrapeStageLabel(_jobText("current_stage"));
+    final lastError = _jobText("last_error");
+    final heartbeat = _formatScrapeTime(_jobText("heartbeat_at"));
+    final progress =
+        total > 0 ? (processed / total).clamp(0.0, 1.0).toDouble() : null;
+    final active = status == "running" || status == "pending";
+    final chips = <Widget>[];
+    if (currentSource.isNotEmpty) {
+      chips.add(_scrapeMetaChip("来源", currentSource));
+    }
+    chips.add(_scrapeMetaChip("阶段", currentStage));
+    if (currentQuery != null) chips.add(_scrapeMetaChip("查询", currentQuery));
+    if (heartbeat.isNotEmpty) chips.add(_scrapeMetaChip("心跳", heartbeat));
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _jobStatusIcon(status),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _jobStatusLabel(status),
+                      style: AppText.body.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    if (currentGame != null)
+                      Text(
+                        currentGameId > 0
+                            ? "正在处理: #$currentGameId $currentGame"
+                            : "正在处理: $currentGame",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.label.copyWith(color: hintColor(context)),
+                      ),
+                  ],
+                ),
+              ),
+              if (active)
+                TextButton(
+                  onPressed: () => _cancelJob((job["id"] as num).toInt()),
+                  child: Text(
+                    "取消",
+                    style: AppText.label.copyWith(color: Colors.red),
+                  ),
+                ),
+            ],
+          ),
+          if (progress != null) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: cardBorder(context),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                Text(
+                  "$processed / $total 已处理",
+                  style: AppText.label.copyWith(color: hintColor(context)),
+                ),
+                if (successful > 0)
+                  Text(
+                    "成功: $successful",
+                    style: AppText.label.copyWith(color: Colors.green[300]),
+                  ),
+                if (failed > 0)
+                  Text(
+                    "失败: $failed",
+                    style: AppText.label.copyWith(color: Colors.red[300]),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: chips),
+          if (lastError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.25)),
+              ),
+              child: Text(
+                lastError,
+                style: AppText.label.copyWith(color: Colors.red[300]),
+              ),
+            ),
+          ],
+          if (status == "completed") _buildCompletedSummary(),
+        ],
+      ),
+    );
   }
 
   Future<void> _cancelJob(int jobId) async {
@@ -1776,8 +2625,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Widget _buildCompletedSummary() {
-    final failed = (_scrapeJob!["failed_games"] ?? 0) as int;
-    final total = (_scrapeJob!["total_games"] ?? 0) as int;
+    final failed = _jobInt("failed_games");
+    final successful = _jobInt("successful_games");
+    final total = _jobInt("total_games");
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(
@@ -1785,7 +2635,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           Icon(Icons.check_circle, size: 16, color: Colors.green[300]),
           const SizedBox(width: 6),
           Text(
-            "${total - failed} 成功, $failed 失败",
+            "${successful > 0 ? successful : total - failed} 成功, $failed 失败",
             style: AppText.label.copyWith(color: subTextColor(context)),
           ),
         ],
@@ -1793,8 +2643,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
-  String _jobStatusLabel(String? status) {
-    switch (status) {
+  String _jobStatusLabel(Object? status) {
+    switch (status?.toString()) {
       case "pending":
         return "等待开始...";
       case "running":
@@ -1804,7 +2654,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       case "failed":
         return "刮削失败";
       default:
-        return status ?? "未知";
+        return status?.toString() ?? "未知";
     }
   }
 
@@ -1819,33 +2669,222 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         for (final k in _keys.keys) {
-          _keys[k]?.text = data[k] ?? "";
+          _keys[k]?.text = data[k]?.toString() ?? "";
+        }
+        final serverOrder = data["scraper_order"];
+        if (serverOrder is List) {
+          _scraperOrder = _normalizeScraperOrder(serverOrder);
+        }
+        final enabled = data["enabled_scrapers"];
+        if (enabled is List) {
+          final enabledSet = enabled.map((value) => value.toString()).toSet();
+          for (final source in _sources.keys) {
+            _sources[source] = enabledSet.contains(source);
+          }
+          _scraperMode =
+              enabledSet.contains("nextmoe") ? "nextmoe" : "classic";
         }
       }
     } catch (_) {}
-    final prefs = await SharedPreferences.getInstance();
-    for (final src in _sources.keys) {
-      final v = prefs.getBool("scrape_src_$src");
-      if (v != null) _sources[src] = v;
-    }
     if (mounted) setState(() {});
   }
 
-  Future<void> _saveScraperConfig() async {
-    final body = <String, String>{};
-    for (final k in _keys.keys) {
-      body[k] = _keys[k]!.text;
+  Timer? _scraperSaveTimer;
+  bool _scraperSaveInFlight = false;
+  bool _scraperSaveQueued = false;
+
+  /// Auto-save entry point: immediate for discrete actions (toggles, mode,
+  /// ordering), debounced for text fields so typing does not spam the server.
+  void _scheduleScraperSave({bool immediate = false}) {
+    _scraperSaveTimer?.cancel();
+    if (immediate) {
+      unawaited(_flushScraperSave());
+      return;
     }
-    await http.put(
-      Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
-      headers: {"Content-Type": "application/json", ...widget.api.headers},
-      body: jsonEncode(body),
+    _scraperSaveTimer = Timer(
+      const Duration(milliseconds: 800),
+      () => unawaited(_flushScraperSave()),
     );
-    final prefs = await SharedPreferences.getInstance();
-    for (final src in _sources.keys) {
-      await prefs.setBool("scrape_src_$src", _sources[src] ?? false);
+  }
+
+  Future<void> _flushScraperSave() async {
+    if (_scraperSaveInFlight) {
+      _scraperSaveQueued = true;
+      return;
     }
-    if (mounted) _toast(context, "刮削源配置已保存");
+    _scraperSaveInFlight = true;
+    try {
+      await _saveScraperConfig();
+    } finally {
+      _scraperSaveInFlight = false;
+      if (_scraperSaveQueued && mounted) {
+        _scraperSaveQueued = false;
+        await _flushScraperSave();
+      }
+    }
+  }
+
+  /// The proxy is saved explicitly: it takes effect for every scraper, so a
+  /// half-typed value must not be pushed by the auto-save debounce.
+  Future<void> _saveProxy() async {
+    try {
+      final resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({"proxy": _keys["proxy"]!.text.trim()}),
+      );
+      if (!mounted) return;
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        _toast(context, "代理已保存");
+      } else {
+        _toast(context, "代理保存失败: ${resp.statusCode}");
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "代理保存失败: $e");
+    }
+  }
+
+  Future<bool> _saveScraperConfig({bool showSuccessToast = false}) async {
+    final body = <String, dynamic>{};
+    for (final k in _keys.keys) {
+      body[k] = _keys[k]!.text.trim();
+    }
+    body["scraper_order"] = _scraperOrder;
+    body["enabled_scrapers"] = _scraperMode == "nextmoe"
+        ? <String>["nextmoe"]
+        : _classicScraperOrder
+            .where((source) => _sources[source] ?? false)
+            .toList();
+    final http.Response resp;
+    try {
+      resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/scraper"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode(body),
+      );
+    } catch (e) {
+      if (mounted) _toast(context, "刮削源配置保存失败: $e");
+      return false;
+    }
+    if (!mounted) return false;
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      if (showSuccessToast) _toast(context, "刮削源配置已保存");
+      return true;
+    }
+    _toast(context, "刮削源配置保存失败: ${resp.statusCode}");
+    return false;
+  }
+
+  Widget _nextmoeCredentialSettings() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "NextMoe 凭据",
+            style: AppText.bodySmall.copyWith(
+              fontWeight: FontWeight.w600,
+              color: subTextColor(context),
+            ),
+          ),
+          Text(
+            "在 developer.nextmoe.dev 自助创建应用并勾选 catalog:read，密钥保存在服务端配置中",
+            style: AppText.label.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _keys["nextmoe_api_key"],
+            obscureText: true,
+            onChanged: (_) => _scheduleScraperSave(),
+            onEditingComplete: () => _scheduleScraperSave(immediate: true),
+            decoration: InputDecoration(
+              labelText: "API Key",
+              hintText: "nmk_live_...",
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _testingNextMoe ? null : _testNextMoe,
+              icon: _testingNextMoe
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.wifi_tethering_outlined, size: 17),
+              label: const Text("测试连接"),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _testNextMoe() async {
+    setState(() => _testingNextMoe = true);
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/settings/nextmoe-test"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({
+          "api_key": _keys["nextmoe_api_key"]!.text.trim(),
+        }),
+      );
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        _toast(
+          context,
+          data["ok"] == true
+              ? "NextMoe 连接正常（${data["latency_ms"]}ms）"
+              : "NextMoe 连接失败: ${data["error"]}",
+        );
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "NextMoe 连接失败: $e");
+    } finally {
+      if (mounted) setState(() => _testingNextMoe = false);
+    }
+  }
+
+  Future<void> _testHikarinagi() async {
+    setState(() => _testingHikarinagi = true);
+    try {
+      final resp = await http.post(
+        Uri.parse("${widget.api.baseUrl}/api/settings/hikarinagi-test"),
+        headers: {"Content-Type": "application/json", ...widget.api.headers},
+        body: jsonEncode({
+          "client_id": _keys["hikarinagi_client_id"]!.text.trim(),
+          "client_secret": _keys["hikarinagi_client_secret"]!.text.trim(),
+          "scope": _keys["hikarinagi_scope"]!.text.trim().isEmpty
+              ? "catalog:full"
+              : _keys["hikarinagi_scope"]!.text.trim(),
+        }),
+      );
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (mounted) {
+        _toast(
+          context,
+          data["ok"] == true
+              ? "Hikarinagi 连接正常（${data["latency_ms"]}ms）"
+              : "Hikarinagi 连接失败: ${data["error"]}",
+        );
+      }
+    } catch (e) {
+      if (mounted) _toast(context, "Hikarinagi 连接失败: $e");
+    } finally {
+      if (mounted) setState(() => _testingHikarinagi = false);
+    }
   }
 
   Future<void> _testProxy() async {
@@ -1867,35 +2906,288 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
-  Widget _srcCard(String label, String src, String hint) {
+  List<String> _normalizeScraperOrder(Iterable values) {
+    final result = <String>[];
+    for (final value in values) {
+      final source = value.toString();
+      if (_scraperLabels.containsKey(source) && !result.contains(source)) {
+        result.add(source);
+      }
+    }
+    for (final source in _defaultScraperOrder) {
+      if (!result.contains(source)) result.add(source);
+    }
+    return result;
+  }
+
+  Widget _classicScraperList() {
+    final sources = _classicScraperOrder;
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      buildDefaultDragHandles: false,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: sources.length,
+      onReorderItem: _reorderClassicSources,
+      itemBuilder: (context, index) {
+        final source = sources[index];
+        final hasCreds = source == "hikarinagi";
+        final card = _srcCard(
+          key: ValueKey("$source-card"),
+          index: index,
+          label: _scraperLabels[source]!,
+          src: source,
+          credToggle: hasCreds,
+          credsOpen: hasCreds && _hikarinagiCredsOpen,
+          onToggleCreds: hasCreds
+              ? () =>
+                  setState(() => _hikarinagiCredsOpen = !_hikarinagiCredsOpen)
+              : null,
+        );
+        if (!hasCreds) return card;
+        // ReorderableListView needs the key on the widget it is handed, so the
+        // row plus its inline credentials travel as one keyed block.
+        return Column(
+          key: ValueKey("$source-block"),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            card,
+            if (_hikarinagiCredsOpen) _hikarinagiCredentialSettings(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _nextmoeSourceCard() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _srcCard(
+          key: const ValueKey("nextmoe"),
+          index: 0,
+          label: _scraperLabels["nextmoe"]!,
+          src: "nextmoe",
+          draggable: false,
+          showSwitch: false,
+          credToggle: true,
+          credsOpen: _nextmoeCredsOpen,
+          onToggleCreds: () =>
+              setState(() => _nextmoeCredsOpen = !_nextmoeCredsOpen),
+        ),
+        if (_nextmoeCredsOpen) _nextmoeCredentialSettings(),
+      ],
+    );
+  }
+
+  String _scraperMode = "classic";
+  bool _hikarinagiCredsOpen = false;
+  bool _nextmoeCredsOpen = false;
+
+  List<String> get _classicScraperSources =>
+      _defaultScraperOrder.where((source) => source != "nextmoe").toList();
+
+  List<String> get _classicScraperOrder =>
+      _scraperOrder.where((source) => source != "nextmoe").toList();
+
+  void _reorderClassicSources(int oldIndex, int newIndex) {
+    setState(() {
+      final sources = _classicScraperOrder;
+      final moved = sources.removeAt(oldIndex);
+      sources.insert(newIndex, moved);
+      _scraperOrder = [...sources, "nextmoe"];
+    });
+    _scheduleScraperSave(immediate: true);
+  }
+
+  static const _modeSlideDuration = Duration(milliseconds: 380);
+
+  Widget _scraperModePicker() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = AppGap.sm;
+        final total = (constraints.maxWidth - gap).clamp(0.0, double.infinity);
+        // Narrow screens get a gentler split so both labels stay readable.
+        final selectedFraction = constraints.maxWidth < 360 ? 0.62 : 0.7;
+        final selectorWidth = total * selectedFraction;
+        final otherWidth = total - selectorWidth;
+        final classicWidth =
+            _scraperMode == "classic" ? selectorWidth : otherWidth;
+        final nextmoeWidth = total - classicWidth;
+        return Row(
+          children: [
+            AnimatedContainer(
+              duration: _modeSlideDuration,
+              curve: Curves.easeInOutCubic,
+              width: classicWidth,
+              child: _scraperModeCard("classic", "普通模式"),
+            ),
+            const SizedBox(width: gap),
+            AnimatedContainer(
+              duration: _modeSlideDuration,
+              curve: Curves.easeInOutCubic,
+              width: nextmoeWidth,
+              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _scraperModeCard(String mode, String label) {
+    final selected = _scraperMode == mode;
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        setState(() => _scraperMode = mode);
+        _scheduleScraperSave(immediate: true);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color:
+              selected ? cs.primary.withValues(alpha: 0.12) : cardBg(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? cs.primary.withValues(alpha: 0.55)
+                : cardBorder(context),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 18,
+              color: selected ? cs.primary : hintColor(context),
+            ),
+            const SizedBox(width: AppGap.sm),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: AppText.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: selected ? cs.primary : subTextColor(context),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _scraperSourceIcon(String source) {
+    final asset = sourceIconAsset(source);
+    if (asset != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.asset(asset, width: 22, height: 22, fit: BoxFit.cover),
+      );
+    }
+    return Icon(
+      source == "vndb_kana"
+          ? Icons.menu_book_rounded
+          : Icons.public_rounded,
+      size: 22,
+      color: source == "vndb_kana" ? Colors.indigo : hintColor(context),
+    );
+  }
+
+  Widget _srcCard({
+    required Key key,
+    required int index,
+    required String label,
+    required String src,
+    bool draggable = true,
+    bool showSwitch = true,
+    bool credToggle = false,
+    bool credsOpen = false,
+    VoidCallback? onToggleCreds,
+  }) {
     final enabled = _sources[src] ?? false;
+    final cs = Theme.of(context).colorScheme;
     return Container(
+      key: key,
       margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(10, 2, 6, 2),
       decoration: BoxDecoration(
         color: cardBg(context),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: enabled
-              ? Colors.green.withValues(alpha: 0.15)
-              : cardBorder(context),
+          color:
+              enabled ? cs.primary.withValues(alpha: 0.28) : cardBorder(context),
         ),
       ),
-      child: SwitchListTile(
-        title: Text(label, style: const TextStyle(fontSize: 14)),
-        subtitle: Text(
-          hint,
-          style: AppText.label.copyWith(color: hintColor(context)),
-        ),
-        value: enabled,
-        onChanged: (v) => setState(() => _sources[src] = v),
-        dense: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          if (draggable)
+            ReorderableDragStartListener(
+              index: index,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(
+                  Icons.drag_handle,
+                  color: hintColor(context),
+                  size: 20,
+                ),
+              ),
+            )
+          else
+            const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          _scraperSourceIcon(src),
+          const SizedBox(width: AppGap.md),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          if (credToggle)
+            IconButton(
+              tooltip: credsOpen ? "收起凭据" : "填写凭据",
+              visualDensity: VisualDensity.compact,
+              color: credsOpen ? cs.primary : hintColor(context),
+              icon: AnimatedRotation(
+                turns: credsOpen ? 0.5 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: const Icon(Icons.expand_more_rounded, size: 20),
+              ),
+              onPressed: onToggleCreds,
+            ),
+          if (showSwitch)
+            Switch(
+              value: enabled,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: (v) {
+                setState(() => _sources[src] = v);
+                _scheduleScraperSave(immediate: true);
+              },
+            )
+          else
+            const SizedBox(width: 10),
+        ],
       ),
     );
   }
 
   @override
   void dispose() {
+    _scraperSaveTimer?.cancel();
+    _scanStatusTimer?.cancel();
     for (final c in _keys.values) {
       c.dispose();
     }
@@ -1930,9 +3222,13 @@ class _DisplayPageState extends State<_DisplayPage> {
   @override
   Widget build(BuildContext context) {
     final coverSize = context.watch<SettingsProvider>().coverSize;
-    return Scaffold(
-      appBar: AppBar(title: const Text("显示")),
-      body: ListView(
+    return AppScaffold(
+      title: "显示",
+      subtitle: "调整封面尺寸、托盘行为和桌面体验",
+      leading: const Icon(Icons.grid_view_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _sectionTitle("封面大小"),
@@ -2019,6 +3315,27 @@ class _DisplayPageState extends State<_DisplayPage> {
             ),
           ),
           const SizedBox(height: 24),
+          _sectionTitle("内容保护"),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: cardBg(context),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: cardBorder(context)),
+            ),
+            child: SwitchListTile(
+              secondary: const Icon(Icons.visibility_off_outlined),
+              title: const Text("模糊 NSFW 图片", style: TextStyle(fontSize: 14)),
+              subtitle: Text(
+                "列表和详情页默认保护 NSFW 封面与背景",
+                style: AppText.label.copyWith(color: hintColor(context)),
+              ),
+              value: context.watch<SettingsProvider>().blurNsfwCovers,
+              onChanged: (v) =>
+                  context.read<SettingsProvider>().setBlurNsfwCovers(v),
+            ),
+          ),
+          const SizedBox(height: 24),
           if (!Platform.isAndroid) ...[
             _sectionTitle("窗口行为"),
             const SizedBox(height: 8),
@@ -2051,32 +3368,32 @@ class _DisplayPageState extends State<_DisplayPage> {
   }
 
   Widget _sectionTitle(String t) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-    child: Row(
-      children: [
-        Container(
-          width: 3,
-          height: 16,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(2),
-          ),
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+        child: Row(
+          children: [
+            Container(
+              width: 3,
+              height: 16,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              t,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: sectionTextColor(context),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          t,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: sectionTextColor(context),
-          ),
-        ),
-      ],
-    ),
-  );
+      );
 }
 
-// ── User Management Sub-Page (admin only) ──
+// ── User Management Sub-Page ──
 class _UserManagePage extends StatefulWidget {
   final ApiClient api;
   const _UserManagePage({required this.api});
@@ -2088,12 +3405,13 @@ class _UserManagePageState extends State<_UserManagePage> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
   int _currentUserId = 0;
+  String _currentRole = "user";
 
   Future<Map<String, String>> get _authHeaders async {
     final token = await SecureStore.getString("auth_token") ?? "";
     return {
       "Authorization": "Bearer $token",
-      "Content-Type": "application/json",
+      "Content-Type": "application/json"
     };
   }
 
@@ -2105,19 +3423,38 @@ class _UserManagePageState extends State<_UserManagePage> {
   }
 
   Future<void> _loadCurrentUser() async {
-    final token = await SecureStore.getString("auth_token");
-    _currentUserId = int.tryParse(token ?? "") ?? 0;
+    final prefs = await SharedPreferences.getInstance();
+    _currentRole = prefs.getString("role") ?? "user";
+    try {
+      final token = await SecureStore.getString("auth_token") ?? "";
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/auth/profile/me"),
+        headers: {"Authorization": "Bearer $token"},
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        if (mounted)
+          setState(() {
+            _currentUserId = data["id"] ?? 0;
+            _currentRole = data["role"]?.toString() ?? _currentRole;
+          });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadUsers() async {
-    setState(() => _loading = true);
+    if (mounted) setState(() => _loading = true);
     try {
       final resp = await http.get(
         Uri.parse("${widget.api.baseUrl}/api/auth/users"),
         headers: await _authHeaders,
       );
       if (resp.statusCode == 200) {
-        _users = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
+        if (mounted)
+          setState(() {
+            _users =
+                (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
+          });
       }
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
@@ -2137,66 +3474,98 @@ class _UserManagePageState extends State<_UserManagePage> {
     }
   }
 
+  Future<void> _setRole(Map<String, dynamic> u, String newRole) async {
+    String actionLabel;
+    String confirmMsg;
+    switch (newRole) {
+      case "owner":
+        actionLabel = "转让服主";
+        confirmMsg = "确定将服主身份转让给「${u["username"]}」吗？您将降为管理员，此操作会立即生效。";
+        break;
+      case "admin":
+        actionLabel = "设为管理员";
+        confirmMsg = "确定将「${u["username"]}」设为管理员吗？";
+        break;
+      default:
+        actionLabel = "取消管理员";
+        confirmMsg = "确定取消「${u["username"]}」的管理员权限吗？";
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(actionLabel),
+        content: Text(confirmMsg),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("取消")),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(actionLabel)),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/auth/users/${u["id"]}"),
+        headers: await _authHeaders,
+        body: jsonEncode({"role": newRole}),
+      );
+      if (resp.statusCode == 200) {
+        await _loadCurrentUser();
+        _loadUsers();
+        if (mounted) _toast(context, "$actionLabel 成功");
+      } else {
+        final data = jsonDecode(resp.body);
+        if (mounted) _toast(context, data["detail"] ?? "操作失败");
+      }
+    } catch (_) {
+      if (mounted) _toast(context, "操作失败");
+    }
+  }
+
   Future<void> _editUser(Map<String, dynamic> u) async {
     final nameCtrl = TextEditingController(text: u["username"] ?? "");
     final passCtrl = TextEditingController();
-    bool isAdmin = u["is_admin"] == true;
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text("编辑用户"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: "用户名",
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: passCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: "新密码（留空不修改）",
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 4),
-              CheckboxListTile(
-                title: const Text("管理员"),
-                value: isAdmin,
-                onChanged: (v) => setD(() => isAdmin = v ?? false),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
+      builder: (ctx) => AlertDialog(
+        title: const Text("编辑用户"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration:
+                  const InputDecoration(labelText: "用户名", isDense: true),
             ),
-            FilledButton(
-              onPressed: () {
-                if (nameCtrl.text.trim().isEmpty) return;
-                Navigator.pop(ctx, true);
-              },
-              child: const Text("保存"),
+            const SizedBox(height: 10),
+            TextField(
+              controller: passCtrl,
+              obscureText: true,
+              decoration:
+                  const InputDecoration(labelText: "新密码（留空不修改）", isDense: true),
             ),
           ],
         ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(
+            onPressed: () {
+              if (nameCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text("保存"),
+          ),
+        ],
       ),
     );
     if (result != true) return;
     try {
       final body = <String, dynamic>{"username": nameCtrl.text.trim()};
       if (passCtrl.text.isNotEmpty) body["password"] = passCtrl.text;
-      body["is_admin"] = isAdmin;
       final resp = await http.put(
         Uri.parse("${widget.api.baseUrl}/api/auth/users/${u["id"]}"),
         headers: await _authHeaders,
@@ -2222,9 +3591,8 @@ class _UserManagePageState extends State<_UserManagePage> {
         content: Text("确定删除用户「$username」吗？此操作不可撤销。"),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("取消")),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text("删除", style: TextStyle(color: Colors.red)),
@@ -2241,93 +3609,49 @@ class _UserManagePageState extends State<_UserManagePage> {
       if (resp.statusCode == 200) {
         _loadUsers();
         if (mounted) _toast(context, "已删除");
+      } else {
+        final data = jsonDecode(resp.body);
+        if (mounted) _toast(context, data["detail"] ?? "删除失败");
       }
     } catch (_) {
       if (mounted) _toast(context, "删除失败");
     }
   }
 
-  String _statusLabel(String status) {
-    switch (status) {
-      case "active":
-        return "已激活";
-      case "pending":
-        return "待审批";
-      case "rejected":
-        return "已拒绝";
-      default:
-        return status;
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case "active":
-        return Colors.green;
-      case "pending":
-        return Colors.orange;
-      case "rejected":
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
   Future<void> _createUser() async {
     final nameCtrl = TextEditingController();
     final passCtrl = TextEditingController();
-    bool asAdmin = false;
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text("新增用户"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: "用户名",
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: passCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: "密码",
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 4),
-              CheckboxListTile(
-                title: const Text("设为管理员"),
-                value: asAdmin,
-                onChanged: (v) => setD(() => asAdmin = v ?? false),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
+      builder: (ctx) => AlertDialog(
+        title: const Text("创建用户"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration:
+                  const InputDecoration(labelText: "用户名", isDense: true),
             ),
-            FilledButton(
-              onPressed: () {
-                if (nameCtrl.text.trim().isEmpty || passCtrl.text.isEmpty)
-                  return;
-                Navigator.pop(ctx, true);
-              },
-              child: const Text("创建"),
+            const SizedBox(height: 10),
+            TextField(
+              controller: passCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: "密码", isDense: true),
             ),
           ],
         ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          FilledButton(
+            onPressed: () {
+              if (nameCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text("创建"),
+          ),
+        ],
       ),
     );
     if (result != true) return;
@@ -2338,12 +3662,12 @@ class _UserManagePageState extends State<_UserManagePage> {
         body: jsonEncode({
           "username": nameCtrl.text.trim(),
           "password": passCtrl.text,
-          "is_admin": asAdmin,
+          "role": "user"
         }),
       );
       if (resp.statusCode == 200) {
         _loadUsers();
-        if (mounted) _toast(context, "用户创建成功");
+        if (mounted) _toast(context, "创建成功");
       } else {
         final data = jsonDecode(resp.body);
         if (mounted) _toast(context, data["detail"] ?? "创建失败");
@@ -2353,174 +3677,292 @@ class _UserManagePageState extends State<_UserManagePage> {
     }
   }
 
+  Widget _roleChip(String role) {
+    Color color;
+    String label;
+    switch (role) {
+      case "owner":
+        color = Colors.amber;
+        label = "服主";
+        break;
+      case "admin":
+        color = Colors.blue;
+        label = "管理员";
+        break;
+      default:
+        color = Colors.grey;
+        label = "普通用户";
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _statusChip(String status) {
+    Color color;
+    String label;
+    switch (status) {
+      case "active":
+        color = Colors.green;
+        label = "正常";
+        break;
+      case "pending":
+        color = Colors.orange;
+        label = "待审批";
+        break;
+      default:
+        color = Colors.red;
+        label = "已拒绝";
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 11, color: color)),
+    );
+  }
+
+  List<PopupMenuEntry<String>> _buildActions(Map<String, dynamic> u) {
+    final role = u["role"]?.toString() ?? "user";
+    final status = u["status"]?.toString() ?? "active";
+    final isSelf = u["id"] == _currentUserId;
+    final actions = <PopupMenuEntry<String>>[];
+
+    if (isSelf) {
+      actions.add(const PopupMenuItem(
+          enabled: false, value: "", child: Text("（当前登录账号）")));
+      return actions;
+    }
+    if (role == "owner") {
+      actions.add(const PopupMenuItem(
+          enabled: false, value: "", child: Text("（服主账号）")));
+      return actions;
+    }
+
+    // Pending approval
+    if (status == "pending") {
+      actions.add(const PopupMenuItem(
+          value: "approve",
+          child: ListTile(
+            leading: Icon(Icons.check_circle_outline, color: Colors.green),
+            title: Text("通过"),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          )));
+      actions.add(const PopupMenuItem(
+          value: "reject",
+          child: ListTile(
+            leading: Icon(Icons.cancel_outlined, color: Colors.red),
+            title: Text("拒绝"),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          )));
+    }
+
+    // Edit (available to admin/owner for regular users, owner for admins)
+    if (_currentRole == "owner" || role == "user") {
+      actions.add(const PopupMenuItem(
+          value: "edit",
+          child: ListTile(
+            leading: Icon(Icons.edit_outlined),
+            title: Text("编辑"),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          )));
+    }
+
+    // Role management (owner only)
+    if (_currentRole == "owner") {
+      if (role == "user") {
+        actions.add(const PopupMenuItem(
+            value: "set_admin",
+            child: ListTile(
+              leading:
+                  Icon(Icons.admin_panel_settings_outlined, color: Colors.blue),
+              title: Text("设为管理员"),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            )));
+        actions.add(const PopupMenuItem(
+            value: "transfer_owner",
+            child: ListTile(
+              leading: Icon(Icons.star_border, color: Colors.amber),
+              title: Text("转让服主"),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            )));
+      } else if (role == "admin") {
+        actions.add(const PopupMenuItem(
+            value: "remove_admin",
+            child: ListTile(
+              leading: Icon(Icons.person_remove_outlined, color: Colors.orange),
+              title: Text("取消管理员"),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            )));
+        actions.add(const PopupMenuItem(
+            value: "transfer_owner",
+            child: ListTile(
+              leading: Icon(Icons.star_border, color: Colors.amber),
+              title: Text("转让服主"),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            )));
+      }
+    }
+
+    // Delete
+    if (_currentRole == "owner" || role == "user") {
+      if (actions.isNotEmpty) actions.add(const PopupMenuDivider());
+      actions.add(const PopupMenuItem(
+          value: "delete",
+          child: ListTile(
+            leading: Icon(Icons.delete_outline, color: Colors.red),
+            title: Text("删除", style: TextStyle(color: Colors.red)),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          )));
+    }
+
+    return actions;
+  }
+
+  Future<void> _handleAction(String action, Map<String, dynamic> u) async {
+    switch (action) {
+      case "approve":
+        await _approve(u["id"], true);
+        break;
+      case "reject":
+        await _approve(u["id"], false);
+        break;
+      case "edit":
+        await _editUser(u);
+        break;
+      case "set_admin":
+        await _setRole(u, "admin");
+        break;
+      case "remove_admin":
+        await _setRole(u, "user");
+        break;
+      case "transfer_owner":
+        await _setRole(u, "owner");
+        break;
+      case "delete":
+        await _deleteUser(u["id"], u["username"] ?? "");
+        break;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("用户管理")),
-    floatingActionButton: FloatingActionButton.extended(
-      onPressed: _createUser,
-      icon: const Icon(Icons.person_add),
-      label: const Text("新增用户"),
-    ),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _users.isEmpty
-        ? Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.people_outline, size: 64, color: Colors.grey[600]),
-                const SizedBox(height: 12),
-                Text(
-                  "暂无用户",
-                  style: TextStyle(fontSize: 16, color: hintColor(context)),
-                ),
-              ],
-            ),
-          )
-        : ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text(
-                "全部用户 (${_users.length})",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ..._users.map((u) {
-                final username = u["username"] ?? "?";
-                final isAdmin = u["is_admin"] == true;
-                final status = u["status"] ?? "active";
-                final isPending = status == "pending";
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: cardBg(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cardBorder(context)),
-                  ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: _statusColor(
-                          status,
-                        ).withValues(alpha: 0.2),
-                        child: Text(
-                          username[0].toUpperCase(),
-                          style: TextStyle(
-                            color: _statusColor(status),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: "用户管理",
+      subtitle: "管理服务器用户、角色和账号状态",
+      leading: const Icon(Icons.manage_accounts_outlined, size: 24),
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      floatingActionButton: FloatingActionButton.small(
+        onPressed: _createUser,
+        tooltip: "创建用户",
+        child: const Icon(Icons.person_add_outlined),
+      ),
+      child: _loading
+          ? const AppStateView.loading(title: "正在读取用户")
+          : _users.isEmpty
+              ? const AppStateView(
+                  icon: Icons.people_outline,
+                  title: "暂无用户",
+                  message: "当前服务器还没有可管理的用户",
+                )
+              : ListView.separated(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  itemCount: _users.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, i) {
+                    final u = _users[i];
+                    final role = u["role"]?.toString() ?? "user";
+                    final status = u["status"]?.toString() ?? "active";
+                    final isSelf = u["id"] == _currentUserId;
+                    final actions = _buildActions(u);
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: cardBg(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: cardBorder(context)),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primaryContainer,
+                            child: Text(
+                              (u["username"] ?? "?")[0].toUpperCase(),
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  color: Theme.of(context).colorScheme.primary),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  username,
-                                  style: AppText.body.copyWith(
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(u["username"] ?? "",
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 15)),
+                                    if (isSelf) ...[
+                                      const SizedBox(width: 6),
+                                      Text("(我)",
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary)),
+                                    ],
+                                  ],
                                 ),
-                                const SizedBox(width: 8),
-                                if (isAdmin)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.purple.withValues(
-                                        alpha: 0.2,
-                                      ),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      "管理员",
-                                      style: AppText.badge.copyWith(
-                                        color: Colors.purple[200],
-                                      ),
-                                    ),
-                                  ),
+                                const SizedBox(height: 4),
+                                Wrap(spacing: 6, children: [
+                                  _roleChip(role),
+                                  _statusChip(status),
+                                ]),
                               ],
                             ),
-                            const SizedBox(height: 3),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: _statusColor(status),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  _statusLabel(status),
-                                  style: AppText.bodySmall.copyWith(
-                                    color: hintColor(context),
-                                  ),
-                                ),
-                              ],
+                          ),
+                          if (actions.isNotEmpty &&
+                              !(actions.length == 1 &&
+                                  actions.first is PopupMenuItem &&
+                                  (actions.first as PopupMenuItem).enabled ==
+                                      false))
+                            PopupMenuButton<String>(
+                              onSelected: (action) => _handleAction(action, u),
+                              itemBuilder: (_) => actions,
+                              icon: const Icon(Icons.more_vert, size: 20),
                             ),
-                          ],
-                        ),
+                        ],
                       ),
-                      if (isPending) ...[
-                        TextButton(
-                          onPressed: () => _approve(u["id"] as int, false),
-                          child: const Text(
-                            "拒绝",
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        FilledButton(
-                          onPressed: () => _approve(u["id"] as int, true),
-                          child: const Text("通过"),
-                        ),
-                      ] else
-                        PopupMenuButton<String>(
-                          icon: Icon(
-                            Icons.more_vert,
-                            size: 20,
-                            color: hintColor(context),
-                          ),
-                          onSelected: (action) {
-                            if (action == "edit") _editUser(u);
-                            if (action == "delete")
-                              _deleteUser(u["id"] as int, username);
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: "edit",
-                              child: Text("编辑"),
-                            ),
-                            if ((u["id"] as int) != _currentUserId)
-                              const PopupMenuItem(
-                                value: "delete",
-                                child: Text(
-                                  "删除",
-                                  style: TextStyle(color: Colors.red),
-                                ),
-                              ),
-                          ],
-                        ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ),
-  );
+                    );
+                  },
+                ),
+    );
+  }
 }
 
 void _toast(BuildContext ctx, String msg) {

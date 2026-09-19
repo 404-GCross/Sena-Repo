@@ -1,4 +1,4 @@
-name: Build Sena Repo Client
+name: Build and Publish Dev Pre-Release
 
 permissions:
   contents: read
@@ -9,13 +9,61 @@ on:
   pull_request:
     branches: [main, master, dev]
   workflow_dispatch:
+
+concurrency:
+  group: dev-pre-release-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: client
 
 jobs:
+  server-checks:
+    name: Server checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install server dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: python -m compileall .
+
+  flutter-analyze:
+    name: Flutter analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: "stable"
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter client
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
   # ── Android APK ──────────────────────────────────
   build-android:
+    needs: [server-checks, flutter-analyze]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,11 +71,11 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          V="test"
+          V="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
-      - name: Sync test version into source
+      - name: Sync dev version into source
         run: |
           sed -i "s/versionName = \".*\"/versionName = \"${PACKAGE_VERSION}\"/" android/app/build.gradle.kts
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
@@ -40,26 +88,29 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.29"
+          flutter-version: "3.44.8"
           channel: "stable"
 
       - name: Setup NDK
         run: |
           # Remove corrupted NDK install + SDK download cache
-          rm -rf "$ANDROID_HOME/ndk/27.0.12077973"
+          rm -rf "$ANDROID_HOME/ndk/28.2.13676358"
           rm -rf "$ANDROID_HOME/.temp" 2>/dev/null || true
           rm -rf "$ANDROID_HOME/.cache" 2>/dev/null || true
           # Pre-install NDK via sdkmanager (more reliable than AGP auto-download)
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.0.12077973" 2>&1 || \
-          yes | "$ANDROID_HOME/tools/bin/sdkmanager" --install "ndk;27.0.12077973" 2>&1 || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358" 2>&1 || \
+          yes | "$ANDROID_HOME/tools/bin/sdkmanager" --install "ndk;28.2.13676358" 2>&1 || true
           # Tell AGP where to find NDK so it skips auto-download
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
-      - name: Copy 7z binary (Android ARM64)
+      - name: Copy bundled download tools (Android ARM64)
         run: |
           mkdir -p assets/binaries
-          cp ../7z/Android/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/Android-arm64/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/android-aarch64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
 
       - name: Enable Android + generate platform files
         run: |
@@ -89,6 +140,7 @@ jobs:
 
   # ── Windows EXE ──────────────────────────────────
   build-windows:
+    needs: [server-checks, flutter-analyze]
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -96,11 +148,11 @@ jobs:
       - name: Resolve version
         shell: pwsh
         run: |
-          $V = "test"
+          $V = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
           echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "PACKAGE_VERSION=0.0.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Sync test version into source
+      - name: Sync dev version into source
         shell: pwsh
         run: |
           $ver = $env:VERSION
@@ -110,17 +162,19 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.29"
+          flutter-version: "3.44.8"
           channel: "stable"
 
-      - name: Copy 7z binary (Windows)
+      - name: Copy bundled download tools (Windows)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force assets/binaries | Out-Null
-          Copy-Item "../7z/Windows/7z.exe" assets/binaries/7z.exe
-          Copy-Item "../7z/Windows/7z.dll" assets/binaries/7z.dll
-          Copy-Item "../7z/Windows/License.txt" assets/binaries/LICENSE-7z.txt
-          Copy-Item "../7z/Windows/readme.txt" assets/binaries/README-7z.txt
+          Copy-Item "assets/binaries/7zip-zstd/Windows-x64/7zz.exe" assets/binaries/7z.exe
+          if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/7z.dll") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/7z.dll" assets/binaries/7z.dll }
+          if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/License.txt") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/License.txt" assets/binaries/LICENSE-7z.txt }
+          if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/readme.txt") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/readme.txt" assets/binaries/README-7z.txt }
+          Copy-Item "assets/binaries/7zip-zstd/NOTICE.txt" assets/binaries/NOTICE-7zip-zstd.txt
+          Copy-Item "assets/binaries/aria2/windows-x64/aria2c.exe" assets/binaries/aria2c.exe
 
       - name: Enable Windows + generate platform files
         run: |
@@ -218,24 +272,25 @@ jobs:
 
   # ── Linux (AppImage) ─────────────────
   build-linux:
+    needs: [server-checks, flutter-analyze]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Resolve version
         run: |
-          V="test"
+          V="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
 
-      - name: Sync test version into source
+      - name: Sync dev version into source
         run: |
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
           sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.29"
+          flutter-version: "3.44.8"
           channel: "stable"
 
       - name: Install build deps
@@ -243,14 +298,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev zstd file imagemagick \
-            libayatana-appindicator3-dev libsecret-1-dev p7zip-full
+            libayatana-appindicator3-dev libsecret-1-dev p7zip-full \
+            ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
 
       # Linux uses system 7z from p7zip-full (already installed above)
 
-      - name: Copy 7z binary (Linux)
+      - name: Copy bundled download tools (Linux)
         run: |
           mkdir -p assets/binaries
-          tar -xf ../7z/Linux/7z2601-linux-x64.tar.xz -C assets/binaries 7zz
+          cp assets/binaries/7zip-zstd/Linux-x64/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/linux-x64/aria2c assets/binaries/aria2c
+          chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
 
       - name: Enable Linux + generate platform files
         run: |
@@ -275,6 +336,9 @@ jobs:
           cp ../server/add_steam_game.py "$BUNDLE/add_steam_game.py"
           cp -r ../server/vdf "$BUNDLE/vdf"
 
+      - name: Bundle Linux runtime deps
+        run: bash ../.github/scripts/bundle_linux_runtime_deps.sh build/linux/x64/release/bundle
+
       # ── Prepare package directory ──
       - name: Setup packaging
         run: |
@@ -283,7 +347,7 @@ jobs:
 
           # Desktop file + icon
           mkdir -p "$BUNDLE/usr/share/applications"
-          cat > "$BUNDLE/usr/share/applications/sena-repo.desktop" << 'DESKTOP'
+          cat > "$BUNDLE/usr/share/applications/senarepo.sena_repo.desktop" << 'DESKTOP'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -291,6 +355,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Game;Utility;
+          StartupWMClass=sena_repo
           DESKTOP
 
       # ── AppImage (universal) ──
@@ -310,10 +375,11 @@ jobs:
           cat > "$APPDIR/AppRun" << 'APPRUN'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/lib:${LD_LIBRARY_PATH:-}"
           exec "$HERE/sena_repo" "$@"
           APPRUN
           chmod +x "$APPDIR/AppRun"
-          cat > "$APPDIR/sena-repo.desktop" << 'DESKTOP'
+          cat > "$APPDIR/senarepo.sena_repo.desktop" << 'DESKTOP'
           [Desktop Entry]
           Name=Sena Repo
           Comment=GalGame Private Library Manager
@@ -321,6 +387,7 @@ jobs:
           Icon=sena-repo
           Type=Application
           Categories=Utility;
+          StartupWMClass=sena_repo
           DESKTOP
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
@@ -328,15 +395,265 @@ jobs:
           ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
           rm -rf "$APPDIR"
 
-      - name: Upload AppImage
+      - name: Build Linux tarball
+        run: |
+          BUNDLE=build/linux/x64/release/bundle
+          PKG="Sena-Repo_Linux_${VERSION}-x86_64"
+          rm -rf "$PKG"
+          mkdir -p "$PKG"
+          cp -a "$BUNDLE"/. "$PKG"/
+          tar -czf "dist/${PKG}.tar.gz" "$PKG"
+          rm -rf "$PKG"
+
+      - name: Build DEB and RPM packages
+        run: |
+          set -euo pipefail
+          BUNDLE=build/linux/x64/release/bundle
+          STAGE="package-root"
+          APP_DIR="$STAGE/opt/sena-repo"
+          DESKTOP_DIR="$STAGE/usr/share/applications"
+          ICON_DIR="$STAGE/usr/share/icons/hicolor/256x256/apps"
+          rm -rf "$STAGE"
+          mkdir -p "$APP_DIR" "$DESKTOP_DIR" "$ICON_DIR"
+          cp -a "$BUNDLE"/. "$APP_DIR"/
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$ICON_DIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$ICON_DIR/sena-repo.png"
+          fi
+          cat > "$DESKTOP_DIR/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=/opt/sena-repo/sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Game;Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+          DEB_VERSION="0.0.0+${VERSION//-/.}"
+          RPM_RELEASE="0.${VERSION//[^A-Za-z0-9_+.]/.}"
+          fpm -s dir -t deb -n sena-repo -v "$DEB_VERSION" \
+            --architecture amd64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends libgtk-3-0 --depends libayatana-appindicator3-1 --depends libsecret-1-0 \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_amd64.deb" .
+          fpm -s dir -t rpm -n sena-repo -v "0.0.0" --iteration "$RPM_RELEASE" \
+            --architecture x86_64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_x86_64.rpm" .
+
+      - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
           name: Sena-Repo_Linux
-          path: client/dist/Sena-Repo_Linux_*.AppImage
+          path: client/dist/Sena-Repo_Linux_*
+
+  # ── Linux (AppImage, ARM64) ─────────────────
+  # Official Flutter Linux SDK archives are x64-only and flutter_tools refuses to
+  # cross-build to linux-arm64, so bootstrap the toolchain from the pinned tag and
+  # let it fetch the arm64 Dart SDK and engine artifacts for the runner's host arch.
+  build-linux-arm64:
+    needs: [server-checks, flutter-analyze]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          V="dev-${GITHUB_SHA::7}"
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=0.0.0" >> "$GITHUB_ENV"
+
+      - name: Sync dev version into source
+        run: |
+          sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
+          sed -i "s/^version: .*/version: ${PACKAGE_VERSION}/" pubspec.yaml
+
+      - name: Checkout Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.44.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Bootstrap Flutter ARM64 toolchain
+        run: |
+          flutter --version
+          uname -m
+          ls -l "$RUNNER_TEMP/flutter/bin/cache/dart-sdk/bin/dart" || true
+          file "$RUNNER_TEMP/flutter/bin/cache/dart-sdk/bin/dart" || true
+          flutter precache --linux
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev zstd file imagemagick \
+            libayatana-appindicator3-dev libsecret-1-dev p7zip-full \
+            ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
+
+      - name: Copy bundled download tools (Linux ARM64)
+        run: |
+          mkdir -p assets/binaries
+          cp assets/binaries/7zip-zstd/Linux-arm64/7zz assets/binaries/7zz
+          cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
+          cp assets/binaries/aria2/linux-arm64/aria2c assets/binaries/aria2c
+          chmod +x assets/binaries/7zz
+          chmod +x assets/binaries/aria2c
+
+      - name: Enable Linux + generate platform files
+        run: |
+          flutter config --enable-linux-desktop
+          flutter create . --project-name sena_repo --org senarepo
+          # Remove template Android files that conflict with custom ones under com/github/senarepo
+          rm -rf android/app/src/main/kotlin/senarepo
+          python3 ../.github/scripts/patch_linux_runner_touch.py
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
+
+      - name: Build Linux
+        run: flutter build linux --release
+
+      - name: Bundle add_steam_game.py + vdf
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          cp ../server/add_steam_game.py "$BUNDLE/add_steam_game.py"
+          cp -r ../server/vdf "$BUNDLE/vdf"
+
+      - name: Bundle Linux runtime deps
+        run: bash ../.github/scripts/bundle_linux_runtime_deps.sh build/linux/arm64/release/bundle
+
+      # ── Prepare package directory ──
+      - name: Setup packaging
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          mkdir -p dist
+
+          # Desktop file + icon
+          mkdir -p "$BUNDLE/usr/share/applications"
+          cat > "$BUNDLE/usr/share/applications/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Game;Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+
+      # ── AppImage (universal) ──
+      - name: Build AppImage
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          APPDIR="SenaRepo.AppDir"
+          mkdir -p "$APPDIR" && cp -r "$BUNDLE"/* "$APPDIR/"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$APPDIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$APPDIR/sena-repo.png"
+          fi
+          cp "$APPDIR/sena-repo.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/sena-repo.png"
+          cp "$APPDIR/sena-repo.png" "$APPDIR/.DirIcon"
+          cat > "$APPDIR/AppRun" << 'APPRUN'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/lib:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/sena_repo" "$@"
+          APPRUN
+          chmod +x "$APPDIR/AppRun"
+          cat > "$APPDIR/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-aarch64.AppImage
+          chmod +x appimagetool-aarch64.AppImage
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          ARCH=aarch64 ./appimagetool-aarch64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-aarch64.AppImage"
+          rm -rf "$APPDIR"
+
+      - name: Build Linux tarball
+        run: |
+          BUNDLE=build/linux/arm64/release/bundle
+          PKG="Sena-Repo_Linux_${VERSION}-aarch64"
+          rm -rf "$PKG"
+          mkdir -p "$PKG"
+          cp -a "$BUNDLE"/. "$PKG"/
+          tar -czf "dist/${PKG}.tar.gz" "$PKG"
+          rm -rf "$PKG"
+
+      - name: Build DEB and RPM packages
+        run: |
+          set -euo pipefail
+          BUNDLE=build/linux/arm64/release/bundle
+          STAGE="package-root"
+          APP_DIR="$STAGE/opt/sena-repo"
+          DESKTOP_DIR="$STAGE/usr/share/applications"
+          ICON_DIR="$STAGE/usr/share/icons/hicolor/256x256/apps"
+          rm -rf "$STAGE"
+          mkdir -p "$APP_DIR" "$DESKTOP_DIR" "$ICON_DIR"
+          cp -a "$BUNDLE"/. "$APP_DIR"/
+          if [ -f assets/icon.png ]; then
+            convert assets/icon.png -resize 256x256 "$ICON_DIR/sena-repo.png"
+          else
+            convert -size 256x256 xc:'#7C3AED' -fill white -pointsize 120 -gravity center -annotate 0 "S" "$ICON_DIR/sena-repo.png"
+          fi
+          cat > "$DESKTOP_DIR/senarepo.sena_repo.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Sena Repo
+          Comment=GalGame Private Library Manager
+          Exec=/opt/sena-repo/sena_repo
+          Icon=sena-repo
+          Type=Application
+          Categories=Game;Utility;
+          StartupWMClass=sena_repo
+          DESKTOP
+          DEB_VERSION="0.0.0+${VERSION//-/.}"
+          RPM_RELEASE="0.${VERSION//[^A-Za-z0-9_+.]/.}"
+          fpm -s dir -t deb -n sena-repo -v "$DEB_VERSION" \
+            --architecture arm64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends libgtk-3-0 --depends libayatana-appindicator3-1 --depends libsecret-1-0 \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_arm64.deb" .
+          fpm -s dir -t rpm -n sena-repo -v "0.0.0" --iteration "$RPM_RELEASE" \
+            --architecture aarch64 \
+            --description "Sena Repo client" \
+            --url "https://github.com/404-GCross/Sena-Repo" \
+            --maintainer "Sena Repo" \
+            --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_aarch64.rpm" .
+
+      - name: Upload Linux ARM64 packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sena-Repo_Linux_arm64
+          path: client/dist/Sena-Repo_Linux_*
 
   # ── Docker Server Image ──────────────────────────
   build-server:
+    needs: [server-checks, flutter-analyze]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: .
@@ -345,8 +662,9 @@ jobs:
 
       - name: Resolve version
         run: |
-          V="test"
+          V="dev-${GITHUB_SHA::7}"
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "DOCKER_TAG=dev" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -364,6 +682,30 @@ jobs:
           docker buildx build --platform linux/arm64 -t sena-repo:arm64 server/ --build-arg SENA_VERSION=${VERSION} --load
           docker save sena-repo:arm64 | gzip > "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
 
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to registries (multi-arch)
+        if: github.event_name != 'pull_request'
+        run: |
+          DOCKERHUB_NAMESPACE=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/404-gcross/sena-repo:${DOCKER_TAG} \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${DOCKER_TAG} \
+            server/ --build-arg SENA_VERSION=${VERSION} --push
+
       - name: Upload Server Image (AMD64)
         uses: actions/upload-artifact@v4
         with:
@@ -375,3 +717,151 @@ jobs:
         with:
           name: Sena-Repo_Server_arm64
           path: Sena-Repo_Server_arm64_*.tar.gz
+
+  # ── Publish Dev Pre-Release ─────────────────────
+  publish-dev-pre-release:
+    if: github.event_name != 'pull_request'
+    needs: [build-android, build-windows, build-linux, build-server]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: meta
+        working-directory: .
+        run: |
+          echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "tag=dev-release" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release files
+        working-directory: .
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          rm -rf release
+          mkdir -p release
+
+          require_one() {
+            local label="$1"
+            local pattern="$2"
+            local matches=()
+            mapfile -d '' matches < <(find dist -type f -name "$pattern" -print0)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one ${label} artifact matching ${pattern}, found ${#matches[@]}."
+              find dist -type f | sort
+              exit 1
+            fi
+            if [ ! -s "${matches[0]}" ]; then
+              echo "::error::Artifact ${matches[0]} is empty."
+              exit 1
+            fi
+            cp "${matches[0]}" release/
+          }
+
+          require_one "Android APK" "Sena-Repo_Android_${VERSION}.apk"
+          require_one "Windows portable zip" "Sena-Repo_Windows_${VERSION}.zip"
+          require_one "Windows installer" "Sena-Repo_Windows_${VERSION}_Setup.exe"
+          require_one "Linux AppImage" "Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
+          require_one "Linux tarball" "Sena-Repo_Linux_${VERSION}-x86_64.tar.gz"
+          require_one "Linux DEB package" "Sena-Repo_Linux_${VERSION}_amd64.deb"
+          require_one "Linux RPM package" "Sena-Repo_Linux_${VERSION}_x86_64.rpm"
+          require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
+          require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
+
+          find release -maxdepth 1 -type f -printf '%f\n' | sort
+
+      - name: Generate pre-release notes
+        working-directory: .
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          NOTES_SOURCE=".github/dev-pre-release-notes.md"
+          git fetch --tags --force --prune
+
+          PREV_DEV_SHA="$(git rev-parse --verify "refs/tags/${{ steps.meta.outputs.tag }}^{commit}" 2>/dev/null || true)"
+          RELEASE_RANGE=""
+          RELEASE_TITLE="最近更新"
+          if [ -n "$PREV_DEV_SHA" ] && [ "$PREV_DEV_SHA" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$PREV_DEV_SHA" "$GITHUB_SHA"; then
+            RELEASE_RANGE="$PREV_DEV_SHA..$GITHUB_SHA"
+            RELEASE_TITLE="本次更新 (${PREV_DEV_SHA:0:7} -> ${{ steps.meta.outputs.commit }})"
+          fi
+
+          RELEASE_NOTES_TITLE="$RELEASE_TITLE" \
+            RELEASE_NOTES_RANGE="$RELEASE_RANGE" \
+            RELEASE_NOTES_LIMIT="20" \
+            RELEASE_NOTES_MANUAL_SOURCE="$NOTES_SOURCE" \
+            RELEASE_NOTES_MANUAL_TITLE="手动说明" \
+            bash .github/scripts/generate_release_notes.sh
+
+          {
+            printf '> [!CAUTION]\n'
+            printf '>\n'
+            printf '> **Pre-Release 自动测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n'
+            printf '## 版本信息\n\n'
+            printf -- '- 版本号: `%s`\n' "${{ steps.meta.outputs.version }}"
+            printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
+            printf -- '- 提交: [`%s`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n' "${{ steps.meta.outputs.commit }}"
+            printf -- '- 构建时间: %s\n\n' "$BUILD_TIME"
+            cat release_notes_auto.md
+            printf '\n'
+            printf '## 下载说明\n\n'
+            printf '| 文件 | 平台/用途 | 说明 |\n'
+            printf '|------|-----------|------|\n'
+            printf '| `Sena-Repo_Android_%s.apk` | Android | Android 客户端安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Windows_%s_Setup.exe` | Windows | Windows 安装版 |\n' "$VERSION"
+            printf '| `Sena-Repo_Windows_%s.zip` | Windows | Windows 便携版，解压即用 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s-x86_64.AppImage` | Linux | Linux AppImage 客户端 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s-x86_64.tar.gz` | Linux | Linux 通用压缩包，解压运行 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_amd64.deb` | Linux Debian/Ubuntu | DEB 安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_x86_64.rpm` | Linux Fedora/RHEL/openSUSE | RPM 安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Server_amd64_%s.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
+            printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
+          } > release_notes.md
+
+      - name: Move dev pre-release tag
+        working-directory: .
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -f "${{ steps.meta.outputs.tag }}"
+          git push -f origin "${{ steps.meta.outputs.tag }}"
+
+      - name: Delete existing dev pre-release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          release_id="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId --jq '.databaseId' 2>/dev/null || true)"
+          if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
+            echo "No existing release for ${TAG}; nothing to delete."
+            exit 0
+          fi
+
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          echo "Deleted existing release object for ${TAG}; tag remains and will be republished."
+
+      - name: Create Pre-Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: 开发版 - ${{ steps.meta.outputs.version }}
+          prerelease: true
+          body_path: release_notes.md
+          files: release/*
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

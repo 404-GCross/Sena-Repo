@@ -30,5 +30,6 @@ class SteamPatchRoot(Base):
     source_type = Column(String(32), nullable=False, default="local")
     source_id = Column(Integer, nullable=True)
     source_name = Column(String(255), nullable=True)
+    analysis_mode = Column(String(32), nullable=False, default="auto")
     path = Column(String(1024), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

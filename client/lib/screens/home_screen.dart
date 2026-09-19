@@ -14,14 +14,16 @@ import "../providers/theme_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/download_service.dart";
+import "../widgets/app_shell.dart";
 import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
+import "../widgets/new_game_dialog.dart";
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
 import "settings_screen.dart";
-import "package:http/http.dart" as http;
+import "../services/logged_http.dart" as http;
 import "dart:convert";
 import "download_manager_screen.dart";
 import "notification_screen.dart";
@@ -42,20 +44,50 @@ class _HomeScreenState extends State<HomeScreen> {
   final _selectedIds = <int>{};
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
+  bool _toolbarVisible = true;
+  double _lastLibraryScrollOffset = 0;
   int _downloadCount = 0;
   StreamSubscription? _downloadSub;
 
-  bool _isWide(BuildContext ctx) => !Platform.isAndroid || MediaQuery.of(ctx).size.shortestSide > 600;
-  bool _isMobile(BuildContext ctx) => Platform.isAndroid && MediaQuery.of(ctx).size.shortestSide <= 600;
+  bool get _isHandheldPlatform => Platform.isAndroid || Platform.isIOS;
+
+  bool _isWide(BuildContext ctx) =>
+      !_isHandheldPlatform || MediaQuery.of(ctx).size.shortestSide > 600;
+  bool _isMobile(BuildContext ctx) =>
+      _isHandheldPlatform && MediaQuery.of(ctx).size.shortestSide <= 600;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleLibraryScroll);
     _pollBackground();
     _downloadSub = DownloadService().tasks.listen((tasks) {
-      final count = tasks.where((t) => t.status == "downloading" || t.status == "pending" || t.status == "paused" || t.status == "extracting" || t.status == "retrying").length;
-      if (mounted && count != _downloadCount) setState(() => _downloadCount = count);
+      final count = tasks
+          .where((t) =>
+              t.status == "downloading" ||
+              t.status == "pending" ||
+              t.status == "paused" ||
+              t.status == "extracting" ||
+              t.status == "retrying")
+          .length;
+      if (mounted && count != _downloadCount)
+        setState(() => _downloadCount = count);
     });
+  }
+
+  void _handleLibraryScroll() {
+    if (!mounted || !_scrollController.hasClients) {
+      return;
+    }
+    final offset = _scrollController.offset;
+    final delta = offset - _lastLibraryScrollOffset;
+    if (delta.abs() < 4) return;
+    _lastLibraryScrollOffset = offset;
+
+    final visible = offset <= 8 || delta < 0;
+    if (visible != _toolbarVisible) {
+      setState(() => _toolbarVisible = visible);
+    }
   }
 
   void _pollBackground() {
@@ -68,15 +100,18 @@ class _HomeScreenState extends State<HomeScreen> {
         final api = context.read<GameProvider>().api;
         final base = api.baseUrl;
         final hdrs = api.headers;
-        final jResp = await http.get(Uri.parse("$base/api/scrape/jobs"), headers: hdrs);
+        final jResp =
+            await http.get(Uri.parse("$base/api/scrape/jobs"), headers: hdrs);
         if (mounted && jResp.statusCode == 200) {
           final jobs = jsonDecode(jResp.body) as List;
-          final running = jobs.cast<Map>().where((j) => j["status"] == "running").toList();
+          final running =
+              jobs.cast<Map>().where((j) => j["status"] == "running").toList();
           if (running.isNotEmpty) {
             final j = running.first;
             final total = (j["total_games"] as int?) ?? 1;
             final done = (j["completed_games"] as int?) ?? 0;
-            setState(() => _scrapeProgress = total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0);
+            setState(() => _scrapeProgress =
+                total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0);
           } else {
             setState(() => _scrapeProgress = -1);
           }
@@ -89,182 +124,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _refreshUnreadCount() async {
     try {
       final api = context.read<GameProvider>().api;
-      final r = await http.get(Uri.parse("${api.baseUrl}/api/auth/notifications/unread-count"), headers: api.headers);
+      final r = await http.get(
+          Uri.parse("${api.baseUrl}/api/auth/notifications/unread-count"),
+          headers: api.headers);
       if (r.statusCode == 200 && mounted) {
-        setState(() => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
+        setState(
+            () => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
       }
     } catch (_) {}
   }
 
   Widget _buildGameLibrary(GameProvider gameProvider) {
+    final mobile = _isMobile(context);
     return Column(
       children: [
-        // ── Search bar ──
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: SizedBox(
-            height: 44,
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: "搜索游戏...",
-                hintStyle: TextStyle(color: hintColor(context), fontSize: 14),
-                prefixIcon: Icon(Icons.search, color: hintColor(context), size: 22),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 20),
-                        onPressed: () {
-                          _searchController.clear();
-                          gameProvider.search("");
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)),
-                ),
-              ),
-              style: const TextStyle(fontSize: 14),
-              onChanged: (v) => gameProvider.search(v),
-            ),
-          ),
-        ),
-        // ── Filter/Sort bar ──
-        if (!gameProvider.isLoading)
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text("${gameProvider.games.length} 款游戏",
-                      style: AppText.label.copyWith( fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary)),
-                ),
-                const Spacer(),
-                // Action buttons moved from sidebar
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  onPressed: gameProvider.loadGames,
-                  tooltip: "刷新",
-                  visualDensity: VisualDensity.compact,
-                ),
-                IconButton(
-                  icon: Icon(_isGridView ? Icons.list : Icons.grid_view, size: 20),
-                  onPressed: () => setState(() => _isGridView = !_isGridView),
-                  tooltip: _isGridView ? "列表视图" : "网格视图",
-                  visualDensity: VisualDensity.compact,
-                ),
-                IconButton(
-                  icon: Icon(_multiSelect ? Icons.check_box : Icons.check_box_outline_blank, size: 20),
-                  onPressed: _toggleMultiSelect,
-                  tooltip: "多选",
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(width: 4),
-                if (gameProvider.filterPlatform != null || gameProvider.filterHasCover != null || gameProvider.sortBy != null)
-                  GestureDetector(
-                    onTap: () => gameProvider.clearFilters(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.close, size: 14, color: Colors.red[300]),
-                        const SizedBox(width: 4),
-                        Text("清除", style: AppText.caption.copyWith( color: Colors.red[300])),
-                      ]),
-                    ),
-                  ),
-              ]),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(children: [
-                _filterChip("PC", Icons.desktop_windows, gameProvider.filterPlatform == "PC",
-                    () => _togglePlatformFilter("PC")),
-                _filterChip("KRKR", Icons.android, gameProvider.filterPlatform == "KRKR",
-                    () => _togglePlatformFilter("KRKR")),
-                _filterChip("ONS", Icons.language, gameProvider.filterPlatform == "ONS",
-                    () => _togglePlatformFilter("ONS")),
-                _filterChip("Ty", Icons.phone_android, gameProvider.filterPlatform == "Ty",
-                    () => _togglePlatformFilter("Ty")),
-                _filterChip("直装", Icons.phone_iphone, gameProvider.filterPlatform == "直装",
-                    () => _togglePlatformFilter("直装")),
-                Container(width: 1, height: 18, color: cardBorder(context)),
-                const SizedBox(width: 6),
-                _filterChip("有封面", Icons.image, gameProvider.filterHasCover == true,
-                    () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == true ? null : true)),
-                _filterChip("缺封面", Icons.hide_image, gameProvider.filterHasCover == false,
-                    () => gameProvider.setFilters(hasCover: gameProvider.filterHasCover == false ? null : false)),
-                const SizedBox(width: 8),
-                PopupMenuButton<String>(
-                  offset: const Offset(0, 36),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  onSelected: (v) => gameProvider.setSort(v),
-                  itemBuilder: (_) => [
-                    _sortItem(null, "导入时间 ↓", Icons.schedule, gameProvider.sortBy == null),
-                    _sortItem("name", "名称 A → Z", Icons.sort_by_alpha, gameProvider.sortBy == "name"),
-                    _sortItem("name_desc", "名称 Z → A", Icons.text_rotation_none, gameProvider.sortBy == "name_desc"),
-                    _sortItem("developer", "会社 A → Z", Icons.business, gameProvider.sortBy == "developer"),
-                  ],
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: gameProvider.sortBy != null
-                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
-                          : cardBg(context),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: gameProvider.sortBy != null
-                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
-                          : cardBorder(context)),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.sort, size: 16, color: gameProvider.sortBy != null
-                          ? Theme.of(context).colorScheme.primary
-                          : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[600])),
-                      const SizedBox(width: 4),
-                      Text(_sortLabel(gameProvider.sortBy),
-                          style: AppText.label.copyWith( fontWeight: FontWeight.w500,
-                              color: gameProvider.sortBy != null
-                                  ? Theme.of(context).colorScheme.primary
-                                  : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[700]))),
-                      const SizedBox(width: 2),
-                      Icon(Icons.arrow_drop_down, size: 18, color: gameProvider.sortBy != null
-                          ? Theme.of(context).colorScheme.primary
-                          : (Theme.of(context).brightness == Brightness.dark ? Colors.grey[500] : Colors.grey[600])),
-                    ]),
-                  ),
-                ),
-                if (gameProvider.sortBy != null) const SizedBox(width: 4),
-              ])),
-            ]),
-          ),
+        _buildLibraryToolbar(gameProvider, inlineSearch: !mobile),
         Expanded(
           child: gameProvider.isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -303,43 +177,461 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _addNewGame(BuildContext ctx, GameProvider provider) async {
-    final nameCtrl = TextEditingController();
-    final folderCtrl = TextEditingController();
-    final result = await showDialog<bool>(
-      context: ctx, builder: (c) => AlertDialog(
-        title: const Text("新建条目"),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "游戏名"), autofocus: true),
-          const SizedBox(height: 8),
-          TextField(controller: folderCtrl, decoration: const InputDecoration(labelText: "路径（可选）")),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text("创建")),
-        ],
+  Widget _buildLibraryToolbar(GameProvider gameProvider,
+      {required bool inlineSearch}) {
+    final hasFilters = gameProvider.filterPlatform != null ||
+        gameProvider.filterHasCover != null ||
+        gameProvider.sortBy != null;
+    final cs = Theme.of(context).colorScheme;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      child: _toolbarVisible
+          ? Container(
+              height: inlineSearch ? 62 : 58,
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+              decoration: BoxDecoration(
+                color: cardBg(context).withValues(alpha: 0.96),
+                border: Border(
+                  bottom: BorderSide(
+                    color: cardBorder(context).withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  if (inlineSearch)
+                    Expanded(child: _inlineSearchField(gameProvider))
+                  else
+                    _mobileToolbarButton(
+                      icon: Icons.search_rounded,
+                      tooltip: "搜索",
+                      active: _searchController.text.trim().isNotEmpty,
+                      onPressed: () => _showMobileSearch(gameProvider),
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "${gameProvider.games.length} 款",
+                    style: AppText.label.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: subTextColor(context),
+                    ),
+                  ),
+                  if (inlineSearch)
+                    const SizedBox(width: 8)
+                  else
+                    const Spacer(),
+                  _mobileToolbarButton(
+                    icon: Icons.refresh_rounded,
+                    tooltip: "刷新",
+                    onPressed: gameProvider.loadGames,
+                  ),
+                  _mobileToolbarButton(
+                    icon: Icons.tune_rounded,
+                    tooltip: "筛选与显示方式",
+                    active: hasFilters,
+                    onPressed: () => _showLibraryFilters(gameProvider),
+                  ),
+                  _mobileToolbarButton(
+                    icon: _multiSelect
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    tooltip: "多选",
+                    active: _multiSelect,
+                    onPressed: _toggleMultiSelect,
+                  ),
+                  if (hasFilters)
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, size: 19, color: cs.error),
+                      tooltip: "清除筛选",
+                      visualDensity: VisualDensity.compact,
+                      onPressed: gameProvider.clearFilters,
+                    ),
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _inlineSearchField(GameProvider gameProvider) {
+    final radius = BorderRadius.circular(14);
+    final border = OutlineInputBorder(
+      borderRadius: radius,
+      borderSide: BorderSide(color: cardBorder(context)),
+    );
+    return SizedBox(
+      height: 40,
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: "搜索游戏、会社、补丁关键词...",
+          hintStyle: TextStyle(color: hintColor(context), fontSize: 13.5),
+          prefixIcon: Icon(Icons.search, color: hintColor(context), size: 20),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    gameProvider.search("");
+                    setState(() {});
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: cardBg(context).withValues(alpha: 0.84),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+          border: border,
+          enabledBorder: border,
+          focusedBorder: OutlineInputBorder(
+            borderRadius: radius,
+            borderSide: BorderSide(
+              color: Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+        style: const TextStyle(fontSize: 13.5),
+        onChanged: (value) {
+          gameProvider.search(value);
+          setState(() {});
+        },
       ),
     );
-    if (result == true) {
-      try {
-        await http.put(Uri.parse("${provider.api.baseUrl}/api/games/quick-create"),
-          headers: {"Content-Type": "application/json", ...provider.api.headers},
-          body: jsonEncode({"name": nameCtrl.text.trim()}),
-        );
-        await provider.loadGames();
-        if (ctx.mounted) showDialog(context: ctx, builder: (d) => AlertDialog(content: const Text("已创建"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
-      } catch (e) {
-        if (ctx.mounted) showDialog(context: ctx, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("创建失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
-      }
+  }
+
+  Widget _mobileToolbarButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    bool active = false,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return IconButton(
+      icon: Icon(
+        icon,
+        size: 20,
+        color: active ? cs.primary : hintColor(context),
+      ),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+    );
+  }
+
+  Future<void> _showMobileSearch(GameProvider gameProvider) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          child: Material(
+            color: cardBg(context),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: "搜索游戏、会社、补丁关键词...",
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded),
+                            onPressed: () {
+                              _searchController.clear();
+                              gameProvider.search("");
+                              setState(() {});
+                              setSheetState(() {});
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.72),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: (value) {
+                    gameProvider.search(value);
+                    setState(() {});
+                    setSheetState(() {});
+                  },
+                  onSubmitted: (_) => Navigator.pop(sheetContext),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLibraryFilters(GameProvider gameProvider) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 560),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          void refresh(VoidCallback action) {
+            action();
+            setSheetState(() {});
+          }
+
+          return Material(
+            color: cardBg(context),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(22)),
+            child: SafeArea(
+              top: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("显示方式",
+                        style: AppText.label
+                            .copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _viewModeChip(
+                            "网格",
+                            Icons.grid_view_rounded,
+                            _isGridView,
+                            () => refresh(
+                                () => setState(() => _isGridView = true)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _viewModeChip(
+                            "列表",
+                            Icons.view_list_rounded,
+                            !_isGridView,
+                            () => refresh(
+                                () => setState(() => _isGridView = false)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Divider(height: 1, color: cardBorder(context)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Text("筛选与排序", style: AppText.subtitle),
+                        const Spacer(),
+                        if (gameProvider.filterPlatform != null ||
+                            gameProvider.filterHasCover != null ||
+                            gameProvider.sortBy != null)
+                          TextButton(
+                            onPressed: () {
+                              gameProvider.clearFilters();
+                              setSheetState(() {});
+                            },
+                            child: const Text("清除"),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text("平台", style: AppText.label.copyWith(
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _filterChip(
+                          "PC",
+                          Icons.desktop_windows,
+                          gameProvider.filterPlatform == "PC",
+                          () => refresh(() => _togglePlatformFilter("PC")),
+                        ),
+                        _filterChip(
+                          "KRKR",
+                          Icons.android,
+                          gameProvider.filterPlatform == "KRKR",
+                          () => refresh(() => _togglePlatformFilter("KRKR")),
+                        ),
+                        _filterChip(
+                          "ONS",
+                          Icons.language,
+                          gameProvider.filterPlatform == "ONS",
+                          () => refresh(() => _togglePlatformFilter("ONS")),
+                        ),
+                        _filterChip(
+                          "Ty",
+                          Icons.phone_android,
+                          gameProvider.filterPlatform == "Ty",
+                          () => refresh(() => _togglePlatformFilter("Ty")),
+                        ),
+                        _filterChip(
+                          "直装",
+                          Icons.phone_iphone,
+                          gameProvider.filterPlatform == "直装",
+                          () => refresh(() => _togglePlatformFilter("直装")),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text("封面", style: AppText.label.copyWith(
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        _filterChip(
+                          "有封面",
+                          Icons.image_outlined,
+                          gameProvider.filterHasCover == true,
+                          () => refresh(() => gameProvider.setFilters(
+                              hasCover: gameProvider.filterHasCover == true
+                                  ? null
+                                  : true)),
+                        ),
+                        _filterChip(
+                          "缺封面",
+                          Icons.hide_image_outlined,
+                          gameProvider.filterHasCover == false,
+                          () => refresh(() => gameProvider.setFilters(
+                              hasCover: gameProvider.filterHasCover == false
+                                  ? null
+                                  : false)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text("排序", style: AppText.label.copyWith(
+                        fontWeight: FontWeight.w700)),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("导入时间 ↓"),
+                      value: "imported",
+                      groupValue: gameProvider.sortBy ?? "imported",
+                      onChanged: (_) => refresh(() => gameProvider.setSort(null)),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("名称 A → Z"),
+                      value: "name",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) => refresh(() => gameProvider.setSort("name")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("名称 Z → A"),
+                      value: "name_desc",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("name_desc")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("别名 A → Z"),
+                      value: "alias",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("alias")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("别名 Z → A"),
+                      value: "alias_desc",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("alias_desc")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("会社 A → Z"),
+                      value: "developer",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("developer")),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text("会社 Z → A"),
+                      value: "developer_desc",
+                      groupValue: gameProvider.sortBy,
+                      onChanged: (_) =>
+                          refresh(() => gameProvider.setSort("developer_desc")),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _addNewGame(BuildContext ctx, GameProvider provider) async {
+    final createdId = await showNewGameDialog(
+      ctx,
+      api: provider.api,
+      initialQuery: _searchController.text.trim(),
+    );
+    if (createdId == null) return;
+    await provider.loadGames();
+    if (ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(content: Text("条目已创建")),
+      );
     }
   }
 
   Widget _sideBtn(IconData icon, String tooltip, VoidCallback onTap) {
-    return IconButton(icon: Icon(icon, size: 22), onPressed: onTap, tooltip: tooltip);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: IconButton.filledTonal(
+          icon: Icon(icon, size: 21), onPressed: onTap, tooltip: tooltip),
+    );
   }
 
-  Widget _navTab(IconData icon, IconData outlined, String label, int index) {
+  Widget _navTab(
+    IconData icon,
+    IconData outlined,
+    String label,
+    int index, {
+    Widget Function(Color? color)? selectedIconBuilder,
+    Widget Function(Color? color)? iconBuilder,
+  }) {
     final selected = _currentTab == index;
+    final cs = Theme.of(context).colorScheme;
+    final iconColor = selected ? Colors.white : hintColor(context);
+    final tabIcon = selected
+        ? selectedIconBuilder?.call(iconColor) ??
+            Icon(icon, size: 22, color: iconColor)
+        : iconBuilder?.call(iconColor) ??
+            Icon(outlined, size: 22, color: iconColor);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
@@ -349,16 +641,29 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: 56, height: 48,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          width: 56,
+          height: 48,
           decoration: BoxDecoration(
-            color: selected ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            color: selected ? cs.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: cs.primary.withValues(alpha: 0.24),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    )
+                  ]
+                : null,
           ),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(selected ? icon : outlined, size: 22,
-                color: selected ? Theme.of(context).colorScheme.primary : null),
-            Text(label, style: AppText.tabLabel.copyWith( color: selected ? Theme.of(context).colorScheme.primary : null)),
+            tabIcon,
+            Text(label,
+                style: AppText.tabLabel.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : hintColor(context))),
           ]),
         ),
       ),
@@ -396,83 +701,208 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchDelete() async {
-    final confirmed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: const Text("批量删除"),
-      content: Text("确定删除 ${_selectedIds.length} 个游戏？不会删除本地文件。"),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("取消")),
-        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text("删除", style: TextStyle(color: Colors.red))),
-      ],
-    ));
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+              title: const Text("批量删除"),
+              content: Text("确定删除 ${_selectedIds.length} 个游戏？不会删除本地文件。"),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(c, false),
+                    child: const Text("取消")),
+                TextButton(
+                    onPressed: () => Navigator.pop(c, true),
+                    child:
+                        const Text("删除", style: TextStyle(color: Colors.red))),
+              ],
+            ));
     if (confirmed != true || !mounted) return;
     try {
       final api = context.read<GameProvider>().api;
-      final resp = await http.post(Uri.parse("${api.baseUrl}/api/games/batch-delete"),
+      final resp = await http.post(
+          Uri.parse("${api.baseUrl}/api/games/batch-delete"),
           headers: {"Content-Type": "application/json", ...api.headers},
           body: jsonEncode({"game_ids": _selectedIds.toList()}));
-      if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
+      if (resp.statusCode != 200)
+        throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       await context.read<GameProvider>().loadGames();
-      setState(() { _selectedIds.clear(); _multiSelect = false; });
+      setState(() {
+        _selectedIds.clear();
+        _multiSelect = false;
+      });
     } catch (e) {
-      if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("删除失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
+      if (mounted)
+        showDialog(
+            context: context,
+            builder: (d) => AlertDialog(
+                    title: const Text("错误"),
+                    content: Text("删除失败: $e"),
+                    actions: [
+                      FilledButton(
+                          onPressed: () => Navigator.pop(d),
+                          child: const Text("确定"))
+                    ]));
     }
   }
 
   Future<void> _batchScrape() async {
-    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (ctx) {
-      const allSrc = ["vndb_kana", "bangumi", "steam", "ymgal"];
-      final sel = Set<String>.from(allSrc);
-      String mode = "missing";
-      return StatefulBuilder(builder: (ctx, setD) => AlertDialog(
-        title: const Text("批量刮削"),
-        content: SizedBox(width: 320, child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("刮削源", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700])),
-            const SizedBox(height: 4),
-            for (final s in allSrc)
-              CheckboxListTile(title: Text(_srcLabel(s)), value: sel.contains(s), onChanged: (v) { setD(() => v == true ? sel.add(s) : sel.remove(s)); }, dense: true),
-            const SizedBox(height: 12),
-            Text("刮削模式", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700])),
-            RadioListTile<String>(title: const Text("填充缺失数据"), subtitle: const Text("仅刮削封面/元数据为空的游戏", style: TextStyle(fontSize: 12)), value: "missing", groupValue: mode, onChanged: (v) => setD(() => mode = v!), dense: true),
-            RadioListTile<String>(title: const Text("覆盖已有数据"), subtitle: const Text("重新刮削所有字段，覆盖已有值", style: TextStyle(fontSize: 12)), value: "overwrite", groupValue: mode, onChanged: (v) => setD(() => mode = v!), dense: true),
-          ]),
-        )),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(onPressed: () => Navigator.pop(ctx, {"sources": sel.toList(), "mode": mode}), child: const Text("开始刮削")),
-        ],
-      ));
-    });
+    const allSrc = [
+      "hikarinagi",
+      "vndb_kana",
+      "bangumi",
+      "steam",
+      "nextmoe",
+    ];
+    final api = context.read<GameProvider>().api;
+    // The scraper mode lives in the server settings (NextMoe is exclusive);
+    // fall back to the classic set when the server cannot be reached.
+    final enabled = await api.getEnabledScraperSources();
+    if (!mounted) return;
+    final defaultSources = enabled.isEmpty
+        ? allSrc.where((source) => source != "nextmoe").toSet()
+        : enabled.toSet();
+    if (defaultSources.contains("nextmoe") && defaultSources.length > 1) {
+      defaultSources.retainAll({"nextmoe"});
+    }
+    if (defaultSources.isEmpty) defaultSources.add("vndb_kana");
+
+    final result = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (ctx) {
+          final sel = Set<String>.from(defaultSources);
+          String mode = "missing";
+          return StatefulBuilder(
+              builder: (ctx, setD) => AlertDialog(
+                    title: const Text("批量刮削"),
+                    content: SizedBox(
+                        width: 320,
+                        child: SingleChildScrollView(
+                          child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("刮削源",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                        color: Colors.grey[700])),
+                                const SizedBox(height: 4),
+                                for (final s in allSrc)
+                                  CheckboxListTile(
+                                      title: Text(_srcLabel(s)),
+                                      subtitle: s == "nextmoe"
+                                          ? const Text(
+                                              "独立模式，不能与其他源同时使用",
+                                              style: TextStyle(fontSize: 11))
+                                          : null,
+                                      value: sel.contains(s),
+                                      onChanged: _scrapeSourceLocked(s, sel)
+                                          ? null
+                                          : (v) {
+                                              setD(() => v == true
+                                                  ? sel.add(s)
+                                                  : sel.remove(s));
+                                            },
+                                      dense: true),
+                                const SizedBox(height: 12),
+                                Text("刮削模式",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                        color: Colors.grey[700])),
+                                RadioListTile<String>(
+                                    title: const Text("填充缺失数据"),
+                                    subtitle: const Text("仅刮削封面/元数据为空的游戏",
+                                        style: TextStyle(fontSize: 12)),
+                                    value: "missing",
+                                    groupValue: mode,
+                                    onChanged: (v) => setD(() => mode = v!),
+                                    dense: true),
+                                RadioListTile<String>(
+                                    title: const Text("覆盖已有数据"),
+                                    subtitle: const Text("重新刮削所有字段，覆盖已有值",
+                                        style: TextStyle(fontSize: 12)),
+                                    value: "overwrite",
+                                    groupValue: mode,
+                                    onChanged: (v) => setD(() => mode = v!),
+                                    dense: true),
+                              ]),
+                        )),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text("取消")),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(
+                              ctx, {"sources": sel.toList(), "mode": mode}),
+                          child: const Text("开始刮削")),
+                    ],
+                  ));
+        });
     if (result == null) return;
     final sources = (result["sources"] as List?)?.cast<String>() ?? [];
     if (sources.isEmpty) return;
     final mode = (result["mode"] as String?) ?? "missing";
 
     try {
-      final api = context.read<GameProvider>().api;
       final resp = await http.post(Uri.parse("${api.baseUrl}/api/scrape/batch"),
           headers: {"Content-Type": "application/json", ...api.headers},
-          body: jsonEncode({"game_ids": _selectedIds.toList(), "sources": sources, "mode": mode}));
+          body: jsonEncode({
+            "game_ids": _selectedIds.toList(),
+            "sources": sources,
+            "mode": mode
+          }));
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       }
       final count = _selectedIds.length;
-      setState(() { _selectedIds.clear(); _multiSelect = false; });
+      setState(() {
+        _selectedIds.clear();
+        _multiSelect = false;
+      });
       if (mounted) {
-        showDialog(context: context, builder: (c) => AlertDialog(
-          title: const Text("批量刮削"), content: Text("已触发 $count 个游戏的刮削任务"),
-          actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text("确定"))],
-        ));
+        showDialog(
+            context: context,
+            builder: (c) => AlertDialog(
+                  title: const Text("批量刮削"),
+                  content: Text("已触发 $count 个游戏的刮削任务"),
+                  actions: [
+                    FilledButton(
+                        onPressed: () => Navigator.pop(c),
+                        child: const Text("确定"))
+                  ],
+                ));
       }
     } catch (e) {
-      if (mounted) showDialog(context: context, builder: (d) => AlertDialog(title: const Text("错误"), content: Text("刮削失败: $e"), actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text("确定"))]));
+      if (mounted)
+        showDialog(
+            context: context,
+            builder: (d) => AlertDialog(
+                    title: const Text("错误"),
+                    content: Text("刮削失败: $e"),
+                    actions: [
+                      FilledButton(
+                          onPressed: () => Navigator.pop(d),
+                          child: const Text("确定"))
+                    ]));
     }
   }
 
+  bool _scrapeSourceLocked(String source, Set<String> selected) {
+    if (source == "nextmoe") {
+      return selected.any((other) => other != "nextmoe");
+    }
+    return selected.contains("nextmoe");
+  }
+
   String _srcLabel(String s) => switch (s) {
-    "vndb_kana" => "VNDB Kana v2", "bangumi" => "Bangumi", "steam" => "Steam",
-    "ymgal" => "月幕 GalGame", _ => s,
-  };
+        "vndb_kana" => "VNDB",
+        "bangumi" => "Bangumi",
+        "steam" => "Steam",
+        "hikarinagi" => "Hikarinagi",
+        "nextmoe" => "NextMoe",
+        _ => s,
+      };
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {
     if (_multiSelect && _selectedIds.isNotEmpty) {
@@ -494,14 +924,19 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _batchScrape,
             icon: const Icon(Icons.image_search, size: 18),
             label: const Text("刮削"),
-            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
+            style: FilledButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
           ),
           const SizedBox(width: 8),
           FilledButton.tonalIcon(
             onPressed: _batchDelete,
             icon: const Icon(Icons.delete_outline, size: 18),
             label: const Text("删除"),
-            style: FilledButton.styleFrom(foregroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
+            style: FilledButton.styleFrom(
+                foregroundColor: Colors.red,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
           ),
         ]),
       );
@@ -514,10 +949,19 @@ class _HomeScreenState extends State<HomeScreen> {
         if (i == 0) context.read<GameProvider>().refreshGames();
       },
       destinations: [
-        const NavigationDestination(icon: Icon(Icons.gamepad_outlined), selectedIcon: Icon(Icons.gamepad), label: "游戏库"),
+        const NavigationDestination(
+            icon: Icon(Icons.gamepad_outlined),
+            selectedIcon: Icon(Icons.gamepad),
+            label: "游戏库"),
         if (showSteam)
-          const NavigationDestination(icon: Icon(FontAwesomeIcons.steam), selectedIcon: Icon(FontAwesomeIcons.steam), label: "Steam补丁"),
-        const NavigationDestination(icon: Icon(Icons.person_outlined), selectedIcon: Icon(Icons.person), label: "我的"),
+          const NavigationDestination(
+              icon: FaIcon(FontAwesomeIcons.steam),
+              selectedIcon: FaIcon(FontAwesomeIcons.steam),
+              label: "Steam补丁"),
+        const NavigationDestination(
+            icon: Icon(Icons.person_outlined),
+            selectedIcon: Icon(Icons.person),
+            label: "我的"),
       ],
     );
   }
@@ -525,77 +969,90 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _downloadSub?.cancel();
+    _scrollController.removeListener(_handleLibraryScroll);
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _batchClearSelection() {
-    setState(() { _selectedIds.clear(); _multiSelect = false; });
-  }
-
-  String _sortLabel(String? sortBy) {
-    switch (sortBy) {
-      case "name": return "名称 A-Z";
-      case "name_desc": return "名称 Z-A";
-      case "developer": return "会社 A-Z";
-      default: return "排序";
-    }
-  }
-
-  PopupMenuItem<String> _sortItem(String? value, String label, IconData icon, bool active) {
-    return PopupMenuItem<String>(
-      value: value,
-      child: Row(children: [
-        Icon(icon, size: 18, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[400]),
-        const SizedBox(width: 10),
-        Text(label, style: AppText.bodySmall.copyWith(
-          fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-          color: active ? Theme.of(context).colorScheme.primary : subTextColor(context)),
-        ),
-        if (active) ...[
-          const Spacer(),
-          Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary),
-        ],
-      ]),
-    );
+    setState(() {
+      _selectedIds.clear();
+      _multiSelect = false;
+    });
   }
 
   void _togglePlatformFilter(String platform) {
     final provider = context.read<GameProvider>();
-    provider.setFilters(platform: provider.filterPlatform == platform ? null : platform);
+    provider.setFilters(
+        platform: provider.filterPlatform == platform ? null : platform);
   }
 
-  Widget _filterChip(String label, IconData? icon, bool active, VoidCallback onTap) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Widget _filterChip(
+      String label, IconData? icon, bool active, VoidCallback onTap) {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: GestureDetector(
         onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: active
-                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
-                : (isDark ? cardBg(context) : Colors.black.withValues(alpha: 0.04)),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: active
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                  : (isDark ? cardBorder(context) : Colors.black.withValues(alpha: 0.08)),
-            ),
-          ),
+        child: _filterChipShell(
+          active: active,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             if (icon != null) ...[
-              Icon(icon, size: 14, color: active ? Theme.of(context).colorScheme.primary : Colors.grey[600]),
+              Icon(icon, size: 14),
               const SizedBox(width: 4),
             ],
-            Text(label, style: AppText.caption.copyWith(
-              fontWeight: FontWeight.w500,
-              color: active ? Theme.of(context).colorScheme.primary : (isDark ? Colors.grey[400] : Colors.grey[600]),
-            )),
+            Text(label,
+                style: AppText.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                )),
           ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _viewModeChip(
+      String label, IconData icon, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: _filterChipShell(
+        active: active,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15),
+            const SizedBox(width: 6),
+            Text(label,
+                style: AppText.caption.copyWith(fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChipShell({required bool active, required Widget child}) {
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: active
+            ? cs.primary.withValues(alpha: 0.15)
+            : cardBg(context).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color:
+              active ? cs.primary.withValues(alpha: 0.34) : cardBorder(context),
+        ),
+      ),
+      child: IconTheme.merge(
+        data: IconThemeData(
+          color: active ? cs.primary : hintColor(context),
+          size: 16,
+        ),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(color: active ? cs.primary : hintColor(context)),
+          child: child,
         ),
       ),
     );
@@ -606,7 +1063,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final gameProvider = context.watch<GameProvider>();
     final theme = context.watch<ThemeProvider>();
     final wide = _isWide(context);
-    final showSteam = !Platform.isAndroid; // Steam patch is PC-only
+    final showSteam = !Platform.isAndroid && !Platform.isIOS; // Steam patch is PC-only
     final cs = Theme.of(context).colorScheme;
 
     // Build page list and nav destinations dynamically
@@ -616,15 +1073,18 @@ class _HomeScreenState extends State<HomeScreen> {
       const ProfileScreen(),
     ];
 
-    return Stack(
-      children: [
+    return AppBackdrop(
+      child: Stack(children: [
         // Background image (desktop only — covered by opaque widgets on mobile)
-        if (wide && theme.backgroundUrl != null && theme.backgroundUrl!.isNotEmpty)
+        if (wide &&
+            theme.backgroundUrl != null &&
+            theme.backgroundUrl!.isNotEmpty)
           Positioned.fill(
             child: Opacity(
               opacity: 0.2,
               child: theme.backgroundUrl!.startsWith("file://")
-                  ? Image.file(File(theme.backgroundUrl!.replaceFirst("file://", "")),
+                  ? Image.file(
+                      File(theme.backgroundUrl!.replaceFirst("file://", "")),
                       fit: BoxFit.cover)
                   : Image.network(theme.backgroundUrl!,
                       fit: BoxFit.cover,
@@ -634,104 +1094,169 @@ class _HomeScreenState extends State<HomeScreen> {
         else if (theme.bgColor != null)
           Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
         Scaffold(
-      appBar: wide ? null : AppBar(
-        title: const Text("Sena Repo", style: TextStyle(fontSize: 18)),
-        centerTitle: true,
-        leading: IconButton(
-          icon: Badge(
-            isLabelVisible: _unreadCount > 0,
-            label: Text("$_unreadCount", style: const TextStyle(fontSize: 10)),
-            child: const Icon(Icons.notifications_outlined, size: 22),
-          ),
-          onPressed: () async {
-            await Navigator.push(context,
-                MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api, onChanged: _refreshUnreadCount)));
-            await _refreshUnreadCount();
-          },
-        ),
-        actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: _downloadCount > 0,
-              label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
-              child: const Icon(Icons.download_outlined, size: 22),
-            ),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
-            tooltip: "下载管理",
-          ),
-        ],
-      ),
-      body: Row(children: [
-        // ── Left Sidebar (desktop/wide only) ──
-        if (wide) ...[
-          Container(
-            width: 76,
-            decoration: BoxDecoration(
-              color: cs.surfaceContainerLow.withValues(alpha: 0.5),
-              border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5))),
-            ),
-            child: Column(children: [
-              const SizedBox(height: 16),
-              _sideBtn(Icons.notifications_outlined, "通知", () async {
-                await Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => NotificationScreen(api: gameProvider.api, onChanged: _refreshUnreadCount)));
-                await _refreshUnreadCount();
-              }),
-              IconButton(
-                icon: Badge(
-                  isLabelVisible: _downloadCount > 0,
-                  label: Text("$_downloadCount", style: const TextStyle(fontSize: 10)),
-                  child: const Icon(Icons.download_outlined, size: 22),
+          backgroundColor: Colors.transparent,
+          appBar: wide
+              ? null
+              : AppBar(
+                  title:
+                      const Text("Sena Repo", style: TextStyle(fontSize: 18)),
+                  centerTitle: true,
+                  leading: IconButton(
+                    icon: Badge(
+                      isLabelVisible: _unreadCount > 0,
+                      label: Text("$_unreadCount",
+                          style: const TextStyle(fontSize: 10)),
+                      child: const Icon(Icons.notifications_outlined, size: 22),
+                    ),
+                    onPressed: () async {
+                      await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => NotificationScreen(
+                                  api: gameProvider.api,
+                                  onChanged: _refreshUnreadCount)));
+                      await _refreshUnreadCount();
+                    },
+                  ),
+                  actions: [
+                    IconButton(
+                      icon: Badge(
+                        isLabelVisible: _downloadCount > 0,
+                        label: Text("$_downloadCount",
+                            style: const TextStyle(fontSize: 10)),
+                        child: const Icon(Icons.download_outlined, size: 22),
+                      ),
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const DownloadManagerScreen())),
+                      tooltip: "下载管理",
+                    ),
+                  ],
                 ),
-                onPressed: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const DownloadManagerScreen())),
-                tooltip: "下载管理",
+          body: Row(children: [
+            // ── Left Sidebar (desktop/wide only) ──
+            if (wide) ...[
+              Container(
+                width: 76,
+                decoration: BoxDecoration(
+                  color: cs.surface.withValues(alpha: 0.58),
+                  border: Border(
+                      right: BorderSide(
+                          color: cs.outlineVariant.withValues(alpha: 0.58))),
+                  boxShadow: [
+                    BoxShadow(
+                      color: softShadowColor(context),
+                      blurRadius: 18,
+                      offset: const Offset(8, 0),
+                    ),
+                  ],
+                ),
+                child: Column(children: [
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.asset(
+                      "assets/icon.png",
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _sideBtn(Icons.notifications_outlined, "通知", () async {
+                    await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => NotificationScreen(
+                                api: gameProvider.api,
+                                onChanged: _refreshUnreadCount)));
+                    await _refreshUnreadCount();
+                  }),
+                  IconButton(
+                    icon: Badge(
+                      isLabelVisible: _downloadCount > 0,
+                      label: Text("$_downloadCount",
+                          style: const TextStyle(fontSize: 10)),
+                      child: const Icon(Icons.download_outlined, size: 22),
+                    ),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const DownloadManagerScreen())),
+                    tooltip: "下载管理",
+                  ),
+                  const Spacer(),
+                  _navTab(
+                      Icons.gamepad_rounded, Icons.gamepad_outlined, "游戏库", 0),
+                  if (showSteam)
+                    _navTab(
+                      Icons.extension,
+                      Icons.extension_outlined,
+                      "Steam",
+                      1,
+                      selectedIconBuilder: (color) => FaIcon(
+                        FontAwesomeIcons.steam,
+                        size: 22,
+                        color: color,
+                      ),
+                      iconBuilder: (color) => FaIcon(
+                        FontAwesomeIcons.steam,
+                        size: 22,
+                        color: color,
+                      ),
+                    ),
+                  _navTab(Icons.person_rounded, Icons.person_outlined, "我的",
+                      showSteam ? 2 : 1),
+                  const Spacer(),
+                ]),
               ),
-              const Spacer(),
-              _navTab(Icons.gamepad_rounded, Icons.gamepad_outlined, "游戏库", 0),
-              if (showSteam) _navTab(FontAwesomeIcons.steam, FontAwesomeIcons.steam, "Steam", 1),
-              _navTab(Icons.person_rounded, Icons.person_outlined, "我的", showSteam ? 2 : 1),
-              const Spacer(),
-            ]),
-          ),
-        ],
-        // ── Content ──
-        Expanded(
-          child: Column(children: [
-            if (_scrapeProgress >= 0)
-              SizedBox(
-                height: 4,
-                child: LinearProgressIndicator(value: _scrapeProgress / 100.0, backgroundColor: Colors.white10),
-              ),
-            Expanded(child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, animation) => SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.04, 0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-                child: FadeTransition(opacity: animation, child: child),
-              ),
-              child: IndexedStack(index: _currentTab, children: pages),
-            )),
+            ],
+            // ── Content ──
+            Expanded(
+              child: Column(children: [
+                if (_scrapeProgress >= 0)
+                  SizedBox(
+                    height: 4,
+                    child: LinearProgressIndicator(
+                        value: _scrapeProgress / 100.0,
+                        backgroundColor: Colors.white10),
+                  ),
+                Expanded(
+                    child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, animation) => SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0.04, 0),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                        parent: animation, curve: Curves.easeOut)),
+                    child: FadeTransition(opacity: animation, child: child),
+                  ),
+                  child: IndexedStack(index: _currentTab, children: pages),
+                )),
+              ]),
+            ),
           ]),
+          floatingActionButton: _multiSelect
+              ? null
+              : AnimatedScale(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  scale: _currentTab == 0 ? 1.0 : 0.0,
+                  child: FloatingActionButton.extended(
+                    onPressed: _currentTab == 0
+                        ? () => _addNewGame(context, gameProvider)
+                        : null,
+                    icon: const Icon(Icons.add),
+                    label: const Text("新建条目"),
+                  ),
+                ),
+          bottomNavigationBar: _buildBottomBar(context, showSteam),
         ),
       ]),
-      floatingActionButton: _multiSelect ? null : AnimatedScale(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeInOut,
-        scale: _currentTab == 0 ? 1.0 : 0.0,
-        child: FloatingActionButton.extended(
-          onPressed: _currentTab == 0 ? () => _addNewGame(context, gameProvider) : null,
-          icon: const Icon(Icons.add), label: const Text("新建条目"),
-        ),
-      ),
-      bottomNavigationBar: _buildBottomBar(context, showSteam),
-      ),
-    ]);
+    );
   }
-
 }

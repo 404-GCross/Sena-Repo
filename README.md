@@ -77,12 +77,15 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 快速开始
 
-| 文档 | 说明 |
-|------|------|
-| **[服务端部署说明书](Documentation/zh-CN/server-guide.md)** | Docker 部署（GHCR / Tarball / 直接部署）、配置参考、游戏目录结构、Steam 补丁服务端配置 |
-| **[客户端使用说明书](Documentation/zh-CN/client-guide.md)** | 安装（Windows / Android / Linux）、首次设置、游戏库浏览、下载解压、Steam 补丁注入操作 |
+安装与使用教程已迁移至文档站：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
 
-附加文档：[技术文档](Documentation/zh-CN/technical.md) · [疑难杂症](Documentation/zh-CN/troubleshooting.md) · [功能测试表](Documentation/zh-CN/test-checklist.md)
+| 教程 | 内容 |
+|------|------|
+| **[快速开始](https://sena-repo.github.io/guide/quick-start)** | 文件来源选择 → 服务端部署 → 客户端初始化，最短路径 |
+| **[服务端部署](https://sena-repo.github.io/server/)** | Docker / Docker Compose / 裸机一键安装与完整参数 |
+| **[客户端使用](https://sena-repo.github.io/client/)** | Windows / Android / Linux 安装、首次设置与日常操作 |
+
+其他专题（Steam 补丁、元数据刮削、下载解压、疑难杂症、技术架构等）见 [文档站首页](https://sena-repo.github.io/)。
 
 ---
 
@@ -95,10 +98,10 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 ## 特别鸣谢
 
 本项目在开发过程中参考与学习了以下优秀开源项目（排名不分先后）：
-- [7-zip](https://www.7-zip.org)
 - [mcmilk/7-Zip-zstd](https://github.com/mcmilk/7-Zip-zstd)
 - [OpenListTeam/OpenList](https://github.com/OpenListTeam/OpenList)
 - [KunMoe/kun-galgame-forum](https://github.com/KunMoe/kun-galgame-forum)
+- [Ringyuki/shionlib](https://github.com/Ringyuki/shionlib)
 - [xm486/YukiHub](https://github.com/xm486/YukiHub)
 - [INK666/myGal](https://github.com/INK666/myGal)
 - [JosefNemec/Playnite](https://github.com/JosefNemec/Playnite)

@@ -127,14 +127,15 @@ Uint8List writeShortcutsVdf(List<VdfShortcut> entries) {
 }
 
 /// Calculate the Steam grid appid for non-Steam games.
-/// This is what Steam uses to name grid images in userdata/<id>/config/grid/
+/// Fallback only. The shortcut writer returns the current 32-bit appid used
+/// for grid images plus a separate 64-bit launch id for steam://rungameid.
 int gridAppId(String appname, String exe) {
-  // Steam formula: CRC32(appname + exe) | 0x80000000
+  // Steam shortcut hash input is quoted Exe followed by AppName.
   return _makeAppid(appname, exe);
 }
 
 int _makeAppid(String appname, String exe) {
-  final bytes = utf8.encode("$appname$exe");
+  final bytes = utf8.encode('"$exe"$appname');
   final crc = _crc32(Uint8List.fromList(bytes));
   return (crc | 0x80000000);
 }

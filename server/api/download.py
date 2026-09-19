@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
+import os
+import re
+import secrets
+import time
+from datetime import datetime
 from pathlib import Path
+from typing import Literal
+from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from api.auth import get_current_user
 from config import load_config
@@ -23,53 +36,958 @@ from services.file_source import adapter_from_source
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/download", tags=["download"])
+_OPENLIST_PROXY_LOCKS: dict[str, asyncio.Lock] = {}
+_OPENLIST_PROXY_SEMAPHORES: dict[str, asyncio.Semaphore] = {}
+_OPENLIST_PROXY_URL_CACHE: dict[str, tuple[str, float]] = {}
+_OPENLIST_PROXY_LOCKS_GUARD = asyncio.Lock()
+_OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS = 0.25
+_OPENLIST_PROXY_MAX_UPSTREAM_STREAMS = 2
+_OPENLIST_PROXY_SEGMENT_BYTES = 4 * 1024 * 1024
+_OPENLIST_PROXY_URL_CACHE_SECONDS = 5 * 60
+_OPENLIST_PROXY_RETRYABLE_STATUSES = {401, 403, 429, 500, 502, 503, 504}
+
+
+def _openlist_proxy_enabled() -> bool:
+    return os.environ.get("SENA_ALLOW_OPENLIST_PROXY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+SUPPORTED_MANAGER_ARCHIVE_FORMATS = {
+    "7z",
+    "zip",
+    "rar",
+    "tar",
+    "tar.gz",
+    "tar.bz2",
+    "tar.xz",
+    "tar.zst",
+}
+
+ARCHIVE_SUFFIX_ALIASES = {
+    "tgz": "tar.gz",
+    "tbz": "tar.bz2",
+    "tbz2": "tar.bz2",
+    "txz": "tar.xz",
+    "tzst": "tar.zst",
+}
+
+_SHA256_VALUE_RE = re.compile(
+    r"(?:sha[-_]?256)[^0-9a-f]{0,32}([0-9a-f]{64})",
+    re.IGNORECASE,
+)
+
+
+class ManagerInstallLinkRequest(BaseModel):
+    target: Literal["lunabox", "reinamanager"]
+
+
+class ManagerInstallLinkResponse(BaseModel):
+    target: str
+    install_url: str
+    expires_at: int
+    file_name: str
+    archive_format: str
+    size: int
+    checksum_algo: str | None = None
+    checksum: str | None = None
+
+
+class DownloadLinkResponse(BaseModel):
+    url: str
+    expires_at: int
+
+
+async def _get_game_and_version(
+    game_id: int,
+    version_id: int,
+    session: AsyncSession,
+) -> tuple[Game, GameVersion]:
+    result = await session.execute(
+        select(Game)
+        .options(joinedload(Game.company))
+        .where(Game.id == game_id, Game.is_deleted == False)
+    )
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    result = await session.execute(
+        select(GameVersion).where(
+            GameVersion.id == version_id,
+            GameVersion.game_id == game_id,
+        )
+    )
+    version = result.scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return game, version
+
+
+def _signature_secret() -> bytes:
+    configured = os.environ.get("SENA_MANAGER_SIGNING_KEY", "").strip()
+    if configured:
+        return configured.encode("utf-8")
+    config = load_config()
+    secret_path = Path(config.data_path) / ".manager_install_secret"
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+    if secret_path.is_file():
+        secret = secret_path.read_text(encoding="utf-8").strip()
+        if secret:
+            return secret.encode("utf-8")
+    secret = secrets.token_hex(32)
+    secret_path.write_text(secret, encoding="utf-8")
+    try:
+        secret_path.chmod(0o600)
+    except OSError:
+        pass
+    return secret.encode("utf-8")
+
+
+def _signature_payload(game_id: int, version_id: int, expires_at: int) -> bytes:
+    return f"{game_id}:{version_id}:{expires_at}".encode("utf-8")
+
+
+def _sign_download(game_id: int, version_id: int, expires_at: int) -> str:
+    return hmac.new(
+        _signature_secret(),
+        _signature_payload(game_id, version_id, expires_at),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _verify_download_signature(
+    game_id: int,
+    version_id: int,
+    expires_at: int,
+    signature: str,
+) -> bool:
+    if expires_at <= int(time.time()):
+        return False
+    expected = _sign_download(game_id, version_id, expires_at)
+    return hmac.compare_digest(expected, signature)
+
+
+def _download_ttl_seconds(file_size: int) -> int:
+    gib = 1024 * 1024 * 1024
+    if file_size > 20 * gib:
+        return 360 * 60
+    if file_size > 10 * gib:
+        return 240 * 60
+    return 120 * 60
+
+
+def patch_download_ttl(file_size: int) -> int:
+    """Steam patch archives are large and slow to fetch; keep links valid for a day."""
+    return max(_download_ttl_seconds(file_size), 24 * 60 * 60)
+
+
+def _patch_signature_payload(lookup_key: str, expires_at: int) -> bytes:
+    return f"patch:{lookup_key}:{expires_at}".encode("utf-8")
+
+
+def sign_patch_download(lookup_key: str, expires_at: int) -> str:
+    return hmac.new(
+        _signature_secret(),
+        _patch_signature_payload(lookup_key, expires_at),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_patch_download_signature(
+    lookup_key: str,
+    expires_at: int,
+    signature: str,
+) -> bool:
+    if expires_at <= int(time.time()):
+        return False
+    return hmac.compare_digest(sign_patch_download(lookup_key, expires_at), signature)
+
+
+def build_signed_patch_url(request: Request, lookup_key: str, expires_at: int) -> str:
+    base = str(request.url_for("download_signed_patch", lookup_key=lookup_key))
+    query = urlencode(
+        {
+            "expires_at": str(expires_at),
+            "signature": sign_patch_download(lookup_key, expires_at),
+        }
+    )
+    return f"{base}?{query}"
+
+
+def _archive_format(filename: str) -> str:
+    lower = filename.strip().lower()
+    for suffix in ("tar.gz", "tar.bz2", "tar.xz", "tar.zst"):
+        if lower.endswith(f".{suffix}"):
+            return suffix
+    ext = Path(lower).suffix.removeprefix(".")
+    return ARCHIVE_SUFFIX_ALIASES.get(ext, ext)
+
+
+def _valid_sha256(value: object) -> str | None:
+    checksum = str(value or "").strip().lower()
+    if len(checksum) == 64 and all(char in "0123456789abcdef" for char in checksum):
+        return checksum
+    return None
+
+
+def _normalized_hash_key(key: object) -> str:
+    return "".join(char for char in str(key).lower() if char.isalnum())
+
+
+def _extract_sha256_from_hash_container(value: object) -> str | None:
+    direct = _valid_sha256(value)
+    if direct:
+        return direct
+
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if _normalized_hash_key(key).endswith("sha256"):
+                checksum = _valid_sha256(nested)
+                if checksum:
+                    return checksum
+        return None
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            checksum = _extract_sha256_from_hash_container(parsed)
+            if checksum:
+                return checksum
+        match = _SHA256_VALUE_RE.search(text)
+        if match:
+            return match.group(1).lower()
+
+    return None
+
+
+def _extract_openlist_sha256(file_info: dict) -> str | None:
+    for key, value in file_info.items():
+        normalized = _normalized_hash_key(key)
+        if normalized.endswith("sha256"):
+            checksum = _valid_sha256(value)
+            if checksum:
+                return checksum
+        if normalized in {"hashinfo", "hash", "hashes"}:
+            checksum = _extract_sha256_from_hash_container(value)
+            if checksum:
+                return checksum
+    return None
+
+
+def _cached_version_sha256(version: GameVersion) -> str | None:
+    if (version.checksum_algo or "").lower() != "sha256":
+        return None
+    return _valid_sha256(version.checksum)
+
+
+async def _store_version_sha256(
+    version: GameVersion,
+    session: AsyncSession,
+    checksum: str,
+) -> None:
+    version.checksum_algo = "sha256"
+    version.checksum = checksum
+    version.checksum_updated_at = datetime.utcnow()
+    await session.commit()
+
+
+async def _openlist_adapter(version: GameVersion, session: AsyncSession):
+    result = await session.execute(
+        select(FileSource).where(FileSource.id == version.source_id)
+    )
+    source = result.scalar_one_or_none()
+    return adapter_from_source(source, "openlist")
+
+
+async def _openlist_download_url(version: GameVersion, session: AsyncSession) -> str:
+    adapter = await _openlist_adapter(version, session)
+    return await _openlist_download_url_from_adapter(adapter, version)
+
+
+async def _openlist_download_url_from_adapter(adapter, version: GameVersion) -> str:
+    return await asyncio.to_thread(
+        adapter.download_url,
+        version.source_path or version.file_path,
+    )
+
+
+async def _openlist_file_info(version: GameVersion, session: AsyncSession) -> dict:
+    adapter = await _openlist_adapter(version, session)
+    file_info = getattr(adapter, "file_info", None)
+    if file_info is None:
+        return {}
+    return await asyncio.to_thread(file_info, version.source_path or version.file_path)
+
+
+async def _openlist_metadata_sha256(
+    version: GameVersion,
+    session: AsyncSession,
+) -> str | None:
+    return _extract_openlist_sha256(await _openlist_file_info(version, session))
+
+
+async def _manager_install_checksum(
+    version: GameVersion,
+    session: AsyncSession,
+    target: str,
+) -> str | None:
+    checksum = _cached_version_sha256(version)
+    if checksum:
+        return checksum
+
+    source_type = version.source_type or "local"
+    if source_type == "openlist":
+        checksum = await _openlist_metadata_sha256(version, session)
+        if checksum:
+            await _store_version_sha256(version, session, checksum)
+            logger.info(
+                "Cached OpenList SHA256 from metadata for %s install vid=%s",
+                target,
+                version.id,
+            )
+            return checksum
+
+        logger.info(
+            "%s install link generated without OpenList SHA256 vid=%s",
+            target,
+            version.id,
+        )
+        return None
+
+    logger.info(
+        "%s install link generated without cached SHA256 vid=%s",
+        target,
+        version.id,
+    )
+    return None
+
+
+def _download_headers(filename: str) -> dict[str, str]:
+    return {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+    }
+
+
+def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
+    unit, _, value = range_header.partition("=")
+    if unit.strip().lower() != "bytes" or "," in value:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+
+    start_text, sep, end_text = value.strip().partition("-")
+    if sep != "-":
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+
+    try:
+        if start_text == "":
+            suffix_size = int(end_text)
+            if suffix_size <= 0:
+                raise ValueError
+            start = max(file_size - suffix_size, 0)
+            end = file_size - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else file_size - 1
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        ) from exc
+
+    if start < 0 or start >= file_size or end < start:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+    return start, min(end, file_size - 1)
+
+
+async def _iter_file_range(file_path: Path, start: int, end: int):
+    with file_path.open("rb") as handle:
+        handle.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            chunk = await asyncio.to_thread(handle.read, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+
+
+def _serve_local_file(request: Request, file_path: Path, filename: str):
+    range_header = request.headers.get("range")
+    file_size = file_path.stat().st_size
+    if range_header:
+        start, end = _parse_range_header(range_header, file_size)
+        headers = {
+            **_download_headers(filename),
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(end - start + 1),
+        }
+        return StreamingResponse(
+            _iter_file_range(file_path, start, end),
+            status_code=206,
+            media_type="application/octet-stream",
+            headers=headers,
+        )
+
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/octet-stream",
+        headers=_download_headers(filename),
+    )
+
+
+def _openlist_proxy_key(version: GameVersion) -> str:
+    return f"{version.source_id or 0}:{version.source_path or version.file_path}"
+
+
+async def _openlist_proxy_lock(version: GameVersion) -> asyncio.Lock:
+    key = _openlist_proxy_key(version)
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        lock = _OPENLIST_PROXY_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _OPENLIST_PROXY_LOCKS[key] = lock
+        return lock
+
+
+async def _openlist_proxy_semaphore(version: GameVersion) -> asyncio.Semaphore:
+    key = _openlist_proxy_key(version)
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        semaphore = _OPENLIST_PROXY_SEMAPHORES.get(key)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(_OPENLIST_PROXY_MAX_UPSTREAM_STREAMS)
+            _OPENLIST_PROXY_SEMAPHORES[key] = semaphore
+        return semaphore
+
+
+async def _cached_openlist_proxy_url(
+    adapter,
+    version: GameVersion,
+    *,
+    force_refresh: bool = False,
+) -> str:
+    key = _openlist_proxy_key(version)
+    now = time.monotonic()
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        cached = _OPENLIST_PROXY_URL_CACHE.get(key)
+        if cached and not force_refresh and cached[1] > now:
+            return cached[0]
+
+    raw_url = await _openlist_download_url_from_adapter(adapter, version)
+    async with _OPENLIST_PROXY_LOCKS_GUARD:
+        _OPENLIST_PROXY_URL_CACHE[key] = (
+            raw_url,
+            time.monotonic() + _OPENLIST_PROXY_URL_CACHE_SECONDS,
+        )
+    return raw_url
+
+
+async def _open_openlist_proxy_stream(
+    adapter,
+    version: GameVersion,
+    range_header: str | None,
+) -> tuple[httpx.AsyncClient, httpx.Response]:
+    headers = {"User-Agent": "Mozilla/5.0 Sena-Repo Manager Proxy"}
+    if range_header:
+        headers["Range"] = range_header
+    timeout = httpx.Timeout(None, connect=20.0)
+    last_error: Exception | None = None
+    force_refresh_url = False
+    for attempt in range(5):
+        client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
+        try:
+            raw_url = await _cached_openlist_proxy_url(
+                adapter,
+                version,
+                force_refresh=force_refresh_url,
+            )
+            request = client.build_request("GET", raw_url, headers=headers)
+            response = await client.send(request, stream=True)
+            if response.status_code in _OPENLIST_PROXY_RETRYABLE_STATUSES:
+                status_code = response.status_code
+                await response.aclose()
+                await client.aclose()
+                force_refresh_url = status_code in {401, 403}
+                if attempt < 4:
+                    logger.warning(
+                        "OpenList proxy upstream retry gid=%s vid=%s status=%s range=%s attempt=%s",
+                        version.game_id,
+                        version.id,
+                        status_code,
+                        range_header or "full",
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(0.75 * (attempt + 1))
+                    continue
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"OpenList 上游暂时不可用: {status_code}",
+                )
+            if response.status_code >= 400:
+                status_code = response.status_code
+                await response.aclose()
+                await client.aclose()
+                logger.warning(
+                    "OpenList proxy upstream failed gid=%s vid=%s status=%s range=%s",
+                    version.game_id,
+                    version.id,
+                    status_code,
+                    range_header or "full",
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"OpenList 下载失败: {status_code}",
+                )
+            if range_header and response.status_code != 206:
+                await response.aclose()
+                await client.aclose()
+                logger.warning(
+                    "OpenList proxy upstream ignored range gid=%s vid=%s status=%s range=%s",
+                    version.game_id,
+                    version.id,
+                    response.status_code,
+                    range_header,
+                )
+                raise HTTPException(status_code=502, detail="OpenList 未返回有效分块响应")
+            return client, response
+        except HTTPException as exc:
+            await client.aclose()
+            last_error = exc
+            if exc.status_code in _OPENLIST_PROXY_RETRYABLE_STATUSES and attempt < 4:
+                logger.warning(
+                    "OpenList proxy URL retry gid=%s vid=%s status=%s range=%s attempt=%s",
+                    version.game_id,
+                    version.id,
+                    exc.status_code,
+                    range_header or "full",
+                    attempt + 1,
+                )
+                force_refresh_url = True
+                await asyncio.sleep(0.75 * (attempt + 1))
+                continue
+            raise
+        except httpx.HTTPError as exc:
+            await client.aclose()
+            last_error = exc
+            if attempt < 4:
+                logger.warning(
+                    "OpenList proxy transport retry gid=%s vid=%s error=%s range=%s attempt=%s",
+                    version.game_id,
+                    version.id,
+                    type(exc).__name__,
+                    range_header or "full",
+                    attempt + 1,
+                )
+                await asyncio.sleep(0.75 * (attempt + 1))
+                continue
+    raise HTTPException(status_code=502, detail="OpenList 下载请求失败，请稍后重试") from last_error
+
+
+async def _iter_openlist_proxy_range(
+    adapter,
+    version: GameVersion,
+    start: int,
+    end: int,
+    lock: asyncio.Lock,
+    semaphore: asyncio.Semaphore,
+):
+    cursor = start
+    while cursor <= end:
+        segment_end = min(cursor + _OPENLIST_PROXY_SEGMENT_BYTES - 1, end)
+        failures = 0
+        while cursor <= segment_end:
+            before = cursor
+            client: httpx.AsyncClient | None = None
+            upstream: httpx.Response | None = None
+            try:
+                async with semaphore:
+                    async with lock:
+                        client, upstream = await _open_openlist_proxy_stream(
+                            adapter,
+                            version,
+                            f"bytes={cursor}-{segment_end}",
+                        )
+                        await asyncio.sleep(_OPENLIST_PROXY_OPEN_COOLDOWN_SECONDS)
+
+                    async for chunk in upstream.aiter_bytes(1024 * 1024):
+                        if not chunk:
+                            continue
+                        cursor += len(chunk)
+                        yield chunk
+
+                    if cursor <= segment_end:
+                        raise httpx.RemoteProtocolError("upstream closed before segment completed")
+            except (HTTPException, httpx.HTTPError) as exc:
+                failures += 1
+                if failures >= 4:
+                    logger.error(
+                        "OpenList proxy segment failed gid=%s vid=%s range=bytes=%s-%s cursor=%s",
+                        version.game_id,
+                        version.id,
+                        start,
+                        end,
+                        cursor,
+                    )
+                    raise HTTPException(status_code=502, detail="OpenList 分块代理失败，请稍后重试") from exc
+                logger.warning(
+                    "OpenList proxy segment retry gid=%s vid=%s segment=bytes=%s-%s cursor=%s failure=%s",
+                    version.game_id,
+                    version.id,
+                    before,
+                    segment_end,
+                    cursor,
+                    failures,
+                )
+                if cursor == before:
+                    await asyncio.sleep(0.75 * failures)
+                continue
+            finally:
+                if upstream is not None:
+                    await upstream.aclose()
+                if client is not None:
+                    await client.aclose()
+
+
+async def _serve_openlist_proxy_download(
+    request: Request,
+    version: GameVersion,
+    session: AsyncSession,
+):
+    file_size = int(version.file_size or 0)
+    range_header = request.headers.get("range")
+    headers = _download_headers(version.filename)
+    status_code = 200
+    start, end = 0, max(file_size - 1, 0)
+    if range_header:
+        start, end = _parse_range_header(range_header, file_size)
+        range_header = f"bytes={start}-{end}"
+        headers.update(
+            {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(end - start + 1),
+            }
+        )
+        status_code = 206
+    elif file_size > 0:
+        headers["Content-Length"] = str(file_size)
+
+    adapter = await _openlist_adapter(version, session)
+    lock = await _openlist_proxy_lock(version)
+    semaphore = await _openlist_proxy_semaphore(version)
+
+    async def stream_body():
+        if file_size <= 0:
+            return
+        async for chunk in _iter_openlist_proxy_range(
+            adapter,
+            version,
+            start,
+            end,
+            lock,
+            semaphore,
+        ):
+            yield chunk
+
+    return StreamingResponse(
+        stream_body(),
+        status_code=status_code,
+        media_type="application/octet-stream",
+        headers=headers,
+    )
+
+
+async def _serve_version_download(
+    request: Request,
+    game: Game,
+    version: GameVersion,
+    session: AsyncSession,
+    *,
+    proxy_openlist: bool = False,
+):
+    del game
+    if (version.source_type or "local") == "openlist":
+        if proxy_openlist:
+            return await _serve_openlist_proxy_download(request, version, session)
+        raw_url = await _openlist_download_url(version, session)
+        return RedirectResponse(raw_url, status_code=302)
+
+    file_path = Path(version.file_path).resolve()
+    if not await _is_allowed_local_file(file_path, session):
+        raise HTTPException(status_code=403, detail="File outside games directory")
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return _serve_local_file(request, file_path, version.filename)
+
+
+def _build_signed_download_url(
+    request: Request,
+    game_id: int,
+    version_id: int,
+    expires_at: int,
+    *,
+    proxy_openlist: bool = False,
+) -> str:
+    base = str(
+        request.url_for(
+            "download_signed_game_version",
+            game_id=game_id,
+            version_id=version_id,
+        )
+    )
+    params = {
+        "expires_at": str(expires_at),
+        "signature": _sign_download(game_id, version_id, expires_at),
+    }
+    if proxy_openlist:
+        params["proxy"] = "1"
+    query = urlencode(params)
+    return f"{base}?{query}"
+
+
+def _primary_lunabox_identity(game: Game) -> tuple[str | None, str | None]:
+    if game.vndb_id:
+        return "vndb", game.vndb_id
+    if game.bangumi_id:
+        return "bangumi", game.bangumi_id
+    if getattr(game, "hikarinagi_id", None):
+        return "hikarinagi", game.hikarinagi_id
+    if game.steam_id:
+        return "steam", game.steam_id
+    return None, None
+
+
+def _safe_lunabox_install_segment(value: str | None) -> str:
+    normalized = re.sub(r'[\\/:*?"<>|\x00]+', "_", str(value or "").strip())
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.strip(" .")
+    return normalized[:120]
+
+
+def _lunabox_install_subdir(game: Game) -> str | None:
+    company_name = game.company.name if game.company else None
+    company = _safe_lunabox_install_segment(company_name) or _safe_lunabox_install_segment(
+        game.developer
+    )
+    title = _safe_lunabox_install_segment(game.name)
+    if company and title:
+        return f"{company}/{title}"
+    return title or None
+
+
+def _set_non_empty(params: dict[str, str], key: str, value: str | None) -> None:
+    normalized = (value or "").strip()
+    if normalized:
+        params[key] = normalized
+
+
+async def _manager_download_url(
+    request: Request,
+    game_id: int,
+    version_id: int,
+    expires_at: int,
+    *,
+    proxy_openlist: bool = False,
+) -> tuple[str, int | None]:
+    return (
+        _build_signed_download_url(
+            request,
+            game_id,
+            version_id,
+            expires_at,
+            proxy_openlist=proxy_openlist,
+        ),
+        expires_at,
+    )
+
+
+@router.get("/signed/{game_id}/{version_id}", name="download_signed_game_version")
+async def download_signed_game_version(
+    game_id: int,
+    version_id: int,
+    expires_at: int,
+    signature: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Download a game version through a short-lived signed URL."""
+    if not _verify_download_signature(game_id, version_id, expires_at, signature):
+        raise HTTPException(status_code=403, detail="下载链接无效或已过期")
+    try:
+        game, version = await _get_game_and_version(game_id, version_id, session)
+        return await _serve_version_download(
+            request,
+            game,
+            version,
+            session,
+            proxy_openlist=(
+                request.query_params.get("proxy") == "1"
+                and _openlist_proxy_enabled()
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Signed download failed gid={game_id} vid={version_id}: {e}")
+        raise HTTPException(status_code=500, detail="下载失败，请查看服务端日志")
+
+
+@router.post("/{game_id}/{version_id}/link", response_model=DownloadLinkResponse)
+async def create_download_link(
+    game_id: int,
+    version_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a signed download URL for client downloads."""
+    del user
+    game, version = await _get_game_and_version(game_id, version_id, session)
+    size = int(version.file_size or 0)
+    expires_at = int(time.time()) + max(_download_ttl_seconds(size), 24 * 60 * 60)
+    logger.info(
+        "Download link requested gid=%s vid=%s source_type=%s",
+        game.id,
+        version.id,
+        version.source_type or "local",
+    )
+    return DownloadLinkResponse(
+        url=_build_signed_download_url(request, game_id, version_id, expires_at),
+        expires_at=expires_at,
+    )
+
+
+@router.post("/{game_id}/{version_id}/manager-install-link", response_model=ManagerInstallLinkResponse)
+async def create_manager_install_link(
+    game_id: int,
+    version_id: int,
+    body: ManagerInstallLinkRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a LunaBox/ReinaManager install protocol URL for a game version."""
+    del user
+    game, version = await _get_game_and_version(game_id, version_id, session)
+
+    if version.extract_password:
+        raise HTTPException(status_code=400, detail="目标管理器暂不支持带解压密码的压缩包，请使用内置下载")
+
+    archive_format = _archive_format(version.filename)
+    if archive_format not in SUPPORTED_MANAGER_ARCHIVE_FORMATS:
+        raise HTTPException(status_code=400, detail=f"目标管理器暂不支持该压缩格式: {archive_format or '未知'}")
+
+    size = int(version.file_size or 0)
+    if size <= 0:
+        raise HTTPException(status_code=400, detail="文件大小无效，无法生成管理器安装链接")
+
+    logger.info(
+        "Manager install link requested target=%s gid=%s vid=%s source_type=%s checksum_cached=%s",
+        body.target,
+        game_id,
+        version_id,
+        version.source_type or "local",
+        _cached_version_sha256(version) is not None,
+    )
+    checksum = await _manager_install_checksum(version, session, body.target)
+    ttl_seconds = _download_ttl_seconds(size)
+    if body.target == "reinamanager":
+        ttl_seconds = max(ttl_seconds, 24 * 60 * 60)
+    expires_at = int(time.time()) + ttl_seconds
+    download_url, url_expires_at = await _manager_download_url(
+        request,
+        game_id,
+        version_id,
+        expires_at,
+    )
+
+    if body.target == "lunabox":
+        params = {
+            "url": download_url,
+            "file_name": version.filename,
+            "archive_format": archive_format,
+            "size": str(size),
+            "title": game.name,
+            "download_source": "sena-repo",
+            "strip_top_level": "true",
+        }
+        if checksum:
+            params["checksum_algo"] = "sha256"
+            params["checksum"] = checksum
+        install_subdir = _lunabox_install_subdir(game)
+        if install_subdir:
+            params["install_subdir"] = install_subdir
+        if url_expires_at is not None:
+            params["expires_at"] = str(url_expires_at)
+        meta_source, meta_id = _primary_lunabox_identity(game)
+        if meta_source and meta_id:
+            params["meta_source"] = meta_source
+            params["source"] = meta_source
+            params["meta_id"] = meta_id
+        install_url = "lunabox://install?" + urlencode(params)
+    else:
+        params = {
+            "v": "1",
+            "provider": "sena-repo",
+            "resource_id": f"game-{game.id}-version-{version.id}",
+            "url": download_url,
+            "file_name": version.filename,
+            "archive_format": archive_format,
+            "size": str(size),
+            "title": game.name,
+        }
+        if checksum:
+            params["checksum_algo"] = "sha256"
+            params["checksum"] = checksum
+        _set_non_empty(params, "bgm_id", game.bangumi_id)
+        _set_non_empty(params, "vndb_id", game.vndb_id)
+        _set_non_empty(params, "hikarinagi_id", getattr(game, "hikarinagi_id", None))
+        install_url = "reinamanager://install?" + urlencode(params)
+
+    return ManagerInstallLinkResponse(
+        target=body.target,
+        install_url=install_url,
+        expires_at=url_expires_at or 0,
+        file_name=version.filename,
+        archive_format=archive_format,
+        size=size,
+        checksum_algo="sha256" if checksum else None,
+        checksum=checksum,
+    )
 
 
 @router.get("/{game_id}/{version_id}")
 async def download_game_version(
     game_id: int,
     version_id: int,
+    request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Download a specific game version archive file."""
     try:
-        result = await session.execute(
-            select(Game).where(Game.id == game_id, Game.is_deleted == False)
-        )
-        game = result.scalar_one_or_none()
-        if game is None:
-            raise HTTPException(status_code=404, detail="Game not found")
-
-        result = await session.execute(
-            select(GameVersion).where(
-                GameVersion.id == version_id,
-                GameVersion.game_id == game_id,
-            )
-        )
-        version = result.scalar_one_or_none()
-        if version is None:
-            raise HTTPException(status_code=404, detail="Version not found")
-
-        if (version.source_type or "local") == "openlist":
-            result = await session.execute(select(FileSource).where(FileSource.id == version.source_id))
-            source = result.scalar_one_or_none()
-            adapter = adapter_from_source(source, "openlist")
-            raw_url = await asyncio.to_thread(adapter.download_url, version.source_path or version.file_path)
-            return RedirectResponse(raw_url, status_code=302)
-
-        file_path = Path(version.file_path).resolve()
-        if not await _is_allowed_local_file(file_path, session):
-            raise HTTPException(status_code=403, detail="File outside games directory")
-
-        if not file_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-
-        return FileResponse(
-            path=str(file_path),
-            filename=version.filename,
-            media_type="application/octet-stream",
-        )
+        game, version = await _get_game_and_version(game_id, version_id, session)
+        return await _serve_version_download(request, game, version, session)
     except HTTPException:
         raise
     except Exception as e:

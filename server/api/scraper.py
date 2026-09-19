@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import ipaddress
+import re
+import socket
 from pathlib import Path
-from urllib.parse import urlparse
-from datetime import datetime
+from urllib.parse import urljoin, urlparse
+from datetime import datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -23,18 +25,44 @@ from api.auth import get_current_user, require_admin
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
+    _apply_result,
     _build_scrapers,
     run_batch_scrape,
 )
+from services.scraper.base import rank_scraper_results
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["scraper"])
 
 
-def _validate_public_url(url: str) -> None:
+_MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024
+_STALE_SCRAPE_JOB_AFTER = timedelta(minutes=10)
+
+
+def _safe_error_text(value: object, *, limit: int = 1024) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    text = re.sub(r"https?://\S+", "[url]", text)
+    text = re.sub(r"(?i)(token|secret|password|signature|authorization)=([^&\s]+)", r"\1=[redacted]", text)
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
+
+
+def _is_blocked_address(value: str) -> bool:
+    address = ipaddress.ip_address(value)
+    return (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+        or address.is_multicast
+    )
+
+
+def _validate_public_url(url: str) -> set[str]:
     """Reject non-HTTP(S) and internal/private URLs (SSRF prevention)."""
-    import socket
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -43,9 +71,9 @@ def _validate_public_url(url: str) -> None:
         raise HTTPException(status_code=400, detail="URL 缺少主机名")
     try:
         ip = ipaddress.ip_address(parsed.hostname)
-        if ip.is_loopback or ip.is_private or ip.is_link_local:
+        if _is_blocked_address(str(ip)):
             raise HTTPException(status_code=400, detail="不允许使用内网地址")
-        return
+        return {str(parsed.hostname)}
     except ValueError:
         pass
 
@@ -60,9 +88,31 @@ def _validate_public_url(url: str) -> None:
 
     for addr in addrs:
         ip_str = addr[4][0]
-        ip = ipaddress.ip_address(ip_str)
-        if ip.is_loopback or ip.is_private or ip.is_link_local:
+        if _is_blocked_address(ip_str):
             raise HTTPException(status_code=400, detail="不允许使用内网地址")
+    return {addr[4][0] for addr in addrs}
+
+
+async def _safe_get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """Fetch a public URL and re-check every redirect target."""
+    current = url
+    for _ in range(6):
+        allowed_addresses = _validate_public_url(current)
+        resp = await client.get(current, follow_redirects=False, **kwargs)
+        if len(resp.content) > _MAX_REMOTE_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="远程图片过大")
+        # Resolve immediately before every request and reject a changed answer.
+        # This closes the common DNS-rebinding window without trusting proxy headers.
+        parsed = urlparse(current)
+        if parsed.hostname and not _validate_public_url(current).intersection(allowed_addresses):
+            raise HTTPException(status_code=400, detail="URL 主机解析发生变化")
+        if resp.status_code not in {301, 302, 303, 307, 308}:
+            return resp
+        location = resp.headers.get("location")
+        if not location:
+            return resp
+        current = urljoin(current, location)
+    raise HTTPException(status_code=400, detail="URL 重定向次数过多")
 
 
 class BatchScrapeRequest(BaseModel):
@@ -71,15 +121,107 @@ class BatchScrapeRequest(BaseModel):
     mode: str = "missing"  # "missing" | "overwrite" | "images" | "metadata"
 
 
+def _validate_scrape_sources(sources: list[str] | None) -> None:
+    """NextMoe is an exclusive mode and cannot be mixed with other sources."""
+    if not sources:
+        return
+    unique = {str(source).strip() for source in sources}
+    if "nextmoe" in unique and len(unique) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="NextMoe 是独立刮削模式，不能与其他刮削源同时使用",
+        )
+
 class JobStatusOut(BaseModel):
     id: int
     status: str
     total_games: int
+    processed_games: int
+    successful_games: int
     completed_games: int
     failed_games: int
+    current_game_id: int | None
     current_game: str | None
+    current_source: str | None
+    current_query: str | None
+    current_stage: str | None
+    last_error: str | None
     log: str
     started_at: str | None
+    updated_at: str | None
+    heartbeat_at: str | None
+    is_stale: bool = False
+
+
+def _dt_iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _job_progress_at(job: ScrapeJob) -> datetime:
+    return (
+        job.heartbeat_at
+        or job.updated_at
+        or job.started_at
+        or job.created_at
+        or datetime.utcnow()
+    )
+
+
+def _job_to_response(job: ScrapeJob, *, is_stale: bool = False) -> dict:
+    processed = job.processed_games or job.completed_games or 0
+    return {
+        "id": job.id,
+        "status": job.status.value,
+        "total_games": job.total_games or 0,
+        "processed_games": processed,
+        "successful_games": job.successful_games or 0,
+        "completed_games": processed,
+        "failed_games": job.failed_games or 0,
+        "current_game_id": job.current_game_id,
+        "current_game": job.current_game,
+        "current_source": job.current_source,
+        "current_query": job.current_query,
+        "current_stage": job.current_stage,
+        "last_error": job.last_error,
+        "log": job.log or "",
+        "started_at": _dt_iso(job.started_at),
+        "updated_at": _dt_iso(job.updated_at),
+        "heartbeat_at": _dt_iso(job.heartbeat_at),
+        "is_stale": is_stale,
+    }
+
+
+async def _fail_stale_scrape_jobs(
+    session: AsyncSession,
+    jobs: list[ScrapeJob] | None = None,
+) -> set[int]:
+    if jobs is None:
+        result = await session.execute(
+            select(ScrapeJob).where(
+                ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+            )
+        )
+        jobs = list(result.scalars().all())
+
+    now = datetime.utcnow()
+    stale_ids: set[int] = set()
+    for job in jobs:
+        if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+            continue
+        if now - _job_progress_at(job) <= _STALE_SCRAPE_JOB_AFTER:
+            continue
+        job.status = JobStatus.FAILED
+        job.current_stage = "stale"
+        job.last_error = "刮削任务超过 10 分钟没有心跳，已自动停止"
+        job.heartbeat_at = now
+        job.updated_at = now
+        job.log = (job.log or "") + " [超过 10 分钟没有心跳，已自动停止]"
+        stale_ids.add(job.id)
+
+    if stale_ids:
+        await session.commit()
+        logger.warning("Marked stale scrape job(s) as failed: %s", sorted(stale_ids))
+    return stale_ids
 
 
 # --- Search candidates (Playnite-style) ---
@@ -98,19 +240,31 @@ async def search_candidates(
         raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
 
     try:
-        results = await scraper.search(q)
+        results = rank_scraper_results(q, await scraper.search(q))
         return {
             "source": source,
             "query": q,
             "results": [
                 {"title": r.title, "cover_url": r.cover_url, "hero_url": r.hero_url,
-                 "screenshots": r.screenshot_urls,
+                 "covers": r.cover_urls, "screenshots": r.screenshot_urls,
+                 "external_ids": r.external_ids,
                  "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
-                 "source_id": r.source_id}
+                 "is_nsfw": r.is_nsfw,
+                 "source_id": r.source_id,
+                 "tags": [
+                     {
+                         "name": tag.name,
+                         "rating": tag.rating,
+                         "is_spoiler": tag.is_spoiler,
+                     }
+                     for tag in r.tags
+                 ]}
                 for r in results
             ],
         }
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="搜索失败，请查看服务端日志")
     finally:
@@ -128,6 +282,7 @@ async def scrape_apply(
     title: str = "",
     description: str = "",
     release_date: str = "",
+    is_nsfw: bool | None = None,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(require_admin),
 ):
@@ -137,35 +292,34 @@ async def scrape_apply(
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    if cover_url:
-        _validate_public_url(cover_url)
-        config = load_config()
-        client_kwargs = {"timeout": httpx.Timeout(30.0)}
-        if config.proxy:
-            client_kwargs["proxy"] = config.proxy
+    config = load_config()
+    client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+    if cover_url or hero_url:
         async with httpx.AsyncClient(**client_kwargs) as c:
-            try:
-                resp = await c.get(cover_url)
-                resp.raise_for_status()
-                cover_path = config.covers_path / f"{game_id}_{source}.jpg"
-                config.covers_path.mkdir(parents=True, exist_ok=True)
-                cover_path.write_bytes(resp.content)
-                game.cover_path = str(cover_path)
-            except Exception as e:
-                logger.warning(f"Cover download failed: {e}")
-        # Download hero/landscape banner to backgrounds folder
-        if hero_url:
-            _validate_public_url(hero_url)
-            try:
-                resp = await c.get(hero_url)
-                resp.raise_for_status()
-                bg_dir = config.backgrounds_path
-                bg_dir.mkdir(parents=True, exist_ok=True)
-                bg_path = bg_dir / f"{game_id}_hero.jpg"
-                bg_path.write_bytes(resp.content)
-                game.bg_path = str(bg_path)
-            except Exception as e:
-                logger.warning(f"Hero download failed: {e}")
+            if cover_url:
+                try:
+                    resp = await _safe_get(c, cover_url)
+                    resp.raise_for_status()
+                    cover_path = config.covers_path / f"{game_id}_{source}.jpg"
+                    config.covers_path.mkdir(parents=True, exist_ok=True)
+                    cover_path.write_bytes(resp.content)
+                    game.cover_path = str(cover_path)
+                except Exception as e:
+                    logger.warning(f"Cover download failed: {e}")
+            # Download hero/landscape banner to backgrounds folder
+            if hero_url:
+                try:
+                    resp = await _safe_get(c, hero_url)
+                    resp.raise_for_status()
+                    bg_dir = config.backgrounds_path
+                    bg_dir.mkdir(parents=True, exist_ok=True)
+                    bg_path = bg_dir / f"{game_id}_hero.jpg"
+                    bg_path.write_bytes(resp.content)
+                    game.bg_path = str(bg_path)
+                except Exception as e:
+                    logger.warning(f"Hero download failed: {e}")
 
     if developer:
         game.developer = developer
@@ -173,8 +327,16 @@ async def scrape_apply(
         game.description = description[:2000]
     if release_date:
         game.release_date = release_date
+    if is_nsfw is not None:
+        game.is_nsfw = bool(is_nsfw)
     sfx = ""
-    sf = {"vndb_kana": "vndb_id", "vndb": "vndb_id", "bangumi": "bangumi_id", "steam": "steam_id"}
+    sf = {
+        "vndb_kana": "vndb_id",
+        "vndb": "vndb_id",
+        "bangumi": "bangumi_id",
+        "steam": "steam_id",
+        "hikarinagi": "hikarinagi_id",
+    }
     sfx = sf.get(source, "")
     if sfx and source_id:
         setattr(game, sfx, source_id)
@@ -211,6 +373,7 @@ async def scrape_game_cover(
     config = load_config()
     all_scrapers = _build_scrapers(config)
 
+    _validate_scrape_sources(sources)
     # Filter by requested sources
     if sources:
         all_scrapers = [s for s in all_scrapers if s.source_name in sources]
@@ -221,53 +384,44 @@ async def scrape_game_cover(
     covers_dir = config.covers_path
     found_results = []
 
-    client_kwargs = {"timeout": httpx.Timeout(30.0)}
+    client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
     if config.proxy:
         client_kwargs["proxy"] = config.proxy
     async with httpx.AsyncClient(**client_kwargs) as client:
+        replaced_tags = False
         for scraper in all_scrapers:
             try:
                 result = await scraper.search_best(game.name, company_hint)
                 if result:
+                    replace_tags = not replaced_tags
                     found_results.append({
                         "source": scraper.source_name,
                         "title": result.title,
                         "cover_url": result.cover_url,
                         "developer": result.developer,
+                        "is_nsfw": result.is_nsfw,
+                        "tags": [
+                            {
+                                "name": tag.name,
+                                "rating": tag.rating,
+                                "is_spoiler": tag.is_spoiler,
+                            }
+                            for tag in result.tags
+                        ],
                     })
 
-                    # Download first available cover
-                    if result.cover_url and not game.cover_path:
-                        ext = ".jpg"
-                        cover_path = covers_dir / f"{game_id}_{scraper.source_name}{ext}"
-                        try:
-                            _validate_public_url(result.cover_url)
-                            resp = await client.get(result.cover_url, timeout=30.0)
-                            resp.raise_for_status()
-                            covers_dir.mkdir(parents=True, exist_ok=True)
-                            cover_path.write_bytes(resp.content)
-                            game.cover_path = str(cover_path)
-                            session.add(game)
-                        except Exception as e:
-                            logger.warning(f"Cover download failed: {e}")
-                    # Download hero/landscape banner
-                    if result.hero_url and not game.bg_path:
-                        try:
-                            _validate_public_url(result.hero_url)
-                            bg_dir = config.backgrounds_path
-                            bg_dir.mkdir(parents=True, exist_ok=True)
-                            resp = await client.get(result.hero_url, timeout=30.0)
-                            resp.raise_for_status()
-                            bg_path = bg_dir / f"{game_id}_hero.jpg"
-                            bg_path.write_bytes(resp.content)
-                            game.bg_path = str(bg_path)
-                            session.add(game)
-                        except Exception as e:
-                            logger.warning(f"Hero download failed: {e}")
-
-                    if result.developer and not game.developer:
-                        game.developer = result.developer
-                        session.add(game)
+                    await _apply_result(
+                        result,
+                        scraper.source_name,
+                        game,
+                        client,
+                        covers_dir,
+                        session,
+                        config,
+                        replace_tags=replace_tags,
+                    )
+                    if replace_tags:
+                        replaced_tags = True
 
             except Exception as e:
                 logger.error(f"Scraper {scraper.source_name} failed: {e}")
@@ -297,10 +451,26 @@ async def start_batch_scrape(
     If game_ids is provided, only those games are scraped.
     Otherwise, all games without covers are scraped.
     """
+    _validate_scrape_sources(body.sources)
     config = load_config()
+    await _fail_stale_scrape_jobs(session)
+    active_result = await session.execute(
+        select(ScrapeJob)
+        .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+        .order_by(ScrapeJob.created_at.desc())
+    )
+    active_job = active_result.scalars().first()
+    if active_job is not None:
+        raise HTTPException(status_code=409, detail="已有批量刮削任务正在运行")
 
     # Create job record
-    job = ScrapeJob(status=JobStatus.PENDING)
+    now = datetime.utcnow()
+    job = ScrapeJob(
+        status=JobStatus.PENDING,
+        current_stage="queued",
+        heartbeat_at=now,
+        updated_at=now,
+    )
     session.add(job)
     await session.commit()
     await session.refresh(job)
@@ -316,10 +486,41 @@ async def start_batch_scrape(
         try:
             async def _work():
                 async with database._session_factory() as bg_session:
-                    await run_batch_scrape(config, body.game_ids, bg_session, job, sources=body.sources, mode=body.mode)
+                    await run_batch_scrape(
+                        config,
+                        body.game_ids,
+                        bg_session,
+                        job,
+                        sources=body.sources,
+                        mode=body.mode,
+                    )
             loop.run_until_complete(_work())
         except Exception as e:
-            logger.error(f"Batch scrape job {job.id} failed: {e}", exc_info=True)
+            logger.error("Batch scrape job %s failed: %s", job.id, _safe_error_text(e), exc_info=True)
+            error_message = _safe_error_text(e)
+
+            async def _mark_failed():
+                async with database._session_factory() as bg_session:
+                    result = await bg_session.execute(
+                        select(ScrapeJob).where(ScrapeJob.id == job.id)
+                    )
+                    failed_job = result.scalar_one_or_none()
+                    if failed_job is not None:
+                        failed_job.status = JobStatus.FAILED
+                        failed_job.current_game_id = None
+                        failed_job.current_game = None
+                        failed_job.current_source = None
+                        failed_job.current_query = None
+                        failed_job.current_stage = "failed"
+                        failed_job.last_error = error_message
+                        failed_job.heartbeat_at = datetime.utcnow()
+                        failed_job.log = f"批量刮削失败: {error_message}"
+                        await bg_session.commit()
+
+            try:
+                loop.run_until_complete(_mark_failed())
+            except Exception:
+                logger.exception("Failed to mark batch scrape job as failed")
         finally:
             loop.close()
 
@@ -333,7 +534,11 @@ async def start_batch_scrape(
 
 
 @router.post("/scrape/jobs/{job_id}/cancel")
-async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(require_admin)):
+async def cancel_scrape_job(
+    job_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_admin),
+):
     """Cancel a running scrape job."""
     result = await session.execute(select(ScrapeJob).where(ScrapeJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -341,36 +546,39 @@ async def cancel_scrape_job(job_id: int, session: AsyncSession = Depends(get_ses
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
         raise HTTPException(status_code=400, detail="Job is not active")
+    now = datetime.utcnow()
     job.status = JobStatus.FAILED
+    job.current_source = None
+    job.current_query = None
+    job.current_stage = "cancelled"
+    job.last_error = "用户已取消刮削任务"
+    job.heartbeat_at = now
+    job.updated_at = now
     job.log = (job.log or "") + " [已取消]"
     await session.commit()
     return {"message": "Job cancelled"}
 
 
 @router.get("/scrape/jobs", response_model=list[JobStatusOut])
-async def list_scrape_jobs(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+async def list_scrape_jobs(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
     """List all scrape jobs."""
     result = await session.execute(
         select(ScrapeJob).order_by(ScrapeJob.created_at.desc()).limit(20)
     )
     jobs = result.scalars().all()
-    return [
-        {
-            "id": j.id,
-            "status": j.status.value,
-            "total_games": j.total_games,
-            "completed_games": j.completed_games,
-            "failed_games": j.failed_games,
-            "current_game": j.current_game,
-            "log": j.log,
-            "started_at": j.started_at.isoformat() if j.started_at else None,
-        }
-        for j in jobs
-    ]
+    stale_ids = await _fail_stale_scrape_jobs(session, jobs)
+    return [_job_to_response(j, is_stale=j.id in stale_ids) for j in jobs]
 
 
 @router.get("/scrape/jobs/{job_id}", response_model=JobStatusOut)
-async def get_scrape_job(job_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+async def get_scrape_job(
+    job_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
     """Get a specific scrape job's status."""
     result = await session.execute(
         select(ScrapeJob).where(ScrapeJob.id == job_id)
@@ -379,16 +587,8 @@ async def get_scrape_job(job_id: int, session: AsyncSession = Depends(get_sessio
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return {
-        "id": job.id,
-        "status": job.status.value,
-        "total_games": job.total_games,
-        "completed_games": job.completed_games,
-        "failed_games": job.failed_games,
-        "current_game": job.current_game,
-        "log": job.log,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-    }
+    stale_ids = await _fail_stale_scrape_jobs(session, [job])
+    return _job_to_response(job, is_stale=job.id in stale_ids)
 
 
 # --- Cover management ---
@@ -410,19 +610,18 @@ async def update_game_cover(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if cover_url:
-        _validate_public_url(cover_url)
         config = load_config()
         covers_dir = config.covers_path
         covers_dir.mkdir(parents=True, exist_ok=True)
         ext = ".jpg"
         cover_path = covers_dir / f"{game_id}_manual{ext}"
 
-        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+        client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
         if config.proxy:
             client_kwargs["proxy"] = config.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
             try:
-                resp = await client.get(cover_url)
+                resp = await _safe_get(client, cover_url)
                 resp.raise_for_status()
                 cover_path.write_bytes(resp.content)
                 game.cover_path = str(cover_path)
@@ -522,19 +721,21 @@ async def update_game_background(
         raise HTTPException(status_code=404, detail="Game not found")
 
     if bg_url:
-        _validate_public_url(bg_url)
         config = load_config()
         bg_dir = config.backgrounds_path
         bg_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".jpg" if ".jpg" in bg_url.lower() or ".jpeg" in bg_url.lower() else ".png"
+        from urllib.parse import urlparse
+        _bg_url_path = urlparse(bg_url).path.lower()
+        _ext_map = {".webp": ".webp", ".gif": ".gif", ".png": ".png", ".jpeg": ".jpg", ".jpg": ".jpg"}
+        ext = next((v for k, v in _ext_map.items() if _bg_url_path.endswith(k)), ".jpg")
         bg_path = bg_dir / f"{game_id}_bg{ext}"
 
-        client_kwargs = {"timeout": httpx.Timeout(30.0)}
+        client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
         if config.proxy:
             client_kwargs["proxy"] = config.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
             try:
-                resp = await client.get(bg_url)
+                resp = await _safe_get(client, bg_url)
                 resp.raise_for_status()
                 bg_path.write_bytes(resp.content)
                 game.bg_path = str(bg_path)

@@ -13,6 +13,7 @@ import httpx
 from fastapi import HTTPException
 
 from models.file_source import FileSource
+from utils.secrets import decrypt_secret
 
 
 @dataclass(frozen=True)
@@ -100,8 +101,13 @@ class OpenListFileSource:
         self.source = source
         self.base_url = normalize_base_url(source.base_url)
         self.username = source.username or ""
-        self.password = source.password or ""
+        self.password = decrypt_secret(source.password)
         self._token: str | None = None
+
+    @property
+    def _is_guest(self) -> bool:
+        """True when no credentials are configured — use OpenList guest access."""
+        return not self.username
 
     def _url(self, endpoint: str) -> str:
         return urljoin(self.base_url + "/", endpoint.lstrip("/"))
@@ -150,6 +156,10 @@ class OpenListFileSource:
         return data
 
     def _headers(self) -> dict[str, str]:
+        # Guest mode: send no Authorization header so OpenList falls back to its
+        # built-in guest user (empty token → guest in OpenList middleware).
+        if self._is_guest:
+            return {}
         return {"Authorization": self._token or self._login()}
 
     def _post(self, endpoint: str, body: dict, retry: bool = True) -> dict:
@@ -158,7 +168,8 @@ class OpenListFileSource:
                 resp = client.post(self._url(endpoint), json=body, headers=self._headers())
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"OpenList request failed: {exc}") from exc
-        if resp.status_code in {401, 403} and retry:
+        # Only retry auth for authenticated sessions, not guest (no token to refresh).
+        if resp.status_code in {401, 403} and retry and not self._is_guest:
             self._token = None
             return self._post(endpoint, body, retry=False)
         if resp.status_code >= 400:
@@ -167,7 +178,7 @@ class OpenListFileSource:
             data = resp.json()
         except ValueError as exc:
             raise HTTPException(status_code=502, detail="OpenList returned invalid JSON") from exc
-        if data.get("code") in (401, 403) and retry:
+        if data.get("code") in (401, 403) and retry and not self._is_guest:
             self._token = None
             return self._post(endpoint, body, retry=False)
         if data.get("code") not in (None, 200):
@@ -224,14 +235,32 @@ class OpenListFileSource:
             except HTTPException:
                 return False
 
-    def download_url(self, path: str) -> str:
+    def _file_info(self, path: str) -> dict:
         remote_path = normalize_remote_path(path)
         data = self._post("/api/fs/get", {"path": remote_path, "password": ""})
         if data.get("is_dir"):
             raise HTTPException(status_code=400, detail="OpenList path is a directory")
+        return data
+
+    def file_info(self, path: str) -> dict:
+        return self._file_info(path)
+
+    def _download_url(self, path: str, prefix: str) -> str:
+        remote_path = normalize_remote_path(path)
+        data = self._file_info(remote_path)
         sign = (data.get("sign") or "").strip()
         query = f"?{urlencode({'sign': sign})}" if sign else ""
-        return self._url("d" + quote(remote_path, safe="/") + query)
+        return self._url(prefix + quote(remote_path, safe="/") + query)
+
+    def download_url(self, path: str) -> str:
+        return self._download_url(path, "d")
+
+    def proxy_download_url(self, path: str) -> str:
+        return self._download_url(path, "p")
+
+    def raw_download_url(self, path: str) -> str:
+        raw_url = (self._file_info(path).get("raw_url") or "").strip()
+        return raw_url or self.download_url(path)
 
 
 def adapter_from_source(source: FileSource | None, source_type: str = "local") -> FileSourceAdapter:

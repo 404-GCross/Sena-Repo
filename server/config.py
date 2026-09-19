@@ -3,17 +3,80 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 
 import yaml
+
+
+def _parse_csv_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values = value.split(",")
+    else:
+        values = value
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _parse_positive_int(value, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam", "nextmoe"]
+DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
+
+
+def _normalize_source_list(value, default: list[str]) -> list[str]:
+    allowed = set(SCRAPER_SOURCE_ORDER)
+    result: list[str] = []
+    if isinstance(value, list):
+        for source in value:
+            source = str(source).strip()
+            if source in allowed and source not in result:
+                result.append(source)
+        return result
+    return list(default)
+
+
+def normalize_scraper_config(config: "ScraperConfig") -> None:
+    if not config.hikarinagi_scope.strip():
+        config.hikarinagi_scope = "catalog:full"
+    order = _normalize_source_list(
+        config.scraper_order, SCRAPER_SOURCE_ORDER
+    )
+    for source in SCRAPER_SOURCE_ORDER:
+        if source not in order:
+            order.append(source)
+    config.scraper_order = order
+    config.enabled_scrapers = [
+        source
+        for source in _normalize_source_list(
+            config.enabled_scrapers, DEFAULT_ENABLED_SCRAPERS
+        )
+        if source in config.scraper_order
+    ]
+
+
+def _dataclass_kwargs(cls, data: dict | None) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    valid_fields = {item.name for item in dataclass_fields(cls)}
+    return {key: value for key, value in data.items() if key in valid_fields}
 
 
 @dataclass
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 11451
+    allowed_origins: list[str] = field(default_factory=list)
+    token_expire_days: int = 30
 
 
 @dataclass
@@ -27,8 +90,14 @@ class CustomRegex:
 class ScraperConfig:
     bangumi_token: str = ""
     vndb_token: str = ""
-    ymgal_client_id: str = "ymgal"
-    ymgal_client_secret: str = "luna0327"
+    hikarinagi_client_id: str = ""
+    hikarinagi_client_secret: str = ""
+    hikarinagi_scope: str = "catalog:full"
+    nextmoe_api_key: str = ""
+    scraper_order: list[str] = field(default_factory=lambda: list(SCRAPER_SOURCE_ORDER))
+    enabled_scrapers: list[str] = field(
+        default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
+    )
 
 
 @dataclass
@@ -77,10 +146,44 @@ def _parse_args() -> argparse.Namespace:
 _cached_config: Config | None = None
 
 
+def _apply_persisted_scraper_config(config: Config) -> None:
+    path = Path(config.data_path) / "scraper_config.json"
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    fields = {
+        "bangumi_token": ("scrapers", "SENA_BANGUMI_TOKEN"),
+        "vndb_token": ("scrapers", "SENA_VNDB_TOKEN"),
+        "hikarinagi_client_id": ("scrapers", "SENA_HIKARINAGI_CLIENT_ID"),
+        "hikarinagi_client_secret": ("scrapers", "SENA_HIKARINAGI_CLIENT_SECRET"),
+        "hikarinagi_scope": ("scrapers", "SENA_HIKARINAGI_SCOPE"),
+        "nextmoe_api_key": ("scrapers", "SENA_NEXTMOE_API_KEY"),
+        "proxy": ("config", "SENA_PROXY"),
+    }
+    for key, (target, env_name) in fields.items():
+        if os.environ.get(env_name):
+            continue
+        value = data.get(key)
+        if not isinstance(value, str) or "****" in value:
+            continue
+        if target == "scrapers":
+            setattr(config.scrapers, key, value)
+        else:
+            setattr(config, key, value)
+    if isinstance(data.get("scraper_order"), list):
+        config.scrapers.scraper_order = data["scraper_order"]
+    if isinstance(data.get("enabled_scrapers"), list):
+        config.scrapers.enabled_scrapers = data["enabled_scrapers"]
+
+
 def load_config(config_path: str | None = None) -> Config:
     """Load configuration from YAML file, env vars, and CLI args.
 
-    Priority: CLI args > env vars > YAML file > defaults
+    Priority: CLI args and env vars > persisted scraper settings > YAML file > defaults
 
     Returns a singleton — subsequent calls return the same instance,
     so dynamic attributes (e.g. auto_scan) set via API are visible everywhere.
@@ -99,7 +202,13 @@ def load_config(config_path: str | None = None) -> Config:
             data = yaml.safe_load(f) or {}
 
         if "server" in data:
-            config.server = ServerConfig(**data["server"])
+            config.server = ServerConfig(
+                **_dataclass_kwargs(ServerConfig, data["server"])
+            )
+            config.server.allowed_origins = _parse_csv_list(config.server.allowed_origins)
+            config.server.token_expire_days = _parse_positive_int(
+                config.server.token_expire_days, 30
+            )
         if "games_path" in data:
             config.games_path = data["games_path"]
         if "data_path" in data:
@@ -110,10 +219,14 @@ def load_config(config_path: str | None = None) -> Config:
             config.steam_dir = data["steam_dir"]
         if "custom_regex" in data:
             config.custom_regex = [
-                CustomRegex(**r) for r in data["custom_regex"] if r.get("pattern")
+                CustomRegex(**_dataclass_kwargs(CustomRegex, r))
+                for r in data["custom_regex"]
+                if isinstance(r, dict) and r.get("pattern")
             ]
         if "scrapers" in data:
-            config.scrapers = ScraperConfig(**data["scrapers"])
+            config.scrapers = ScraperConfig(
+                **_dataclass_kwargs(ScraperConfig, data["scrapers"])
+            )
 
     # 2. Env var overrides
     if os.environ.get("SENA_GAMES_PATH"):
@@ -126,6 +239,12 @@ def load_config(config_path: str | None = None) -> Config:
         config.server.host = os.environ["SENA_HOST"]
     if os.environ.get("SENA_PORT"):
         config.server.port = int(os.environ["SENA_PORT"])
+    if os.environ.get("SENA_ALLOWED_ORIGINS"):
+        config.server.allowed_origins = _parse_csv_list(os.environ["SENA_ALLOWED_ORIGINS"])
+    if os.environ.get("SENA_TOKEN_EXPIRE_DAYS"):
+        config.server.token_expire_days = _parse_positive_int(
+            os.environ["SENA_TOKEN_EXPIRE_DAYS"], config.server.token_expire_days
+        )
     if os.environ.get("SENA_PROXY"):
         config.proxy = os.environ["SENA_PROXY"]
 
@@ -134,10 +253,14 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.bangumi_token = os.environ["SENA_BANGUMI_TOKEN"]
     if os.environ.get("SENA_VNDB_TOKEN"):
         config.scrapers.vndb_token = os.environ["SENA_VNDB_TOKEN"]
-    if os.environ.get("SENA_YMGAL_CLIENT_ID"):
-        config.scrapers.ymgal_client_id = os.environ["SENA_YMGAL_CLIENT_ID"]
-    if os.environ.get("SENA_YMGAL_CLIENT_SECRET"):
-        config.scrapers.ymgal_client_secret = os.environ["SENA_YMGAL_CLIENT_SECRET"]
+    if os.environ.get("SENA_HIKARINAGI_CLIENT_ID"):
+        config.scrapers.hikarinagi_client_id = os.environ["SENA_HIKARINAGI_CLIENT_ID"]
+    if os.environ.get("SENA_HIKARINAGI_CLIENT_SECRET"):
+        config.scrapers.hikarinagi_client_secret = os.environ["SENA_HIKARINAGI_CLIENT_SECRET"]
+    if os.environ.get("SENA_HIKARINAGI_SCOPE"):
+        config.scrapers.hikarinagi_scope = os.environ["SENA_HIKARINAGI_SCOPE"]
+    if os.environ.get("SENA_NEXTMOE_API_KEY"):
+        config.scrapers.nextmoe_api_key = os.environ["SENA_NEXTMOE_API_KEY"]
 
     # 3. CLI arg overrides
     if args.host:
@@ -148,6 +271,9 @@ def load_config(config_path: str | None = None) -> Config:
         config.games_path = args.games_path
     if args.data_path:
         config.data_path = args.data_path
+
+    _apply_persisted_scraper_config(config)
+    normalize_scraper_config(config.scrapers)
 
     _cached_config = config
     return config

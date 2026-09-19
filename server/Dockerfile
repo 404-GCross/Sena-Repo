@@ -2,6 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends p7zip-full \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -10,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create volume mount points
-RUN mkdir -p /games /data
+RUN mkdir -p /games /data /steam_patch \
+    && chmod 0755 /app/senacli.py \
+    && ln -sf /app/senacli.py /usr/local/bin/senacli
 
 EXPOSE 11451
 

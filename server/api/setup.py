@@ -2,22 +2,36 @@
 
 from __future__ import annotations
 
-import asyncio, json, logging, traceback
+import asyncio, logging, traceback
+import secrets
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
-from config import load_config
+from config import (
+    DEFAULT_ENABLED_SCRAPERS,
+    SCRAPER_SOURCE_ORDER,
+    load_config,
+    normalize_scraper_config,
+)
 from database import get_session
 from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
-from services.file_source import canonical_source_path, normalize_base_url, normalize_remote_path
+from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
+from services.scanner import normalize_game_depth, structure_from_depth
+from utils.secrets import encrypt_secret
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
+
+logger = logging.getLogger(__name__)
+
+_background_tasks: set[asyncio.Task] = set()
 
 
 class SetupStatus(BaseModel):
@@ -35,15 +49,27 @@ class InitRequest(BaseModel):
     auto_scan: bool = False
     scan_interval: int = Field(default=24, ge=1)
     scan_structure: str = "company_game"
+    scan_depth: int | None = Field(default=None, ge=0, le=8)
     game_libraries: list[dict] = Field(default_factory=list)
     steam_patch_libraries: list[dict] = Field(default_factory=list)
+    vndb_token: str = ""
+    hikarinagi_client_id: str = ""
+    hikarinagi_client_secret: str = ""
+    hikarinagi_scope: str = "catalog:full"
+    nextmoe_api_key: str = ""
+    scraper_order: list[str] = Field(
+        default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
+    )
+    enabled_scrapers: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
+    )
 
 
 @router.get("/status", response_model=SetupStatus)
 async def setup_status(session: AsyncSession = Depends(get_session)):
     """Check if server needs initial setup."""
     # Check for any admin user
-    users = await session.execute(select(User).where(User.is_admin == True))
+    users = await session.execute(select(User).where(User.role == "owner"))
     has_admin = users.scalar_one_or_none() is not None
 
     # Check for any root directories
@@ -55,6 +81,98 @@ async def setup_status(session: AsyncSession = Depends(get_session)):
         has_admin=has_admin,
         has_roots=has_roots,
     )
+
+
+@router.post("/import")
+async def import_setup_backup(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Restore a senacli backup archive on a server that has no owner yet."""
+    from cli import backup as backup_cli
+    from cli.common import CliError
+
+    status = await setup_status(session)
+    if status.has_admin:
+        raise HTTPException(
+            status_code=409,
+            detail="服务器已完成初始化，请用 senacli restore 恢复备份",
+        )
+
+    filename = Path(file.filename or "backup.zip").name
+    suffix = Path(filename).suffix.lower() or ".zip"
+    if suffix not in {".zip", ".json"}:
+        raise HTTPException(status_code=400, detail="只支持 .zip 或 .json 备份文件")
+
+    config = load_config()
+    uploads_dir = Path(config.data_path or "/data") / "backups"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    stored = uploads_dir / (
+        f"uploaded-{backup_cli.utc_timestamp()}-{secrets.token_hex(4)}{suffix}"
+    )
+    size = 0
+    try:
+        with stored.open("wb") as handle:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                size += len(chunk)
+    except OSError as exc:
+        stored.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
+    finally:
+        await file.close()
+
+    try:
+        payload = backup_cli.normalise_payload(backup_cli.read_backup_payload(stored))
+    except CliError as exc:
+        stored.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # malformed archives should not 500
+        stored.unlink(missing_ok=True)
+        logger.warning("Setup import failed to read archive: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="备份文件无法解析") from exc
+
+    try:
+        result = await backup_cli.apply_restore(
+            config,
+            stored,
+            payload,
+            scope=backup_cli.SCOPE_ALL,
+            mode=backup_cli.MODE_MERGE,
+            media_policy=backup_cli.MEDIA_OVERWRITE,
+        )
+    except CliError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Setup import failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="导入失败，请查看服务端日志") from exc
+
+    users = payload["accounts"].get("users") or []
+    library = payload["library"]
+    owner = next(
+        (str(u.get("username")) for u in users if u.get("role") == "owner" and u.get("username")),
+        None,
+    )
+    logger.info(
+        "Setup imported backup: file=%s bytes=%s games=%s versions=%s users=%s",
+        stored.name,
+        size,
+        len(library.get("games") or []),
+        len(library.get("versions") or []),
+        len(users),
+    )
+    return {
+        "message": "备份已导入",
+        "owner": owner,
+        "stored": str(stored),
+        "games": len(library.get("games") or []),
+        "versions": len(library.get("versions") or []),
+        "users": len(users),
+        "detail": result["lines"],
+    }
 
 
 @router.post("/initialize")
@@ -70,7 +188,7 @@ async def initialize_setup(
 
     # Create admin user
     pw_hash, salt = hash_password(body.admin_password)
-    user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, is_admin=True)
+    user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="owner", is_admin=True)
     session.add(user)
 
     source_cache: dict[tuple[str, str], FileSource] = {}
@@ -88,8 +206,8 @@ async def initialize_setup(
             if source is None:
                 base_url = normalize_base_url(item.get("base_url"))
                 username = item.get("username") or ""
-                if not base_url or not username:
-                    raise HTTPException(status_code=400, detail="OpenList URL and username are required")
+                if not base_url:
+                    raise HTTPException(status_code=400, detail="OpenList URL is required")
                 cache_key = (base_url, username)
                 source = source_cache.get(cache_key)
                 if source is None:
@@ -98,11 +216,14 @@ async def initialize_setup(
                         type="openlist",
                         base_url=base_url,
                         username=username,
-                        password=item.get("password") or "",
+                        password=encrypt_secret(item.get("password")),
                     )
                     session.add(source)
                     await session.flush()
                     source_cache[cache_key] = source
+            adapter = adapter_from_source(source, "openlist")
+            if not await asyncio.to_thread(adapter.exists, path):
+                raise HTTPException(status_code=404, detail=f"OpenList 路径不存在: {path}")
             return source_type, source.id, source.name, path
         return "local", None, item.get("source_name"), path
 
@@ -138,10 +259,14 @@ async def initialize_setup(
         source_type, source_id, source_name, path = await ensure_source(item)
         if not path:
             continue
+        analysis_mode = str(item.get("analysis_mode") or "").strip().lower()
+        if analysis_mode not in {"auto", "manual"}:
+            analysis_mode = "manual" if source_type == "openlist" else "auto"
         session.add(SteamPatchRoot(
             source_type=source_type,
             source_id=source_id,
             source_name=source_name,
+            analysis_mode=analysis_mode,
             path=path,
         ))
         patch_roots_added += 1
@@ -169,27 +294,74 @@ async def initialize_setup(
         config.steam_dir = body.steam_dir
     config._auto_scan = body.auto_scan
     config._scan_interval = body.scan_interval
-    config._scan_structure = (
-        body.scan_structure
-        if body.scan_structure in {"company_game", "game_only", "flat"}
-        else "company_game"
-    )
+    config._scan_depth = normalize_game_depth(body.scan_structure, body.scan_depth)
+    config._scan_structure = structure_from_depth(config._scan_depth)
     try:
         from api.settings import _save_scan_settings
         _save_scan_settings(config)
     except Exception as e:
-        logger = logging.getLogger("sena-repo")
         logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
 
-    await session.commit()
+    vndb_token = body.vndb_token.strip()
+    hikarinagi_client_id = body.hikarinagi_client_id.strip()
+    hikarinagi_client_secret = body.hikarinagi_client_secret.strip()
+    hikarinagi_scope = body.hikarinagi_scope.strip() or "catalog:full"
+    nextmoe_api_key = body.nextmoe_api_key.strip()
+    try:
+        from api.settings import _read_scraper_config, _write_scraper_config
+
+        scraper_config = _read_scraper_config()
+        if vndb_token:
+            config.scrapers.vndb_token = vndb_token
+            scraper_config["vndb_token"] = vndb_token
+        if hikarinagi_client_id:
+            config.scrapers.hikarinagi_client_id = hikarinagi_client_id
+            scraper_config["hikarinagi_client_id"] = hikarinagi_client_id
+        if hikarinagi_client_secret:
+            config.scrapers.hikarinagi_client_secret = hikarinagi_client_secret
+            scraper_config["hikarinagi_client_secret"] = hikarinagi_client_secret
+        config.scrapers.hikarinagi_scope = hikarinagi_scope
+        scraper_config["hikarinagi_scope"] = hikarinagi_scope
+        if nextmoe_api_key:
+            config.scrapers.nextmoe_api_key = nextmoe_api_key
+            scraper_config["nextmoe_api_key"] = nextmoe_api_key
+        config.scrapers.scraper_order = body.scraper_order
+        config.scrapers.enabled_scrapers = body.enabled_scrapers
+        normalize_scraper_config(config.scrapers)
+        scraper_config["scraper_order"] = config.scrapers.scraper_order
+        scraper_config["enabled_scrapers"] = config.scrapers.enabled_scrapers
+        _write_scraper_config(scraper_config)
+    except Exception as e:
+        logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
+
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        message = str(exc).lower()
+        if "users.role" in message or "uq_users_owner_role" in message:
+            raise HTTPException(status_code=409, detail="服务器已完成初始化，请重新登录") from exc
+        if "users.username" in message:
+            raise HTTPException(status_code=409, detail="用户名已存在") from exc
+        raise
 
     # Fire background scans (don't block response — user enters main page immediately)
-    asyncio.create_task(_background_scan(config))
+    task = asyncio.create_task(_background_scan(config))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     # Also trigger scrape on new games after scan completes
     # (handled inside _background_scan via _run_scan)
 
+    logger.info(
+        "Initial setup completed: username=%s roots_added=%s patch_roots_added=%s auto_scan=%s",
+        user.username,
+        roots_added,
+        patch_roots_added,
+        bool(body.auto_scan),
+    )
     return {
         "message": "Setup complete",
         "admin_created": True,
@@ -200,7 +372,6 @@ async def initialize_setup(
 
 async def _background_scan(config):
     """Run game + patch scan in background without blocking setup response."""
-    logger = logging.getLogger("sena-repo")
     try:
         from api.roots import _run_scan
         stats = await _run_scan(config)

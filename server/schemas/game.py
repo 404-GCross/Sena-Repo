@@ -13,7 +13,12 @@ class GameVersionOut(BaseModel):
     filename: str
     file_path: str
     file_size: int
+    source_type: str = "local"
+    source_id: int | None = None
+    source_path: str | None = None
     extract_password: str | None = None
+    checksum_algo: str | None = None
+    checksum: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -24,8 +29,11 @@ class GameSummary(BaseModel):
     name: str
     company_name: str | None = None
     developer: str | None = None
+    alias: str | None = None
     folder_path: str
+    entry_source: str = "library"
     cover_path: str | None = None
+    is_nsfw: bool = False
     platform_summary: str = ""  # e.g. "PC, KRKR"
     tag_names: list[str] = []
     imported_at: datetime
@@ -42,14 +50,18 @@ class GameDetail(BaseModel):
     company_name: str | None = None
     root_id: int
     folder_path: str
+    entry_source: str = "library"
     cover_path: str | None = None
     bg_path: str | None = None
+    is_nsfw: bool = False
     developer: str | None = None
+    alias: str | None = None
     description: str | None = None
     release_date: str | None = None
     vndb_id: str | None = None
     steam_id: str | None = None
     bangumi_id: str | None = None
+    hikarinagi_id: str | None = None
     length: int = 0
     length_minutes: int = 0
     is_deleted: bool

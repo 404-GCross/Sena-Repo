@@ -3,8 +3,19 @@
 /// Cross-platform client for Windows, Android, and Linux.
 
 import "dart:async";
-import "dart:io" show HttpClient, HttpOverrides, InternetAddress, Platform, Process, SecurityContext, ServerSocket, Socket, X509Certificate, exit;
-import "dart:ui" show PointerDeviceKind;
+import "dart:io"
+    show
+        HttpClient,
+        HttpOverrides,
+        InternetAddress,
+        Platform,
+        Process,
+        SecurityContext,
+        ServerSocket,
+        Socket,
+        X509Certificate,
+        exit;
+import "dart:ui" show PlatformDispatcher, PointerDeviceKind;
 import "services/api_client.dart" show trustedServerHost;
 
 import "package:flutter/material.dart";
@@ -21,6 +32,7 @@ import "services/tray_service.dart";
 import "services/logger_service.dart";
 import "services/notification_service.dart";
 import "services/download_service.dart";
+import "utils/theme_utils.dart";
 
 Future<bool> _check7zAvailable() async {
   try {
@@ -32,6 +44,29 @@ Future<bool> _check7zAvailable() async {
   }
 }
 
+/// Palette derived from the accent, but with neutral surfaces and outlines.
+///
+/// `ColorScheme.fromSeed` tints every surface with the seed, which made cards,
+/// borders and menus pick up the accent colour. Only interactive elements
+/// keep the accent here.
+ColorScheme _neutralSurfaceScheme(Color accent) {
+  final base = ColorScheme.fromSeed(
+    seedColor: accent,
+    brightness: Brightness.light,
+  );
+  return base.copyWith(
+    surface: const Color(0xFFFFFFFF),
+    surfaceTint: const Color(0xFFFFFFFF),
+    surfaceContainerLowest: const Color(0xFFFFFFFF),
+    surfaceContainerLow: const Color(0xFFF8FAFC),
+    surfaceContainer: const Color(0xFFF4F7FB),
+    surfaceContainerHigh: const Color(0xFFF1F4F9),
+    surfaceContainerHighest: const Color(0xFFEEF1F7),
+    outline: const Color(0xFFCBD3DF),
+    outlineVariant: const Color(0xFFE3E7EE),
+  );
+}
+
 final trayService = TrayService();
 
 ServerSocket? _lockServer;
@@ -41,13 +76,15 @@ const _instancePort = 11452;
 /// instance to show itself and return false.
 Future<bool> _acquireSingleInstanceLock() async {
   try {
-    _lockServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, _instancePort);
+    _lockServer =
+        await ServerSocket.bind(InternetAddress.loopbackIPv4, _instancePort);
     return true;
   } catch (_) {
     // Another instance is already running — tell it to come to front
     try {
       final s = await Socket.connect(
-        InternetAddress.loopbackIPv4, _instancePort,
+        InternetAddress.loopbackIPv4,
+        _instancePort,
         timeout: const Duration(milliseconds: 500),
       );
       await s.close();
@@ -76,46 +113,69 @@ class _AllowAllCertificates extends HttpOverrides {
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  HttpOverrides.global = _AllowAllCertificates();
-  // Prevent Android system bars from overlapping the app
-  if (Platform.isAndroid) {
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      systemNavigationBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarIconBrightness: Brightness.light,
-    ));
-  }
-  NotificationService().init();
-  DownloadService().initLifecycle();
-  LoggerService().cleanOldLogs();
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      LoggerService().error(
+        "Flutter framework error",
+        details.exception,
+        details.stack,
+      );
+    };
+    PlatformDispatcher.instance.onError = (error, stackTrace) {
+      LoggerService().error("Uncaught platform error", error, stackTrace);
+      return true;
+    };
 
-  if (Platform.isWindows || Platform.isLinux) {
-    if (!await _acquireSingleInstanceLock()) {
-      exit(0);
+    HttpOverrides.global = _AllowAllCertificates();
+    // Prevent Android system bars from overlapping the app
+    if (Platform.isAndroid) {
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ));
     }
-    await windowManager.ensureInitialized();
-    windowManager.setTitle("Sena-Repo,bye~bye~");
-    _startInstanceListener();
-  }
+    NotificationService().init();
+    DownloadService().initLifecycle();
+    LoggerService().cleanOldLogs();
+    LoggerService().info("client startup: platform=${Platform.operatingSystem}");
 
-  // Disclaimer / EULA check
-  final prefs = await SharedPreferences.getInstance();
-  if (prefs.getBool("disclaimer_agreed") != true) {
-    final agreed = await _showDisclaimer();
-    if (agreed != true) exit(0);
-    await prefs.setBool("disclaimer_agreed", true);
-  }
+    if (Platform.isWindows || Platform.isLinux) {
+      if (!await _acquireSingleInstanceLock()) {
+        LoggerService().warn("client startup blocked: another instance is active");
+        exit(0);
+      }
+      await windowManager.ensureInitialized();
+      windowManager.setTitle("Sena-Repo,bye~bye~");
+      _startInstanceListener();
+    }
 
-  runApp(const SenaRepoApp());
+    // Disclaimer / EULA check
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool("disclaimer_agreed") != true) {
+      final agreed = await _showDisclaimer();
+      if (agreed != true) {
+        LoggerService().warn("client startup cancelled: disclaimer rejected");
+        exit(0);
+      }
+      await prefs.setBool("disclaimer_agreed", true);
+    }
+
+    runApp(const SenaRepoApp());
+  }, (error, stackTrace) {
+    LoggerService().error("Uncaught zone error", error, stackTrace);
+  });
 }
 
 Future<bool?> _showDisclaimer() async {
   final result = Completer<bool?>();
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
+    theme: ThemeData(fontFamilyFallback: appFontFamilyFallback),
     home: Builder(
       builder: (context) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -123,29 +183,40 @@ Future<bool?> _showDisclaimer() async {
             context: context,
             barrierDismissible: false,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
               title: Column(children: [
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(18),
-                  child: Image.asset("assets/icon.png", width: 72, height: 72, fit: BoxFit.cover,
+                  child: Image.asset(
+                    "assets/icon.png",
+                    width: 72,
+                    height: 72,
+                    fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
-                      width: 72, height: 72,
+                      width: 72,
+                      height: 72,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(18),
                         gradient: const LinearGradient(
-                          begin: Alignment.topLeft, end: Alignment.bottomRight,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                           colors: [Color(0xFF7C3AED), Color(0xFFA855F7)],
                         ),
                       ),
-                      child: const Icon(Icons.videogame_asset, size: 36, color: Colors.white),
+                      child: const Icon(Icons.videogame_asset,
+                          size: 36, color: Colors.white),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text("欢迎使用 Sena Repo", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const Text("欢迎使用 Sena Repo",
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                const Text("免责声明", style: TextStyle(fontSize: 13, color: Colors.grey)),
+                const Text("免责声明",
+                    style: TextStyle(fontSize: 13, color: Colors.grey)),
               ]),
               content: const SizedBox(
                 width: 420,
@@ -153,10 +224,17 @@ Future<bool?> _showDisclaimer() async {
                   child: Column(children: [
                     Divider(height: 1),
                     SizedBox(height: 12),
-                    _DisclaimerItem(icon: Icons.folder_special, text: "本项目为开源项目，仅用于合法用途，管理您有权使用的游戏与应用。"),
-                    _DisclaimerItem(icon: Icons.shield, text: "您需要自行确认资源与第三方组件的合法性。"),
-                    _DisclaimerItem(icon: Icons.block, text: "本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。"),
-                    _DisclaimerItem(icon: Icons.warning_amber, text: "本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。"),
+                    _DisclaimerItem(
+                        icon: Icons.folder_special,
+                        text: "本项目为开源项目，仅用于合法用途，管理您有权使用的游戏与应用。"),
+                    _DisclaimerItem(
+                        icon: Icons.shield, text: "您需要自行确认资源与第三方组件的合法性。"),
+                    _DisclaimerItem(
+                        icon: Icons.block,
+                        text: "本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。"),
+                    _DisclaimerItem(
+                        icon: Icons.warning_amber,
+                        text: "本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。"),
                   ]),
                 ),
               ),
@@ -185,9 +263,12 @@ class _DisclaimerItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, size: 18, color: const Color(0xFF7C3AED).withValues(alpha: 0.7)),
+        Icon(icon,
+            size: 18, color: const Color(0xFF7C3AED).withValues(alpha: 0.7)),
         const SizedBox(width: 12),
-        Expanded(child: Text(text, style: const TextStyle(fontSize: 14, height: 1.5))),
+        Expanded(
+            child:
+                Text(text, style: const TextStyle(fontSize: 14, height: 1.5))),
       ]),
     );
   }
@@ -199,9 +280,13 @@ class _DisclaimerActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("不同意")),
+      TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text("不同意")),
       const SizedBox(width: 8),
-      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text("同意")),
+      FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text("同意")),
     ]);
   }
 }
@@ -265,7 +350,8 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => SettingsProvider()..loadSettings()),
+        ChangeNotifierProvider(
+            create: (_) => SettingsProvider()..loadSettings()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
@@ -275,34 +361,90 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
           debugShowCheckedModeBanner: false,
           scrollBehavior: const _DesktopTouchScrollBehavior(),
           theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: theme.accentColor,
-              brightness: Brightness.light,
-            ),
+            colorScheme: _neutralSurfaceScheme(theme.accentColor),
             useMaterial3: true,
+            visualDensity: VisualDensity.standard,
+            scaffoldBackgroundColor: const Color(0xFFECEFF5),
+            fontFamilyFallback: appFontFamilyFallback,
+            appBarTheme: const AppBarTheme(
+              centerTitle: false,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              backgroundColor: Color(0x00F4F6F8),
+              foregroundColor: Color(0xFF111827),
+              titleTextStyle: TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                fontFamilyFallback: appFontFamilyFallback,
+              ),
+            ),
             cardTheme: CardThemeData(
               elevation: 0,
+              color: Colors.white,
+              margin: EdgeInsets.zero,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(10),
               ),
             ),
             inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: Colors.white,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFD8DEE8)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFF3B82F6)),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
             filledButtonTheme: FilledButtonThemeData(
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            outlinedButtonTheme: OutlinedButtonThemeData(
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            iconButtonTheme: IconButtonThemeData(
+              style: IconButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+            navigationBarTheme: NavigationBarThemeData(
+              height: 68,
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              labelTextStyle: WidgetStateProperty.all(
+                const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  fontFamilyFallback: appFontFamilyFallback,
                 ),
               ),
             ),
             chipTheme: ChipThemeData(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
           ),

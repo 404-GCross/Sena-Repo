@@ -12,12 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Config
 from models.game import Company, Game, GameVersion, Platform, GameTag
 from models.file_source import FileSource
-from models.ignore_list import IgnoreList
 from models.root_directory import RootDirectory
 from models.tag import Tag
 from services.cleaner import clean_filename, normalize_company_name, _clean_name
 from services.file_source import adapter_from_source, canonical_source_path
-from services.scanner import scan_root, scan_source, get_ignore_paths
+from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
 
 logger = logging.getLogger(__name__)
 
@@ -51,18 +50,20 @@ async def import_from_root(
 
     # Scan the filesystem/source in a thread pool so slow/remote storage doesn't block the event loop
     scan_structure = getattr(config, "_scan_structure", "company_game")
+    scan_depth = normalize_game_depth(scan_structure, getattr(config, "_scan_depth", None))
     logger.info(
-        "Scanning root id=%s type=%s path=%s structure=%s",
+        "Scanning root id=%s type=%s path=%s structure=%s depth=%s",
         root.id,
         source_type,
         source_path,
         scan_structure,
+        scan_depth,
     )
     if source_type == "local":
-        scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure)
+        scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure, scan_depth)
     else:
         adapter = adapter_from_source(source_model, source_type)
-        scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure)
+        scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure, scan_depth)
 
     discovered_games = sum(len(company.games) for company in scan_result.companies)
     discovered_archives = sum(
@@ -146,7 +147,11 @@ async def import_from_root(
         for c in scan_result.companies for g in c.games
     }
     all_games = await session.execute(
-        select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
+        select(Game).where(
+            Game.root_id == root_id,
+            Game.entry_source == "library",
+            Game.is_deleted == False,
+        )
     )
     orphans = 0
     for game in all_games.scalars().all():
@@ -162,7 +167,11 @@ async def import_from_root(
 
     # Count total games from this root
     count_result = await session.execute(
-        select(Game).where(Game.root_id == root_id, Game.is_deleted == False)
+        select(Game).where(
+            Game.root_id == root_id,
+            Game.entry_source == "library",
+            Game.is_deleted == False,
+        )
     )
     stats["total_games"] = len(count_result.scalars().all())
     stats["orphaned"] = orphans
@@ -238,6 +247,7 @@ async def _upsert_game(
             company_id=company_id,
             root_id=root_id,
             folder_path=folder_path,
+            entry_source="library",
             developer=developer,
         )
         session.add(game)
@@ -246,6 +256,7 @@ async def _upsert_game(
         # Update fields if changed, restore if previously deleted
         game.name = clean_name
         game.company_id = company_id
+        game.entry_source = "library"
         game.is_deleted = False
         if game.developer is None and developer:
             game.developer = developer
@@ -272,6 +283,16 @@ async def _upsert_version(
     )
     existing = result.scalar_one_or_none()
     if existing is not None:
+        checksum_stale = (
+            existing.file_size != file_size
+            or existing.source_type != source_type
+            or existing.source_id != source_id
+            or (existing.source_path or existing.file_path) != (source_path or file_path)
+        )
+        if checksum_stale:
+            existing.checksum_algo = None
+            existing.checksum = None
+            existing.checksum_updated_at = None
         # Update size if changed
         existing.file_size = file_size
         existing.source_type = source_type

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,12 +17,43 @@ from config import load_config
 from database import create_tables, init_database
 
 
+async def _fail_interrupted_scrape_jobs(logger):
+    from sqlalchemy import select
+
+    from database import get_session
+    from models.scrape_job import JobStatus, ScrapeJob
+
+    async for session in get_session():
+        result = await session.execute(
+            select(ScrapeJob).where(
+                ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+            )
+        )
+        jobs = result.scalars().all()
+        now = datetime.utcnow()
+        for job in jobs:
+            job.status = JobStatus.FAILED
+            job.current_stage = "interrupted"
+            job.last_error = "服务重启或后台任务中断，已停止旧刮削任务"
+            job.heartbeat_at = now
+            job.log = (
+                (job.log or "")
+                + " [服务重启或后台任务中断，已自动停止旧刮削任务]"
+            )
+        if jobs:
+            await session.commit()
+            logger.warning("Marked %s interrupted scrape job(s) as failed", len(jobs))
+        break
+
+
 async def _auto_scan_task(config, logger):
     """Background task: periodically scan if auto-scan is enabled."""
     import asyncio
     while True:
         await asyncio.sleep(300)  # check every 5 minutes
         try:
+            from api.settings import _load_scan_settings
+            _load_scan_settings(config)
             if not getattr(config, "_auto_scan", False):
                 continue
             # Check if enough time has passed since last scan
@@ -48,9 +82,21 @@ async def lifespan(app: FastAPI):
     config = load_config()
     init_database(config)
     await create_tables()
+    await _fail_interrupted_scrape_jobs(logger)
     logger.info(f"Database initialized at: {config.database_url}")
     logger.info(f"Games path: {config.games_path}")
     logger.info(f"Data path: {config.data_path}")
+    patch_index = Path(config.data_path) / "steam_patch_index" / "patches.json"
+    patch_count = 0
+    if patch_index.is_file():
+        try:
+            patch_count = len(
+                json.loads(patch_index.read_text(encoding="utf-8")).get("patches", [])
+            )
+        except Exception as exc:
+            logger.error(f"Steam patch index is unreadable: {patch_index} ({exc})")
+            patch_count = -1
+    logger.info(f"Steam patch index: {patch_index} ({patch_count} entries)")
 
     # Store config in app state for route access
     app.state.config = config
@@ -92,6 +138,8 @@ async def lifespan(app: FastAPI):
 
 import os as _os
 
+_config = load_config()
+
 app = FastAPI(
     title="Sena Repo",
     description="GalGame Private Library Manager API",
@@ -99,10 +147,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow all origins for LAN/home server use
+# CORS is disabled for browsers unless explicit origins are configured.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_config.server.allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -117,13 +165,17 @@ from api.file_sources import router as file_sources_router
 from api.settings import router as settings_router
 from api.scraper import router as scraper_router
 from api.files import router as files_router
-from api.steam_patch import router as steam_patch_router
+from api.steam_patch import router as steam_patch_router, signed_router as steam_patch_signed_router
 from api.setup import router as setup_router
 from api.auth import router as auth_router
+from api.backup import router as backup_router
 
 app.include_router(games_router)
 app.include_router(tags_router)
 app.include_router(roots_router)
+# Must come before download_router: /api/download/signed/steam-patch/{key} would
+# otherwise be captured by /api/download/signed/{game_id}/{version_id}.
+app.include_router(steam_patch_signed_router)
 app.include_router(download_router)
 app.include_router(file_sources_router)
 app.include_router(settings_router)
@@ -132,6 +184,7 @@ app.include_router(files_router)
 app.include_router(steam_patch_router)
 app.include_router(setup_router)
 app.include_router(auth_router)
+app.include_router(backup_router)
 
 
 @app.get("/api/health")
