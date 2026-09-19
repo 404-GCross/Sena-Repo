@@ -1,7 +1,8 @@
 # Sena Repo Agent Rules
 
 Project rules for coding agents working in this repository. `CLAUDE.md` is a symlink to this
-file; keep a single copy of the rules here and long-form documentation under `Documentation/`.
+file; keep a single copy of the rules here. Long-form documentation lives on the docs site
+(https://sena-repo.github.io/, source in `Sena-Repo/sena-repo.github.io`).
 
 ## Iron Rules
 
@@ -41,8 +42,9 @@ file; keep a single copy of the rules here and long-form documentation under `Do
   between dev pre-release and release workflows.
 - Reference projects under `参考项目/` are comparison material, not code to edit unless the
   user explicitly asks.
-- Long-form user, technical, and troubleshooting documentation lives in `Documentation/zh-CN/`.
-  Keep this file to rules and pointers rather than duplicating full guides.
+- Long-form user, technical, and troubleshooting documentation lives on the docs site
+  (https://sena-repo.github.io/, source in `Sena-Repo/sena-repo.github.io`). Keep this file
+  to rules and pointers rather than duplicating full guides.
 
 ## Client-Server Contracts
 

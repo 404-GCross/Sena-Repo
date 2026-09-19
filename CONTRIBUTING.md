@@ -17,7 +17,7 @@
 |------|------|
 | `server/` | FastAPI 服务端、SQLite 数据库模型、扫描/刮削/下载 API |
 | `client/` | Flutter 客户端，支持 Windows / Android / Linux |
-| `Documentation/zh-CN/` | 中文用户文档、技术文档、排障文档和测试清单 |
+| 文档站（[sena-repo.github.io](https://sena-repo.github.io/)，源仓库 `Sena-Repo/sena-repo.github.io`） | 中文用户文档、技术文档、排障文档和测试清单 |
 | `.github/workflows/` | CI、开发版预发布、正式 Release 和 7-Zip-zstd 构建流程 |
 | `client/assets/binaries/` | 内置二进制归档（`aria2/`、`7zip-zstd/`），CI 构建时按平台架构拷贝到扁平路径后打包 |
 | `AGENTS.md` | 本仓库的编码代理规则与提交规范（`CLAUDE.md` 是指向它的软链） |
@@ -53,7 +53,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-服务端默认监听 `11451`。常用环境变量可参考 `server/config.example.yaml` 和 `Documentation/zh-CN/server-guide.md`：
+服务端默认监听 `11451`。常用环境变量可参考 `server/config.example.yaml` 和文档站的[服务端部署](https://sena-repo.github.io/server/)：
 
 - `SENA_GAMES_PATH`：游戏库路径
 - `SENA_DATA_PATH`：数据库、图片和配置数据路径
@@ -138,7 +138,7 @@ flutter analyze --no-fatal-infos --no-fatal-warnings
 
 请确认：
 
-- README、`Documentation/zh-CN/` 和 `CONTRIBUTING.md` 的功能描述一致
+- README、文档站和 `CONTRIBUTING.md` 的功能描述一致
 - 工作流名称、Flutter 版本、Docker 镜像标签和平台产物没有过期
 - 示例命令不包含真实路径、Token 或私有 URL
 
@@ -199,11 +199,7 @@ Steam 补丁功能分为客户端本机扫描/注入和服务端补丁库管理/
 如果改动影响用户可见行为，请同步更新至少一个相关文档：
 
 - `README.md` / `README_zh_CN.md`
-- `Documentation/zh-CN/server-guide.md`
-- `Documentation/zh-CN/client-guide.md`
-- `Documentation/zh-CN/technical.md`
-- `Documentation/zh-CN/troubleshooting.md`
-- `Documentation/zh-CN/test-checklist.md`
+- 文档站：https://sena-repo.github.io/（源仓库 `Sena-Repo/sena-repo.github.io`）
 
 ## 许可证
 
