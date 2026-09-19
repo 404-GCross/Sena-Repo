@@ -803,10 +803,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   m.manifestStatus,
                   manualRules: m.analysisMode == "manual",
                 ),
-                const SizedBox(width: 6),
-                Text(m.label ?? m.patchFilename ?? "",
-                    style: AppText.bodySmall.copyWith(
-                        color: Colors.green[700], fontWeight: FontWeight.w500)),
                 const Spacer(),
                 Text(_formatSize(m.patchSize),
                     style: AppText.bodySmall.copyWith(
