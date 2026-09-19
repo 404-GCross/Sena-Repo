@@ -393,8 +393,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               AppSegmentedTabs(
                 selectedIndex: _tabIndex,
                 tabs: const [
-                  AppSegmentedTab(0, Icons.computer, "客户端注入"),
-                  AppSegmentedTab(1, Icons.dns_outlined, "服务端补丁库"),
+                  AppSegmentedTab(0, Icons.computer, "补丁注入"),
+                  AppSegmentedTab(1, Icons.dns_outlined, "补丁配置"),
                 ],
                 onChanged: (index) {
                   setState(() => _tabIndex = index);
@@ -704,7 +704,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                             minimumSize: Size.zero))
                   else
                     Tooltip(
-                      message: "请在「服务端补丁库」配置规则后注入",
+                      message: "请在「补丁配置」配置规则后注入",
                       child: FilledButton.tonalIcon(
                           onPressed: null,
                           icon: const Icon(Icons.auto_fix_high, size: 16),
@@ -916,7 +916,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               Icon(Icons.dns_outlined,
                   color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: AppGap.sm),
-              Text("服务端补丁库", style: AppText.title),
+              Text("补丁配置", style: AppText.title),
             ],
           ),
           const SizedBox(height: AppGap.lg),
@@ -992,7 +992,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
             child: Row(
               children: [
-                Text("服务端补丁库", style: AppText.title),
+                Text("补丁配置", style: AppText.title),
                 const Spacer(),
                 if (_serverLoaded)
                   AppStatusPill(
