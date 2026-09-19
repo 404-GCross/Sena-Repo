@@ -77,14 +77,6 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 安装与使用教程请查看文档：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
 
-| 教程 | 内容 |
-|------|------|
-| **[快速开始](https://sena-repo.github.io/guide/quick-start)** | 文件来源选择 → 服务端部署 → 客户端初始化，最短路径 |
-| **[服务端部署](https://sena-repo.github.io/server/)** | Docker / Docker Compose / 裸机一键安装与完整参数 |
-| **[客户端使用](https://sena-repo.github.io/client/)** | Windows / Android / Linux 安装、首次设置与日常操作 |
-
-其他专题（Steam 补丁、元数据刮削、下载解压、疑难杂症、技术架构等）见 [文档站首页](https://sena-repo.github.io/)。
-
 ---
 
 ## 贡献
@@ -125,12 +117,12 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)**。
 
-**你可以：**
+**您可以：**
 - 自由使用、复制、修改、分发本项目
 - 将本项目用于商业或非商业用途
 - 将修改后的版本作为网络服务运行
 
-**你需要：**
+**您需要：**
 - 分发或公开部署修改后的版本时，开源你的修改
 - 即使只通过网络提供服务（不分发二进制），也要提供源代码
 - 保留原始版权声明和许可声明
