@@ -26,7 +26,7 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
 6. Do not use `git add -A` for commits in this repository. Stage explicit paths that belong to
    the current task.
 7. The user has authorized automatic GitHub submission after requested changes are complete:
-   run the available checks, follow the Commit Messages section, push to `origin/dev`, and
+   run the available checks, follow the Commit Messages section, push to `origin/main`, and
    track the required GitHub Actions checks unless the user says not to commit or push.
 8. HTML design mockups and UI draft files are local-only working artifacts unless the user
    explicitly asks to commit or publish them; do not stage, commit, or push them by default.

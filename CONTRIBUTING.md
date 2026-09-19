@@ -8,7 +8,7 @@
 
 - 请先搜索 [Issues](https://github.com/404-GCross/Sena-Repo/issues)，确认是否已有相同问题或建议。
 - 较大的功能改动建议先开 Issue 讨论，尤其是会影响数据库结构、客户端/服务端 API、下载协议、Steam 补丁流程或发布工作流的改动。
-- 当前主要开发分支是 `dev`，Pull Request 请默认提交到 `dev`。
+- 当前主要开发分支是 `main`，Pull Request 请默认提交到 `main`。
 - 本项目包含游戏库扫描、OpenList 文件源、元数据刮削、Steam 补丁注入、LunaBox / ReinaManager 推送下载等功能。改动其中任一流程时，请同时检查客户端、服务端和文档是否需要同步。
 
 ## 仓库结构
@@ -82,7 +82,7 @@ flutter run
 
 ## 提交代码
 
-1. 从 `dev` 创建功能分支。
+1. 从 `main` 创建功能分支。
 2. 保持改动聚焦，不要把无关格式化、实验文件或本地设计稿一起提交。
 3. 同步修改客户端、服务端、Schema、文档和测试清单中受影响的部分。
 4. 提交信息使用英文 Conventional Commits，例如：
@@ -148,7 +148,7 @@ flutter analyze --no-fatal-infos --no-fatal-warnings
 
 | 工作流 | 触发 | 作用 |
 |--------|------|------|
-| `.github/workflows/build.yml` | push / PR 到 `dev`、`main`、`master`，也支持手动触发 | 服务端 `compileall`、Flutter analyze、构建 Android / Windows / Linux / Server，并在非 PR 时发布 `dev-release` 预发布 |
+| `.github/workflows/build.yml` | push / PR 到 `main`、`master`，也支持手动触发 | 服务端 `compileall`、Flutter analyze、构建 Android / Windows / Linux / Server，并在非 PR 时发布 `dev-release` 预发布 |
 | `.github/workflows/build_Release.yml` | 手动触发 | 构建正式 Release 产物，发布 GitHub Release，并推送 Docker 镜像 |
 | `.github/workflows/build-7zz-zstd.yml` | 手动或维护触发 | 构建各平台 7-Zip-zstd 二进制 |
 
@@ -203,6 +203,6 @@ Steam 补丁功能分为客户端本机扫描/注入和服务端补丁库管理/
 
 ## 许可证
 
-贡献的代码将采用本项目相同的 [AGPL-3.0 许可证](https://github.com/404-GCross/Sena-Repo/blob/dev/LICENSE)。
+贡献的代码将采用本项目相同的 [AGPL-3.0 许可证](https://github.com/404-GCross/Sena-Repo/blob/main/LICENSE)。
 
 如果你分发修改版，或将修改版作为网络服务提供给他人使用，请遵守 AGPL-3.0 的源代码公开要求。
