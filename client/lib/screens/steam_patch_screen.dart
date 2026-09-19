@@ -24,6 +24,10 @@ class SteamPatchScreen extends StatefulWidget {
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   int _tabIndex = 0; // 0=客户端, 1=服务端
   bool _isAdmin = false;
+  String _clientQuery = "";
+  String _serverQuery = "";
+  final TextEditingController _clientSearchCtrl = TextEditingController();
+  final TextEditingController _serverSearchCtrl = TextEditingController();
 
   // Client tab
   String? _commonDir;
@@ -54,6 +58,75 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final prefs = await SharedPreferences.getInstance();
     final isAdmin = prefs.getBool("is_admin") ?? false;
     if (mounted) setState(() => _isAdmin = isAdmin);
+  }
+
+  @override
+  void dispose() {
+    _clientSearchCtrl.dispose();
+    _serverSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _clientMatchHit(PatchMatch m, String query) {
+    return m.gameName.toLowerCase().contains(query) ||
+        m.installDir.toLowerCase().contains(query) ||
+        m.appId.toLowerCase().contains(query) ||
+        (m.label ?? "").toLowerCase().contains(query) ||
+        (m.patchFilename ?? "").toLowerCase().contains(query);
+  }
+
+  bool _serverPatchHit(Map<String, dynamic> p, String query) {
+    return [p["display_name"], p["label"], p["display_file"], p["file"], p["app_id"]]
+        .whereType<Object>()
+        .any((value) => value.toString().toLowerCase().contains(query));
+  }
+
+  Widget _buildSearchField({
+    required TextEditingController controller,
+    required String hint,
+    required ValueChanged<String> onChanged,
+  }) {
+    return SizedBox(
+      height: 36,
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        style: AppText.bodySmall,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: AppText.bodySmall.copyWith(color: hintColor(context)),
+          prefixIcon: const Icon(Icons.search_rounded, size: 18),
+          prefixIconConstraints:
+              const BoxConstraints(minWidth: 32, minHeight: 32),
+          suffixIcon: controller.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear_rounded, size: 16),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    controller.clear();
+                    onChanged("");
+                  },
+                )
+              : null,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          filled: true,
+          fillColor: cardBg(context).withValues(alpha: 0.6),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: cardBorder(context)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: cardBorder(context)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadSavedDir() async {
@@ -529,6 +602,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Widget _buildClientResultPanel() {
+    final query = _clientQuery.trim().toLowerCase();
+    final available = query.isEmpty
+        ? _availablePatches
+        : _availablePatches.where((m) => _clientMatchHit(m, query)).toList();
+    final noPatch = query.isEmpty
+        ? _noPatchGames
+        : _noPatchGames.where((m) => _clientMatchHit(m, query)).toList();
     return AppSurface(
       padding: EdgeInsets.zero,
       child: Column(
@@ -540,7 +620,19 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               children: [
                 Text("补丁匹配结果", style: AppText.title),
                 const Spacer(),
-                if (_matches.isNotEmpty)
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: _buildSearchField(
+                      controller: _clientSearchCtrl,
+                      hint: "搜索游戏 / 补丁",
+                      onChanged: (value) =>
+                          setState(() => _clientQuery = value),
+                    ),
+                  ),
+                ),
+                if (_matches.isNotEmpty) ...[
+                  const SizedBox(width: AppGap.sm),
                   AppStatusPill(
                     icon: Icons.check_circle_outline,
                     label: "${_readyPatches.length}/${_availablePatches.length} 可直接注入",
@@ -548,6 +640,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                         ? Colors.green
                         : Colors.grey,
                   ),
+                ],
               ],
             ),
           ),
@@ -556,29 +649,37 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_matches.isEmpty)
             Expanded(child: _emptyClientState())
+          else if (available.isEmpty && noPatch.isEmpty)
+            Expanded(
+              child: Center(
+                child: Text("没有匹配的补丁",
+                    style:
+                        AppText.bodyMedium.copyWith(color: hintColor(context))),
+              ),
+            )
           else
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                 children: [
-                  if (_availablePatches.isNotEmpty) ...[
-                    _sectionHeader("已匹配补丁 (${_availablePatches.length})",
+                  if (available.isNotEmpty) ...[
+                    _sectionHeader("已匹配补丁 (${available.length})",
                         Icons.download, Colors.green),
-                    ..._availablePatches.map((m) => _gameCard(m)),
+                    ...available.map((m) => _gameCard(m)),
                   ],
-                  if (_noPatchGames.isNotEmpty) ...[
+                  if (noPatch.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     InkWell(
                       borderRadius: BorderRadius.circular(10),
                       onTap: () => setState(() => _showNoPatch = !_showNoPatch),
                       child: _sectionHeader(
-                        "暂无补丁 (${_noPatchGames.length})",
+                        "暂无补丁 (${noPatch.length})",
                         _showNoPatch ? Icons.expand_less : Icons.expand_more,
                         Colors.grey,
                       ),
                     ),
                     if (_showNoPatch)
-                      ..._noPatchGames.map((m) => _simpleCard(m)),
+                      ...noPatch.map((m) => _simpleCard(m)),
                   ],
                 ],
               ),
@@ -990,6 +1091,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Widget _buildServerResultPanel() {
+    final query = _serverQuery.trim().toLowerCase();
+    final patches = query.isEmpty
+        ? _serverPatches
+        : _serverPatches.where((p) => _serverPatchHit(p, query)).toList();
     return AppSurface(
       padding: EdgeInsets.zero,
       child: Column(
@@ -1001,12 +1106,25 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               children: [
                 Text("补丁配置", style: AppText.title),
                 const Spacer(),
-                if (_serverLoaded)
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: _buildSearchField(
+                      controller: _serverSearchCtrl,
+                      hint: "搜索补丁 / AppID",
+                      onChanged: (value) =>
+                          setState(() => _serverQuery = value),
+                    ),
+                  ),
+                ),
+                if (_serverLoaded) ...[
+                  const SizedBox(width: AppGap.sm),
                   AppStatusPill(
                     icon: Icons.inventory_2_outlined,
                     label: "${_serverPatches.length} 个补丁",
                     color: Theme.of(context).colorScheme.primary,
                   ),
+                ],
               ],
             ),
           ),
@@ -1030,12 +1148,19 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 ]),
               ),
             )
+          else if (patches.isEmpty)
+            Expanded(
+              child: Center(
+                child: Text("没有匹配的补丁",
+                    style:
+                        AppText.bodyMedium.copyWith(color: hintColor(context))),
+              ),
+            )
           else
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-                children:
-                    _serverPatches.map((p) => _serverPatchCard(p)).toList(),
+                children: patches.map((p) => _serverPatchCard(p)).toList(),
               ),
             ),
         ],
