@@ -26,6 +26,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _isAdmin = false;
   String _clientQuery = "";
   String _serverQuery = "";
+  final Set<String> _expandedKeys = {};
   final TextEditingController _clientSearchCtrl = TextEditingController();
   final TextEditingController _serverSearchCtrl = TextEditingController();
 
@@ -1177,6 +1178,26 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
+  Widget _patchDetailRow(String label, String? value) {
+    final text = (value == null || value.trim().isEmpty) ? "—" : value.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 72,
+          child: Text(label,
+              style: AppText.caption.copyWith(color: hintColor(context))),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SelectableText(text,
+              style: AppText.bodySmall.copyWith(
+                  color: text == "—" ? hintColor(context) : null)),
+        ),
+      ]),
+    );
+  }
+
   Widget _serverPatchCard(Map<String, dynamic> p) {
     final file = (p["file"] ?? "").toString();
     final displayFile = (p["display_file"] ?? file).toString();
@@ -1193,6 +1214,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final analysisMode = (p["analysis_mode"] ?? "auto").toString();
     final locked = _lockedOverrides[lookupKey] ?? p["locked"] == true;
     final manualRules = analysisMode == "manual";
+    final expanded = _expandedKeys.contains(lookupKey);
+    final size = int.tryParse((p["size"] ?? "").toString()) ?? 0;
+    final sourcePath = (p["source_path"] ?? file).toString();
+    final sourceType = (p["source_type"] ?? "local").toString();
+    final sourceId = (p["source_id"] ?? "").toString();
+    final updatedAtRaw = (p["manifest_updated_at"] ?? "").toString();
+    final updatedAt = updatedAtRaw.isEmpty
+        ? ""
+        : updatedAtRaw.replaceFirst("T", " ").split(".").first;
     final hasAppId = appId.isNotEmpty && appId != "None" && appId != "null";
     final badges = <Widget>[
       _typeBadge(ptype),
@@ -1265,11 +1295,25 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.zero,
       radius: AppRadius.md,
-      // Wide rows group the badges with the buttons; narrow rows keep the badges
-      // next to the title so the action group stays a clean single control.
-      child: LayoutBuilder(builder: (context, constraints) {
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() {
+          if (expanded) {
+            _expandedKeys.remove(lookupKey);
+          } else {
+            _expandedKeys.add(lookupKey);
+          }
+        }),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          // Wide rows group the badges with the buttons; narrow rows keep the
+          // badges next to the title so the action group stays one control.
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LayoutBuilder(builder: (context, constraints) {
         final groupBadges = constraints.maxWidth >= 760;
         return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
@@ -1332,18 +1376,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                     style: AppText.caption
                         .copyWith(color: hintColor(context), fontSize: 10))),
           ]),
-          if (patchDir.isNotEmpty && targetDir.isNotEmpty)
-            Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(children: [
-                  Icon(Icons.folder_copy, size: 10, color: hintColor(context)),
-                  const SizedBox(width: 4),
-                  Expanded(
-                      child: Text("$patchDir → /$targetDir",
-                          style: AppText.caption
-                              .copyWith(color: hintColor(context)))),
-                ])),
         ])),
+        Icon(expanded ? Icons.expand_less : Icons.expand_more,
+            size: 20, color: hintColor(context)),
+        const SizedBox(width: 4),
         const SizedBox(width: AppGap.sm),
         if (groupBadges || actions.isNotEmpty)
           Container(
@@ -1379,7 +1415,27 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           ]),
         ),
         ]);
-      }),
+                }),
+                if (expanded) ...[
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: cardBorder(context)),
+                  const SizedBox(height: 10),
+                  _patchDetailRow("文件大小", size > 0 ? _formatSize(size) : ""),
+                  _patchDetailRow(
+                      "注入规则",
+                      (patchDir.isNotEmpty || targetDir.isNotEmpty)
+                          ? "${patchDir.isEmpty ? "." : patchDir} → ${targetDir.isEmpty ? "." : targetDir}"
+                          : ""),
+                  _patchDetailRow("文件位置", sourcePath),
+                  _patchDetailRow("来源",
+                      sourceType == "openlist" ? "OpenList #$sourceId" : "本地"),
+                  _patchDetailRow("匹配游戏", matched),
+                  _patchDetailRow("分析模式", manualRules ? "手动规则" : "自动分析"),
+                  _patchDetailRow("规则更新", updatedAt),
+                ],
+              ]),
+        ),
+      ),
     );
   }
 
