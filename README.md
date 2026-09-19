@@ -9,15 +9,13 @@
 ![License](https://img.shields.io/github/license/404-GCross/Sena-Repo)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20Linux-blue)
 
-项目名称中的**Sena**来源于游戏[想要传达给你的爱恋](https://mzh.moegirl.org.cn/%E6%83%B3%E8%A6%81%E4%BC%A0%E8%BE%BE%E7%BB%99%E4%BD%A0%E7%9A%84%E7%88%B1%E6%81%8B)中的女主角[姬野星奏](https://mzh.moegirl.org.cn/%E5%A7%AC%E9%87%8E%E6%98%9F%E5%A5%8F)
+项目名称中的**Sena**来源于游戏[想要传达给你的爱恋](https://www.kungal.com/galgame/31)中的女主角[姬野星奏](https://www.kungal.com/galgame/character/38022)
 
 </div>
 
 ---
 ## 简介
 **Sena Repo** 是一款面向多平台的视觉小说私有库管理器，适合管理部署在远程服务器（如 NAS）上的游戏，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
-
-服务端（Docker / Python）负责扫描目录、清洗文件名、刮削元数据<br>客户端（Windows / Android / Linux）通过 HTTP/HTTPS 连接服务端，提供一体化的游戏库浏览和下载安装体验。
 
 Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的站点
 
@@ -77,7 +75,7 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 快速开始
 
-安装与使用教程已迁移至文档站：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
+安装与使用教程请查看文档：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
 
 | 教程 | 内容 |
 |------|------|
