@@ -647,13 +647,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   Widget _gameCard(PatchMatch m) {
     final state = _injectState[m.appId];
-    final manualRules = m.analysisMode == "manual";
-    final ruleLabel = manualRules
-        ? (m.manifestReady ? "规则" : "配置规则")
-        : (m.manifestReady ? "规则" : "确认规则");
-    final injectLabel = m.manifestReady
-        ? "注入"
-        : (manualRules ? "配置后注入" : "确认后注入");
+    final canInject = m.manifestReady;
     return AppSurface(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
@@ -697,28 +691,31 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
                           minimumSize: Size.zero)),
-                  OutlinedButton.icon(
-                      onPressed: () => _showPatchTreeDialog(m, allowInject: true),
-                      icon: const Icon(Icons.rule_folder_outlined, size: 16),
-                      label: Text(ruleLabel,
-                          style: AppText.bodySmall
-                              .copyWith(fontWeight: FontWeight.w600)),
-                      style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          minimumSize: Size.zero)),
-                  FilledButton.tonalIcon(
-                      onPressed: m.manifestReady
-                          ? () => _startInjection(m)
-                          : () => _showPatchTreeDialog(m, allowInject: true),
-                      icon: const Icon(Icons.auto_fix_high, size: 16),
-                      label: Text(injectLabel,
-                          style: AppText.bodySmall
-                              .copyWith(fontWeight: FontWeight.w600)),
-                      style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          minimumSize: Size.zero)),
+                  if (canInject)
+                    FilledButton.tonalIcon(
+                        onPressed: () => _startInjection(m),
+                        icon: const Icon(Icons.auto_fix_high, size: 16),
+                        label: Text("注入",
+                            style: AppText.bodySmall
+                                .copyWith(fontWeight: FontWeight.w600)),
+                        style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            minimumSize: Size.zero))
+                  else
+                    Tooltip(
+                      message: "请在「服务端补丁库」配置规则后注入",
+                      child: FilledButton.tonalIcon(
+                          onPressed: null,
+                          icon: const Icon(Icons.auto_fix_high, size: 16),
+                          label: Text("规则待配置",
+                              style: AppText.bodySmall
+                                  .copyWith(fontWeight: FontWeight.w600)),
+                          style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 8),
+                              minimumSize: Size.zero)),
+                    ),
                 ])
           else if (state == "paused")
             Row(mainAxisSize: MainAxisSize.min, children: [
