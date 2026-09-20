@@ -375,12 +375,37 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     }
   }
 
-  Future<void> _scanServerPatches() async {
+  Future<void> _pickScanMode() async {
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("扫描补丁"),
+        content: const Text(
+            "合并刷新：保留已配置的规则、名称和锁定，补新文件、删丢失文件。\n\n"
+            "清空重扫：丢弃全部已配置信息，完全按磁盘重建。"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, "reset"),
+              child: const Text("清空重扫")),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, "merge"),
+              child: const Text("合并刷新")),
+        ],
+      ),
+    );
+    if (mode == null || !mounted) return;
+    await _scanServerPatches(mode);
+  }
+
+  Future<void> _scanServerPatches(String mode) async {
     final api = context.read<GameProvider>().api;
     setState(() {
       _serverLoading = true;
       _scanProgress = null;
-      _serverStatus = "正在扫描...";
+      _serverStatus = mode == "reset" ? "正在清空重扫..." : "正在扫描...";
     });
     var scanning = true;
     Future<void> poll() async {
@@ -396,7 +421,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
     final pollFuture = poll();
     try {
-      final result = await SteamService.scanPatches(api);
+      final result = await SteamService.scanPatches(api, mode: mode);
       scanning = false;
       await pollFuture;
       if (!mounted) return;
@@ -1180,7 +1205,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               children: [
                 AppActionButton(
                   icon: Icons.refresh,
-                  label: "加载索引",
+                  label: "刷新",
                   onPressed: _serverLoading ? null : _loadServerPatches,
                   busy: _serverLoading,
                   filled: true,
@@ -1188,7 +1213,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 AppActionButton(
                   icon: Icons.folder,
                   label: "扫描补丁",
-                  onPressed: _serverLoading ? null : _scanServerPatches,
+                  onPressed: _serverLoading ? null : _pickScanMode,
                 ),
                 AppActionButton(
                   icon: Icons.search,

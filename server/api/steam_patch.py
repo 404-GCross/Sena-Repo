@@ -5,7 +5,7 @@ import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, thread
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -1253,8 +1253,19 @@ async def patch_scan_status(user: User = Depends(get_current_user)):
 
 
 @router.post("/scan-patches")
-async def scan_patches_endpoint(user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    """Re-scan all configured patch roots and regenerate patches.json."""
+async def scan_patches_endpoint(
+    mode: str = Query(default="merge"),
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-scan all configured patch roots and regenerate patches.json.
+
+    mode=merge keeps configured metadata for files that still exist;
+    mode=reset rebuilds the index from disk only.
+    """
+    scan_mode = str(mode or "merge").strip().lower()
+    if scan_mode not in {"merge", "reset"}:
+        raise HTTPException(status_code=400, detail="mode 只能是 merge 或 reset")
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
@@ -1325,8 +1336,11 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
             scanned.extend(local_scanned)
 
         json_path = index_dir / "patches.json"
-        existing = load_existing(json_path)
-        existing_list = existing.get("patches", []) if existing else []
+        if scan_mode == "reset":
+            existing_list = []
+        else:
+            existing = load_existing(json_path)
+            existing_list = existing.get("patches", []) if existing else []
         merged_patches = _normalize_patch_records(merge(existing_list, scanned))
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
