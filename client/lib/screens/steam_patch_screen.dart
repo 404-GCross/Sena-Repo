@@ -48,6 +48,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _serverLoaded = false;
   bool _rescraping = false;
   String? _serverStatus;
+  Future<void>? _serverLoadFuture;
   // Optimistic lock state so the button flips immediately; cleared once the
   // server list is reloaded (or reverted when the request fails).
   final Map<String, bool> _lockedOverrides = {};
@@ -57,6 +58,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     super.initState();
     _loadSavedDir();
     _loadIsAdmin();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_serverLoaded && !_serverLoading) {
+        unawaited(_loadServerPatches());
+      }
+    });
   }
 
   Future<void> _loadIsAdmin() async {
@@ -89,16 +95,40 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Future<void> _jumpToServerPatch(PatchMatch m) async {
+    final immediateKey = (m.patchLookupKey ?? "").trim();
     setState(() {
       _tabIndex = 1;
       _serverQuery = "";
       _serverSearchCtrl.clear();
+      if (immediateKey.isNotEmpty) {
+        _expandedKeys.add(immediateKey);
+        _highlightKey = immediateKey;
+      }
     });
-    if (!_serverLoaded && !_serverLoading) {
-      await _loadServerPatches();
+    _startHighlightTimer();
+
+    if (!_serverLoaded) {
+      final loading = _serverLoadFuture;
+      if (loading != null) {
+        await loading;
+      } else {
+        await _loadServerPatches();
+      }
+      if (!mounted) return;
     }
-    final key = _findServerPatchKey(m);
+
+    var key = immediateKey.isNotEmpty && _hasServerPatchKey(immediateKey)
+        ? immediateKey
+        : _findServerPatchKey(m);
     if (key.isEmpty) {
+      // The local index may be stale: reload once before giving up.
+      await _loadServerPatches();
+      if (!mounted) return;
+      key = _findServerPatchKey(m);
+    }
+    if (key.isEmpty) {
+      setState(() => _highlightKey = null);
+      _highlightTimer?.cancel();
       _showMsg("补丁配置里没有找到对应条目");
       return;
     }
@@ -106,24 +136,42 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       _expandedKeys.add(key);
       _highlightKey = key;
     });
-    void scrollToCard() {
-      final ctx = _serverCardKeys[key]?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(ctx,
-            duration: const Duration(milliseconds: 300), alignment: 0.15);
+    _startHighlightTimer();
+    _scrollToServerCard(key);
+  }
+
+  bool _hasServerPatchKey(String key) {
+    for (final p in _serverPatches) {
+      if ((p["lookup_key"] ?? p["patch_id"] ?? "").toString() == key) {
+        return true;
       }
     }
+    return false;
+  }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      scrollToCard();
-      Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) scrollToCard();
-      });
-    });
+  void _startHighlightTimer() {
     _highlightTimer?.cancel();
     _highlightTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _highlightKey = null);
     });
+  }
+
+  void _scrollToServerCard(String key) {
+    var attempts = 0;
+    void tryScroll() {
+      if (!mounted) return;
+      final ctx = _serverCardKeys[key]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 300), alignment: 0.15);
+        return;
+      }
+      if (attempts++ < 5) {
+        Future.delayed(const Duration(milliseconds: 200), tryScroll);
+      }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => tryScroll());
   }
 
   String _findServerPatchKey(PatchMatch m) {
@@ -286,7 +334,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   // ── Server tab ──
 
-  Future<void> _loadServerPatches() async {
+  Future<void> _loadServerPatches() {
+    final future = _doLoadServerPatches();
+    _serverLoadFuture = future;
+    return future;
+  }
+
+  Future<void> _doLoadServerPatches() async {
     setState(() {
       _serverLoading = true;
       _serverStatus = null;
