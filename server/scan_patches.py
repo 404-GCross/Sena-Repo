@@ -6,7 +6,7 @@ Usage:
   python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2" "translation"
                                                         # add one entry
 """
-import argparse, hashlib, json, logging, re, time, unicodedata
+import argparse, hashlib, json, logging, re, threading, time, unicodedata
 from pathlib import Path
 
 import httpx
@@ -127,6 +127,7 @@ def _steam_request_kwargs() -> dict:
 _NEXTMOE_API_BASE = "https://api.nextmoe.dev/v2"
 _NEXTMOE_THROTTLE_SECONDS = 1.1
 _NEXTMOE_LAST_CALL = 0.0
+_NEXTMOE_LOCK = threading.Lock()
 _NEXTMOE_MATCH_ACCEPT = 60
 _NEXTMOE_MATCH_MARGIN = 15
 
@@ -159,27 +160,30 @@ def _nextmoe_get(path: str, params: dict) -> dict:
     key = _nextmoe_api_key()
     if not key:
         return {}
-    wait = _NEXTMOE_THROTTLE_SECONDS - (time.monotonic() - _NEXTMOE_LAST_CALL)
-    if wait > 0:
-        time.sleep(wait)
-    try:
-        with httpx.Client(**_steam_request_kwargs()) as client:
-            resp = client.get(
-                f"{_NEXTMOE_API_BASE}{path}",
-                params=params,
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": f"Bearer {key}",
-                    "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
-                },
-            )
-            resp.raise_for_status()
-            payload = resp.json()
-    except Exception as exc:
-        logger.warning("NextMoe request failed (%s): %s", path, exc)
-        return {}
-    finally:
-        _NEXTMOE_LAST_CALL = time.monotonic()
+    # Batch rescrape calls this from worker threads, so serialise the request
+    # window to keep within the per-minute quota.
+    with _NEXTMOE_LOCK:
+        wait = _NEXTMOE_THROTTLE_SECONDS - (time.monotonic() - _NEXTMOE_LAST_CALL)
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            with httpx.Client(**_steam_request_kwargs()) as client:
+                resp = client.get(
+                    f"{_NEXTMOE_API_BASE}{path}",
+                    params=params,
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {key}",
+                        "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
+                    },
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+        except Exception as exc:
+            logger.warning("NextMoe request failed (%s): %s", path, exc)
+            return {}
+        finally:
+            _NEXTMOE_LAST_CALL = time.monotonic()
     return payload if isinstance(payload, dict) else {}
 
 
