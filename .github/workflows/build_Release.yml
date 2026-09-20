@@ -85,11 +85,11 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p dist
-          mv build/app/outputs/flutter-apk/app-release.apk "dist/Sena-Repo_Android_v${VERSION}.apk"
+          mv build/app/outputs/flutter-apk/app-release.apk "dist/Sena-Repo_Android_v${VERSION}_universal.apk"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Android
+          name: Sena-Repo_Android_universal
           path: client/dist/Sena-Repo_Android_*.apk
 
   # ── Windows EXE ──────────────────────────────────
@@ -166,7 +166,7 @@ jobs:
             -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
             -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
             -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
-            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
+            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_amd64_Setup" `
             -replace '\{\{SETUP_ICON_FILE\}\}', (Resolve-Path "windows\runner\resources\app_icon.ico").Path `
             -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
             -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
@@ -181,7 +181,7 @@ jobs:
         run: |
           $setupExe = Get-ChildItem -Recurse dist -Filter "*.exe" | Where-Object { $_.Name -like "*setup*" -or $_.Name -like "*Setup*" } | Select-Object -First 1
           if ($setupExe) {
-            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_Setup.exe"
+            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_v${env:VERSION}_amd64_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
 
@@ -189,7 +189,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $pkg="Sena-Repo_Windows_v${env:VERSION}"
+          $pkg="Sena-Repo_Windows_v${env:VERSION}_amd64"
           $releaseDir = "build/windows/x64/runner/Release"
           robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
@@ -204,12 +204,12 @@ jobs:
       - name: Upload Windows Portable
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Windows_Portable
+          name: Sena-Repo_Windows_amd64_Portable
           path: client/dist/Sena-Repo_Windows_*.zip
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Windows_Installer
+          name: Sena-Repo_Windows_amd64_Installer
           path: client/dist/**/*.exe
 
   # ── Linux ────────────────────────────────────────
@@ -353,7 +353,7 @@ jobs:
       - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Linux
+          name: Sena-Repo_Linux_amd64
           path: client/dist/Sena-Repo_Linux_*
 
   # ── Docker Server ────────────────────────────────
@@ -478,9 +478,9 @@ jobs:
             cp "${matches[0]}" release/
           }
 
-          require_one "Android APK" "Sena-Repo_Android_v${VERSION}.apk"
-          require_one "Windows portable zip" "Sena-Repo_Windows_v${VERSION}.zip"
-          require_one "Windows installer" "Sena-Repo_Windows_v${VERSION}_Setup.exe"
+          require_one "Android APK" "Sena-Repo_Android_v${VERSION}_universal.apk"
+          require_one "Windows portable zip" "Sena-Repo_Windows_v${VERSION}_amd64.zip"
+          require_one "Windows installer" "Sena-Repo_Windows_v${VERSION}_amd64_Setup.exe"
           require_one "Linux AppImage" "Sena-Repo_Linux_v${VERSION}-x86_64.AppImage"
           require_one "Linux tarball" "Sena-Repo_Linux_v${VERSION}-x86_64.tar.gz"
           require_one "Linux DEB package" "Sena-Repo_Linux_v${VERSION}_amd64.deb"
@@ -529,9 +529,9 @@ jobs:
 
           | 文件 | 平台/用途 | 说明 |
           |------|-----------|------|
-          | `Sena-Repo_Android_*.apk` | Android | Android 客户端安装包 |
-          | `Sena-Repo_Windows_*_Setup.exe` | Windows | Windows 安装版 |
-          | `Sena-Repo_Windows_*.zip` | Windows | Windows 便携版，解压即用 |
+          | `Sena-Repo_Android_*_universal.apk` | Android (universal) | Android 客户端安装包，含 armeabi-v7a / arm64-v8a / x86_64 |
+          | `Sena-Repo_Windows_*_amd64_Setup.exe` | Windows amd64 | Windows 安装版 |
+          | `Sena-Repo_Windows_*_amd64.zip` | Windows amd64 | Windows 便携版，解压即用 |
           | `Sena-Repo_Linux_*.AppImage` | Linux | Linux AppImage 客户端 |
           | `Sena-Repo_Linux_*-x86_64.tar.gz` | Linux | Linux 通用压缩包，解压运行 |
           | `Sena-Repo_Linux_*_amd64.deb` | Linux Debian/Ubuntu | DEB 安装包 |
