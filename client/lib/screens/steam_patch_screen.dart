@@ -27,6 +27,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   String _clientQuery = "";
   String _serverQuery = "";
   final Set<String> _expandedKeys = {};
+  final ScrollController _serverListCtrl = ScrollController();
+  final Map<String, GlobalKey> _serverCardKeys = {};
+  String? _highlightKey;
+  Timer? _highlightTimer;
   final TextEditingController _clientSearchCtrl = TextEditingController();
   final TextEditingController _serverSearchCtrl = TextEditingController();
 
@@ -65,6 +69,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   void dispose() {
     _clientSearchCtrl.dispose();
     _serverSearchCtrl.dispose();
+    _serverListCtrl.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
@@ -80,6 +86,73 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     return [p["display_name"], p["label"], p["display_file"], p["file"], p["app_id"]]
         .whereType<Object>()
         .any((value) => value.toString().toLowerCase().contains(query));
+  }
+
+  Future<void> _jumpToServerPatch(PatchMatch m) async {
+    setState(() {
+      _tabIndex = 1;
+      _serverQuery = "";
+      _serverSearchCtrl.clear();
+    });
+    if (!_serverLoaded && !_serverLoading) {
+      await _loadServerPatches();
+    }
+    final key = _findServerPatchKey(m);
+    if (key.isEmpty) {
+      _showMsg("补丁配置里没有找到对应条目");
+      return;
+    }
+    setState(() {
+      _expandedKeys.add(key);
+      _highlightKey = key;
+    });
+    void scrollToCard() {
+      final ctx = _serverCardKeys[key]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 300), alignment: 0.15);
+      }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      scrollToCard();
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) scrollToCard();
+      });
+    });
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _highlightKey = null);
+    });
+  }
+
+  String _findServerPatchKey(PatchMatch m) {
+    final lookupKey = (m.patchLookupKey ?? "").trim();
+    final appId = m.appId.trim();
+    final fileName = (m.patchFilename ?? "").split("/").last.trim();
+    if (lookupKey.isNotEmpty) {
+      for (final p in _serverPatches) {
+        final key = (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
+        if (key == lookupKey) return key;
+      }
+    }
+    if (appId.isNotEmpty) {
+      for (final p in _serverPatches) {
+        if ((p["app_id"] ?? "").toString() == appId) {
+          return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
+        }
+      }
+    }
+    if (fileName.isNotEmpty) {
+      for (final p in _serverPatches) {
+        final file =
+            (p["display_file"] ?? p["file"] ?? "").toString().split("/").last;
+        if (file == fileName) {
+          return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
+        }
+      }
+    }
+    return "";
   }
 
   Widget _buildSearchField({
@@ -818,9 +891,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                             minimumSize: Size.zero))
                   else
                     Tooltip(
-                      message: "请在「补丁配置」配置规则后注入",
+                      message: "前往补丁配置设置规则",
                       child: FilledButton.tonalIcon(
-                          onPressed: null,
+                          onPressed: () => _jumpToServerPatch(m),
                           icon: const Icon(Icons.auto_fix_high, size: 16),
                           label: Text("规则待配置",
                               style: AppText.bodySmall
@@ -1166,6 +1239,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           else
             Expanded(
               child: ListView(
+                controller: _serverListCtrl,
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                 children: patches.map((p) => _serverPatchCard(p)).toList(),
               ),
@@ -1208,6 +1282,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final file = (p["file"] ?? "").toString();
     final displayFile = (p["display_file"] ?? file).toString();
     final lookupKey = (p["lookup_key"] ?? p["patch_id"] ?? file).toString();
+    final cardKey = lookupKey.isEmpty
+        ? null
+        : _serverCardKeys.putIfAbsent(lookupKey, () => GlobalKey());
+    final highlighted = lookupKey.isNotEmpty && _highlightKey == lookupKey;
     final label = (p["label"] ?? "").toString();
     final displayName = (p["display_name"] ?? "").toString();
     final steamName = (p["game_name"] ?? "").toString();
@@ -1302,9 +1380,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     ];
 
     return AppSurface(
+      key: cardKey,
       margin: const EdgeInsets.only(bottom: 8),
       padding: EdgeInsets.zero,
       radius: AppRadius.md,
+      border: highlighted
+          ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2)
+          : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => setState(() {
