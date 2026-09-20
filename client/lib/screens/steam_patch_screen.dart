@@ -24,7 +24,6 @@ class SteamPatchScreen extends StatefulWidget {
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   int _tabIndex = 0; // 0=客户端, 1=服务端
   bool _isAdmin = false;
-  bool _nextmoeMode = false;
   String _clientQuery = "";
   String _serverQuery = "";
   final Set<String> _expandedKeys = {};
@@ -59,7 +58,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     super.initState();
     _loadSavedDir();
     _loadIsAdmin();
-    _loadNextMoeMode();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_serverLoaded && !_serverLoading) {
         unawaited(_loadServerPatches());
@@ -71,52 +69,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final prefs = await SharedPreferences.getInstance();
     final isAdmin = prefs.getBool("is_admin") ?? false;
     if (mounted) setState(() => _isAdmin = isAdmin);
-  }
-
-  Future<void> _loadNextMoeMode() async {
-    try {
-      final api = context.read<GameProvider>().api;
-      final enabled = await api.getEnabledScraperSources();
-      final nextmoe = enabled.length == 1 &&
-          enabled.first.toLowerCase() == "nextmoe";
-      if (mounted) setState(() => _nextmoeMode = nextmoe);
-    } catch (_) {}
-  }
-
-  Future<void> _showNextMoeBackfill() async {
-    final api = context.read<GameProvider>().api;
-    setState(() => _serverStatus = "正在分析 NextMoe 补全项 ...");
-    try {
-      final preview = await SteamService.nextmoePreview(api);
-      if (!mounted) return;
-      final items = ((preview["items"] as List?) ?? const [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .where((item) =>
-              (item["changes"] as List?)?.isNotEmpty == true ||
-              item["ambiguous"] == true)
-          .toList();
-      final hasChanges =
-          items.any((item) => (item["changes"] as List?)?.isNotEmpty == true);
-      if (!hasChanges) {
-        _showMsg("没有可补全的条目");
-        return;
-      }
-      final selected = await showDialog<List<Map<String, dynamic>>>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => _NextMoeBackfillDialog(items: items),
-      );
-      if (selected == null || selected.isEmpty || !mounted) return;
-      final result = await SteamService.nextmoeApply(api, selected);
-      if (!mounted) return;
-      _showMsg("已补全 ${result["applied"] ?? 0} 条");
-      _loadServerPatches();
-    } catch (e) {
-      if (mounted) _showMsg("NextMoe 补全失败: $e", error: true);
-    } finally {
-      if (mounted) setState(() => _serverStatus = null);
-    }
   }
 
   @override
@@ -1182,14 +1134,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ),
             const SizedBox(height: AppGap.lg),
           ],
-          if (_isAdmin && _nextmoeMode) ...[
-            AppActionButton(
-              icon: Icons.auto_awesome_rounded,
-              label: "从 NextMoe 补全",
-              onPressed: _serverLoading ? null : _showNextMoeBackfill,
-            ),
-            const SizedBox(height: AppGap.lg),
-          ],
           if (_serverStatus != null) _buildServerStatusBar(),
           const SizedBox(height: AppGap.lg),
           Wrap(
@@ -1764,8 +1708,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
   bool _gameNameDirty = false;
   bool _saving = false;
   bool _rescraping = false;
-  String? _message;
-  bool _messageIsError = false;
+  bool _loadingDialogOpen = false;
 
   @override
   void initState() {
@@ -1789,57 +1732,108 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
     super.dispose();
   }
 
+  void _showLoadingDialog() {
+    if (_loadingDialogOpen) return;
+    _loadingDialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.5)),
+              SizedBox(width: 16),
+              Text("正在重新刮削 ..."),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => _loadingDialogOpen = false);
+  }
+
+  void _closeLoadingDialog() {
+    if (!_loadingDialogOpen) return;
+    _loadingDialogOpen = false;
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+
+  Future<void> _showResultDialog(String message, {bool error = false}) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Icon(error ? Icons.error_outline : Icons.check_circle,
+            size: 28, color: error ? Colors.red[300] : Colors.green[300]),
+        content: Text(message, style: const TextStyle(fontSize: 14)),
+        actions: [
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text("确定")),
+        ],
+      ),
+    );
+  }
+
   Future<void> _rescrape() async {
-    setState(() {
-      _rescraping = true;
-      _message = null;
-      _messageIsError = false;
-    });
+    setState(() => _rescraping = true);
+    _showLoadingDialog();
     try {
+      final m = widget.match;
       final key = SteamService.patchLookupKey(
-        appId: widget.match.appId,
-        file: widget.match.patchFilename,
-        lookupKey: widget.match.patchLookupKey,
+        appId: m.appId,
+        file: m.patchFilename,
+        lookupKey: m.patchLookupKey,
       );
       final result = await SteamService.rescrapePatch(widget.api, key);
       if (!mounted) return;
+      _closeLoadingDialog();
       final status = (result["status"] ?? "").toString();
       final oldId = (result["old_app_id"] ?? "").toString();
       final newId = (result["new_app_id"] ?? "").toString();
       final name = (result["game_name"] ?? "").toString();
+      String message;
+      bool error = false;
       if (status == "updated") {
-        _message =
-            "刮削完成：AppID $oldId → $newId${name.isNotEmpty ? "，名称：$name" : ""}";
-        _messageIsError = false;
+        if (newId.isEmpty) {
+          message = "未解析到 AppID";
+          error = true;
+        } else if (oldId.isEmpty) {
+          message = "已解析 AppID：$newId";
+        } else if (oldId == newId) {
+          message = "AppID 未变化：$newId";
+        } else {
+          message = "AppID：$oldId → $newId";
+        }
+        if (name.isNotEmpty) message = "$message\nSteam 名称：$name";
       } else if (status == "locked") {
-        _message = "该补丁已锁定，未做修改";
-        _messageIsError = true;
-      } else if (status == "skipped") {
-        _message = "已有 AppID，跳过刮削";
-        _messageIsError = false;
+        message = "该补丁已锁定，未做修改";
+        error = true;
       } else {
-        _message = "刮削失败：未找到匹配的 Steam 游戏";
-        _messageIsError = true;
+        message = oldId.isNotEmpty
+            ? "未找到匹配，保留原 AppID：$oldId"
+            : "未找到匹配的 Steam 游戏";
+        error = true;
       }
-      setState(() => _rescraping = false);
       if (newId.isNotEmpty && newId != "None") _appIdCtrl.text = newId;
       if (name.isNotEmpty) _gameNameCtrl.text = name;
+      await _showResultDialog(message, error: error);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _rescraping = false;
-        _message = "刮削失败: $e";
-        _messageIsError = true;
-      });
+      _closeLoadingDialog();
+      await _showResultDialog("刮削失败: $e", error: true);
+    } finally {
+      if (mounted) setState(() => _rescraping = false);
     }
   }
 
   Future<void> _save() async {
-    setState(() {
-      _saving = true;
-      _message = null;
-      _messageIsError = false;
-    });
+    setState(() => _saving = true);
     try {
       final rules = _rulesKey.currentState;
       final patchDir =
@@ -1867,380 +1861,129 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _message = "保存失败: $e";
-        _messageIsError = true;
-      });
+      setState(() => _saving = false);
+      await _showResultDialog("保存失败: $e", error: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final size = MediaQuery.sizeOf(context);
-    final width = size.width > 1080 ? 1020.0 : size.width - 32;
-    final height = size.height > 760 ? 700.0 : size.height - 32;
-    final m = widget.match;
-    final filename = m.patchFilename?.split("/").last ?? m.gameName;
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: AppSurface(
-          radius: AppRadius.xl,
-          blur: true,
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      child: Icon(Icons.edit_note_rounded, color: cs.primary),
-                    ),
-                    const SizedBox(width: AppGap.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("编辑补丁数据 — ${m.gameName}",
-                              style: AppText.headline),
-                          const SizedBox(height: 4),
-                          Text(
-                            filename,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.bodySmall
-                                .copyWith(color: hintColor(context)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 22),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: AppSegmentedTabs(
-                    selectedIndex: _tabIndex,
-                    tabs: const [
-                      AppSegmentedTab(0, Icons.edit_note_rounded, "元数据"),
-                      AppSegmentedTab(1, Icons.rule_folder_outlined, "补丁配置"),
-                    ],
-                    onChanged: (index) => setState(() => _tabIndex = index),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppGap.sm),
-              Divider(height: 1, color: cardBorder(context)),
-              Expanded(
-                child: _tabIndex == 0
-                    ? _buildMetadataTab()
-                    : _PatchTreeDialog(
-                        key: _rulesKey,
-                        api: widget.api,
-                        match: m,
-                        embedded: true,
-                      ),
-              ),
-              if (_message != null) ...[
-                Divider(height: 1, color: cardBorder(context)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 10, 22, 0),
-                  child: Text(
-                    _message!,
-                    style: AppText.bodySmall.copyWith(
-                      color: _messageIsError
-                          ? Colors.red[300]
-                          : subTextColor(context),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-              Divider(height: 1, color: cardBorder(context)),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-                child: Row(
-                  children: [
-                    AppActionButton(
-                      icon: Icons.manage_search_rounded,
-                      label: "重新刮削",
-                      busy: _rescraping,
-                      onPressed: _saving || _rescraping ? null : _rescrape,
-                    ),
-                    const Spacer(),
-                    AppActionButton(
-                      icon: Icons.close_rounded,
-                      label: "取消",
-                      color: hintColor(context),
-                      onPressed: _saving ? null : () => Navigator.pop(context),
-                    ),
-                    const SizedBox(width: AppGap.sm),
-                    AppActionButton(
-                      icon: Icons.save_outlined,
-                      label: "保存",
-                      filled: true,
-                      busy: _saving,
-                      onPressed: _saving || _rescraping ? null : _save,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Icon(Icons.edit_note_rounded, size: 22, color: cs.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "编辑补丁数据 — ${widget.match.gameName}",
+              style: const TextStyle(fontSize: 16),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
+        ],
+      ),
+      content: SizedBox(
+        width: 560,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppSegmentedTabs(
+              selectedIndex: _tabIndex,
+              tabs: const [
+                AppSegmentedTab(0, Icons.edit_note_rounded, "元数据"),
+                AppSegmentedTab(1, Icons.rule_folder_outlined, "补丁配置"),
+              ],
+              onChanged: (index) => setState(() => _tabIndex = index),
+            ),
+            const SizedBox(height: AppGap.md),
+            if (_tabIndex == 0)
+              _buildMetadataFields()
+            else
+              SizedBox(
+                height: 420,
+                child: _PatchTreeDialog(
+                  key: _rulesKey,
+                  api: widget.api,
+                  match: widget.match,
+                  embedded: true,
+                ),
+              ),
+          ],
         ),
       ),
+      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actions: [
+        TextButton.icon(
+          onPressed: _saving || _rescraping ? null : _rescrape,
+          icon: const Icon(Icons.manage_search_rounded, size: 18),
+          label: const Text("重新刮削"),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: _saving ? null : () => Navigator.pop(context),
+              child: const Text("取消"),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _saving || _rescraping ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text("保存"),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _buildMetadataTab() {
-    return ListView(
-      padding: const EdgeInsets.all(18),
+  Widget _buildMetadataFields() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: Column(
-              children: [
-                TextField(
-                    controller: _appIdCtrl,
-                    decoration: const InputDecoration(
-                        labelText: "Steam App ID",
-                        hintText: "Steam 商店游戏ID",
-                        isDense: true),
-                    keyboardType: TextInputType.number),
-                const SizedBox(height: 10),
-                TextField(
-                    controller: _labelCtrl,
-                    decoration: const InputDecoration(
-                        labelText: "显示名称 (label)",
-                        hintText: "界面显示的补丁名",
-                        isDense: true)),
-                const SizedBox(height: 10),
-                TextField(
-                    controller: _gameNameCtrl,
-                    decoration: const InputDecoration(
-                        labelText: "Steam 名称",
-                        hintText: "留空则回退到显示名称 / 文件名",
-                        isDense: true)),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                    value: _type,
-                    items: _SteamPatchScreenState._typeLabels.entries
-                        .map((e) =>
-                            DropdownMenuItem(value: e.key, child: Text(e.value)))
-                        .toList(),
-                    onChanged: (v) => setState(() => _type = v ?? "misc"),
-                    decoration: const InputDecoration(
-                        labelText: "补丁类型", isDense: true)),
-              ],
-            ),
-          ),
-        ),
+        TextField(
+            controller: _appIdCtrl,
+            decoration: const InputDecoration(
+                labelText: "Steam App ID",
+                hintText: "Steam 商店游戏ID",
+                isDense: true),
+            keyboardType: TextInputType.number),
+        const SizedBox(height: 10),
+        TextField(
+            controller: _labelCtrl,
+            decoration: const InputDecoration(
+                labelText: "显示名称 (label)",
+                hintText: "界面显示的补丁名",
+                isDense: true)),
+        const SizedBox(height: 10),
+        TextField(
+            controller: _gameNameCtrl,
+            decoration: const InputDecoration(
+                labelText: "Steam 名称",
+                hintText: "留空则回退到显示名称 / 文件名",
+                isDense: true)),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+            value: _type,
+            items: _SteamPatchScreenState._typeLabels.entries
+                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                .toList(),
+            onChanged: (v) => setState(() => _type = v ?? "misc"),
+            decoration:
+                const InputDecoration(labelText: "补丁类型", isDense: true)),
       ],
     );
   }
 }
 
-class _NextMoeBackfillDialog extends StatefulWidget {
-  final List<Map<String, dynamic>> items;
-
-  const _NextMoeBackfillDialog({required this.items});
-
-  @override
-  State<_NextMoeBackfillDialog> createState() => _NextMoeBackfillDialogState();
-}
-
-class _NextMoeBackfillDialogState extends State<_NextMoeBackfillDialog> {
-  final Set<String> _selected = {};
-
-  @override
-  void initState() {
-    super.initState();
-    for (final item in widget.items) {
-      final key = (item["lookup_key"] ?? "").toString();
-      final changes = (item["changes"] as List?) ?? const [];
-      if (key.isNotEmpty && changes.isNotEmpty && item["ambiguous"] != true) {
-        _selected.add(key);
-      }
-    }
-  }
-
-  List<Map<String, dynamic>> _buildPayload() {
-    final payload = <Map<String, dynamic>>[];
-    for (final item in widget.items) {
-      final key = (item["lookup_key"] ?? "").toString();
-      if (!_selected.contains(key)) continue;
-      final entry = <String, dynamic>{"lookup_key": key};
-      for (final change in (item["changes"] as List?) ?? const []) {
-        if (change is! Map) continue;
-        final field = (change["field"] ?? "").toString();
-        final value = (change["new"] ?? "").toString();
-        if (field == "app_id" && value.isNotEmpty) entry["app_id"] = value;
-        if (field == "game_name" && value.isNotEmpty) {
-          entry["game_name"] = value;
-        }
-      }
-      if (entry.length > 1) payload.add(entry);
-    }
-    return payload;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final width = size.width > 900 ? 860.0 : size.width - 32;
-    final height = size.height > 700 ? 640.0 : size.height - 32;
-    final selectable = widget.items
-        .where((item) =>
-            (item["changes"] as List?)?.isNotEmpty == true &&
-            item["ambiguous"] != true)
-        .length;
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: AppSurface(
-          radius: AppRadius.xl,
-          blur: true,
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      child: Icon(
-                        Icons.auto_awesome_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(width: AppGap.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("从 NextMoe 补全 — 预览确认",
-                              style: AppText.headline),
-                          const SizedBox(height: 4),
-                          Text(
-                            "仅填空、不覆盖；歧义条目已标注并跳过",
-                            style: AppText.bodySmall
-                                .copyWith(color: hintColor(context)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Divider(height: 1, color: cardBorder(context)),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-                  itemCount: widget.items.length,
-                  itemBuilder: (context, index) {
-                    final item = widget.items[index];
-                    final key = (item["lookup_key"] ?? "").toString();
-                    final changes = (item["changes"] as List?) ?? const [];
-                    final ambiguous = item["ambiguous"] == true;
-                    final canSelect = changes.isNotEmpty && !ambiguous;
-                    return CheckboxListTile(
-                      value: _selected.contains(key),
-                      onChanged: canSelect
-                          ? (value) => setState(() {
-                                if (value == true) {
-                                  _selected.add(key);
-                                } else {
-                                  _selected.remove(key);
-                                }
-                              })
-                          : null,
-                      dense: true,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text((item["display_name"] ?? "").toString(),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final change in changes)
-                            if (change is Map)
-                              Text(
-                                "${(change["field"] ?? "") == "app_id" ? "AppID" : "名称"}：${change["new"]}（${change["source"]}）",
-                                style: AppText.bodySmall
-                                    .copyWith(color: subTextColor(context)),
-                              ),
-                          if (!canSelect)
-                            Text(
-                              ambiguous ? "歧义 / 未找到，已跳过" : "无变更",
-                              style: AppText.bodySmall
-                                  .copyWith(color: Colors.orange[300]),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-              Divider(height: 1, color: cardBorder(context)),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-                child: Row(
-                  children: [
-                    Text("已选 ${_selected.length} / $selectable",
-                        style: AppText.bodySmall
-                            .copyWith(color: hintColor(context))),
-                    const Spacer(),
-                    AppActionButton(
-                      icon: Icons.close_rounded,
-                      label: "取消",
-                      color: hintColor(context),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const SizedBox(width: AppGap.sm),
-                    AppActionButton(
-                      icon: Icons.check_rounded,
-                      label: "应用",
-                      filled: true,
-                      onPressed: _selected.isEmpty
-                          ? null
-                          : () => Navigator.pop(context, _buildPayload()),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _PatchManifestDialogResult {
   final bool saved;

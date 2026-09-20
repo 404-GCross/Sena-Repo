@@ -278,28 +278,6 @@ class SteamService {
     throw HttpException("Failed to rescrape all patches: ${resp.statusCode}");
   }
 
-  /// Preview NextMoe backfill changes (NextMoe mode only).
-  static Future<Map<String, dynamic>> nextmoePreview(ApiClient api) async {
-    final resp = await http.post(
-      Uri.parse("${api.baseUrl}/api/steam/patches/nextmoe-preview"),
-      headers: api.headers,
-    );
-    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
-    throw HttpException("Failed to preview NextMoe backfill: ${resp.statusCode}");
-  }
-
-  /// Apply confirmed NextMoe backfill values (NextMoe mode only).
-  static Future<Map<String, dynamic>> nextmoeApply(
-      ApiClient api, List<Map<String, dynamic>> items) async {
-    final resp = await http.post(
-      Uri.parse("${api.baseUrl}/api/steam/patches/nextmoe-apply"),
-      headers: {"Content-Type": "application/json", ...api.headers},
-      body: jsonEncode({"items": items}),
-    );
-    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
-    throw HttpException("Failed to apply NextMoe backfill: ${resp.statusCode}");
-  }
-
   /// List all indexed patches from server.
   static Future<Map<String, dynamic>> listPatches(ApiClient api) async {
     final resp = await http.get(Uri.parse("${api.baseUrl}/api/steam/patches"), headers: api.headers);
