@@ -9,6 +9,8 @@ Usage:
 import argparse, hashlib, json, logging, re, unicodedata
 from pathlib import Path
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 # Default keywords for auto type detection (mirrors steam_patch.py)
@@ -99,6 +101,27 @@ _DERIVATIVE_MARKERS = (
 
 _APPDETAILS_CACHE: dict[int, dict] = {}
 _APPDETAILS_LANGS: dict[int, set[str]] = {}
+_STEAM_PROXY_CACHE: str | None = None
+
+
+def _steam_proxy() -> str:
+    global _STEAM_PROXY_CACHE
+    if _STEAM_PROXY_CACHE is None:
+        try:
+            from config import load_config
+
+            _STEAM_PROXY_CACHE = str(load_config().proxy or "").strip()
+        except Exception:
+            _STEAM_PROXY_CACHE = ""
+    return _STEAM_PROXY_CACHE
+
+
+def _steam_request_kwargs() -> dict:
+    kwargs: dict = {"timeout": httpx.Timeout(10.0)}
+    proxy = _steam_proxy()
+    if proxy:
+        kwargs["proxy"] = proxy
+    return kwargs
 
 
 def _load_appdetails(app_id: int, langs: tuple[str, ...] = ("schinese",)) -> dict:
@@ -109,20 +132,25 @@ def _load_appdetails(app_id: int, langs: tuple[str, ...] = ("schinese",)) -> dic
     """
     entry = _APPDETAILS_CACHE.setdefault(app_id, {"names": [], "type": "", "fullgame": None})
     fetched = _APPDETAILS_LANGS.setdefault(app_id, set())
-    import urllib.request
     for lang in langs:
         if lang in fetched:
             continue
-        fetched.add(lang)
         try:
-            url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l={lang}"
-            req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
-            details = (data.get(str(app_id)) or {}).get("data") or {}
+            with httpx.Client(**_steam_request_kwargs()) as client:
+                resp = client.get(
+                    "https://store.steampowered.com/api/appdetails",
+                    params={"appids": app_id, "l": lang},
+                    headers={"User-Agent": "Sena-Repo/1.0"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
         except Exception as exc:
             logger.warning("Steam appdetails failed for app_id=%s lang=%s: %s", app_id, lang, exc)
             continue
+        # A completed request is required before the language is marked fetched,
+        # so transient failures can be retried on the next call.
+        fetched.add(lang)
+        details = (data.get(str(app_id)) or {}).get("data") or {}
         if not details:
             continue
         name = str(details.get("name") or "")
@@ -193,17 +221,18 @@ def _search_steam_app_id(game_name: str) -> int | None:
     by name and non-game entries are followed back to their ``fullgame``.
     Anything ambiguous returns None instead of guessing.
     """
-    import urllib.request
-    import urllib.parse
-
     query = _normalize_for_match(game_name)
     if not query:
         return None
     try:
-        url = "https://store.steampowered.com/api/storesearch/?term=" + urllib.parse.quote(game_name) + "&l=schinese&cc=CN"
-        req = urllib.request.Request(url, headers={"User-Agent": "Sena-Repo/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
+        with httpx.Client(**_steam_request_kwargs()) as client:
+            resp = client.get(
+                "https://store.steampowered.com/api/storesearch/",
+                params={"term": game_name, "l": "schinese", "cc": "CN"},
+                headers={"User-Agent": "Sena-Repo/1.0"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
     except Exception as exc:
         logger.warning("Steam search failed for %r: %s", game_name, exc)
         return None

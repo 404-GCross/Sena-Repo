@@ -27,6 +27,7 @@ class SteamGameInfo {
 class PatchMatch {
   final String appId;
   final String gameName;
+  final String? steamName;
   final String installDir;
   final bool patchAvailable;
   final String? patchLookupKey;
@@ -44,6 +45,7 @@ class PatchMatch {
   PatchMatch({
     required this.appId,
     required this.gameName,
+    this.steamName,
     required this.installDir,
     required this.patchAvailable,
     this.patchLookupKey,
@@ -164,6 +166,7 @@ class SteamService {
     required ApiClient api,
     required String appId,
     String? label,
+    String? gameName,
     String? type,
     String? file,
     String? lookupKey,
@@ -171,6 +174,7 @@ class SteamService {
   }) async {
     final body = <String, dynamic>{};
     if (label != null) body["label"] = label;
+    if (gameName != null) body["game_name"] = gameName;
     if (type != null) body["type"] = type;
     if (appId.isNotEmpty && appId != "null" && appId != "None") body["app_id"] = appId;
     if (file != null && file.isNotEmpty) body["file"] = file;

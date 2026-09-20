@@ -374,7 +374,26 @@ def _enrich_patch_record(patch: dict) -> dict:
     status = _manifest_status(item)
     item["manifest_status"] = status
     item["manifest_ready"] = status == "confirmed"
+    item["display_name"] = _patch_display_name(item)
     return item
+
+
+def _patch_display_name(item: dict) -> str:
+    """Prefer the scraped Steam name, then the derived label, then the filename."""
+    game_name = str(item.get("game_name") or "").strip()
+    if game_name:
+        return game_name
+    label = str(item.get("label") or "").strip()
+    if label:
+        return label
+    try:
+        from scan_patches import _extract_game_name
+
+        return _extract_game_name(
+            str(item.get("display_file") or item.get("file") or "")
+        ).strip()
+    except Exception:
+        return ""
 
 
 def _basename_without_archive_ext(value: str) -> str:
@@ -1160,6 +1179,7 @@ class PatchUpdate(BaseModel):
     patch_dir: str | None = None
     target_dir: str | None = None
     label: str | None = None
+    game_name: str | None = None
     type: str | None = None
     app_id: str | None = None  # new app_id to update
     file: str | None = None    # lookup by file path if app_id is None/unknown
@@ -1180,11 +1200,14 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
         "app_id": body.app_id,
         "locked": body.locked,
     }
-    values.update(
-        await _game_name_values_for_app_id_change(
-            index_dir, patches_dir, lookup_key, body.app_id
+    if body.game_name is None:
+        values.update(
+            await _game_name_values_for_app_id_change(
+                index_dir, patches_dir, lookup_key, body.app_id
+            )
         )
-    )
+    else:
+        values["game_name"] = body.game_name.strip()
     if (
         body.patch_dir is not None
         or body.target_dir is not None
@@ -1504,13 +1527,19 @@ async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)
     import httpx
     import asyncio
 
+    config = load_config()
+    client_kwargs = {"timeout": httpx.Timeout(10.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+
     results: dict[str, str] = {}
     sem = asyncio.Semaphore(5)
 
-    async def resolve(appid: str):
-        async with sem:
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+    async with httpx.AsyncClient(**client_kwargs) as client:
+
+        async def resolve(appid: str):
+            async with sem:
+                try:
                     for lang in ("schinese", "english"):
                         resp = await client.get(
                             f"https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}"
@@ -1522,9 +1551,8 @@ async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)
                             if name:
                                 results[appid] = name
                                 return
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-    tasks = [resolve(a) for a in body.appids]
-    await asyncio.gather(*tasks)
+        await asyncio.gather(*(resolve(a) for a in body.appids))
     return results
