@@ -1527,13 +1527,19 @@ async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)
     import httpx
     import asyncio
 
+    config = load_config()
+    client_kwargs = {"timeout": httpx.Timeout(10.0)}
+    if config.proxy:
+        client_kwargs["proxy"] = config.proxy
+
     results: dict[str, str] = {}
     sem = asyncio.Semaphore(5)
 
-    async def resolve(appid: str):
-        async with sem:
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+    async with httpx.AsyncClient(**client_kwargs) as client:
+
+        async def resolve(appid: str):
+            async with sem:
+                try:
                     for lang in ("schinese", "english"):
                         resp = await client.get(
                             f"https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}"
@@ -1545,9 +1551,8 @@ async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)
                             if name:
                                 results[appid] = name
                                 return
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-    tasks = [resolve(a) for a in body.appids]
-    await asyncio.gather(*tasks)
+        await asyncio.gather(*(resolve(a) for a in body.appids))
     return results
