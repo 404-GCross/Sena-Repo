@@ -24,6 +24,7 @@ class SteamPatchScreen extends StatefulWidget {
 class _SteamPatchScreenState extends State<SteamPatchScreen> {
   int _tabIndex = 0; // 0=客户端, 1=服务端
   bool _isAdmin = false;
+  bool _nextmoeMode = false;
   String _clientQuery = "";
   String _serverQuery = "";
   final Set<String> _expandedKeys = {};
@@ -58,6 +59,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     super.initState();
     _loadSavedDir();
     _loadIsAdmin();
+    _loadNextMoeMode();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_serverLoaded && !_serverLoading) {
         unawaited(_loadServerPatches());
@@ -69,6 +71,52 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final prefs = await SharedPreferences.getInstance();
     final isAdmin = prefs.getBool("is_admin") ?? false;
     if (mounted) setState(() => _isAdmin = isAdmin);
+  }
+
+  Future<void> _loadNextMoeMode() async {
+    try {
+      final api = context.read<GameProvider>().api;
+      final enabled = await api.getEnabledScraperSources();
+      final nextmoe = enabled.length == 1 &&
+          enabled.first.toLowerCase() == "nextmoe";
+      if (mounted) setState(() => _nextmoeMode = nextmoe);
+    } catch (_) {}
+  }
+
+  Future<void> _showNextMoeBackfill() async {
+    final api = context.read<GameProvider>().api;
+    setState(() => _serverStatus = "正在分析 NextMoe 补全项 ...");
+    try {
+      final preview = await SteamService.nextmoePreview(api);
+      if (!mounted) return;
+      final items = ((preview["items"] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .where((item) =>
+              (item["changes"] as List?)?.isNotEmpty == true ||
+              item["ambiguous"] == true)
+          .toList();
+      final hasChanges =
+          items.any((item) => (item["changes"] as List?)?.isNotEmpty == true);
+      if (!hasChanges) {
+        _showMsg("没有可补全的条目");
+        return;
+      }
+      final selected = await showDialog<List<Map<String, dynamic>>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _NextMoeBackfillDialog(items: items),
+      );
+      if (selected == null || selected.isEmpty || !mounted) return;
+      final result = await SteamService.nextmoeApply(api, selected);
+      if (!mounted) return;
+      _showMsg("已补全 ${result["applied"] ?? 0} 条");
+      _loadServerPatches();
+    } catch (e) {
+      if (mounted) _showMsg("NextMoe 补全失败: $e", error: true);
+    } finally {
+      if (mounted) setState(() => _serverStatus = null);
+    }
   }
 
   @override
@@ -1134,6 +1182,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ),
             const SizedBox(height: AppGap.lg),
           ],
+          if (_isAdmin && _nextmoeMode) ...[
+            AppActionButton(
+              icon: Icons.auto_awesome_rounded,
+              label: "从 NextMoe 补全",
+              onPressed: _serverLoading ? null : _showNextMoeBackfill,
+            ),
+            const SizedBox(height: AppGap.lg),
+          ],
           if (_serverStatus != null) _buildServerStatusBar(),
           const SizedBox(height: AppGap.lg),
           Wrap(
@@ -1995,6 +2051,193 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _NextMoeBackfillDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+
+  const _NextMoeBackfillDialog({required this.items});
+
+  @override
+  State<_NextMoeBackfillDialog> createState() => _NextMoeBackfillDialogState();
+}
+
+class _NextMoeBackfillDialogState extends State<_NextMoeBackfillDialog> {
+  final Set<String> _selected = {};
+
+  @override
+  void initState() {
+    super.initState();
+    for (final item in widget.items) {
+      final key = (item["lookup_key"] ?? "").toString();
+      final changes = (item["changes"] as List?) ?? const [];
+      if (key.isNotEmpty && changes.isNotEmpty && item["ambiguous"] != true) {
+        _selected.add(key);
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> _buildPayload() {
+    final payload = <Map<String, dynamic>>[];
+    for (final item in widget.items) {
+      final key = (item["lookup_key"] ?? "").toString();
+      if (!_selected.contains(key)) continue;
+      final entry = <String, dynamic>{"lookup_key": key};
+      for (final change in (item["changes"] as List?) ?? const []) {
+        if (change is! Map) continue;
+        final field = (change["field"] ?? "").toString();
+        final value = (change["new"] ?? "").toString();
+        if (field == "app_id" && value.isNotEmpty) entry["app_id"] = value;
+        if (field == "game_name" && value.isNotEmpty) {
+          entry["game_name"] = value;
+        }
+      }
+      if (entry.length > 1) payload.add(entry);
+    }
+    return payload;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width > 900 ? 860.0 : size.width - 32;
+    final height = size.height > 700 ? 640.0 : size.height - 32;
+    final selectable = widget.items
+        .where((item) =>
+            (item["changes"] as List?)?.isNotEmpty == true &&
+            item["ambiguous"] != true)
+        .length;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: AppSurface(
+          radius: AppRadius.xl,
+          blur: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      child: Icon(
+                        Icons.auto_awesome_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: AppGap.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("从 NextMoe 补全 — 预览确认",
+                              style: AppText.headline),
+                          const SizedBox(height: 4),
+                          Text(
+                            "仅填空、不覆盖；歧义条目已标注并跳过",
+                            style: AppText.bodySmall
+                                .copyWith(color: hintColor(context)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                  itemCount: widget.items.length,
+                  itemBuilder: (context, index) {
+                    final item = widget.items[index];
+                    final key = (item["lookup_key"] ?? "").toString();
+                    final changes = (item["changes"] as List?) ?? const [];
+                    final ambiguous = item["ambiguous"] == true;
+                    final canSelect = changes.isNotEmpty && !ambiguous;
+                    return CheckboxListTile(
+                      value: _selected.contains(key),
+                      onChanged: canSelect
+                          ? (value) => setState(() {
+                                if (value == true) {
+                                  _selected.add(key);
+                                } else {
+                                  _selected.remove(key);
+                                }
+                              })
+                          : null,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text((item["display_name"] ?? "").toString(),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final change in changes)
+                            if (change is Map)
+                              Text(
+                                "${(change["field"] ?? "") == "app_id" ? "AppID" : "名称"}：${change["new"]}（${change["source"]}）",
+                                style: AppText.bodySmall
+                                    .copyWith(color: subTextColor(context)),
+                              ),
+                          if (!canSelect)
+                            Text(
+                              ambiguous ? "歧义 / 未找到，已跳过" : "无变更",
+                              style: AppText.bodySmall
+                                  .copyWith(color: Colors.orange[300]),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Divider(height: 1, color: cardBorder(context)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                child: Row(
+                  children: [
+                    Text("已选 ${_selected.length} / $selectable",
+                        style: AppText.bodySmall
+                            .copyWith(color: hintColor(context))),
+                    const Spacer(),
+                    AppActionButton(
+                      icon: Icons.close_rounded,
+                      label: "取消",
+                      color: hintColor(context),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const SizedBox(width: AppGap.sm),
+                    AppActionButton(
+                      icon: Icons.check_rounded,
+                      label: "应用",
+                      filled: true,
+                      onPressed: _selected.isEmpty
+                          ? null
+                          : () => Navigator.pop(context, _buildPayload()),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
