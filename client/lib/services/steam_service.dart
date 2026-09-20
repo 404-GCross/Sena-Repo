@@ -233,6 +233,16 @@ class SteamService {
     throw HttpException("Failed to scan patches: ${resp.statusCode}");
   }
 
+  /// Current patch scan progress reported by the server.
+  static Future<Map<String, dynamic>> patchScanStatus(ApiClient api) async {
+    final resp = await http.get(
+      Uri.parse("${api.baseUrl}/api/steam/scan-patches/status"),
+      headers: api.headers,
+    );
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to read patch scan status: ${resp.statusCode}");
+  }
+
   /// Ask the server for a short-lived signed URL so aria2 can fetch the patch
   /// without an Authorization header.
   static Future<({String url, int expiresAt})> patchDownloadLink(

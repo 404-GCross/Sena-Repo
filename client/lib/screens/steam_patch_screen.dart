@@ -49,6 +49,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _rescraping = false;
   String? _serverStatus;
   Future<void>? _serverLoadFuture;
+  Map<String, dynamic>? _scanProgress;
   // Optimistic lock state so the button flips immediately; cleared once the
   // server list is reloaded (or reverted when the request fails).
   final Map<String, bool> _lockedOverrides = {};
@@ -375,14 +376,35 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Future<void> _scanServerPatches() async {
+    final api = context.read<GameProvider>().api;
     setState(() {
       _serverLoading = true;
+      _scanProgress = null;
       _serverStatus = "正在扫描...";
     });
+    var scanning = true;
+    Future<void> poll() async {
+      while (mounted && scanning) {
+        try {
+          final status = await SteamService.patchScanStatus(api);
+          if (!mounted || !scanning) return;
+          setState(() => _scanProgress = status);
+        } catch (_) {}
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
+    }
+
+    final pollFuture = poll();
     try {
-      final api = context.read<GameProvider>().api;
       final result = await SteamService.scanPatches(api);
+      scanning = false;
+      await pollFuture;
+      if (!mounted) return;
       final scanned = (result["scanned"] as int?) ?? 0;
+      setState(() {
+        _serverLoading = false;
+        _scanProgress = null;
+      });
       await _loadServerPatches();
       if (!mounted) return;
       if (_commonDir != null && _commonDir!.isNotEmpty) {
@@ -393,12 +415,56 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         _showMsg("扫描完成，找到 $scanned 个补丁文件");
       }
     } catch (e) {
+      scanning = false;
+      await pollFuture;
       if (!mounted) return;
       setState(() {
         _serverLoading = false;
+        _scanProgress = null;
         _serverStatus = "扫描失败: $e";
       });
     }
+  }
+
+  Widget _buildScanProgressPanel() {
+    final progress = _scanProgress;
+    final processed = (progress?["processed"] as num?)?.toInt() ?? 0;
+    final total = (progress?["total"] as num?)?.toInt() ?? 0;
+    final stage = (progress?["stage"] ?? "准备扫描").toString();
+    final current = (progress?["current"] ?? "").toString();
+    final value = total > 0 ? (processed / total).clamp(0.0, 1.0) : null;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LinearProgressIndicator(value: value),
+              const SizedBox(height: 14),
+              Text(stage, style: AppText.title.copyWith(fontSize: 15)),
+              const SizedBox(height: 6),
+              Text(
+                total > 0 ? "$processed / $total 个文件" : "正在列举文件 ...",
+                style: AppText.bodySmall.copyWith(color: subTextColor(context)),
+              ),
+              if (current.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  current,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppText.bodySmall.copyWith(color: hintColor(context)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _rescrapeAll() async {
@@ -1214,7 +1280,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           ),
           Divider(height: 1, color: cardBorder(context)),
           if (_serverLoading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
+            Expanded(child: _buildScanProgressPanel())
           else if (_serverPatches.isEmpty)
             Expanded(
               child: Center(

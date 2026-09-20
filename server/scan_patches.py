@@ -571,33 +571,44 @@ def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
     return None
 
 
-def scan_patches_dir(base_dir: Path, analysis_mode: str = "auto") -> list[dict]:
+def scan_patches_dir(
+    base_dir: Path,
+    analysis_mode: str = "auto",
+    on_progress=None,
+) -> list[dict]:
     """Scan recurisvely for archive files, auto-detect app_id and type from name."""
     base_dir.mkdir(parents=True, exist_ok=True)
     keywords = _load_keywords(base_dir)
     archives = []
     exts = (".zip", ".ZIP", ".rar", ".RAR", ".7z", ".7Z", ".tar", ".TAR", ".gz", ".GZ", ".xz", ".XZ")
+    files: dict[Path, None] = {}
     for ext in exts:
         for f in sorted(base_dir.rglob(f"*{ext}")):
-            rel = str(f.relative_to(base_dir)).replace("\\", "/")
-            app_id = _guess_app_id(rel, f.name)
-            app_id, game_name = _enrich_identity(app_id, f.name)
-            ptype = _guess_type(f.name, keywords)
-            # Use extracted game name as label if available
-            label = _extract_game_name(f.name) if not app_id else ""
-            archives.append({
-                "patch_id": _make_patch_id("local", None, rel),
-                "app_id": app_id,
-                "file": rel,
-                "size": f.stat().st_size,
-                "analysis_mode": analysis_mode,
-                "patch_dir": "",
-                "target_dir": "",
-                "manifest_status": "pending",
-                "label": label,
-                "type": ptype,
-                "game_name": game_name,
-            })
+            files[f] = None
+    ordered = sorted(files.keys())
+    total = len(ordered)
+    for index, f in enumerate(ordered, start=1):
+        rel = str(f.relative_to(base_dir)).replace("\\", "/")
+        app_id = _guess_app_id(rel, f.name)
+        app_id, game_name = _enrich_identity(app_id, f.name)
+        ptype = _guess_type(f.name, keywords)
+        # Use extracted game name as label if available
+        label = _extract_game_name(f.name) if not app_id else ""
+        archives.append({
+            "patch_id": _make_patch_id("local", None, rel),
+            "app_id": app_id,
+            "file": rel,
+            "size": f.stat().st_size,
+            "analysis_mode": analysis_mode,
+            "patch_dir": "",
+            "target_dir": "",
+            "manifest_status": "pending",
+            "label": label,
+            "type": ptype,
+            "game_name": game_name,
+        })
+        if on_progress:
+            on_progress(index, total, f.name)
     return archives
 
 
@@ -607,6 +618,7 @@ def scan_patches_source(
     source_type: str = "local",
     source_id: int | None = None,
     analysis_mode: str = "auto",
+    on_progress=None,
 ) -> list[dict]:
     """Scan a generic file source for patch archive files."""
     from services.file_source import canonical_source_path
@@ -616,6 +628,7 @@ def scan_patches_source(
     exts = (".zip", ".rar", ".7z", ".tar", ".gz", ".xz")
     root = root_path.rstrip("/")
     stack = [root_path]
+    entries = []
     while stack:
         current = stack.pop()
         for entry in source.list(current):
@@ -624,29 +637,34 @@ def scan_patches_source(
                 continue
             if not entry.name.lower().endswith(exts):
                 continue
-            rel = entry.path[len(root):].lstrip("/") if entry.path.startswith(root) else entry.name
-            app_id = _guess_app_id(rel, entry.name)
-            app_id, game_name = _enrich_identity(app_id, entry.name)
-            ptype = _guess_type(entry.name, keywords)
-            label = _extract_game_name(entry.name) if not app_id else ""
-            archives.append({
-                "patch_id": _make_patch_id(source_type, source_id, entry.path),
-                "app_id": app_id,
-                "file": canonical_source_path(source_type, source_id, entry.path),
-                "source_type": source_type,
-                "source_id": source_id,
-                "source_path": entry.path,
-                "display_file": rel,
-                "size": entry.size,
-                "analysis_mode": analysis_mode,
-                "patch_dir": "",
-                "target_dir": "",
-                "manifest_status": "pending",
-                "label": label,
-                "type": ptype,
-                "game_name": game_name,
-            })
-    archives.sort(key=lambda p: p.get("file", ""))
+            entries.append(entry)
+    entries.sort(key=lambda e: e.path)
+    total = len(entries)
+    for index, entry in enumerate(entries, start=1):
+        rel = entry.path[len(root):].lstrip("/") if entry.path.startswith(root) else entry.name
+        app_id = _guess_app_id(rel, entry.name)
+        app_id, game_name = _enrich_identity(app_id, entry.name)
+        ptype = _guess_type(entry.name, keywords)
+        label = _extract_game_name(entry.name) if not app_id else ""
+        archives.append({
+            "patch_id": _make_patch_id(source_type, source_id, entry.path),
+            "app_id": app_id,
+            "file": canonical_source_path(source_type, source_id, entry.path),
+            "source_type": source_type,
+            "source_id": source_id,
+            "source_path": entry.path,
+            "display_file": rel,
+            "size": entry.size,
+            "analysis_mode": analysis_mode,
+            "patch_dir": "",
+            "target_dir": "",
+            "manifest_status": "pending",
+            "label": label,
+            "type": ptype,
+            "game_name": game_name,
+        })
+        if on_progress:
+            on_progress(index, total, entry.name)
     return archives
 
 

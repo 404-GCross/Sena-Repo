@@ -1,7 +1,7 @@
 """Steam patch injection API - PC client feature."""
 from __future__ import annotations
 
-import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, time, zipfile
+import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, threading, time, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1226,6 +1226,32 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
 
 # Patch scan endpoint
 
+_patch_scan_state: dict = {
+    "status": "idle",
+    "processed": 0,
+    "total": 0,
+    "current": "",
+    "stage": "",
+    "scanned": 0,
+    "error": "",
+    "started_at": 0.0,
+    "finished_at": 0.0,
+}
+_patch_scan_state_lock = threading.Lock()
+
+
+def _set_patch_scan_state(**values) -> None:
+    with _patch_scan_state_lock:
+        _patch_scan_state.update(values)
+
+
+@router.get("/scan-patches/status")
+async def patch_scan_status(user: User = Depends(get_current_user)):
+    """Return the current patch scan progress."""
+    with _patch_scan_state_lock:
+        return dict(_patch_scan_state)
+
+
 @router.post("/scan-patches")
 async def scan_patches_endpoint(user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     """Re-scan all configured patch roots and regenerate patches.json."""
@@ -1233,15 +1259,40 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
+    with _patch_scan_state_lock:
+        if _patch_scan_state.get("status") == "running":
+            raise HTTPException(status_code=409, detail="补丁扫描已在进行中")
+        _patch_scan_state.update({
+            "status": "running",
+            "processed": 0,
+            "total": 0,
+            "current": "",
+            "stage": "列举文件",
+            "scanned": 0,
+            "error": "",
+            "started_at": time.time(),
+            "finished_at": 0.0,
+        })
+
+    def on_progress(index: int, total: int, name: str) -> None:
+        _set_patch_scan_state(processed=index, total=total, current=name)
+
     try:
         from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
 
         scanned = []
         roots = await _patch_roots(session)
-        for root in roots:
+        stage_suffix = "（含 NextMoe 补全）" if _nextmoe_mode_enabled() else ""
+        for root_index, root in enumerate(roots, start=1):
             analysis_mode = _normalize_analysis_mode(
                 getattr(root, "analysis_mode", None),
                 root.source_type,
+            )
+            _set_patch_scan_state(
+                stage=f"扫描根目录 {root_index}/{len(roots)}{stage_suffix}",
+                processed=0,
+                total=0,
+                current="",
             )
             if root.source_type == "openlist":
                 result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
@@ -1254,11 +1305,14 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
                     "openlist",
                     root.source_id,
                     analysis_mode,
+                    on_progress,
                 ))
                 continue
 
             root_path = Path(root.path)
-            local_scanned = await asyncio.to_thread(scan_patches_dir, root_path, analysis_mode)
+            local_scanned = await asyncio.to_thread(
+                scan_patches_dir, root_path, analysis_mode, on_progress
+            )
             for item in local_scanned:
                 item["source_type"] = "local"
                 item["source_id"] = None
@@ -1283,9 +1337,22 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
             len(merged_patches),
             json_path,
         )
+        _set_patch_scan_state(
+            status="completed",
+            stage="完成",
+            current="",
+            scanned=len(scanned),
+            finished_at=time.time(),
+        )
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}
     except Exception as e:
         logger.error(f"Patch scan failed: {e}")
+        _set_patch_scan_state(
+            status="failed",
+            stage="失败",
+            error=str(e),
+            finished_at=time.time(),
+        )
         raise HTTPException(status_code=500, detail="Patch scan failed; check server logs")
 
 # Patch type keywords API
