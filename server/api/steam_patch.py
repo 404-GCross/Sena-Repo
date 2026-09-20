@@ -1515,6 +1515,163 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
     }
 
 
+# NextMoe patch backfill (NextMoe mode only)
+
+class NextMoeApplyItem(BaseModel):
+    lookup_key: str
+    app_id: str | None = None
+    game_name: str | None = None
+
+
+class NextMoeApplyRequest(BaseModel):
+    items: list[NextMoeApplyItem]
+
+
+def _nextmoe_mode_enabled() -> bool:
+    config = load_config()
+    enabled = [
+        str(source).strip().lower()
+        for source in (config.scrapers.enabled_scrapers or [])
+    ]
+    return enabled == ["nextmoe"]
+
+
+def _nextmoe_backfill_changes(patches: list[dict]) -> list[dict]:
+    from scan_patches import (
+        _fetch_game_name,
+        _nextmoe_match_by_name,
+        _nextmoe_work_by_steam_id,
+        _nextmoe_zh_title,
+    )
+
+    items: list[dict] = []
+    for patch in patches:
+        if patch.get("locked"):
+            continue
+        record = _enrich_patch_record(patch)
+        app_id = str(record.get("app_id") or "").strip()
+        game_name = str(record.get("game_name") or "").strip()
+        changes: list[dict] = []
+        ambiguous = False
+        if not app_id:
+            hint = str(record.get("label") or "").strip() or str(
+                record.get("display_file") or ""
+            )
+            new_id, title = _nextmoe_match_by_name(hint)
+            if new_id:
+                changes.append(
+                    {"field": "app_id", "old": "", "new": new_id, "source": "NextMoe"}
+                )
+                app_id = new_id
+                if not game_name:
+                    steam_name = (
+                        _fetch_game_name(int(new_id)) if new_id.isdigit() else ""
+                    )
+                    if steam_name:
+                        changes.append(
+                            {
+                                "field": "game_name",
+                                "old": "",
+                                "new": steam_name,
+                                "source": "Steam",
+                            }
+                        )
+                        game_name = steam_name
+                    elif title:
+                        changes.append(
+                            {
+                                "field": "game_name",
+                                "old": "",
+                                "new": title,
+                                "source": "NextMoe",
+                            }
+                        )
+                        game_name = title
+            else:
+                ambiguous = True
+        elif not game_name:
+            steam_name = ""
+            if app_id.isdigit():
+                steam_name = _fetch_game_name(int(app_id)) or ""
+            if steam_name:
+                changes.append(
+                    {"field": "game_name", "old": "", "new": steam_name, "source": "Steam"}
+                )
+            else:
+                work = _nextmoe_work_by_steam_id(app_id)
+                title = _nextmoe_zh_title(work) if work else ""
+                if title:
+                    changes.append(
+                        {
+                            "field": "game_name",
+                            "old": "",
+                            "new": title,
+                            "source": "NextMoe",
+                        }
+                    )
+                else:
+                    ambiguous = True
+        items.append(
+            {
+                "lookup_key": record["lookup_key"],
+                "display_name": record.get("display_name")
+                or record.get("display_file")
+                or "",
+                "changes": changes,
+                "ambiguous": ambiguous and not changes,
+            }
+        )
+    return items
+
+
+@router.post("/patches/nextmoe-preview")
+async def nextmoe_patch_preview(user: User = Depends(require_admin)):
+    """Preview NextMoe backfill changes without writing."""
+    if not _nextmoe_mode_enabled():
+        raise HTTPException(status_code=400, detail="当前不是 NextMoe 刮削模式")
+    config = load_config()
+    index_dir = _get_patch_index_dir(config)
+    patches = _load_all_patches(index_dir)
+    items = await asyncio.to_thread(_nextmoe_backfill_changes, patches)
+    return {
+        "items": items,
+        "total": len(patches),
+        "candidates": sum(1 for item in items if item["changes"]),
+        "ambiguous": sum(1 for item in items if item["ambiguous"]),
+    }
+
+
+@router.post("/patches/nextmoe-apply")
+async def nextmoe_patch_apply(
+    body: NextMoeApplyRequest,
+    user: User = Depends(require_admin),
+):
+    """Write confirmed NextMoe backfill values into patches.json."""
+    if not _nextmoe_mode_enabled():
+        raise HTTPException(status_code=400, detail="当前不是 NextMoe 刮削模式")
+    config = load_config()
+    index_dir = _get_patch_index_dir(config)
+    applied = 0
+    skipped = 0
+    for item in body.items:
+        values: dict = {}
+        if item.app_id:
+            values["app_id"] = item.app_id.strip()
+        if item.game_name:
+            values["game_name"] = item.game_name.strip()
+        if not values:
+            continue
+        try:
+            _update_patch_record(index_dir, item.lookup_key, values)
+            applied += 1
+        except HTTPException:
+            skipped += 1
+    logger.info(
+        "NextMoe patch backfill applied: applied=%s skipped=%s", applied, skipped
+    )
+    return {"applied": applied, "skipped": skipped}
+
+
 # Steam game name resolution
 
 class AppIdList(BaseModel):

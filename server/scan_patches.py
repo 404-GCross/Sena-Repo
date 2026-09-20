@@ -6,7 +6,7 @@ Usage:
   python scan_patches.py --add 123456 v2.zip "汉化补丁" "data" "汉化 v2" "translation"
                                                         # add one entry
 """
-import argparse, hashlib, json, logging, re, unicodedata
+import argparse, hashlib, json, logging, re, time, unicodedata
 from pathlib import Path
 
 import httpx
@@ -122,6 +122,238 @@ def _steam_request_kwargs() -> dict:
     if proxy:
         kwargs["proxy"] = proxy
     return kwargs
+
+
+_NEXTMOE_API_BASE = "https://api.nextmoe.dev/v2"
+_NEXTMOE_THROTTLE_SECONDS = 1.1
+_NEXTMOE_LAST_CALL = 0.0
+_NEXTMOE_MATCH_ACCEPT = 60
+_NEXTMOE_MATCH_MARGIN = 15
+
+
+def _nextmoe_mode() -> bool:
+    """NextMoe patch enrichment only runs in the exclusive NextMoe scraper mode."""
+    try:
+        from config import load_config
+
+        enabled = [
+            str(source).strip().lower()
+            for source in (load_config().scrapers.enabled_scrapers or [])
+        ]
+        return enabled == ["nextmoe"]
+    except Exception:
+        return False
+
+
+def _nextmoe_api_key() -> str:
+    try:
+        from config import load_config
+
+        return str(load_config().scrapers.nextmoe_api_key or "").strip()
+    except Exception:
+        return ""
+
+
+def _nextmoe_get(path: str, params: dict) -> dict:
+    global _NEXTMOE_LAST_CALL
+    key = _nextmoe_api_key()
+    if not key:
+        return {}
+    wait = _NEXTMOE_THROTTLE_SECONDS - (time.monotonic() - _NEXTMOE_LAST_CALL)
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        with httpx.Client(**_steam_request_kwargs()) as client:
+            resp = client.get(
+                f"{_NEXTMOE_API_BASE}{path}",
+                params=params,
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "User-Agent": "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)",
+                },
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+    except Exception as exc:
+        logger.warning("NextMoe request failed (%s): %s", path, exc)
+        return {}
+    finally:
+        _NEXTMOE_LAST_CALL = time.monotonic()
+    return payload if isinstance(payload, dict) else {}
+
+
+def _nextmoe_work_items(name: str) -> list[dict]:
+    payload = _nextmoe_get(
+        "/catalog/works",
+        {"q": name, "limit": "5", "nsfw": "true", "include": "titles,refs"},
+    )
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _nextmoe_work_by_steam_id(app_id: str) -> dict | None:
+    payload = _nextmoe_get(
+        "/catalog/works",
+        {"refs": f"steam:{app_id}", "nsfw": "true", "include": "titles,refs"},
+    )
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if isinstance(item, dict) and _nextmoe_steam_id(item) == str(app_id):
+            return item
+    return None
+
+
+def _nextmoe_localized_value(entry) -> tuple[str, bool]:
+    if isinstance(entry, str):
+        return entry.strip(), False
+    if isinstance(entry, dict):
+        value = str(entry.get("value") or entry.get("text") or "").strip()
+        return value, bool(entry.get("is_machine"))
+    return "", False
+
+
+def _nextmoe_zh_title(item: dict) -> str:
+    """Pick the authored Chinese title, falling back to machine translations."""
+    machine = ""
+    titles = item.get("titles")
+    if isinstance(titles, list):
+        for entry in titles:
+            if not isinstance(entry, dict):
+                continue
+            title = str(entry.get("title") or "").strip()
+            lang = str(entry.get("lang") or "").strip().lower()
+            if not title or not lang.startswith("zh"):
+                continue
+            if entry.get("is_machine"):
+                machine = machine or title
+            else:
+                return title
+    localized = item.get("localized")
+    if isinstance(localized, dict):
+        for lang, entry in localized.items():
+            if not str(lang).lower().startswith("zh"):
+                continue
+            value, is_machine = _nextmoe_localized_value(entry)
+            if value and not is_machine:
+                return value
+            if value:
+                machine = machine or value
+    return machine
+
+
+def _nextmoe_steam_id(item: dict) -> str:
+    """Extract the Steam ref from a NextMoe work's identity anchors."""
+    rows: list[tuple[str, str]] = []
+    refs = item.get("refs")
+    if isinstance(refs, dict):
+        for source, entry in refs.items():
+            if isinstance(entry, dict):
+                rows.append(
+                    (
+                        str(source),
+                        str(
+                            entry.get("external_id")
+                            or entry.get("id")
+                            or entry.get("value")
+                            or ""
+                        ),
+                    )
+                )
+            elif isinstance(entry, str):
+                rows.append((str(source), entry))
+    elif isinstance(refs, list):
+        for entry in refs:
+            if isinstance(entry, str):
+                source, _, external = entry.partition(":")
+                rows.append((source, external.strip()))
+            elif isinstance(entry, dict):
+                rows.append(
+                    (
+                        str(
+                            entry.get("source")
+                            or entry.get("kind")
+                            or entry.get("type")
+                            or ""
+                        ),
+                        str(
+                            entry.get("external_id")
+                            or entry.get("id")
+                            or entry.get("value")
+                            or entry.get("slug")
+                            or ""
+                        ),
+                    )
+                )
+    for source, external in rows:
+        if source.strip().lower() == "steam" and str(external).strip().isdigit():
+            return str(external).strip()
+    return ""
+
+
+def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
+    """Return (app_id, zh_title) for a unique best match, or empty strings."""
+    query = _normalize_for_match(name)
+    if not query:
+        return "", ""
+    candidates: list[tuple[int, str, str]] = []
+    for item in _nextmoe_work_items(_extract_game_name(name) or name):
+        app_id = _nextmoe_steam_id(item)
+        if not app_id:
+            continue
+        titles = [str(entry.get("title") or "") for entry in (item.get("titles") or []) if isinstance(entry, dict)]
+        zh_title = _nextmoe_zh_title(item)
+        if zh_title:
+            titles.insert(0, zh_title)
+        best_score = max(
+            (_name_match_score(query, _normalize_for_match(title)) for title in titles),
+            default=0,
+        )
+        candidates.append((best_score, app_id, zh_title))
+    if not candidates:
+        return "", ""
+    candidates.sort(key=lambda row: -row[0])
+    best = candidates[0]
+    if best[0] < _NEXTMOE_MATCH_ACCEPT:
+        return "", ""
+    if len(candidates) > 1 and best[0] - candidates[1][0] < _NEXTMOE_MATCH_MARGIN:
+        return "", ""
+    return best[1], best[2]
+
+
+def _nextmoe_name_for_app_id(app_id: str) -> str:
+    work = _nextmoe_work_by_steam_id(str(app_id))
+    return _nextmoe_zh_title(work) if work else ""
+
+
+def _nextmoe_app_id_for_name(name: str) -> str:
+    app_id, _ = _nextmoe_match_by_name(name)
+    return app_id
+
+
+def _steam_name_for_app_id(app_id) -> str:
+    try:
+        return _fetch_game_name(int(app_id)) or ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def _enrich_identity(app_id: int | None, file_name: str) -> tuple[int | None, str]:
+    """Resolve app_id/name, filling gaps from NextMoe when NextMoe mode is on."""
+    game_name = _steam_name_for_app_id(app_id) if app_id else ""
+    if _nextmoe_mode():
+        if not app_id:
+            nm_id, nm_title = _nextmoe_match_by_name(file_name)
+            if nm_id.isdigit():
+                app_id = int(nm_id)
+                game_name = _steam_name_for_app_id(app_id) or nm_title
+        elif not game_name:
+            game_name = _nextmoe_name_for_app_id(str(app_id))
+    return app_id, game_name
 
 
 def _load_appdetails(app_id: int, langs: tuple[str, ...] = ("schinese",)) -> dict:
@@ -345,6 +577,7 @@ def scan_patches_dir(base_dir: Path, analysis_mode: str = "auto") -> list[dict]:
         for f in sorted(base_dir.rglob(f"*{ext}")):
             rel = str(f.relative_to(base_dir)).replace("\\", "/")
             app_id = _guess_app_id(rel, f.name)
+            app_id, game_name = _enrich_identity(app_id, f.name)
             ptype = _guess_type(f.name, keywords)
             # Use extracted game name as label if available
             label = _extract_game_name(f.name) if not app_id else ""
@@ -359,7 +592,7 @@ def scan_patches_dir(base_dir: Path, analysis_mode: str = "auto") -> list[dict]:
                 "manifest_status": "pending",
                 "label": label,
                 "type": ptype,
-                "game_name": _fetch_game_name(app_id) if app_id else "",
+                "game_name": game_name,
             })
     return archives
 
@@ -389,6 +622,7 @@ def scan_patches_source(
                 continue
             rel = entry.path[len(root):].lstrip("/") if entry.path.startswith(root) else entry.name
             app_id = _guess_app_id(rel, entry.name)
+            app_id, game_name = _enrich_identity(app_id, entry.name)
             ptype = _guess_type(entry.name, keywords)
             label = _extract_game_name(entry.name) if not app_id else ""
             archives.append({
@@ -406,7 +640,7 @@ def scan_patches_source(
                 "manifest_status": "pending",
                 "label": label,
                 "type": ptype,
-                "game_name": _fetch_game_name(app_id) if app_id else "",
+                "game_name": game_name,
             })
     archives.sort(key=lambda p: p.get("file", ""))
     return archives
