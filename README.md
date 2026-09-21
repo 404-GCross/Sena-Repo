@@ -4,61 +4,63 @@
 
 # Sena Repo
 
+[English](README.md) | [中文](README_CN.md)
+
 ![Release](https://img.shields.io/github/v/release/404-GCross/Sena-Repo)
 ![Downloads](https://img.shields.io/github/downloads/404-GCross/Sena-Repo/total)
 ![License](https://img.shields.io/github/license/404-GCross/Sena-Repo)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20Linux-blue)
 
-项目名称中的**Sena**来源于游戏[想要传达给你的爱恋](https://www.kungal.com/galgame/31)中的女主角[姬野星奏](https://www.kungal.com/galgame/character/38022)
+The **Sena** in the project name comes from the heroine [Himeno Sena](https://www.kungal.com/galgame/character/38022) in the game [Koi x Shin Ai Kanojo](https://www.kungal.com/galgame/31).
 
 </div>
 
 ---
-## 简介
-**Sena Repo** 是一款面向多平台的视觉小说私有库管理器，适合管理部署在远程服务器（如 NAS）上的游戏，让使用者能方便地浏览、搜索、下载与安装自己的游戏收藏。
+## Introduction
+**Sena Repo** is a multi-platform private library manager for visual novels, designed for managing games hosted on remote servers (such as a NAS), so you can browse, search, download, and install your game collection with ease.
 
-Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的站点
+Sena-Repo is not a local game manager; it is more like a site that you fully control.
 
-## 主要功能
+## Key Features
 
-- 🖼️ **更直接美观的资源库** — 扫描刮削分类您的视觉小说游戏文件，并在客户端排列显示
-- 🌐 **方便的下载安装** — 客户端能自动下载并解压到指定目录，并提供导入为steam第三方游戏与生成快捷方式的功能
-- 🎮**Steam补丁注入** — 扫描刮削匹配补丁文件，为您在steam上购买的视觉小说游戏注入补丁
+- 🖼️ **A More Intuitive and Beautiful Library** — Scans, scrapes, and categorizes your visual novel files, then displays them in an organized layout in the client.
+- 🌐 **Convenient Download and Install** — The client automatically downloads and extracts games to a specified directory, and can import them into Steam as non-Steam titles with generated desktop shortcuts.
+- 🎮 **Steam Patch Injection** — Scans and scrapes matching patch files, then injects patches into visual novel games you own on Steam.
 
 
 ---
 
-## 截图
+## Screenshots
 
 <table align="center">
   <tr valign="top">
     <td align="center" width="50%">
-      <b>游戏库</b><br>
-      <i>网格 / 列表双视图，按会社、标签、平台筛选</i><br>
+      <b>Library</b><br>
+      <i>Grid / list dual views, filterable by brand, tag, and platform</i><br>
       <img src="Documentation/gallery/library.png" width="95%">
     </td>
     <td align="center" width="50%">
-      <b>游戏详情页</b><br>
-      <i>封面、背景、简介、标签、版本列表与下载</i><br>
+      <b>Game Details</b><br>
+      <i>Cover, background, description, tags, version list, and downloads</i><br>
       <img src="Documentation/gallery/detail-1.png" width="95%">
     </td>
   </tr>
   <tr valign="top">
     <td align="center" width="50%">
-      <b>Steam 补丁管理</b><br>
-      <i>客户端 / 服务端双 Tab，自动匹配与注入</i><br>
+      <b>Steam Patch Management</b><br>
+      <i>Client / server tabs, automatic matching and injection</i><br>
       <img src="Documentation/gallery/steam-patch.png" width="95%">
     </td>
     <td align="center" width="50%">
-      <b>元数据编辑</b><br>
-      <i>多源刮削结果逐字段对比勾选</i><br>
+      <b>Metadata Editing</b><br>
+      <i>Field-by-field comparison and selection of multi-source scrape results</i><br>
       <img src="Documentation/gallery/edit.png" width="95%">
     </td>
   </tr>
   <tr valign="top">
     <td align="center" width="50%">
-      <b>我的</b><br>
-      <i>个人信息、用户管理与设置</i><br>
+      <b>Profile</b><br>
+      <i>Personal information, user management, and settings</i><br>
       <img src="Documentation/gallery/profile.png" width="95%">
     </td>
     <td align="center" width="50%">
@@ -73,21 +75,21 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ---
 
-## 快速开始
+## Quick Start
 
-安装与使用教程请查看文档：**[https://sena-repo.github.io](https://sena-repo.github.io/)**
-
----
-
-## 贡献
-
-欢迎任何形式的贡献！请查看 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解如何开始。
+For installation and usage guides, see the documentation: **[https://sena-repo.github.io](https://sena-repo.github.io/)**
 
 ---
 
-## 特别鸣谢
+## Contributing
 
-本项目在开发过程中参考与学习了以下优秀开源项目（排名不分先后）：
+Contributions of any kind are welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) to get started.
+
+---
+
+## Special Thanks
+
+During development, this project referenced and learned from the following excellent open-source projects (in no particular order):
 - [mcmilk/7-Zip-zstd](https://github.com/mcmilk/7-Zip-zstd)
 - [OpenListTeam/OpenList](https://github.com/OpenListTeam/OpenList)
 - [KunMoe/kun-galgame-forum](https://github.com/KunMoe/kun-galgame-forum)
@@ -100,32 +102,32 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 - [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)
 - [moraroy/NonSteamLaunchers-On-Steam-Deck](https://github.com/moraroy/NonSteamLaunchers-On-Steam-Deck)
 
-感谢以上项目作者以及贡献者的付出。
+Thanks to the authors and contributors of the projects above.
 
 ---
 
-## 免责声明
+## Disclaimer
 
-- 本项目为开源项目，仅用于合法用途，管理您有权使用的游戏/应用，如有侵权请告知。
-- 您需要自行确认资源与第三方组件的合法性。
-- 本项目不提供游戏本体、破解资源、绕过授权的能力或任何违规用途的支持。
-- 本项目由 AI 辅助开发，安全性未经审计，服务端部署至公网前请自行加固。
-- 本项目在后续更新中可能涉及服务端变动，可能存在无法保留数据更新的可能。
+- This is an open-source project intended for lawful use only, for managing games/applications you have the right to use. If anything infringes your rights, please let us know.
+- You are responsible for confirming the legality of the resources and third-party components you use.
+- This project does not provide game files, cracked resources, authorization-bypass capabilities, or support for any unlawful use.
+- This project is developed with AI assistance and has not been security-audited. Harden it yourself before deploying the server to the public internet.
+- Future updates may involve server-side changes, and there is a possibility that data may not be preserved across updates.
 
 
-## 开源协议
+## License
 
-本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)**。
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
-**您可以：**
-- 自由使用、复制、修改、分发本项目
-- 将本项目用于商业或非商业用途
-- 将修改后的版本作为网络服务运行
+**You are free to:**
+- Use, copy, modify, and distribute this project
+- Use this project for commercial or non-commercial purposes
+- Run modified versions as a network service
 
-**您需要：**
-- 分发或公开部署修改后的版本时，开源你的修改
-- 即使只通过网络提供服务（不分发二进制），也要提供源代码
-- 保留原始版权声明和许可声明
-- 使用相同的 AGPL-3.0 许可证
+**You must:**
+- Open-source your modifications when you distribute or publicly deploy a modified version
+- Provide the source code even if you only offer the service over a network (without distributing binaries)
+- Retain the original copyright and license notices
+- Use the same AGPL-3.0 license
 
-**简单来说：** 自己用随便改；如果把修改版给别人用或部署成公共服务，代码也要开源。
+**In short:** modify it freely for your own use; if you share a modified version or deploy it as a public service, you must open-source the code as well.
