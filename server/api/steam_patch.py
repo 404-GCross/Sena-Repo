@@ -454,7 +454,17 @@ async def _game_name_values_for_app_id_change(
 
 
 async def _game_name_for_app_id(app_id: str) -> str | None:
+    if _nextmoe_mode_enabled():
+        from scan_patches import _nextmoe_name_for_app_id
+
+        try:
+            name = await asyncio.to_thread(_nextmoe_name_for_app_id, str(app_id))
+        except Exception as exc:
+            logger.warning("NextMoe name lookup failed for app_id=%s: %s", app_id, exc)
+            return None
+        return name or None
     from scan_patches import _fetch_game_name
+
     try:
         name = await asyncio.to_thread(_fetch_game_name, int(app_id))
     except Exception as exc:
@@ -1483,17 +1493,9 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
             target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
             result.new_app_id = str(new_id)
             result.status = "updated"
-            name = ""
-            if new_id.isdigit():
-                try:
-                    name = await _asyncio.to_thread(_fetch_game_name, int(new_id)) or ""
-                except Exception:
-                    name = ""
-            if not name:
-                name = nextmoe_title
-            if name:
-                target["game_name"] = name
-                result.game_name = name
+            if nextmoe_title:
+                target["game_name"] = nextmoe_title
+                result.game_name = nextmoe_title
         elif old_app_id:
             result.new_app_id = old_app_id
     else:
@@ -1581,17 +1583,9 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
                     p["app_id"] = new_id
                 r.new_app_id = str(new_id)
                 r.status = "updated"
-                name = ""
-                if new_id.isdigit():
-                    try:
-                        name = await _asyncio.to_thread(_fetch_game_name, int(new_id)) or ""
-                    except Exception:
-                        name = ""
-                if not name:
-                    name = nextmoe_title
-                if name:
-                    p["game_name"] = name
-                    r.game_name = name
+                if nextmoe_title:
+                    p["game_name"] = nextmoe_title
+                    r.game_name = nextmoe_title
             else:
                 r.new_app_id = old_id
                 r.status = "not_found"

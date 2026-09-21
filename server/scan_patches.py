@@ -347,16 +347,21 @@ def _steam_name_for_app_id(app_id) -> str:
 
 
 def _enrich_identity(app_id: int | None, file_name: str) -> tuple[int | None, str]:
-    """Resolve app_id/name, filling gaps from NextMoe when NextMoe mode is on."""
-    game_name = _steam_name_for_app_id(app_id) if app_id else ""
+    """Resolve app_id/name; NextMoe mode goes through NextMoe only."""
     if _nextmoe_mode():
+        nm_title = ""
         if not app_id:
             nm_id, nm_title = _nextmoe_match_by_name(file_name)
             if nm_id.isdigit():
                 app_id = int(nm_id)
-                game_name = _steam_name_for_app_id(app_id) or nm_title
-        elif not game_name:
+        if nm_title:
+            game_name = nm_title
+        elif app_id:
             game_name = _nextmoe_name_for_app_id(str(app_id))
+        else:
+            game_name = ""
+        return app_id, game_name
+    game_name = _steam_name_for_app_id(app_id) if app_id else ""
     return app_id, game_name
 
 
@@ -561,6 +566,10 @@ def _guess_app_id(rel_path: str, filename: str = "") -> int | None:
     m = re.match(r"^(\d{3,8})$", parent)
     if m:
         return int(m.group(1))
+
+    # NextMoe mode resolves by name through NextMoe in _enrich_identity instead.
+    if _nextmoe_mode():
+        return None
 
     # Steam search by game name
     search_name = filename or name
