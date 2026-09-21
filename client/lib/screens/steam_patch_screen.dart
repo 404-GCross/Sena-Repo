@@ -376,24 +376,57 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Future<void> _pickScanMode() async {
+    var selected = "merge";
     final mode = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("扫描补丁"),
-        content: const Text(
-            "合并刷新：保留已配置的规则、名称和锁定，补新文件、删丢失文件。\n\n"
-            "清空重扫：丢弃全部已配置信息，完全按磁盘重建。"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, "reset"),
-              child: const Text("清空重扫")),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, "merge"),
-              child: const Text("合并刷新")),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text("扫描补丁"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                value: "merge",
+                groupValue: selected,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text("合并刷新"),
+                subtitle: const Text("保留已配置的规则、名称和锁定，补新文件、删丢失文件"),
+                onChanged: (value) =>
+                    setDialogState(() => selected = value ?? "merge"),
+              ),
+              RadioListTile<String>(
+                value: "metadata",
+                groupValue: selected,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text("仅清空元数据"),
+                subtitle: const Text("保留规则、状态与锁定，重新解析 AppID / 名称 / 标签 / 类型"),
+                onChanged: (value) =>
+                    setDialogState(() => selected = value ?? "merge"),
+              ),
+              RadioListTile<String>(
+                value: "reset",
+                groupValue: selected,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text("清空重扫"),
+                subtitle: const Text("丢弃全部已配置信息，完全按磁盘重建"),
+                onChanged: (value) =>
+                    setDialogState(() => selected = value ?? "merge"),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, selected),
+                child: const Text("开始扫描")),
+          ],
+        ),
       ),
     );
     if (mode == null || !mounted) return;
@@ -405,7 +438,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     setState(() {
       _serverLoading = true;
       _scanProgress = null;
-      _serverStatus = mode == "reset" ? "正在清空重扫..." : "正在扫描...";
+      _serverStatus = switch (mode) {
+        "reset" => "正在清空重扫...",
+        "metadata" => "正在清空元数据...",
+        _ => "正在扫描...",
+      };
     });
     var scanning = true;
     Future<void> poll() async {

@@ -259,6 +259,37 @@ def _normalize_patch_records(patches: list[dict]) -> list[dict]:
     return [_normalize_patch_record(patch) for patch in patches]
 
 
+_METADATA_RESET_KEEP_KEYS = (
+    "patch_dir",
+    "target_dir",
+    "manifest_status",
+    "manifest_updated_at",
+)
+
+
+def _merge_metadata_reset(
+    existing_patches: list[dict], scanned: list[dict]
+) -> list[dict]:
+    """Rebuild metadata from the scan while keeping rules and locks."""
+    existing_by_file = {p.get("file", ""): p for p in existing_patches}
+    merged: list[dict] = []
+    for item in scanned:
+        old = existing_by_file.get(item["file"])
+        if old is None:
+            merged.append(item)
+            continue
+        if old.get("locked"):
+            # Locked entries stay untouched, like every other scan mode.
+            merged.append(old)
+            continue
+        fresh = dict(item)
+        for key in _METADATA_RESET_KEEP_KEYS:
+            if old.get(key) is not None:
+                fresh[key] = old[key]
+        merged.append(fresh)
+    return merged
+
+
 def _patches_index_needs_autoscan(json_path: Path) -> bool:
     if not json_path.is_file():
         return True
@@ -1243,11 +1274,12 @@ async def scan_patches_endpoint(
     """Re-scan all configured patch roots and regenerate patches.json.
 
     mode=merge keeps configured metadata for files that still exist;
+    mode=metadata rebuilds metadata but keeps rules and locks;
     mode=reset rebuilds the index from disk only.
     """
     scan_mode = str(mode or "merge").strip().lower()
-    if scan_mode not in {"merge", "reset"}:
-        raise HTTPException(status_code=400, detail="mode 只能是 merge 或 reset")
+    if scan_mode not in {"merge", "metadata", "reset"}:
+        raise HTTPException(status_code=400, detail="mode 只能是 merge、metadata 或 reset")
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
@@ -1323,7 +1355,12 @@ async def scan_patches_endpoint(
         else:
             existing = load_existing(json_path)
             existing_list = existing.get("patches", []) if existing else []
-        merged_patches = _normalize_patch_records(merge(existing_list, scanned))
+        if scan_mode == "metadata":
+            merged_patches = _normalize_patch_records(
+                _merge_metadata_reset(existing_list, scanned)
+            )
+        else:
+            merged_patches = _normalize_patch_records(merge(existing_list, scanned))
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
         logger.info(
