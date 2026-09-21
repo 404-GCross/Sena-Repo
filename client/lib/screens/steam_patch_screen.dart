@@ -1584,7 +1584,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   _patchDetailRow("文件位置", sourcePath),
                   _patchDetailRow("来源",
                       sourceType == "openlist" ? "OpenList #$sourceId" : "本地"),
-                  _patchDetailRow("匹配游戏", matched),
                   _patchDetailRow("分析模式", manualRules ? "手动规则" : "自动分析"),
                   _patchDetailRow("规则更新", updatedAt),
                 ],
