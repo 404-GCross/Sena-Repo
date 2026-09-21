@@ -62,3 +62,12 @@ scrapers:
   # To use NextMoe instead, replace the list above with:
   # enabled_scrapers:
   #   - nextmoe
+
+# NextMoe·未萌 OAuth login (optional).
+# Register a public client (PKCE, loopback callback http://127.0.0.1/callback)
+# in the NextMoe developer portal, then fill in client_id below.
+oauth:
+  enabled: false
+  issuer: "https://account.nextmoe.com/api/v1"
+  client_id: ""
+  scopes: "openid profile"

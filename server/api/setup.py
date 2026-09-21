@@ -57,6 +57,7 @@ class InitRequest(BaseModel):
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
     nextmoe_api_key: str = ""
+    oauth_request_id: str = ""
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -190,6 +191,25 @@ async def initialize_setup(
     pw_hash, salt = hash_password(body.admin_password)
     user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="owner", is_admin=True)
     session.add(user)
+
+    if body.oauth_request_id:
+        from api.oauth import PROVIDER, consume_setup_binding
+
+        binding = consume_setup_binding(body.oauth_request_id)
+        if binding is None:
+            logger.warning("Setup OAuth binding expired, continuing without it")
+        else:
+            subject, oauth_name, oauth_user_id = binding
+            existing_binding = await session.execute(
+                select(User).where(User.oauth_subject == subject)
+            )
+            if existing_binding.scalar_one_or_none() is None:
+                user.oauth_provider = PROVIDER
+                user.oauth_subject = subject
+                user.oauth_name = oauth_name
+                user.oauth_user_id = oauth_user_id
+            else:
+                logger.warning("Setup OAuth subject already bound, skipping")
 
     source_cache: dict[tuple[str, str], FileSource] = {}
 

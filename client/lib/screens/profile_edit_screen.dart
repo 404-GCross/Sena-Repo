@@ -9,6 +9,7 @@ import "package:provider/provider.dart";
 
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
+import "../services/nextmoe_oauth.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
@@ -31,6 +32,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String? _avatarPath;
   int _userId = 0;
   bool _changed = false;
+  Map<String, dynamic>? _binding;
+  bool _bindingBusy = false;
+  bool _passwordSet = true;
 
   String get _baseUrl => context.read<GameProvider>().api.baseUrl;
 
@@ -91,14 +95,296 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             _avatarPath = data["avatar_path"];
             _avatarVersion = DateTime.now().millisecondsSinceEpoch;
             _userId = userId;
+            _passwordSet = data["password_set"] != false;
             _loading = false;
           });
+        _loadBinding();
       } else if (mounted) {
         setState(() => _loading = false);
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadBinding() async {
+    final binding = await context.read<GameProvider>().api.getOauthBinding();
+    if (!mounted || binding == null) return;
+    setState(() {
+      _binding = binding;
+      if (binding["password_set"] is bool) {
+        _passwordSet = binding["password_set"] == true;
+      }
+    });
+  }
+
+  Future<void> _bindNextmoe() async {
+    if (_bindingBusy) return;
+    setState(() {
+      _bindingBusy = true;
+      _error = null;
+      _msg = null;
+    });
+    final api = context.read<GameProvider>().api;
+    final outcome = await NextmoeOAuth.authorize(api, purpose: "bind");
+    if (!mounted) return;
+    setState(() => _bindingBusy = false);
+    switch (outcome.kind) {
+      case NextmoeAuthKind.bound:
+        await _loadBinding();
+        if (mounted) {
+          setState(() {
+            _msg = outcome.boundName.isEmpty
+                ? "已绑定 NextMoe 账号"
+                : "已绑定 NextMoe 账号：${outcome.boundName}";
+          });
+        }
+        return;
+      case NextmoeAuthKind.error:
+        if (outcome.cancelled) return;
+        setState(() => _error = outcome.error);
+        return;
+      case NextmoeAuthKind.pending:
+      case NextmoeAuthKind.rejected:
+      case NextmoeAuthKind.session:
+        return;
+    }
+  }
+
+  Future<void> _unbindNextmoe() async {
+    if (_bindingBusy) return;
+    final name = _binding?["name"]?.toString() ?? "";
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          "解除 NextMoe 绑定？",
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          "解绑后${name.isEmpty ? "该 NextMoe 账号" : "「$name」"}将无法再登录本服务器；"
+          "你需要改用用户名和密码登录。",
+          style: const TextStyle(fontSize: 13, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text("解除绑定"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _bindingBusy = true;
+      _error = null;
+      _msg = null;
+    });
+    try {
+      await context.read<GameProvider>().api.unbindOauth();
+      await _loadBinding();
+      if (mounted) setState(() => _msg = "已解除 NextMoe 绑定");
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = "解除绑定失败: $e");
+    } finally {
+      if (mounted) setState(() => _bindingBusy = false);
+    }
+  }
+
+  Widget _nextmoeMark(double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.3),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF6366F1), Color(0xFFA855F7)],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        "未",
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: size * 0.45,
+          height: 1.1,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _bindingChip(bool bound) {
+    final color = bound ? Colors.green : hintColor(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        bound ? "已绑定" : "未绑定",
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _thirdPartyCard() {
+    final binding = _binding;
+    final bound = binding != null && binding["bound"] == true;
+    final name = binding?["name"]?.toString() ?? "";
+    final oauthId = binding?["user_id"]?.toString() ?? "";
+    return AppSurface(
+      padding: const EdgeInsets.all(16),
+      radius: AppRadius.lg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _section("第三方账号"),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _nextmoeMark(38),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          "NextMoe·未萌",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _bindingChip(bound),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (bound)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              Theme.of(context).colorScheme.surfaceContainerLow,
+                          border: Border.all(
+                            color:
+                                Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    name.isEmpty ? "已绑定账号" : name,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (oauthId.isNotEmpty)
+                                    Text(
+                                      "NextMoe ID · $oauthId",
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: hintColor(context),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.check_circle,
+                              size: 18,
+                              color: Colors.green,
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Text(
+                        "绑定后可使用 NextMoe 账号一键登录本服务器，无需输入密码；"
+                        "不会改变用户名与权限。",
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.6,
+                          color: hintColor(context),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    if (bound)
+                      OutlinedButton.icon(
+                        onPressed:
+                            _bindingBusy || !_passwordSet ? null : _unbindNextmoe,
+                        icon: const Icon(Icons.link_off, size: 18),
+                        label: const Text("解除绑定"),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: BorderSide(
+                            color: Colors.red.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      )
+                    else
+                      FilledButton.icon(
+                        onPressed: _bindingBusy ? null : _bindNextmoe,
+                        icon: _bindingBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.link, size: 18),
+                        label: Text(
+                          _bindingBusy ? "等待浏览器授权…" : "绑定 NextMoe 账号",
+                        ),
+                      ),
+                    if (bound && !_passwordSet)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          "当前账号尚未设置本地密码，请先在「修改密码」中设置后再解除绑定。",
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.5,
+                            color: hintColor(context),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -317,6 +603,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 12),
+                _thirdPartyCard(),
                 const SizedBox(height: 32),
 
                 // ── Save ──

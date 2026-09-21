@@ -14,6 +14,7 @@ import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/api_response_utils.dart";
 import "../services/api_client.dart";
+import "../services/nextmoe_oauth.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
 import "../services/notification_service.dart";
@@ -942,6 +943,32 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
+  Future<void> _showOauthNotice({
+    required String title,
+    required String message,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 13, height: 1.6),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text("知道了"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showAddServerDialog() async {
     final hostCtrl = TextEditingController(text: "192.168.1.100");
     final portCtrl = TextEditingController(text: "11451");
@@ -954,7 +981,52 @@ class _ConnectScreenState extends State<ConnectScreen> {
     var loading = false;
     var error = "";
     var loginError = "";
+    var oauthBusy = false;
+    var oauthEnabled = false;
     ApiClient? api;
+
+    Future<void> startNextmoe(BuildContext dialogCtx, StateSetter setD) async {
+      final client = api;
+      if (client == null || oauthBusy) return;
+      setD(() {
+        oauthBusy = true;
+        loginError = "";
+      });
+      final outcome = await NextmoeOAuth.authorize(client, purpose: "login");
+      if (!dialogCtx.mounted) return;
+      setD(() => oauthBusy = false);
+      switch (outcome.kind) {
+        case NextmoeAuthKind.session:
+          Navigator.pop(dialogCtx);
+          final username = outcome.session?["username"]?.toString() ?? "";
+          await ProfileService().saveCurrentAsProfile(username);
+          if (mounted) {
+            await _goHome(games: context.read<GameProvider>());
+          }
+          return;
+        case NextmoeAuthKind.pending:
+          await _showOauthNotice(
+            title: "等待管理员审批",
+            message:
+                "已提交注册申请，用户名 ${outcome.username}。\n\n"
+                "管理员审批通过后即可用 NextMoe 账号登录本服务器。"
+                "用户名由 NextMoe 昵称自动派生，审批通过后可在「设置 → 个人信息」修改。",
+          );
+          return;
+        case NextmoeAuthKind.rejected:
+          await _showOauthNotice(
+            title: "注册申请未通过",
+            message: "管理员拒绝了本次注册申请；如有疑问请联系服务器管理员。",
+          );
+          return;
+        case NextmoeAuthKind.error:
+          if (outcome.cancelled) return;
+          setD(() => loginError = outcome.error);
+          return;
+        case NextmoeAuthKind.bound:
+          return;
+      }
+    }
 
     await showDialog(
       context: context,
@@ -1058,16 +1130,102 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: TextButton(
-                        onPressed: () => setD(() {
-                          showRegister = !showRegister;
-                          loginError = "";
-                        }),
+                        onPressed: oauthBusy
+                            ? null
+                            : () => setD(() {
+                                  showRegister = !showRegister;
+                                  loginError = "";
+                                }),
                         child: Text(
                           showRegister ? "已有账户？登录" : "没有账户？注册",
                           style: const TextStyle(fontSize: 13),
                         ),
                       ),
                     ),
+                  if (step == 1 && oauthEnabled) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Divider(
+                            height: 1,
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Text(
+                            "或",
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: hintColor(context),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Divider(
+                            height: 1,
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: oauthBusy
+                            ? null
+                            : () => startNextmoe(ctx, setD),
+                        icon: oauthBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Container(
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(6),
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF6366F1),
+                                      Color(0xFFA855F7),
+                                    ],
+                                  ),
+                                ),
+                                alignment: Alignment.center,
+                                child: const Text(
+                                  "未",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    height: 1.1,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                        label: Text(
+                          oauthBusy
+                              ? "等待浏览器授权…"
+                              : "使用 NextMoe·未萌 账号登录 / 注册",
+                          style: const TextStyle(fontSize: 13.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "首次使用会自动创建账号（需管理员审批），已绑定账号可直接登录",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.5,
+                        color: hintColor(context),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1151,6 +1309,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           loading = false;
                           error = "";
                         });
+
+                        final providers = await api!.getAuthProviders();
+                        final nextmoe = providers?["nextmoe"];
+                        if (ctx.mounted) {
+                          setD(() {
+                            oauthEnabled =
+                                nextmoe is Map && nextmoe["enabled"] == true;
+                          });
+                        }
                       } else if (showRegister) {
                         // Register
                         if (userCtrl.text.trim().isEmpty) {

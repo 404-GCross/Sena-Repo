@@ -233,6 +233,33 @@ async def create_tables():
             WHERE role = 'owner'
             """
         )
+        if "oauth_provider" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(32)"
+            )
+        if "oauth_subject" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN oauth_subject VARCHAR(128)"
+            )
+        if "oauth_name" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN oauth_name VARCHAR(128)"
+            )
+        if "oauth_user_id" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN oauth_user_id INTEGER"
+            )
+        if "password_set" not in user_cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN password_set BOOLEAN NOT NULL DEFAULT 1"
+            )
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_users_oauth_subject
+            ON users (oauth_subject)
+            WHERE oauth_subject IS NOT NULL
+            """
+        )
         from utils.secrets import encrypt_secret, is_encrypted
 
         source_rows = await conn.exec_driver_sql(
