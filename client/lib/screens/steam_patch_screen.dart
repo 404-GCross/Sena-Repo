@@ -1388,8 +1388,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final patchDir = (p["patch_dir"] ?? "").toString();
     final targetDir = (p["target_dir"] ?? "").toString();
     final appId = (p["app_id"] ?? "").toString();
-    final matched = (p["matched_game"] ?? "").toString();
-    final suggestedAppId = (p["suggested_app_id"] ?? "").toString();
     final manifestStatus = (p["manifest_status"] ?? "pending").toString();
     final analysisMode = (p["analysis_mode"] ?? "auto").toString();
     final locked = _lockedOverrides[lookupKey] ?? p["locked"] == true;
@@ -1520,16 +1518,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ] else ...[
               Icon(Icons.warning_amber, size: 12, color: Colors.orange[300]),
               const SizedBox(width: 2),
-              Text(suggestedAppId.isNotEmpty ? "建议 AppID $suggestedAppId" : "无 AppID",
+              Text("无 AppID",
                   style: AppText.caption.copyWith(color: Colors.orange[300])),
               const SizedBox(width: 6)
-            ],
-            if (matched.isNotEmpty) ...[
-              Icon(Icons.link, size: 10, color: hintColor(context)),
-              const SizedBox(width: 2),
-              Text(matched,
-                  style: AppText.caption.copyWith(color: hintColor(context))),
-              const SizedBox(width: 4)
             ],
             Expanded(
                 child: Text(displayFile,

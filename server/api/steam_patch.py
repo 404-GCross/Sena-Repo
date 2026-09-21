@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import load_config
@@ -961,33 +960,6 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
     json_path = index_dir / "patches.json"
     needs_scan = _patches_index_needs_autoscan(json_path)
     patches = [_enrich_patch_record(p) for p in _load_all_patches(index_dir)]
-
-    # Suggest DB matches for display only. Do not write internal game IDs into Steam app_id.
-    if patches:
-        try:
-            from models.game import Game as _Game
-            result = await session.execute(
-                select(_Game).where(_Game.is_deleted == False).options(joinedload(_Game.company))
-            )
-            games = result.unique().scalars().all()
-
-            for p in patches:
-                if _valid_app_id(p.get("app_id")):
-                    continue
-                for game in games:
-                    pseudo = SteamGameInfo(
-                        app_id=str(game.steam_id or ""),
-                        name=game.name or "",
-                        install_dir=game.folder_path.split("/")[-1] if game.folder_path else "",
-                    )
-                    if _patch_matches_game(p, pseudo):
-                        p["matched_game"] = game.name
-                        p["matched_company"] = game.company.name if game.company else None
-                        if game.steam_id:
-                            p["suggested_app_id"] = game.steam_id
-                        break
-        except Exception:
-            pass
 
     return {
         "patches": patches,
