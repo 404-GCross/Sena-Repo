@@ -423,18 +423,18 @@ async def test_nextmoe(
                 resp.status_code,
                 code or "unknown",
             )
-            return {"ok": False, "error": f"鲲Galgame 鉴权失败（HTTP {resp.status_code}）"}
+            return {"ok": False, "error": f"NextMoe 鉴权失败（HTTP {resp.status_code}）"}
         if resp.status_code == 429:
             logger.warning("NextMoe credential test rate limited: actor_id=%s", user.id)
-            return {"ok": False, "error": "鲲Galgame 限流，请稍后重试"}
+            return {"ok": False, "error": "NextMoe 限流，请稍后重试"}
         logger.warning("NextMoe credential test failed: actor_id=%s status=%s", user.id, resp.status_code)
-        return {"ok": False, "error": f"鲲Galgame 返回 HTTP {resp.status_code}"}
+        return {"ok": False, "error": f"NextMoe 返回 HTTP {resp.status_code}"}
     except httpx.TimeoutException:
         logger.warning("NextMoe credential test timed out: actor_id=%s", user.id)
-        return {"ok": False, "error": "鲲Galgame 连接超时，请检查网络或代理"}
+        return {"ok": False, "error": "NextMoe 连接超时，请检查网络或代理"}
     except Exception as exc:
         logger.warning("NextMoe credential test errored: actor_id=%s error=%s", user.id, type(exc).__name__)
-        return {"ok": False, "error": "鲲Galgame 连接失败，请检查网络和 Key"}
+        return {"ok": False, "error": "NextMoe 连接失败，请检查网络和 Key"}
 
 
 @router.post("/proxy-test")
