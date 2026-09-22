@@ -46,7 +46,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   Future<void> _loadAndAutoConnect() async {
-    await _ensureClientSetup();
     if (!mounted) return;
 
     final ps = ProfileService();
@@ -137,18 +136,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
       });
   }
 
-  Future<void> _ensureClientSetup({bool force = false}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final clientSetupDone = prefs.getBool("client_setup_done") ?? false;
-    if (!force && clientSetupDone) return;
+  Future<void> _showClientSetupDialog() async {
     if (!mounted) return;
-
     await showDialog(
       context: context,
-      barrierDismissible: force,
+      barrierDismissible: true,
       builder: (ctx) => _ClientSetupDialog(onDone: () => Navigator.pop(ctx)),
     );
-    await prefs.setBool("client_setup_done", true);
   }
 
   Future<void> _connectToProfile(UserProfile profile, int index) async {
@@ -881,7 +875,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         AppActionButton(
           icon: Icons.settings_outlined,
           label: "本地设置",
-          onPressed: () => _ensureClientSetup(force: true),
+          onPressed: () => _showClientSetupDialog(),
         ),
       ],
       child: Center(
@@ -1615,6 +1609,8 @@ class _ClientSetupDialog extends StatefulWidget {
 class _ClientSetupDialogState extends State<_ClientSetupDialog> {
   String _downloadDir = "";
   String _steamDir = "";
+  String _originalDownloadDir = "";
+  String _originalSteamDir = "";
 
   @override
   void initState() {
@@ -1631,6 +1627,8 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     setState(() {
       _downloadDir = dd;
       _steamDir = sd;
+      _originalDownloadDir = dd;
+      _originalSteamDir = sd;
     });
   }
 
@@ -1640,7 +1638,6 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     );
     if (result != null) {
       setState(() => _downloadDir = result);
-      await DownloadService().setDownloadDir(result);
     }
   }
 
@@ -1650,11 +1647,18 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
     );
     if (result != null) {
       setState(() => _steamDir = result);
-      (await SharedPreferences.getInstance()).setString(
-        "steamapps_dir",
-        result,
-      );
     }
+  }
+
+  Future<void> _save() async {
+    if (_downloadDir.isNotEmpty && _downloadDir != _originalDownloadDir) {
+      await DownloadService().setDownloadDir(_downloadDir);
+    }
+    if (_steamDir.isNotEmpty && _steamDir != _originalSteamDir) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("steamapps_dir", _steamDir);
+    }
+    widget.onDone();
   }
 
   @override
@@ -1686,7 +1690,11 @@ class _ClientSetupDialogState extends State<_ClientSetupDialog> {
         ),
       ),
       actions: [
-        FilledButton(onPressed: widget.onDone, child: const Text("完成")),
+        TextButton(
+          onPressed: widget.onDone,
+          child: const Text("取消"),
+        ),
+        FilledButton(onPressed: _save, child: const Text("完成")),
       ],
     );
   }

@@ -10,6 +10,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/game_provider.dart";
+import "../utils/local_dirs.dart";
 import "../utils/theme_utils.dart";
 import "../services/file_open_service.dart";
 import "../services/steam_service.dart";
@@ -280,7 +281,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Future<void> _scanAndCheck() async {
-    if (_commonDir == null) return;
+    if (_commonDir == null) {
+      final dir = await LocalDirs.ensureSteamappsDir(context);
+      if (dir == null || !mounted) return;
+      setState(() {
+        _commonDir = dir;
+        _matches = [];
+        _status = null;
+      });
+    }
     setState(() {
       _loading = true;
       _status = "正在扫描本地 Steam 库...";
@@ -596,6 +605,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     String? patchDirOverride,
     String? targetDirOverride,
   }) async {
+    final steamapps = await LocalDirs.ensureSteamappsDir(context);
+    if (steamapps == null || !mounted) return;
     final api = context.read<GameProvider>().api;
     final fullPath = _gameInstallPath(m);
     final lookupKey = SteamService.patchLookupKey(
