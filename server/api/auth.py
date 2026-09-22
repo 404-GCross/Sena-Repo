@@ -100,7 +100,7 @@ def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
     if "users.username" in message:
         return "用户名已存在"
     if "ix_users_oauth_user_id" in message or "users.oauth_user_id" in message:
-        return "该 NextMoe 用户 ID 已被使用"
+        return "该 鲲Galgame 用户 ID 已被使用"
     return None
 
 
@@ -436,7 +436,7 @@ async def admin_create_user(body: CreateUserRequest,
     nextmoe_user_id = body.nextmoe_user_id
     if nextmoe_user_id is not None:
         if nextmoe_user_id <= 0:
-            raise HTTPException(status_code=400, detail="NextMoe 用户 ID 无效")
+            raise HTTPException(status_code=400, detail="鲲Galgame 用户 ID 无效")
         taken = await session.execute(
             select(User).where(
                 User.oauth_provider == "nextmoe",
@@ -444,7 +444,7 @@ async def admin_create_user(body: CreateUserRequest,
             )
         )
         if taken.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="该 NextMoe 用户 ID 已被使用")
+            raise HTTPException(status_code=409, detail="该 鲲Galgame 用户 ID 已被使用")
     if body.password:
         pw_hash, salt = hash_password(body.password)
         password_set = True
@@ -579,7 +579,7 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
 
     if body.nextmoe_user_id is not None:
         if body.nextmoe_user_id <= 0:
-            raise HTTPException(status_code=400, detail="NextMoe 用户 ID 无效")
+            raise HTTPException(status_code=400, detail="鲲Galgame 用户 ID 无效")
         if user.oauth_user_id != body.nextmoe_user_id:
             taken = await session.execute(
                 select(User).where(
@@ -590,7 +590,7 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
             )
             if taken.scalar_one_or_none():
                 raise HTTPException(
-                    status_code=409, detail="该 NextMoe 用户 ID 已被使用"
+                    status_code=409, detail="该 鲲Galgame 用户 ID 已被使用"
                 )
             user.oauth_provider = "nextmoe"
             user.oauth_user_id = body.nextmoe_user_id

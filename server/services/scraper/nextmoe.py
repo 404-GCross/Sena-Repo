@@ -123,7 +123,7 @@ class NextMoeScraper(BaseScraper):
 
     def _require_api_key(self) -> None:
         if not self._api_key.strip():
-            raise RuntimeError("NextMoe API Key 未配置")
+            raise RuntimeError("鲲Galgame API Key 未配置")
 
     def _headers(self) -> dict[str, str]:
         return {

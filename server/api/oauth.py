@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth/oauth", tags=["oauth"])
 
 PROVIDER = "nextmoe"
-PROVIDER_LABEL = "NextMoe·未萌"
+PROVIDER_LABEL = "鲲Galgame"
 FLOW_TTL_SECONDS = 600
 USERNAME_MAX_LEN = 110
 LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
@@ -146,19 +146,19 @@ async def _exchange_code(config, code: str, flow: OAuthFlow) -> dict:
             resp = await client.post(url, data=payload)
     except httpx.HTTPError:
         logger.warning("OAuth token exchange failed: network error")
-        raise HTTPException(status_code=502, detail="无法连接 NextMoe，请稍后重试")
+        raise HTTPException(status_code=502, detail="无法连接 鲲Galgame，请稍后重试")
     if resp.status_code != 200:
         logger.warning(
             "OAuth token exchange rejected: status=%s", resp.status_code
         )
-        raise HTTPException(status_code=400, detail="NextMoe 授权失败，请重试")
+        raise HTTPException(status_code=400, detail="鲲Galgame 授权失败，请重试")
     try:
         data = resp.json()
     except ValueError:
-        raise HTTPException(status_code=502, detail="NextMoe 返回了无效的响应")
+        raise HTTPException(status_code=502, detail="鲲Galgame 返回了无效的响应")
     if not data.get("access_token"):
         logger.warning("OAuth token exchange returned no access_token")
-        raise HTTPException(status_code=400, detail="NextMoe 授权失败，请重试")
+        raise HTTPException(status_code=400, detail="鲲Galgame 授权失败，请重试")
     return data
 
 
@@ -184,20 +184,20 @@ async def _fetch_userinfo(config, access_token: str) -> dict:
             )
     except httpx.HTTPError:
         logger.warning("OAuth userinfo request failed: network error")
-        raise HTTPException(status_code=502, detail="无法连接 NextMoe，请稍后重试")
+        raise HTTPException(status_code=502, detail="无法连接 鲲Galgame，请稍后重试")
     if resp.status_code == 403:
-        raise HTTPException(status_code=403, detail="该 NextMoe 账号已被封禁")
+        raise HTTPException(status_code=403, detail="该 鲲Galgame账号 已被封禁")
     if resp.status_code != 200:
         logger.warning("OAuth userinfo rejected: status=%s", resp.status_code)
-        raise HTTPException(status_code=400, detail="NextMoe 授权失败，请重试")
+        raise HTTPException(status_code=400, detail="鲲Galgame 授权失败，请重试")
     try:
         data = resp.json()
     except ValueError:
-        raise HTTPException(status_code=502, detail="NextMoe 返回了无效的响应")
+        raise HTTPException(status_code=502, detail="鲲Galgame 返回了无效的响应")
     subject = data.get("sub")
     if not subject:
         logger.warning("OAuth userinfo missing sub")
-        raise HTTPException(status_code=400, detail="NextMoe 授权失败，请重试")
+        raise HTTPException(status_code=400, detail="鲲Galgame 授权失败，请重试")
     return data
 
 
@@ -290,7 +290,7 @@ async def oauth_start(
     session: AsyncSession = Depends(get_session),
 ):
     if not _is_enabled():
-        raise HTTPException(status_code=400, detail="服务器未启用 NextMoe 登录")
+        raise HTTPException(status_code=400, detail="服务器未启用 鲲Galgame 登录")
     purpose = body.purpose.strip().lower()
     if purpose not in {"login", "bind", "setup"}:
         raise HTTPException(status_code=400, detail="无效的授权用途")
@@ -338,7 +338,7 @@ async def oauth_complete(
     session: AsyncSession = Depends(get_session),
 ):
     if not _is_enabled():
-        raise HTTPException(status_code=400, detail="服务器未启用 NextMoe 登录")
+        raise HTTPException(status_code=400, detail="服务器未启用 鲲Galgame 登录")
     _prune_flows()
     flow = _flows.get(body.request_id)
     if flow is None:
@@ -387,7 +387,7 @@ async def oauth_complete(
         bound_user = existing.scalar_one_or_none()
         if bound_user is not None and bound_user.id != user.id:
             raise HTTPException(
-                status_code=409, detail="该 NextMoe 账号已绑定其他用户"
+                status_code=409, detail="该 鲲Galgame账号 已绑定其他用户"
             )
         user.oauth_provider = PROVIDER
         user.oauth_subject = subject
@@ -445,7 +445,7 @@ async def oauth_complete(
         session.add(user)
         try:
             await session.flush()
-            await _notify_admins_new_user(session, user, "NextMoe")
+            await _notify_admins_new_user(session, user, "鲲Galgame")
             await session.commit()
         except Exception:
             await session.rollback()
@@ -497,7 +497,7 @@ async def oauth_unbind(
     session: AsyncSession = Depends(get_session),
 ):
     if not current.oauth_subject:
-        raise HTTPException(status_code=400, detail="当前账号未绑定 NextMoe")
+        raise HTTPException(status_code=400, detail="当前账号未绑定 鲲Galgame")
     if not current.password_set:
         raise HTTPException(
             status_code=400,

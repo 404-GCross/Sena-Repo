@@ -129,7 +129,7 @@ def _validate_scrape_sources(sources: list[str] | None) -> None:
     if "nextmoe" in unique and len(unique) > 1:
         raise HTTPException(
             status_code=400,
-            detail="NextMoe 是独立刮削模式，不能与其他刮削源同时使用",
+            detail="鲲Galgame 是独立刮削模式，不能与其他刮削源同时使用",
         )
 
 class JobStatusOut(BaseModel):
