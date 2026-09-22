@@ -7,6 +7,7 @@ Usage:
                                                         # add one entry
 """
 import argparse, hashlib, json, logging, re, threading, time, unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import httpx
@@ -309,12 +310,12 @@ def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
         app_id = _nextmoe_steam_id(item)
         if not app_id:
             continue
-        titles = [str(entry.get("title") or "") for entry in (item.get("titles") or []) if isinstance(entry, dict)]
         zh_title = _nextmoe_zh_title(item)
-        if zh_title:
-            titles.insert(0, zh_title)
         best_score = max(
-            (_name_match_score(query, _normalize_for_match(title)) for title in titles),
+            (
+                _name_match_score(query, _normalize_for_match(title))
+                for title in _nextmoe_candidate_titles(item)
+            ),
             default=0,
         )
         candidates.append((best_score, app_id, zh_title))
@@ -327,6 +328,35 @@ def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
     if len(candidates) > 1 and best[0] - candidates[1][0] < _NEXTMOE_MATCH_MARGIN:
         return "", ""
     return best[1], best[2]
+
+
+def _nextmoe_candidate_titles(item: dict) -> list[str]:
+    """Collect every title a work carries.
+
+    The list endpoint returns no `titles` block, so display_name, latin and
+    the localized values are the only names available there.
+    """
+    titles: list[str] = []
+
+    def add(value: object) -> None:
+        text = str(value or "").strip()
+        if text and text not in titles:
+            titles.append(text)
+
+    add(_nextmoe_zh_title(item))
+    raw_titles = item.get("titles")
+    if isinstance(raw_titles, list):
+        for entry in raw_titles:
+            if isinstance(entry, dict):
+                add(entry.get("title"))
+    add(item.get("display_name"))
+    add(item.get("latin"))
+    localized = item.get("localized")
+    if isinstance(localized, dict):
+        for entry in localized.values():
+            value, _ = _nextmoe_localized_value(entry)
+            add(value)
+    return titles
 
 
 def _nextmoe_name_for_app_id(app_id: str) -> str:
@@ -450,8 +480,28 @@ def _name_match_score(query: str, candidate: str) -> int:
         extra = query[len(candidate):]
         return max(0, 70 - 5 * len(extra))
     if query in candidate or candidate in query:
-        return 45
-    return 0
+        upgraded = _fuzzy_match_score(query, candidate)
+        return upgraded if upgraded else 45
+    return _fuzzy_match_score(query, candidate)
+
+
+def _fuzzy_match_score(query: str, candidate: str) -> int:
+    """Similarity fallback for titles that differ by particles or extra words.
+
+    Guessing is only allowed when the difference carries neither digits
+    (sequels) nor derivative markers (FD/完全版/汉化版 ...).
+    """
+    ratio = SequenceMatcher(None, query, candidate).ratio()
+    if ratio < 0.8:
+        return 0
+    difference = _difference_text(query, candidate)
+    if any(ch.isdigit() for ch in difference) or _has_derivative_marker(difference):
+        return 0
+    return 60 + int((ratio - 0.8) * 75)
+
+
+def _difference_text(left: str, right: str) -> str:
+    return "".join(ch for ch in set(left + right) if (ch in left) != (ch in right))
 
 
 def _search_steam_app_id(game_name: str) -> int | None:
