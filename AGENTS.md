@@ -91,6 +91,9 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
   pushed commit. Find the run for the pushed SHA, confirm the `Flutter analyze` job and the
   `Analyze Flutter client` step complete, and report the result. If analyze fails, inspect the
   action logs, fix the issue, commit, push, and track analyze again.
+- Documentation-only changes (Markdown files, `docs/`, `AGENTS.md`, comments, and other text
+  changes with no code or asset changes) do not require CI tracking: commit and push without
+  waiting on GitHub Actions.
 - Do not treat the broader packaging/build workflow as a substitute for analyze. The client
   build workflow may still be running; the required CI signal for this rule is the analyze
   job/step.
