@@ -1012,6 +1012,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 alignment: WrapAlignment.end,
                 children: [
                   OutlinedButton.icon(
+                      onPressed: () => _jumpToServerPatch(m),
+                      icon: const Icon(Icons.rule_folder_outlined, size: 16),
+                      label: Text("补丁配置",
+                          style: AppText.bodySmall
+                              .copyWith(fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          minimumSize: Size.zero)),
+                  OutlinedButton.icon(
                       onPressed: () => _openGameDir(m),
                       icon: const Icon(Icons.folder_open, size: 16),
                       label: Text("打开目录",
