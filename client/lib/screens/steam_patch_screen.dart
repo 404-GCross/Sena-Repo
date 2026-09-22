@@ -186,18 +186,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         if (key == lookupKey) return key;
       }
     }
-    if (appId.isNotEmpty) {
-      for (final p in _serverPatches) {
-        if ((p["app_id"] ?? "").toString() == appId) {
-          return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
-        }
-      }
-    }
     if (fileName.isNotEmpty) {
       for (final p in _serverPatches) {
         final file =
             (p["display_file"] ?? p["file"] ?? "").toString().split("/").last;
         if (file == fileName) {
+          return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
+        }
+      }
+    }
+    if (appId.isNotEmpty) {
+      for (final p in _serverPatches) {
+        if ((p["app_id"] ?? "").toString() == appId) {
           return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
         }
       }
@@ -1391,10 +1391,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             )
           else
             Expanded(
-              child: ListView(
+              child: SingleChildScrollView(
                 controller: _serverListCtrl,
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-                children: patches.map((p) => _serverPatchCard(p)).toList(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: patches.map((p) => _serverPatchCard(p)).toList(),
+                ),
               ),
             ),
         ],
