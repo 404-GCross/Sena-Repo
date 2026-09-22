@@ -30,7 +30,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "vndb_kana": "VNDB",
     "bangumi": "Bangumi",
     "steam": "Steam",
-    "nextmoe": "鲲Galgame",
+    "nextmoe": "NextMoe",
   };
   List<String> _scraperOrder = [
     "hikarinagi",
@@ -846,7 +846,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(9),
       child: Image.asset(
-        nextmoeSourceIcon,
+        kungalgameIcon,
         width: 34,
         height: 34,
         fit: BoxFit.cover,
@@ -1290,7 +1290,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           stats: {
             "启用来源": "$enabledCount",
             "主来源": _scraperMode == "nextmoe"
-                ? "鲲Galgame"
+                ? "NextMoe"
                 : (_scraperLabels[_classicScraperOrder.first] ??
                     _classicScraperOrder.first),
             "凭据": _hikarinagiClientIdCtrl.text.trim().isEmpty &&
@@ -1341,7 +1341,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Widget _nextmoeCredentialsCard() {
     return _setupCard(
-      title: "鲲Galgame 凭据",
+      title: "NextMoe 凭据",
       icon: Icons.key_outlined,
       child: TextField(
         controller: _nextmoeApiKeyCtrl,
@@ -1796,7 +1796,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               duration: _modeSlideDuration,
               curve: Curves.easeInOutCubic,
               width: nextmoeWidth,
-              child: _scraperModeCard("nextmoe", "鲲Galgame 模式"),
+              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
             ),
           ],
         );
@@ -1952,7 +1952,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         _setupRow(
           icon: Icons.hub_outlined,
           leading: _scraperSourceLeading("nextmoe"),
-          title: _scraperLabels["nextmoe"] ?? "鲲Galgame",
+          title: _scraperLabels["nextmoe"] ?? "NextMoe",
           trailing: _credToggle("nextmoe", _nextmoeCredsOpen),
         ),
         if (_nextmoeCredsOpen) _nextmoeCredentialsCard(),

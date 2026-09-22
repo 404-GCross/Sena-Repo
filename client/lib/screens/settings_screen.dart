@@ -1134,7 +1134,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "bangumi": "Bangumi",
     "steam": "Steam",
     "hikarinagi": "Hikarinagi",
-    "nextmoe": "鲲Galgame",
+    "nextmoe": "NextMoe",
   };
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
@@ -2787,7 +2787,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "鲲Galgame 凭据",
+            "NextMoe 凭据",
             style: AppText.bodySmall.copyWith(
               fontWeight: FontWeight.w600,
               color: subTextColor(context),
@@ -2846,12 +2846,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _toast(
           context,
           data["ok"] == true
-              ? "鲲Galgame 连接正常（${data["latency_ms"]}ms）"
-              : "鲲Galgame 连接失败: ${data["error"]}",
+              ? "NextMoe 连接正常（${data["latency_ms"]}ms）"
+              : "NextMoe 连接失败: ${data["error"]}",
         );
       }
     } catch (e) {
-      if (mounted) _toast(context, "鲲Galgame 连接失败: $e");
+      if (mounted) _toast(context, "NextMoe 连接失败: $e");
     } finally {
       if (mounted) setState(() => _testingNextMoe = false);
     }
@@ -3026,7 +3026,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               duration: _modeSlideDuration,
               curve: Curves.easeInOutCubic,
               width: nextmoeWidth,
-              child: _scraperModeCard("nextmoe", "鲲Galgame 模式"),
+              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
             ),
           ],
         );
@@ -3746,7 +3746,7 @@ class _UserManagePageState extends State<_UserManagePage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(3),
             child: Image.asset(
-              nextmoeSourceIcon,
+              kungalgameIcon,
               width: 12,
               height: 12,
               fit: BoxFit.cover,

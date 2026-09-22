@@ -1084,7 +1084,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
             : ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: Image.asset(
-                  nextmoeSourceIcon,
+                  kungalgameIcon,
                   width: 20,
                   height: 20,
                   fit: BoxFit.cover,

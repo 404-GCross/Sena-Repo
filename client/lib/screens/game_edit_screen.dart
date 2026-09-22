@@ -3216,7 +3216,7 @@ const _allMetadataSources = {
   "bangumi": "Bangumi",
   "steam": "Steam",
   "hikarinagi": "Hikarinagi",
-  "nextmoe": "鲲Galgame",
+  "nextmoe": "NextMoe",
 };
 
 /// Hikarinagi and NextMoe need server-held credentials, so their search
@@ -3227,7 +3227,7 @@ const _serverSideMetadataSources = {"hikarinagi"};
 /// offers NextMoe, mirroring the server-side scraper settings.
 Map<String, String> _metadataSourcesFor(List<String> enabled) {
   if (enabled.contains("nextmoe")) {
-    return const {"nextmoe": "鲲Galgame"};
+    return const {"nextmoe": "NextMoe"};
   }
   return {
     for (final entry in _allMetadataSources.entries)

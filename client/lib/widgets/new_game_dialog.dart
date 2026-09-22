@@ -76,7 +76,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
     ),
     _NewGameSource(
       key: "nextmoe",
-      label: "鲲Galgame",
+      label: "NextMoe",
       description: "ACGN 数据，以此为准",
       icon: Icons.hub_rounded,
       color: Colors.deepPurple,

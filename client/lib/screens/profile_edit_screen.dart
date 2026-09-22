@@ -207,7 +207,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * 0.25),
       child: Image.asset(
-        nextmoeSourceIcon,
+        kungalgameIcon,
         width: size,
         height: size,
         fit: BoxFit.cover,

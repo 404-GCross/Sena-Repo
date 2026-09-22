@@ -8,6 +8,7 @@ const String bangumiSourceIcon = "assets/source_icons/bangumi.png";
 const String steamSourceIcon = "assets/source_icons/steam.png";
 const String hikarinagiSourceIcon = "assets/source_icons/hikarinagi.png";
 const String nextmoeSourceIcon = "assets/source_icons/nextmoe.png";
+const String kungalgameIcon = "assets/source_icons/kungalgame.png";
 
 const Map<String, String> sourceIconAssets = {
   "vndb_kana": vndbSourceIcon,
