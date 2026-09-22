@@ -818,18 +818,4 @@ class ApiClient {
     }
     return success;
   }
-
-  // --- Scraper ---
-
-  Future<Map<String, dynamic>> scrapeGame(int gameId) async {
-    final uri = Uri.parse("$baseUrl/api/games/$gameId/scrape");
-    final resp = await _execute(
-      () => _client.post(uri, headers: headers),
-      method: "POST",
-      uri: uri,
-      label: "scrape game id=$gameId",
-    );
-    if (resp.statusCode != 200) throw HttpException("Scrape failed");
-    return jsonDecode(resp.body) as Map<String, dynamic>;
-  }
 }
