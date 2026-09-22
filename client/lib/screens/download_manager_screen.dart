@@ -19,6 +19,7 @@ import "../services/file_open_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
 import "../widgets/empty_state.dart";
+import "../utils/local_dirs.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 
@@ -681,6 +682,10 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     String coverUrl = "",
     String heroUrl = "",
   }) async {
+    final steamapps = await LocalDirs.ensureSteamappsDir(context);
+    if (steamapps == null || !mounted) {
+      return SteamIntegrationResult(false, "已取消导入 Steam。");
+    }
     final service = SteamIntegrationService();
     var result = await service.addToSteam(
       gameName: gameName,

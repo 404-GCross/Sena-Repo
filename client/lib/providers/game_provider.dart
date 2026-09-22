@@ -157,9 +157,4 @@ class GameProvider extends ChangeNotifier {
     await loadGames();
   }
 
-  Future<void> scrapeGame(int gameId) async {
-    await _api.scrapeGame(gameId);
-    await loadGames();
-  }
-
 }

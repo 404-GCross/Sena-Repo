@@ -1495,9 +1495,18 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     if _nextmoe_mode_enabled():
         from scan_patches import _nextmoe_match_by_name
 
-        new_id, nextmoe_title = await _asyncio.to_thread(
-            _nextmoe_match_by_name, filename
-        )
+        query_names: list[str] = []
+        label = str(target.get("label") or "").strip()
+        if label:
+            query_names.append(label)
+        query_names.append(filename)
+        new_id, nextmoe_title = "", ""
+        for candidate_name in query_names:
+            new_id, nextmoe_title = await _asyncio.to_thread(
+                _nextmoe_match_by_name, candidate_name
+            )
+            if new_id:
+                break
         if new_id:
             target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
             result.new_app_id = str(new_id)

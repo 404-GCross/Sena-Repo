@@ -7,6 +7,7 @@ import "package:url_launcher/url_launcher.dart";
 
 import "api_client.dart";
 import "logger_service.dart";
+import "nextmoe_token_store.dart";
 
 enum NextmoeAuthKind { session, pending, rejected, bound, error }
 
@@ -87,7 +88,7 @@ class NextmoeOAuth {
         LoggerService().error("oauth start failed", e, stackTrace);
         return const NextmoeAuthOutcome(
           kind: NextmoeAuthKind.error,
-          error: "无法发起 NextMoe 授权",
+          error: "无法发起 鲲Galgame 授权",
         );
       }
 
@@ -175,7 +176,7 @@ class NextmoeOAuth {
           LoggerService().error("oauth complete failed", e, stackTrace);
           return const NextmoeAuthOutcome(
             kind: NextmoeAuthKind.error,
-            error: "NextMoe 授权失败，请重试",
+            error: "鲲Galgame 授权失败，请重试",
           );
         }
 
@@ -192,6 +193,7 @@ class NextmoeOAuth {
           );
         }
         if (result["bound"] == true) {
+          await NextmoeTokenStore.saveFromResponse(api, result);
           return NextmoeAuthOutcome(
             kind: NextmoeAuthKind.bound,
             boundName: result["name"]?.toString() ?? "",
@@ -201,6 +203,7 @@ class NextmoeOAuth {
         }
         if (result["token"] != null) {
           final session = await api.applyOAuthSession(result);
+          await NextmoeTokenStore.saveFromResponse(api, session);
           return NextmoeAuthOutcome(
             kind: NextmoeAuthKind.session,
             session: session,

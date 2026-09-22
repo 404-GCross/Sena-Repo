@@ -831,7 +831,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           rows: {
             "用户": _userCtrl.text.trim().isEmpty ? "未填写" : _userCtrl.text.trim(),
             "密码": _passCtrl.text.isEmpty ? "未填写" : "已填写",
-            "NextMoe": _oauthRequestId.isEmpty
+            "鲲Galgame": _oauthRequestId.isEmpty
                 ? "未绑定（可选）"
                 : "已绑定${_oauthName.isEmpty ? "" : "：$_oauthName"}",
             "权限": "服主",
@@ -846,7 +846,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(9),
       child: Image.asset(
-        nextmoeSourceIcon,
+        kungalgameIcon,
         width: 34,
         height: 34,
         fit: BoxFit.cover,
@@ -857,11 +857,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Widget _oauthBindingCard() {
     final bound = _oauthRequestId.isNotEmpty;
     final subtitle = bound
-        ? "${_oauthName.isEmpty ? "已绑定 NextMoe 账号" : _oauthName}"
-            "${_oauthUserId.isEmpty ? "" : " · NextMoe ID $_oauthUserId"}"
-        : "绑定后可用 NextMoe 账号免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
+        ? "${_oauthName.isEmpty ? "已绑定 鲲Galgame账号" : _oauthName}"
+            "${_oauthUserId.isEmpty ? "" : " · 鲲Galgame ID $_oauthUserId"}"
+        : "绑定后可用 鲲Galgame账号 免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
     return _setupCard(
-      title: "NextMoe 账号（可选）",
+      title: "鲲Galgame账号（可选）",
       icon: Icons.link_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -926,7 +926,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       ),
                     )
                   : const Icon(Icons.link, size: 18),
-              label: Text(_oauthBusy ? "等待浏览器授权…" : "绑定 NextMoe 账号"),
+              label: Text(_oauthBusy ? "等待浏览器授权…" : "绑定 鲲Galgame账号"),
             ),
         ],
       ),

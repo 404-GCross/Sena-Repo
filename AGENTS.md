@@ -6,29 +6,22 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
 
 ## Iron Rules
 
-1. Plan first; execute only on an explicit instruction. When the user raises a requirement —
-   including pasting an issue link or asking whether something is feasible — investigate
-   read-only, then present a concrete plan: what will change, which files, and the decisions
-   the user still needs to make. Then stop. Only an explicit instruction to act ("做", "改",
-   "开始", or an unambiguous equivalent) authorizes editing files, committing, or pushing.
-   Presenting a plan, receiving "继续", being asked an unrelated question, or silence is not
-   authorization. Never start part of a plan while other decisions in it are still open.
-2. Keep project rules in this root `AGENTS.md`. Do not duplicate them into user-level skills or
+1. Keep project rules in this root `AGENTS.md`. Do not duplicate them into user-level skills or
    into `CLAUDE.md` (that file is a symlink to this one).
-3. Follow the Commit Messages section below before drafting, amending, or creating any Git
+2. Follow the Commit Messages section below before drafting, amending, or creating any Git
    commit message. Commit messages must be pure English Conventional Commits.
-4. Do not leak secrets in logs, errors, release notes, or commit messages. Redact passwords,
+3. Do not leak secrets in logs, errors, release notes, or commit messages. Redact passwords,
    tokens, API keys, authorization headers, signatures, account identifiers, and OpenList
    credentials.
-5. Preserve user and unrelated workspace changes. Do not run destructive Git commands, broad
+4. Preserve user and unrelated workspace changes. Do not run destructive Git commands, broad
    cleanup, branch switching, reset, rebase, stash, prune, or repository-wide commits unless
    explicitly requested.
-6. Do not use `git add -A` for commits in this repository. Stage explicit paths that belong to
+5. Do not use `git add -A` for commits in this repository. Stage explicit paths that belong to
    the current task.
-7. The user has authorized automatic GitHub submission after requested changes are complete:
+6. The user has authorized automatic GitHub submission after requested changes are complete:
    run the available checks, follow the Commit Messages section, push to `origin/main`, and
    track the required GitHub Actions checks unless the user says not to commit or push.
-8. HTML design mockups and UI draft files are local-only working artifacts unless the user
+7. HTML design mockups and UI draft files are local-only working artifacts unless the user
    explicitly asks to commit or publish them; do not stage, commit, or push them by default.
 
 ## Repository Shape
@@ -98,6 +91,9 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
   pushed commit. Find the run for the pushed SHA, confirm the `Flutter analyze` job and the
   `Analyze Flutter client` step complete, and report the result. If analyze fails, inspect the
   action logs, fix the issue, commit, push, and track analyze again.
+- Documentation-only changes (Markdown files, `docs/`, `AGENTS.md`, comments, and other text
+  changes with no code or asset changes) do not require CI tracking: commit and push without
+  waiting on GitHub Actions.
 - Do not treat the broader packaging/build workflow as a substitute for analyze. The client
   build workflow may still be running; the required CI signal for this rule is the analyze
   job/step.

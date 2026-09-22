@@ -20,6 +20,7 @@ import "../services/manager_install_service.dart";
 import "../services/shortcut_service.dart";
 import "../services/steam_integration_service.dart";
 import "../providers/game_provider.dart";
+import "../utils/local_dirs.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/nsfw_image.dart";
@@ -2332,22 +2333,11 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   }
 
   Future<void> _startDownload(GameDetail game, dynamic v) async {
-    final prefs = await SharedPreferences.getInstance();
-    var dlDir = prefs.getString("local_download_dir");
-    if (dlDir == null || dlDir.isEmpty) {
-      if (mounted) {
-        final result = await FilePicker.platform.getDirectoryPath(
-          dialogTitle: "选择游戏下载目录",
-        );
-        if (result == null || !mounted) return;
-        dlDir = result;
-        await DownloadService().setDownloadDir(result);
-      }
-    }
+    final dlDir = await LocalDirs.ensureDownloadDir(context);
+    if (dlDir == null || dlDir.isEmpty || !mounted) return;
 
     // On Android: check storage permission before starting download
     if (Platform.isAndroid &&
-        dlDir != null &&
         DownloadService().needsStoragePermission(dlDir)) {
       final granted = await DownloadService().checkStoragePermissionGranted();
       if (!granted && mounted) {
@@ -2848,6 +2838,10 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     String coverUrl = "",
     String heroUrl = "",
   }) async {
+    final steamapps = await LocalDirs.ensureSteamappsDir(context);
+    if (steamapps == null || !mounted) {
+      return SteamIntegrationResult(false, "已取消导入 Steam。");
+    }
     final service = SteamIntegrationService();
     var result = await service.addToSteam(
       gameName: gameName,

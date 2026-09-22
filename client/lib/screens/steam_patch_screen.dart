@@ -10,6 +10,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/game_provider.dart";
+import "../utils/local_dirs.dart";
 import "../utils/theme_utils.dart";
 import "../services/file_open_service.dart";
 import "../services/steam_service.dart";
@@ -185,18 +186,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         if (key == lookupKey) return key;
       }
     }
-    if (appId.isNotEmpty) {
-      for (final p in _serverPatches) {
-        if ((p["app_id"] ?? "").toString() == appId) {
-          return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
-        }
-      }
-    }
     if (fileName.isNotEmpty) {
       for (final p in _serverPatches) {
         final file =
             (p["display_file"] ?? p["file"] ?? "").toString().split("/").last;
         if (file == fileName) {
+          return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
+        }
+      }
+    }
+    if (appId.isNotEmpty) {
+      for (final p in _serverPatches) {
+        if ((p["app_id"] ?? "").toString() == appId) {
           return (p["lookup_key"] ?? p["patch_id"] ?? "").toString();
         }
       }
@@ -280,7 +281,15 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Future<void> _scanAndCheck() async {
-    if (_commonDir == null) return;
+    if (_commonDir == null) {
+      final dir = await LocalDirs.ensureSteamappsDir(context);
+      if (dir == null || !mounted) return;
+      setState(() {
+        _commonDir = dir;
+        _matches = [];
+        _status = null;
+      });
+    }
     setState(() {
       _loading = true;
       _status = "正在扫描本地 Steam 库...";
@@ -596,6 +605,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     String? patchDirOverride,
     String? targetDirOverride,
   }) async {
+    final steamapps = await LocalDirs.ensureSteamappsDir(context);
+    if (steamapps == null || !mounted) return;
     final api = context.read<GameProvider>().api;
     final fullPath = _gameInstallPath(m);
     final lookupKey = SteamService.patchLookupKey(
@@ -1001,6 +1012,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 alignment: WrapAlignment.end,
                 children: [
                   OutlinedButton.icon(
+                      onPressed: () => _jumpToServerPatch(m),
+                      icon: const Icon(Icons.rule_folder_outlined, size: 16),
+                      label: Text("补丁配置",
+                          style: AppText.bodySmall
+                              .copyWith(fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          minimumSize: Size.zero)),
+                  OutlinedButton.icon(
                       onPressed: () => _openGameDir(m),
                       icon: const Icon(Icons.folder_open, size: 16),
                       label: Text("打开目录",
@@ -1370,10 +1391,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             )
           else
             Expanded(
-              child: ListView(
+              child: SingleChildScrollView(
                 controller: _serverListCtrl,
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-                children: patches.map((p) => _serverPatchCard(p)).toList(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: patches.map((p) => _serverPatchCard(p)).toList(),
+                ),
               ),
             ),
         ],

@@ -701,7 +701,7 @@ class ApiClient {
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "无法发起 NextMoe 授权");
+    throw AuthException(data?["detail"]?.toString() ?? "无法发起 鲲Galgame 授权");
   }
 
   Future<Map<String, dynamic>> oauthComplete({
@@ -732,7 +732,7 @@ class ApiClient {
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "NextMoe 授权失败，请重试");
+    throw AuthException(data?["detail"]?.toString() ?? "鲲Galgame 授权失败，请重试");
   }
 
   Future<Map<String, dynamic>?> getOauthBinding() async {
@@ -817,19 +817,5 @@ class ApiClient {
       await clearTokens();
     }
     return success;
-  }
-
-  // --- Scraper ---
-
-  Future<Map<String, dynamic>> scrapeGame(int gameId) async {
-    final uri = Uri.parse("$baseUrl/api/games/$gameId/scrape");
-    final resp = await _execute(
-      () => _client.post(uri, headers: headers),
-      method: "POST",
-      uri: uri,
-      label: "scrape game id=$gameId",
-    );
-    if (resp.statusCode != 200) throw HttpException("Scrape failed");
-    return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 }

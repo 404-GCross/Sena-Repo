@@ -10,6 +10,7 @@ import "package:provider/provider.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_oauth.dart";
+import "../services/nextmoe_token_store.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 import "../utils/source_icons.dart";
@@ -136,8 +137,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         if (mounted) {
           setState(() {
             _msg = outcome.boundName.isEmpty
-                ? "已绑定 NextMoe 账号"
-                : "已绑定 NextMoe 账号：${outcome.boundName}";
+                ? "已绑定 鲲Galgame账号"
+                : "已绑定 鲲Galgame账号：${outcome.boundName}";
           });
         }
         return;
@@ -160,11 +161,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       builder: (c) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
-          "解除 NextMoe 绑定？",
+          "解除 鲲Galgame 绑定？",
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         content: Text(
-          "解绑后${name.isEmpty ? "该 NextMoe 账号" : "「$name」"}将无法再登录本服务器；"
+          "解绑后${name.isEmpty ? "该 鲲Galgame账号" : "「$name」"}将无法再登录本服务器；"
           "你需要改用用户名和密码登录。",
           style: const TextStyle(fontSize: 13, height: 1.6),
         ),
@@ -188,9 +189,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _msg = null;
     });
     try {
-      await context.read<GameProvider>().api.unbindOauth();
+      final api = context.read<GameProvider>().api;
+      await api.unbindOauth();
+      await NextmoeTokenStore.clear(api);
       await _loadBinding();
-      if (mounted) setState(() => _msg = "已解除 NextMoe 绑定");
+      if (mounted) setState(() => _msg = "已解除 鲲Galgame 绑定");
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
@@ -204,7 +207,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * 0.25),
       child: Image.asset(
-        nextmoeSourceIcon,
+        kungalgameIcon,
         width: size,
         height: size,
         fit: BoxFit.cover,
@@ -256,7 +259,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     Row(
                       children: [
                         const Text(
-                          "NextMoe·未萌",
+                          "鲲Galgame",
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -297,7 +300,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                                   ),
                                   if (oauthId.isNotEmpty)
                                     Text(
-                                      "NextMoe ID · $oauthId",
+                                      "鲲Galgame ID · $oauthId",
                                       style: TextStyle(
                                         fontSize: 11.5,
                                         color: hintColor(context),
@@ -316,7 +319,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       )
                     else
                       Text(
-                        "绑定后可使用 NextMoe 账号一键登录本服务器，无需输入密码；"
+                        "绑定后可使用 鲲Galgame账号 一键登录本服务器，无需输入密码；"
                         "不会改变用户名与权限。",
                         style: TextStyle(
                           fontSize: 12,
@@ -352,7 +355,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                               )
                             : const Icon(Icons.link, size: 18),
                         label: Text(
-                          _bindingBusy ? "等待浏览器授权…" : "绑定 NextMoe 账号",
+                          _bindingBusy ? "等待浏览器授权…" : "绑定 鲲Galgame账号",
                         ),
                       ),
                     if (bound && !_passwordSet)
