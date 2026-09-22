@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
@@ -403,14 +404,32 @@ def _intro_lang(entry: dict) -> str:
 
 
 def _external_ids(item: dict) -> dict[str, str]:
-    """Map the work's identity anchors to the id columns we store."""
+    """Map the work's identity anchors to the id columns we store.
+
+    Works carry both work-level anchors (VNDB `v####`) and their release
+    refs (`r####`); the API sorts refs by id, so a plain first-wins pick
+    would store a release id where a VN id belongs.
+    """
     ids: dict[str, str] = {}
+    ranks: dict[str, int] = {}
     for source, external_id in _ref_rows(item.get("refs")):
         key = source.strip().lower()
-        if key not in _EXTERNAL_ID_SOURCES or not external_id or key in ids:
+        if key not in _EXTERNAL_ID_SOURCES or not external_id:
             continue
-        ids[key] = external_id
+        rank = _external_id_rank(key, external_id)
+        if key not in ids or rank < ranks[key]:
+            ids[key] = external_id
+            ranks[key] = rank
     return ids
+
+
+def _external_id_rank(source: str, external_id: str) -> int:
+    """0 = work-level anchor, 1 = release-level fallback."""
+    if source == "vndb":
+        return 0 if re.fullmatch(r"v\d+", external_id, re.IGNORECASE) else 1
+    if source in {"bangumi", "steam"}:
+        return 0 if external_id.isdigit() else 1
+    return 1
 
 
 def _ref_rows(value) -> list[tuple[str, str]]:

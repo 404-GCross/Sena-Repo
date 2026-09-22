@@ -806,15 +806,16 @@ class ScrapeService {
 
   static Map<String, String> _nextmoeExternalIds(dynamic refs) {
     final ids = <String, String>{};
+    final ranks = <String, int>{};
     void add(String source, String externalId) {
       final key = source.trim().toLowerCase();
       final id = externalId.trim();
-      if (!_nextmoeExternalSources.contains(key) ||
-          id.isEmpty ||
-          ids.containsKey(key)) {
-        return;
+      if (!_nextmoeExternalSources.contains(key) || id.isEmpty) return;
+      final rank = _nextmoeExternalIdRank(key, id);
+      if (!ids.containsKey(key) || rank < ranks[key]!) {
+        ids[key] = id;
+        ranks[key] = rank;
       }
-      ids[key] = id;
     }
 
     if (refs is Map) {
@@ -838,6 +839,20 @@ class ScrapeService {
       }
     }
     return ids;
+  }
+
+  /// Works carry work-level anchors (VNDB `v####`) and release refs
+  /// (`r####`); prefer the former so a release id never replaces a VN id.
+  static int _nextmoeExternalIdRank(String source, String externalId) {
+    if (source == "vndb") {
+      return RegExp(r'^v\d+$', caseSensitive: false).hasMatch(externalId)
+          ? 0
+          : 1;
+    }
+    if (source == "bangumi" || source == "steam") {
+      return RegExp(r'^\d+$').hasMatch(externalId) ? 0 : 1;
+    }
+    return 1;
   }
 
   static String _nextmoeRefId(dynamic value) {
