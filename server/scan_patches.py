@@ -302,7 +302,12 @@ def _nextmoe_steam_id(item: dict) -> str:
 
 
 def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
-    """Return (app_id, zh_title) for a unique best match, or empty strings."""
+    """Return (app_id, best_matching_title) for a unique best match.
+
+    The title is the work's title that scored best against the query, so a
+    patch named after an alias keeps that alias instead of the default zh-Hans
+    title; it falls back to the zh-Hans title when nothing scored.
+    """
     query = _normalize_for_match(name)
     if not query:
         return "", ""
@@ -311,11 +316,12 @@ def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
         app_id = _nextmoe_steam_id(item)
         if not app_id:
             continue
+        score, title = _best_nextmoe_title(query, item)
         rows.append(
             (
-                _score_nextmoe_titles(query, item),
+                score,
                 app_id,
-                _nextmoe_zh_title(item),
+                title or _nextmoe_zh_title(item),
                 str(item.get("id") or ""),
             )
         )
@@ -335,14 +341,16 @@ def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
     return best[1], best[2]
 
 
-def _score_nextmoe_titles(query: str, item: dict) -> int:
-    return max(
-        (
-            _name_match_score(query, _normalize_for_match(title))
-            for title in _nextmoe_candidate_titles(item)
-        ),
-        default=0,
-    )
+def _best_nextmoe_title(query: str, item: dict) -> tuple[int, str]:
+    """Score every title a work carries and keep the best-scoring one."""
+    best_score = 0
+    best_title = ""
+    for title in _nextmoe_candidate_titles(item):
+        score = _name_match_score(query, _normalize_for_match(title))
+        if score > best_score:
+            best_score = score
+            best_title = title
+    return best_score, best_title
 
 
 def _enrich_nextmoe_rows(
@@ -351,13 +359,15 @@ def _enrich_nextmoe_rows(
 ) -> list[tuple[int, str, str, str]]:
     """Rescore the top candidates against their detail titles."""
     enriched: list[tuple[int, str, str, str]] = []
-    for index, (score, app_id, zh_title, work_id) in enumerate(rows):
+    for index, (score, app_id, title, work_id) in enumerate(rows):
         if index < _NEXTMOE_DETAIL_ENRICH_LIMIT and work_id:
             detail = _nextmoe_work_detail(work_id)
             if detail:
-                score = max(score, _score_nextmoe_titles(query, detail))
-                zh_title = _nextmoe_zh_title(detail) or zh_title
-        enriched.append((score, app_id, zh_title, work_id))
+                detail_score, detail_title = _best_nextmoe_title(query, detail)
+                if detail_score > score:
+                    score = detail_score
+                    title = detail_title
+        enriched.append((score, app_id, title, work_id))
     return enriched
 
 
