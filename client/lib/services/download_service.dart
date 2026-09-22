@@ -203,6 +203,7 @@ class DownloadService with WidgetsBindingObserver {
               ..progress = (m["progress"] ?? 0).toDouble()
               ..error = m["error"]
               ..extractPassword = m["extractPassword"]
+              ..needsPassword = m["needsPassword"] == true
               ..outputPath = m["outputPath"];
         _tasks.add(task);
         // Re-run active tasks
@@ -240,6 +241,8 @@ class DownloadService with WidgetsBindingObserver {
               "progress": t.progress,
               "error": t.error,
               "outputPath": t.outputPath,
+              "extractPassword": t.extractPassword,
+              "needsPassword": t.needsPassword,
             }),
           )
           .toList();
@@ -681,8 +684,9 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  void retryTask(DownloadTask task) {
+  Future<void> retryTask(DownloadTask task) async {
     if (task.status == "failed") {
+      await refreshPasswordFromServer(task);
       task.status = "pending";
       task.error = null;
       task.needsPassword = false;
@@ -696,12 +700,40 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
+  Future<void> refreshPasswordFromServer(DownloadTask task) async {
+    final base = task.serverBaseUrl;
+    if (base == null || base.isEmpty) return;
+    try {
+      final resp = await http.get(
+        Uri.parse("$base/api/games/${task.gameId}"),
+        headers: _downloadAuthHeaders(),
+      );
+      if (resp.statusCode != 200) return;
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final versions = (data["versions"] as List?) ?? const [];
+      for (final version in versions) {
+        if (version is Map && version["id"] == task.versionId) {
+          final password =
+              (version["extract_password"] ?? "").toString().trim();
+          if (password.isNotEmpty && password != task.extractPassword) {
+            task.extractPassword = password;
+            task._triedPresetPassword = false;
+            await _saveTasks();
+          }
+          return;
+        }
+      }
+    } catch (_) {}
+  }
+
   void retryWithPassword(DownloadTask task, String password) {
     if (task.status == "failed" && task.needsPassword) {
+      task.extractPassword = password.trim();
       task.status = "extracting";
       task.error = null;
       task.needsPassword = false;
       _emit();
+      _saveTasks();
       _runWithPassword(task, password);
     }
   }
@@ -1053,12 +1085,14 @@ class DownloadService with WidgetsBindingObserver {
         _emit();
         await Future.delayed(const Duration(milliseconds: 100));
         try {
+          final presetPassword = t.extractPassword?.trim() ?? "";
+          if (presetPassword.isNotEmpty) t._triedPresetPassword = true;
           await _extract(tmp.path, outDir, gameDir, (p) {
             if (p > t.progress) {
               t.progress = p;
               _emit();
             }
-          });
+          }, presetPassword.isEmpty ? null : presetPassword);
           t.progress = 1.0;
           _emit();
 
@@ -1142,7 +1176,10 @@ class DownloadService with WidgetsBindingObserver {
     return lower.contains("password") ||
         lower.contains("encrypted") ||
         lower.contains("wrong password") ||
-        lower.contains("can't open encrypted");
+        lower.contains("can't open encrypted") ||
+        err.contains("压缩包需要密码") ||
+        err.contains("密码不正确") ||
+        err.contains("需要密码");
   }
 
   bool _isExtractorMissingError(String err) {

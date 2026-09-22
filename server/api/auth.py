@@ -531,6 +531,7 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
         pw_hash, salt = hash_password(body.password)
         user.password_hash = pw_hash
         user.salt = salt
+        user.password_set = True
         await _revoke_user_sessions(user.id, session)
 
     await session.commit()
@@ -635,7 +636,9 @@ async def get_my_profile(current: User = Depends(get_current_user),
                           session: AsyncSession = Depends(get_session)):
     return {"id": current.id, "username": current.username,
             "role": current.role, "is_admin": current.role in ("owner", "admin"),
-            "avatar_path": current.avatar_path}
+            "avatar_path": current.avatar_path,
+            "password_set": bool(current.password_set),
+            "oauth_bound": bool(current.oauth_subject)}
 
 
 @router.get("/profile/{user_id}")
@@ -648,7 +651,9 @@ async def get_profile(user_id: int, user: User = Depends(get_current_user),
     return {"id": profile_user.id, "username": profile_user.username,
             "role": profile_user.role,
             "is_admin": profile_user.role in ("owner", "admin"),
-            "avatar_path": profile_user.avatar_path}
+            "avatar_path": profile_user.avatar_path,
+            "password_set": bool(profile_user.password_set),
+            "oauth_bound": bool(profile_user.oauth_subject)}
 
 
 @router.put("/profile/{user_id}")
@@ -663,7 +668,7 @@ async def update_profile(user_id: int, body: ProfileUpdate,
     _ensure_profile_edit_access(current, user)
     new_token: str | None = None
     if body.new_password:
-        if current.id == user.id:
+        if current.id == user.id and user.password_set:
             if not body.current_password:
                 raise HTTPException(status_code=400, detail="需要当前密码")
             if not verify_password(body.current_password, user.salt, user.password_hash):
@@ -671,6 +676,7 @@ async def update_profile(user_id: int, body: ProfileUpdate,
         pw_hash, salt = hash_password(body.new_password)
         user.password_hash = pw_hash
         user.salt = salt
+        user.password_set = True
         await _revoke_user_sessions(user.id, session)
         if current.id == user.id:
             new_token = await _issue_session_token(user, session, request)

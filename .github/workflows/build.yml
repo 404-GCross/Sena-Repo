@@ -5,7 +5,7 @@ permissions:
 
 on:
   push:
-    branches: [main, master]
+    branches: ["**"]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
@@ -130,12 +130,12 @@ jobs:
         run: |
           mkdir -p dist
           mv build/app/outputs/flutter-apk/app-release.apk \
-             "dist/Sena-Repo_Android_${VERSION}.apk"
+             "dist/Sena-Repo_Android_${VERSION}_universal.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Android
+          name: Sena-Repo_Android_universal
           path: client/dist/Sena-Repo_Android_*.apk
 
   # ── Windows EXE ──────────────────────────────────
@@ -222,7 +222,7 @@ jobs:
             -replace '\{\{PUBLISHER_NAME\}\}', 'Sena Repo' `
             -replace '\{\{PUBLISHER_URL\}\}', 'https://github.com/404-GCross/Sena-Repo' `
             -replace '\{\{INSTALL_DIR_NAME\}\}', '{autopf}\Sena Repo' `
-            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_Setup" `
+            -replace '\{\{OUTPUT_BASE_FILENAME\}\}', "Sena-Repo_Windows_${ver}_amd64_Setup" `
             -replace '\{\{SETUP_ICON_FILE\}\}', (Resolve-Path "windows\runner\resources\app_icon.ico").Path `
             -replace '\{\{PRIVILEGES_REQUIRED\}\}', 'admin' `
             -replace '\{\{EXECUTABLE_NAME\}\}', 'sena_repo.exe' `
@@ -237,7 +237,7 @@ jobs:
         run: |
           $setupExe = Get-ChildItem -Recurse dist -Filter "*.exe" | Where-Object { $_.Name -like "*setup*" -or $_.Name -like "*Setup*" } | Select-Object -First 1
           if ($setupExe) {
-            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_${env:VERSION}_Setup.exe"
+            Move-Item $setupExe.FullName "dist/Sena-Repo_Windows_${env:VERSION}_amd64_Setup.exe"
             Remove-Item -Recurse -Force dist/0.* -ErrorAction SilentlyContinue
           }
 
@@ -245,7 +245,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $pkg="Sena-Repo_Windows_${env:VERSION}"
+          $pkg="Sena-Repo_Windows_${env:VERSION}_amd64"
           $releaseDir = "build/windows/x64/runner/Release"
           robocopy $releaseDir $pkg /E /NFL /NDL /NJH /NJS /nc /ns /np
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
@@ -261,13 +261,13 @@ jobs:
       - name: Upload Windows Portable
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Windows_Portable
+          name: Sena-Repo_Windows_amd64_Portable
           path: client/dist/Sena-Repo_Windows_*.zip
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Windows_Installer
+          name: Sena-Repo_Windows_amd64_Installer
           path: client/dist/**/*.exe
 
   # ── Linux (AppImage) ─────────────────
@@ -392,13 +392,13 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}_amd64.AppImage"
           rm -rf "$APPDIR"
 
       - name: Build Linux tarball
         run: |
           BUNDLE=build/linux/x64/release/bundle
-          PKG="Sena-Repo_Linux_${VERSION}-x86_64"
+          PKG="Sena-Repo_Linux_${VERSION}_amd64"
           rm -rf "$PKG"
           mkdir -p "$PKG"
           cp -a "$BUNDLE"/. "$PKG"/
@@ -446,12 +446,12 @@ jobs:
             --url "https://github.com/404-GCross/Sena-Repo" \
             --maintainer "Sena Repo" \
             --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
-            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_x86_64.rpm" .
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_amd64.rpm" .
 
       - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
-          name: Sena-Repo_Linux
+          name: Sena-Repo_Linux_amd64
           path: client/dist/Sena-Repo_Linux_*
 
   # ── Linux (AppImage, ARM64) ─────────────────
@@ -585,13 +585,13 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-aarch64.AppImage
           chmod +x appimagetool-aarch64.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
-          ARCH=aarch64 ./appimagetool-aarch64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}-aarch64.AppImage"
+          ARCH=aarch64 ./appimagetool-aarch64.AppImage "$APPDIR" "dist/Sena-Repo_Linux_${VERSION}_arm64.AppImage"
           rm -rf "$APPDIR"
 
       - name: Build Linux tarball
         run: |
           BUNDLE=build/linux/arm64/release/bundle
-          PKG="Sena-Repo_Linux_${VERSION}-aarch64"
+          PKG="Sena-Repo_Linux_${VERSION}_arm64"
           rm -rf "$PKG"
           mkdir -p "$PKG"
           cp -a "$BUNDLE"/. "$PKG"/
@@ -639,7 +639,7 @@ jobs:
             --url "https://github.com/404-GCross/Sena-Repo" \
             --maintainer "Sena Repo" \
             --depends gtk3 --depends libayatana-appindicator3 --depends libsecret \
-            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_aarch64.rpm" .
+            -C "$STAGE" -p "dist/Sena-Repo_Linux_${VERSION}_arm64.rpm" .
 
       - name: Upload Linux ARM64 packages
         uses: actions/upload-artifact@v4
@@ -768,13 +768,13 @@ jobs:
             cp "${matches[0]}" release/
           }
 
-          require_one "Android APK" "Sena-Repo_Android_${VERSION}.apk"
-          require_one "Windows portable zip" "Sena-Repo_Windows_${VERSION}.zip"
-          require_one "Windows installer" "Sena-Repo_Windows_${VERSION}_Setup.exe"
-          require_one "Linux AppImage" "Sena-Repo_Linux_${VERSION}-x86_64.AppImage"
-          require_one "Linux tarball" "Sena-Repo_Linux_${VERSION}-x86_64.tar.gz"
+          require_one "Android APK" "Sena-Repo_Android_${VERSION}_universal.apk"
+          require_one "Windows portable zip" "Sena-Repo_Windows_${VERSION}_amd64.zip"
+          require_one "Windows installer" "Sena-Repo_Windows_${VERSION}_amd64_Setup.exe"
+          require_one "Linux AppImage" "Sena-Repo_Linux_${VERSION}_amd64.AppImage"
+          require_one "Linux tarball" "Sena-Repo_Linux_${VERSION}_amd64.tar.gz"
           require_one "Linux DEB package" "Sena-Repo_Linux_${VERSION}_amd64.deb"
-          require_one "Linux RPM package" "Sena-Repo_Linux_${VERSION}_x86_64.rpm"
+          require_one "Linux RPM package" "Sena-Repo_Linux_${VERSION}_amd64.rpm"
           require_one "Server AMD64 image archive" "Sena-Repo_Server_amd64_${VERSION}.tar.gz"
           require_one "Server ARM64 image archive" "Sena-Repo_Server_arm64_${VERSION}.tar.gz"
 
@@ -818,13 +818,13 @@ jobs:
             printf '## 下载说明\n\n'
             printf '| 文件 | 平台/用途 | 说明 |\n'
             printf '|------|-----------|------|\n'
-            printf '| `Sena-Repo_Android_%s.apk` | Android | Android 客户端安装包 |\n' "$VERSION"
-            printf '| `Sena-Repo_Windows_%s_Setup.exe` | Windows | Windows 安装版 |\n' "$VERSION"
-            printf '| `Sena-Repo_Windows_%s.zip` | Windows | Windows 便携版，解压即用 |\n' "$VERSION"
-            printf '| `Sena-Repo_Linux_%s-x86_64.AppImage` | Linux | Linux AppImage 客户端 |\n' "$VERSION"
-            printf '| `Sena-Repo_Linux_%s-x86_64.tar.gz` | Linux | Linux 通用压缩包，解压运行 |\n' "$VERSION"
+            printf '| `Sena-Repo_Android_%s_universal.apk` | Android (universal) | Android 客户端安装包，含 armeabi-v7a / arm64-v8a / x86_64 |\n' "$VERSION"
+            printf '| `Sena-Repo_Windows_%s_amd64_Setup.exe` | Windows amd64 | Windows 安装版 |\n' "$VERSION"
+            printf '| `Sena-Repo_Windows_%s_amd64.zip` | Windows amd64 | Windows 便携版，解压即用 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_amd64.AppImage` | Linux amd64 | Linux AppImage 客户端 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_amd64.tar.gz` | Linux amd64 | Linux 通用压缩包，解压运行 |\n' "$VERSION"
             printf '| `Sena-Repo_Linux_%s_amd64.deb` | Linux Debian/Ubuntu | DEB 安装包 |\n' "$VERSION"
-            printf '| `Sena-Repo_Linux_%s_x86_64.rpm` | Linux Fedora/RHEL/openSUSE | RPM 安装包 |\n' "$VERSION"
+            printf '| `Sena-Repo_Linux_%s_amd64.rpm` | Linux Fedora/RHEL/openSUSE | RPM 安装包 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_amd64_%s.tar.gz` | Server AMD64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
             printf '| `Sena-Repo_Server_arm64_%s.tar.gz` | Server ARM64 | 服务端 Docker 离线镜像 |\n' "$VERSION"
           } > release_notes.md

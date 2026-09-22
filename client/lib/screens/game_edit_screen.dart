@@ -45,6 +45,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   bool _saving = false;
   bool _isNsfw = false;
   bool _tagsDirty = false;
+  bool _versionPasswordChanged = false;
   bool _desktopBgActionsHovered = false;
   String _tagSource = "metadata";
   String? _coverPath;
@@ -625,10 +626,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
       ),
     );
     if (password == null) return;
-    await _updateVersion(version, {"extract_password": password});
+    final updated = await _updateVersion(version, {"extract_password": password});
+    if (updated && mounted) {
+      setState(() => _versionPasswordChanged = true);
+    }
   }
 
-  Future<void> _updateVersion(
+  Future<bool> _updateVersion(
     GameVersion version,
     Map<String, dynamic> body,
   ) async {
@@ -642,19 +646,21 @@ class _GameEditScreenState extends State<GameEditScreen> {
       );
       if (resp.statusCode != 200) {
         _showError("版本更新失败 (${resp.statusCode}): ${resp.body}");
-        return;
+        return false;
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final updated = GameVersion.fromJson(
         data["version"] as Map<String, dynamic>,
       );
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         final index = _versions.indexWhere((v) => v.id == updated.id);
         if (index >= 0) _versions[index] = updated;
       });
+      return true;
     } catch (e) {
       _showError("版本更新失败: $e");
+      return false;
     }
   }
 
@@ -1210,6 +1216,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       title: "编辑游戏",
       subtitle: g.name,
       leading: const Icon(Icons.edit_note_outlined, size: 24),
+      onBack: () => Navigator.pop(context, _versionPasswordChanged),
       scrollable: false,
       padding: EdgeInsets.zero,
       maxWidth: 1280,

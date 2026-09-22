@@ -49,6 +49,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _rescraping = false;
   String? _serverStatus;
   Future<void>? _serverLoadFuture;
+  Map<String, dynamic>? _scanProgress;
   // Optimistic lock state so the button flips immediately; cleared once the
   // server list is reloaded (or reverted when the request fails).
   final Map<String, bool> _lockedOverrides = {};
@@ -374,15 +375,98 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     }
   }
 
-  Future<void> _scanServerPatches() async {
+  Future<void> _pickScanMode() async {
+    var selected = "merge";
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text("扫描补丁"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                value: "merge",
+                groupValue: selected,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text("合并刷新"),
+                subtitle: const Text("保留已配置的规则、名称和锁定，补新文件、删丢失文件"),
+                onChanged: (value) =>
+                    setDialogState(() => selected = value ?? "merge"),
+              ),
+              RadioListTile<String>(
+                value: "metadata",
+                groupValue: selected,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text("仅清空元数据"),
+                subtitle: const Text("保留规则、状态与锁定，重新解析 AppID / 名称 / 标签 / 类型"),
+                onChanged: (value) =>
+                    setDialogState(() => selected = value ?? "merge"),
+              ),
+              RadioListTile<String>(
+                value: "reset",
+                groupValue: selected,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text("清空重扫"),
+                subtitle: const Text("丢弃全部已配置信息，完全按磁盘重建"),
+                onChanged: (value) =>
+                    setDialogState(() => selected = value ?? "merge"),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, selected),
+                child: const Text("开始扫描")),
+          ],
+        ),
+      ),
+    );
+    if (mode == null || !mounted) return;
+    await _scanServerPatches(mode);
+  }
+
+  Future<void> _scanServerPatches(String mode) async {
+    final api = context.read<GameProvider>().api;
     setState(() {
       _serverLoading = true;
-      _serverStatus = "正在扫描...";
+      _scanProgress = null;
+      _serverStatus = switch (mode) {
+        "reset" => "正在清空重扫...",
+        "metadata" => "正在清空元数据...",
+        _ => "正在扫描...",
+      };
     });
+    var scanning = true;
+    Future<void> poll() async {
+      while (mounted && scanning) {
+        try {
+          final status = await SteamService.patchScanStatus(api);
+          if (!mounted || !scanning) return;
+          setState(() => _scanProgress = status);
+        } catch (_) {}
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
+    }
+
+    final pollFuture = poll();
     try {
-      final api = context.read<GameProvider>().api;
-      final result = await SteamService.scanPatches(api);
+      final result = await SteamService.scanPatches(api, mode: mode);
+      scanning = false;
+      await pollFuture;
+      if (!mounted) return;
       final scanned = (result["scanned"] as int?) ?? 0;
+      setState(() {
+        _serverLoading = false;
+        _scanProgress = null;
+      });
       await _loadServerPatches();
       if (!mounted) return;
       if (_commonDir != null && _commonDir!.isNotEmpty) {
@@ -393,36 +477,56 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         _showMsg("扫描完成，找到 $scanned 个补丁文件");
       }
     } catch (e) {
+      scanning = false;
+      await pollFuture;
       if (!mounted) return;
       setState(() {
         _serverLoading = false;
+        _scanProgress = null;
         _serverStatus = "扫描失败: $e";
       });
     }
   }
 
-  Future<void> _rescrapeOne(String lookupKey) async {
-    final api = context.read<GameProvider>().api;
-    setState(() => _serverStatus = "正在刮削 $lookupKey ...");
-    try {
-      final result = await SteamService.rescrapePatch(api, lookupKey);
-      if (!mounted) return;
-      final status = result["status"] ?? "";
-      if (status == "updated") {
-        _showMsg(
-            "刮削成功\n新 AppID: ${result["new_app_id"]}${result["game_name"] != null && result["game_name"] != "" ? "\n游戏名: ${result["game_name"]}" : ""}");
-        _loadServerPatches();
-      } else if (status == "skipped") {
-        _showMsg("已有 AppID，跳过刮削");
-      } else if (status == "locked") {
-        _showMsg("该补丁已锁定，已跳过刮削");
-      } else {
-        _showMsg("刮削失败: 未找到匹配的 Steam 游戏");
-      }
-    } catch (e) {
-      if (mounted) _showMsg("刮削失败: $e", error: true);
-    }
-    if (mounted) setState(() => _serverStatus = null);
+  Widget _buildScanProgressPanel() {
+    final progress = _scanProgress;
+    final processed = (progress?["processed"] as num?)?.toInt() ?? 0;
+    final total = (progress?["total"] as num?)?.toInt() ?? 0;
+    final stage = (progress?["stage"] ?? "准备扫描").toString();
+    final current = (progress?["current"] ?? "").toString();
+    final value = total > 0 ? (processed / total).clamp(0.0, 1.0) : null;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LinearProgressIndicator(value: value),
+              const SizedBox(height: 14),
+              Text(stage, style: AppText.title.copyWith(fontSize: 15)),
+              const SizedBox(height: 6),
+              Text(
+                total > 0 ? "$processed / $total 个文件" : "正在列举文件 ...",
+                style: AppText.bodySmall.copyWith(color: subTextColor(context)),
+              ),
+              if (current.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  current,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppText.bodySmall.copyWith(color: hintColor(context)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _rescrapeAll() async {
@@ -484,32 +588,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       }
     } catch (e) {
       if (mounted) _showMsg("无法打开游戏目录: $e", error: true);
-    }
-  }
-
-  Future<void> _showPatchTreeDialog(PatchMatch m, {bool allowInject = false}) async {
-    final api = context.read<GameProvider>().api;
-    final result = await showDialog<_PatchManifestDialogResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _PatchTreeDialog(
-        api: api,
-        match: m,
-        installPath: allowInject ? _gameInstallPath(m) : null,
-      ),
-    );
-    if (result == null || !mounted) return;
-    if (result.saved) {
-      _showMsg("补丁规则已保存");
-      if (_serverLoaded) unawaited(_loadServerPatches());
-      if (_tabIndex == 0 && _commonDir != null) unawaited(_scanAndCheck());
-    }
-    if (result.inject) {
-      await _startInjection(
-        m,
-        patchDirOverride: result.patchDir,
-        targetDirOverride: result.targetDir,
-      );
     }
   }
 
@@ -1164,7 +1242,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               children: [
                 AppActionButton(
                   icon: Icons.refresh,
-                  label: "加载索引",
+                  label: "刷新",
                   onPressed: _serverLoading ? null : _loadServerPatches,
                   busy: _serverLoading,
                   filled: true,
@@ -1172,7 +1250,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                 AppActionButton(
                   icon: Icons.folder,
                   label: "扫描补丁",
-                  onPressed: _serverLoading ? null : _scanServerPatches,
+                  onPressed: _serverLoading ? null : _pickScanMode,
                 ),
                 AppActionButton(
                   icon: Icons.search,
@@ -1264,7 +1342,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           ),
           Divider(height: 1, color: cardBorder(context)),
           if (_serverLoading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
+            Expanded(child: _buildScanProgressPanel())
           else if (_serverPatches.isEmpty)
             Expanded(
               child: Center(
@@ -1347,8 +1425,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final patchDir = (p["patch_dir"] ?? "").toString();
     final targetDir = (p["target_dir"] ?? "").toString();
     final appId = (p["app_id"] ?? "").toString();
-    final matched = (p["matched_game"] ?? "").toString();
-    final suggestedAppId = (p["suggested_app_id"] ?? "").toString();
     final manifestStatus = (p["manifest_status"] ?? "pending").toString();
     final analysisMode = (p["analysis_mode"] ?? "auto").toString();
     final locked = _lockedOverrides[lookupKey] ?? p["locked"] == true;
@@ -1375,29 +1451,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     ];
     final actions = <Widget>[
       if (_isAdmin) ...[
-      _patchRowAction(
-        icon: Icons.manage_search_rounded,
-        tooltip: "重新刮削 AppID",
-        onPressed: () => _rescrapeOne(lookupKey),
-      ),
-      _patchRowAction(
-        icon: Icons.rule_folder_outlined,
-        tooltip: "配置规则 / 目录树",
-        onPressed: () => _showPatchTreeDialog(PatchMatch(
-            appId: appId,
-            gameName: label.isNotEmpty ? label : displayFile.split("/").last,
-            installDir: "",
-            patchAvailable: true,
-            patchLookupKey: lookupKey,
-            patchFilename: file,
-            patchDir: patchDir,
-            targetDir: targetDir,
-            label: label,
-            type: ptype,
-            analysisMode: analysisMode,
-            manifestStatus: manifestStatus,
-            manifestReady: manifestStatus == "confirmed")),
-      ),
       _patchRowAction(
         icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
         tooltip: locked ? "已锁定元数据，点击解锁" : "锁定元数据（自动扫描不再修改）",
@@ -1502,16 +1555,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
             ] else ...[
               Icon(Icons.warning_amber, size: 12, color: Colors.orange[300]),
               const SizedBox(width: 2),
-              Text(suggestedAppId.isNotEmpty ? "建议 AppID $suggestedAppId" : "无 AppID",
+              Text("无 AppID",
                   style: AppText.caption.copyWith(color: Colors.orange[300])),
               const SizedBox(width: 6)
-            ],
-            if (matched.isNotEmpty) ...[
-              Icon(Icons.link, size: 10, color: hintColor(context)),
-              const SizedBox(width: 2),
-              Text(matched,
-                  style: AppText.caption.copyWith(color: hintColor(context))),
-              const SizedBox(width: 4)
             ],
             Expanded(
                 child: Text(displayFile,
@@ -1575,7 +1621,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   _patchDetailRow("文件位置", sourcePath),
                   _patchDetailRow("来源",
                       sourceType == "openlist" ? "OpenList #$sourceId" : "本地"),
-                  _patchDetailRow("匹配游戏", matched),
                   _patchDetailRow("分析模式", manualRules ? "手动规则" : "自动分析"),
                   _patchDetailRow("规则更新", updatedAt),
                 ],
@@ -1588,87 +1633,16 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   // ── Edit dialog ──
 
   Future<void> _showEditDialog(PatchMatch m) async {
-    final labelCtrl = TextEditingController(text: m.label ?? "");
-    final gameNameCtrl = TextEditingController(text: m.steamName ?? "");
-    var gameNameDirty = false;
-    gameNameCtrl.addListener(() => gameNameDirty = true);
-    final appIdCtrl = TextEditingController(
-        text: m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty
-            ? m.appId
-            : "");
-    String ptype = m.type ?? "misc";
-
-    final result = await showDialog<Map<String, String>>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-              title: Text("编辑补丁元数据 — ${m.gameName}"),
-              content: SizedBox(
-                  width: 380,
-                  child: SingleChildScrollView(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    TextField(
-                        controller: appIdCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "Steam App ID",
-                            hintText: "Steam 商店游戏ID",
-                            isDense: true),
-                        keyboardType: TextInputType.number),
-                    const SizedBox(height: 10),
-                    TextField(
-                        controller: labelCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "显示名称 (label)",
-                            hintText: "界面显示的补丁名",
-                            isDense: true)),
-                    const SizedBox(height: 10),
-                    TextField(
-                        controller: gameNameCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "Steam 名称",
-                            hintText: "留空则回退到显示名称 / 文件名",
-                            isDense: true)),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                        value: ptype,
-                        items: _typeLabels.entries
-                            .map((e) => DropdownMenuItem(
-                                value: e.key, child: Text(e.value)))
-                            .toList(),
-                        onChanged: (v) => ptype = v ?? "misc",
-                        decoration: const InputDecoration(
-                            labelText: "补丁类型", isDense: true)),
-                  ]))),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("取消")),
-                FilledButton(
-                    onPressed: () => Navigator.pop(ctx, {
-                          "app_id": appIdCtrl.text.trim(),
-                          "label": labelCtrl.text.trim(),
-                          if (gameNameDirty)
-                            "game_name": gameNameCtrl.text.trim(),
-                          "type": ptype
-                        }),
-                    child: const Text("保存")),
-              ],
-            ));
-    if (result == null || !mounted) return;
-    try {
-      final api = context.read<GameProvider>().api;
-      await SteamService.updatePatch(
-          api: api,
-          appId: result["app_id"] ?? m.appId,
-          file: m.patchFilename,
-          lookupKey: m.patchLookupKey,
-          label: result["label"] ?? "",
-          gameName: result["game_name"],
-          type: result["type"] ?? "misc");
-      _loadServerPatches();
-      if (_tabIndex == 0) _scanAndCheck();
-    } catch (e) {
-      _showMsg("保存失败: $e", error: true);
-    }
+    final api = context.read<GameProvider>().api;
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _PatchEditDialog(api: api, match: m),
+    );
+    if (saved != true || !mounted) return;
+    _showMsg("已保存");
+    _loadServerPatches();
+    if (_tabIndex == 0) _scanAndCheck();
   }
 
   // ── Keywords dialog ──
@@ -1832,6 +1806,303 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 }
 
 
+class _PatchEditDialog extends StatefulWidget {
+  final dynamic api;
+  final PatchMatch match;
+
+  const _PatchEditDialog({required this.api, required this.match});
+
+  @override
+  State<_PatchEditDialog> createState() => _PatchEditDialogState();
+}
+
+class _PatchEditDialogState extends State<_PatchEditDialog> {
+  final _appIdCtrl = TextEditingController();
+  final _labelCtrl = TextEditingController();
+  final _gameNameCtrl = TextEditingController();
+  final _rulesKey = GlobalKey<_PatchTreeDialogState>();
+  String _type = "misc";
+  int _tabIndex = 0;
+  bool _gameNameDirty = false;
+  bool _saving = false;
+  bool _rescraping = false;
+  bool _loadingDialogOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final m = widget.match;
+    _appIdCtrl.text =
+        (m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty)
+            ? m.appId
+            : "";
+    _labelCtrl.text = m.label ?? "";
+    _gameNameCtrl.text = m.steamName ?? "";
+    _gameNameCtrl.addListener(() => _gameNameDirty = true);
+    _type = m.type ?? "misc";
+  }
+
+  @override
+  void dispose() {
+    _appIdCtrl.dispose();
+    _labelCtrl.dispose();
+    _gameNameCtrl.dispose();
+    super.dispose();
+  }
+
+  void _showLoadingDialog() {
+    if (_loadingDialogOpen) return;
+    _loadingDialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.5)),
+              SizedBox(width: 16),
+              Text("正在重新刮削 ..."),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => _loadingDialogOpen = false);
+  }
+
+  void _closeLoadingDialog() {
+    if (!_loadingDialogOpen) return;
+    _loadingDialogOpen = false;
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+
+  Future<void> _showResultDialog(String message, {bool error = false}) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Icon(error ? Icons.error_outline : Icons.check_circle,
+            size: 28, color: error ? Colors.red[300] : Colors.green[300]),
+        content: Text(message, style: const TextStyle(fontSize: 14)),
+        actions: [
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text("确定")),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _rescrape() async {
+    setState(() => _rescraping = true);
+    _showLoadingDialog();
+    try {
+      final m = widget.match;
+      final key = SteamService.patchLookupKey(
+        appId: m.appId,
+        file: m.patchFilename,
+        lookupKey: m.patchLookupKey,
+      );
+      final result = await SteamService.rescrapePatch(widget.api, key);
+      if (!mounted) return;
+      _closeLoadingDialog();
+      final status = (result["status"] ?? "").toString();
+      final oldId = (result["old_app_id"] ?? "").toString();
+      final newId = (result["new_app_id"] ?? "").toString();
+      final name = (result["game_name"] ?? "").toString();
+      String message;
+      bool error = false;
+      if (status == "updated") {
+        if (newId.isEmpty) {
+          message = "未解析到 AppID";
+          error = true;
+        } else if (oldId.isEmpty) {
+          message = "已解析 AppID：$newId";
+        } else if (oldId == newId) {
+          message = "AppID 未变化：$newId";
+        } else {
+          message = "AppID：$oldId → $newId";
+        }
+        if (name.isNotEmpty) message = "$message\nSteam 名称：$name";
+      } else if (status == "locked") {
+        message = "该补丁已锁定，未做修改";
+        error = true;
+      } else {
+        message = oldId.isNotEmpty
+            ? "未找到匹配，保留原 AppID：$oldId"
+            : "未找到匹配的 Steam 游戏";
+        error = true;
+      }
+      if (newId.isNotEmpty && newId != "None") _appIdCtrl.text = newId;
+      if (name.isNotEmpty) _gameNameCtrl.text = name;
+      await _showResultDialog(message, error: error);
+    } catch (e) {
+      if (!mounted) return;
+      _closeLoadingDialog();
+      await _showResultDialog("刮削失败: $e", error: true);
+    } finally {
+      if (mounted) setState(() => _rescraping = false);
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final rules = _rulesKey.currentState;
+      final patchDir =
+          (rules?.patchDirValue ?? widget.match.patchDir ?? "").trim();
+      final targetDir =
+          (rules?.targetDirValue ?? widget.match.targetDir ?? "").trim();
+      await SteamService.updatePatch(
+        api: widget.api,
+        appId: _appIdCtrl.text.trim(),
+        file: widget.match.patchFilename,
+        lookupKey: widget.match.patchLookupKey,
+        label: _labelCtrl.text.trim(),
+        gameName: _gameNameDirty ? _gameNameCtrl.text.trim() : null,
+        type: _type,
+      );
+      await SteamService.updatePatchManifest(
+        api: widget.api,
+        appId: _appIdCtrl.text.trim(),
+        file: widget.match.patchFilename,
+        lookupKey: widget.match.patchLookupKey,
+        patchDir: patchDir,
+        targetDir: targetDir,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      await _showResultDialog("保存失败: $e", error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Icon(Icons.edit_note_rounded, size: 22, color: cs.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "编辑补丁数据 — ${widget.match.gameName}",
+              style: const TextStyle(fontSize: 16),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 560,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppSegmentedTabs(
+              selectedIndex: _tabIndex,
+              tabs: const [
+                AppSegmentedTab(0, Icons.edit_note_rounded, "元数据"),
+                AppSegmentedTab(1, Icons.rule_folder_outlined, "补丁配置"),
+              ],
+              onChanged: (index) => setState(() => _tabIndex = index),
+            ),
+            const SizedBox(height: AppGap.md),
+            if (_tabIndex == 0)
+              _buildMetadataFields()
+            else
+              SizedBox(
+                height: 420,
+                child: _PatchTreeDialog(
+                  key: _rulesKey,
+                  api: widget.api,
+                  match: widget.match,
+                  embedded: true,
+                ),
+              ),
+          ],
+        ),
+      ),
+      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actions: [
+        TextButton.icon(
+          onPressed: _saving || _rescraping ? null : _rescrape,
+          icon: const Icon(Icons.manage_search_rounded, size: 18),
+          label: const Text("重新刮削"),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: _saving ? null : () => Navigator.pop(context),
+              child: const Text("取消"),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _saving || _rescraping ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text("保存"),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMetadataFields() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+            controller: _appIdCtrl,
+            decoration: const InputDecoration(
+                labelText: "Steam App ID",
+                hintText: "Steam 商店游戏ID",
+                isDense: true),
+            keyboardType: TextInputType.number),
+        const SizedBox(height: 10),
+        TextField(
+            controller: _labelCtrl,
+            decoration: const InputDecoration(
+                labelText: "显示名称 (label)",
+                hintText: "界面显示的补丁名",
+                isDense: true)),
+        const SizedBox(height: 10),
+        TextField(
+            controller: _gameNameCtrl,
+            decoration: const InputDecoration(
+                labelText: "Steam 名称",
+                hintText: "留空则回退到显示名称 / 文件名",
+                isDense: true)),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+            value: _type,
+            items: _SteamPatchScreenState._typeLabels.entries
+                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                .toList(),
+            onChanged: (v) => setState(() => _type = v ?? "misc"),
+            decoration:
+                const InputDecoration(labelText: "补丁类型", isDense: true)),
+      ],
+    );
+  }
+}
+
+
 class _PatchManifestDialogResult {
   final bool saved;
   final bool inject;
@@ -1850,11 +2121,14 @@ class _PatchTreeDialog extends StatefulWidget {
   final dynamic api;
   final PatchMatch match;
   final String? installPath;
+  final bool embedded;
 
   const _PatchTreeDialog({
+    super.key,
     required this.api,
     required this.match,
     this.installPath,
+    this.embedded = false,
   });
 
   @override
@@ -1872,6 +2146,10 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
   bool get _manualRules => widget.match.analysisMode == "manual";
 
   bool get _canSave => !_loading && !_saving && (_manualRules || _data != null);
+
+  String get patchDirValue => _patchDir.text.trim();
+
+  String get targetDirValue => _targetDir.text.trim();
 
   @override
   void initState() {
@@ -2006,6 +2284,9 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return _buildBody(context);
+    }
     final cs = Theme.of(context).colorScheme;
     final size = MediaQuery.sizeOf(context);
     final width = size.width > 1080 ? 1020.0 : size.width - 32;

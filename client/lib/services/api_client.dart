@@ -646,6 +646,156 @@ class ApiClient {
     }
   }
 
+  // --- NextMoe OAuth ---
+
+  Map<String, String> _jsonHeaders({bool withAuth = false}) {
+    final headers = {"Content-Type": "application/json"};
+    if (withAuth && _accessToken != null && _accessToken!.isNotEmpty) {
+      headers["Authorization"] = "Bearer $_accessToken";
+    }
+    return headers;
+  }
+
+  Future<Map<String, dynamic>?> getAuthProviders() async {
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/providers");
+    try {
+      final resp = await _execute(
+        () => _client.get(uri).timeout(const Duration(seconds: 10)),
+        allowRetry: false,
+        method: "GET",
+        uri: uri,
+        label: "oauth providers",
+      );
+      if (resp.statusCode == 200) {
+        return tryDecodeJsonMap(resp.body);
+      }
+    } catch (e, stackTrace) {
+      LoggerService().warn("oauth providers failed", e, stackTrace);
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> oauthStart({
+    required String purpose,
+    required String redirectUri,
+    bool withAuth = false,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/start");
+    final resp = await _execute(
+      () => _client
+          .post(
+            uri,
+            headers: _jsonHeaders(withAuth: withAuth),
+            body: jsonEncode({
+              "purpose": purpose,
+              "redirect_uri": redirectUri,
+            }),
+          )
+          .timeout(const Duration(seconds: 15)),
+      allowRetry: false,
+      method: "POST",
+      uri: uri,
+      label: "oauth start",
+    );
+    final data = tryDecodeJsonMap(resp.body);
+    if (resp.statusCode == 200 && data != null) {
+      return data;
+    }
+    throw AuthException(data?["detail"]?.toString() ?? "无法发起 NextMoe 授权");
+  }
+
+  Future<Map<String, dynamic>> oauthComplete({
+    required String requestId,
+    required String code,
+    required String state,
+    bool withAuth = false,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/complete");
+    final resp = await _execute(
+      () => _client
+          .post(
+            uri,
+            headers: _jsonHeaders(withAuth: withAuth),
+            body: jsonEncode({
+              "request_id": requestId,
+              "code": code,
+              "state": state,
+            }),
+          )
+          .timeout(const Duration(seconds: 20)),
+      allowRetry: false,
+      method: "POST",
+      uri: uri,
+      label: "oauth complete",
+    );
+    final data = tryDecodeJsonMap(resp.body);
+    if (resp.statusCode == 200 && data != null) {
+      return data;
+    }
+    throw AuthException(data?["detail"]?.toString() ?? "NextMoe 授权失败，请重试");
+  }
+
+  Future<Map<String, dynamic>?> getOauthBinding() async {
+    if (_accessToken == null || _accessToken!.isEmpty) return null;
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/binding");
+    try {
+      final resp = await _execute(
+        () => _client
+            .get(uri, headers: {"Authorization": "Bearer $_accessToken"})
+            .timeout(const Duration(seconds: 10)),
+        allowRetry: false,
+        method: "GET",
+        uri: uri,
+        label: "oauth binding",
+      );
+      if (resp.statusCode == 200) {
+        return tryDecodeJsonMap(resp.body);
+      }
+    } catch (e, stackTrace) {
+      LoggerService().warn("oauth binding lookup failed", e, stackTrace);
+    }
+    return null;
+  }
+
+  Future<void> unbindOauth() async {
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/binding");
+    final resp = await _execute(
+      () => _client
+          .delete(uri, headers: {"Authorization": "Bearer $_accessToken"})
+          .timeout(const Duration(seconds: 10)),
+      allowRetry: false,
+      method: "DELETE",
+      uri: uri,
+      label: "oauth unbind",
+    );
+    if (resp.statusCode == 200) return;
+    final data = tryDecodeJsonMap(resp.body);
+    throw AuthException(data?["detail"]?.toString() ?? "解除绑定失败");
+  }
+
+  Future<Map<String, dynamic>> applyOAuthSession(
+    Map<String, dynamic> data,
+  ) async {
+    final token = data["token"]?.toString() ?? "";
+    if (token.isEmpty) {
+      throw AuthException("登录响应缺少 token");
+    }
+    _accessToken = token;
+    final username = data["username"]?.toString() ?? "";
+    final userId = _parseUserId(data["id"]);
+    final isAdmin = data["is_admin"] == true;
+    final role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
+    await _persistTokens(
+      accessToken: token,
+      userId: userId,
+      username: username,
+      isAdmin: isAdmin,
+      role: role,
+    );
+    LoggerService().info("oauth login succeeded: role=$role isAdmin=$isAdmin");
+    return data;
+  }
+
   Future<bool> logout() async {
     var success = true;
     try {

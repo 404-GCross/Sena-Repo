@@ -38,6 +38,11 @@ class User(Base):
     is_admin = Column(Boolean, default=False)   # synced with role for compat
     status = Column(String(16), default="active")   # active, pending, rejected
     avatar_path = Column(String(1024), nullable=True)
+    oauth_provider = Column(String(32), nullable=True)
+    oauth_subject = Column(String(128), nullable=True)
+    oauth_name = Column(String(128), nullable=True)
+    oauth_user_id = Column(Integer, nullable=True)
+    password_set = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

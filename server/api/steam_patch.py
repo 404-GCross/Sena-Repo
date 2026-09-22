@@ -1,15 +1,14 @@
 """Steam patch injection API - PC client feature."""
 from __future__ import annotations
 
-import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, time, zipfile
+import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, threading, time, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import load_config
@@ -260,6 +259,37 @@ def _normalize_patch_records(patches: list[dict]) -> list[dict]:
     return [_normalize_patch_record(patch) for patch in patches]
 
 
+_METADATA_RESET_KEEP_KEYS = (
+    "patch_dir",
+    "target_dir",
+    "manifest_status",
+    "manifest_updated_at",
+)
+
+
+def _merge_metadata_reset(
+    existing_patches: list[dict], scanned: list[dict]
+) -> list[dict]:
+    """Rebuild metadata from the scan while keeping rules and locks."""
+    existing_by_file = {p.get("file", ""): p for p in existing_patches}
+    merged: list[dict] = []
+    for item in scanned:
+        old = existing_by_file.get(item["file"])
+        if old is None:
+            merged.append(item)
+            continue
+        if old.get("locked"):
+            # Locked entries stay untouched, like every other scan mode.
+            merged.append(old)
+            continue
+        fresh = dict(item)
+        for key in _METADATA_RESET_KEEP_KEYS:
+            if old.get(key) is not None:
+                fresh[key] = old[key]
+        merged.append(fresh)
+    return merged
+
+
 def _patches_index_needs_autoscan(json_path: Path) -> bool:
     if not json_path.is_file():
         return True
@@ -454,7 +484,17 @@ async def _game_name_values_for_app_id_change(
 
 
 async def _game_name_for_app_id(app_id: str) -> str | None:
+    if _nextmoe_mode_enabled():
+        from scan_patches import _nextmoe_name_for_app_id
+
+        try:
+            name = await asyncio.to_thread(_nextmoe_name_for_app_id, str(app_id))
+        except Exception as exc:
+            logger.warning("NextMoe name lookup failed for app_id=%s: %s", app_id, exc)
+            return None
+        return name or None
     from scan_patches import _fetch_game_name
+
     try:
         name = await asyncio.to_thread(_fetch_game_name, int(app_id))
     except Exception as exc:
@@ -952,33 +992,6 @@ async def list_patches(session: AsyncSession = Depends(get_session), user: User 
     needs_scan = _patches_index_needs_autoscan(json_path)
     patches = [_enrich_patch_record(p) for p in _load_all_patches(index_dir)]
 
-    # Suggest DB matches for display only. Do not write internal game IDs into Steam app_id.
-    if patches:
-        try:
-            from models.game import Game as _Game
-            result = await session.execute(
-                select(_Game).where(_Game.is_deleted == False).options(joinedload(_Game.company))
-            )
-            games = result.unique().scalars().all()
-
-            for p in patches:
-                if _valid_app_id(p.get("app_id")):
-                    continue
-                for game in games:
-                    pseudo = SteamGameInfo(
-                        app_id=str(game.steam_id or ""),
-                        name=game.name or "",
-                        install_dir=game.folder_path.split("/")[-1] if game.folder_path else "",
-                    )
-                    if _patch_matches_game(p, pseudo):
-                        p["matched_game"] = game.name
-                        p["matched_company"] = game.company.name if game.company else None
-                        if game.steam_id:
-                            p["suggested_app_id"] = game.steam_id
-                        break
-        except Exception:
-            pass
-
     return {
         "patches": patches,
         "count": len(patches),
@@ -1226,22 +1239,85 @@ async def update_patch(lookup_key: str, body: PatchUpdate, user: User = Depends(
 
 # Patch scan endpoint
 
+_patch_scan_state: dict = {
+    "status": "idle",
+    "processed": 0,
+    "total": 0,
+    "current": "",
+    "stage": "",
+    "scanned": 0,
+    "error": "",
+    "started_at": 0.0,
+    "finished_at": 0.0,
+}
+_patch_scan_state_lock = threading.Lock()
+
+
+def _set_patch_scan_state(**values) -> None:
+    with _patch_scan_state_lock:
+        _patch_scan_state.update(values)
+
+
+@router.get("/scan-patches/status")
+async def patch_scan_status(user: User = Depends(get_current_user)):
+    """Return the current patch scan progress."""
+    with _patch_scan_state_lock:
+        return dict(_patch_scan_state)
+
+
 @router.post("/scan-patches")
-async def scan_patches_endpoint(user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    """Re-scan all configured patch roots and regenerate patches.json."""
+async def scan_patches_endpoint(
+    mode: str = Query(default="merge"),
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-scan all configured patch roots and regenerate patches.json.
+
+    mode=merge keeps configured metadata for files that still exist;
+    mode=metadata rebuilds metadata but keeps rules and locks;
+    mode=reset rebuilds the index from disk only.
+    """
+    scan_mode = str(mode or "merge").strip().lower()
+    if scan_mode not in {"merge", "metadata", "reset"}:
+        raise HTTPException(status_code=400, detail="mode 只能是 merge、metadata 或 reset")
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
+    with _patch_scan_state_lock:
+        if _patch_scan_state.get("status") == "running":
+            raise HTTPException(status_code=409, detail="补丁扫描已在进行中")
+        _patch_scan_state.update({
+            "status": "running",
+            "processed": 0,
+            "total": 0,
+            "current": "",
+            "stage": "列举文件",
+            "scanned": 0,
+            "error": "",
+            "started_at": time.time(),
+            "finished_at": 0.0,
+        })
+
+    def on_progress(index: int, total: int, name: str) -> None:
+        _set_patch_scan_state(processed=index, total=total, current=name)
+
     try:
         from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
 
         scanned = []
         roots = await _patch_roots(session)
-        for root in roots:
+        stage_suffix = "（含 NextMoe 补全）" if _nextmoe_mode_enabled() else ""
+        for root_index, root in enumerate(roots, start=1):
             analysis_mode = _normalize_analysis_mode(
                 getattr(root, "analysis_mode", None),
                 root.source_type,
+            )
+            _set_patch_scan_state(
+                stage=f"扫描根目录 {root_index}/{len(roots)}{stage_suffix}",
+                processed=0,
+                total=0,
+                current="",
             )
             if root.source_type == "openlist":
                 result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
@@ -1254,11 +1330,14 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
                     "openlist",
                     root.source_id,
                     analysis_mode,
+                    on_progress,
                 ))
                 continue
 
             root_path = Path(root.path)
-            local_scanned = await asyncio.to_thread(scan_patches_dir, root_path, analysis_mode)
+            local_scanned = await asyncio.to_thread(
+                scan_patches_dir, root_path, analysis_mode, on_progress
+            )
             for item in local_scanned:
                 item["source_type"] = "local"
                 item["source_id"] = None
@@ -1271,9 +1350,17 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
             scanned.extend(local_scanned)
 
         json_path = index_dir / "patches.json"
-        existing = load_existing(json_path)
-        existing_list = existing.get("patches", []) if existing else []
-        merged_patches = _normalize_patch_records(merge(existing_list, scanned))
+        if scan_mode == "reset":
+            existing_list = []
+        else:
+            existing = load_existing(json_path)
+            existing_list = existing.get("patches", []) if existing else []
+        if scan_mode == "metadata":
+            merged_patches = _normalize_patch_records(
+                _merge_metadata_reset(existing_list, scanned)
+            )
+        else:
+            merged_patches = _normalize_patch_records(merge(existing_list, scanned))
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
         logger.info(
@@ -1283,9 +1370,22 @@ async def scan_patches_endpoint(user: User = Depends(require_admin), session: As
             len(merged_patches),
             json_path,
         )
+        _set_patch_scan_state(
+            status="completed",
+            stage="完成",
+            current="",
+            scanned=len(scanned),
+            finished_at=time.time(),
+        )
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}
     except Exception as e:
         logger.error(f"Patch scan failed: {e}")
+        _set_patch_scan_state(
+            status="failed",
+            stage="失败",
+            error=str(e),
+            finished_at=time.time(),
+        )
         raise HTTPException(status_code=500, detail="Patch scan failed; check server logs")
 
 # Patch type keywords API
@@ -1384,12 +1484,6 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
             status="locked",
         )
     from scan_patches import _extract_game_name, _search_steam_app_id, _fetch_game_name
-    game_name_candidate = _extract_game_name(filename)
-
-    try:
-        new_id = await _asyncio.to_thread(_search_steam_app_id, game_name_candidate)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Steam API 查询失败: {e}")
 
     result = RescrapeResult(
         lookup_key=lookup_key,
@@ -1398,21 +1492,42 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
         status="not_found",
     )
 
-    if new_id:
-        target["app_id"] = new_id
-        result.new_app_id = str(new_id)
-        result.status = "updated"
-        # Also fetch game name
+    if _nextmoe_mode_enabled():
+        from scan_patches import _nextmoe_match_by_name
+
+        new_id, nextmoe_title = await _asyncio.to_thread(
+            _nextmoe_match_by_name, filename
+        )
+        if new_id:
+            target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
+            result.new_app_id = str(new_id)
+            result.status = "updated"
+            if nextmoe_title:
+                target["game_name"] = nextmoe_title
+                result.game_name = nextmoe_title
+        elif old_app_id:
+            result.new_app_id = old_app_id
+    else:
+        game_name_candidate = _extract_game_name(filename)
         try:
-            name = await _asyncio.to_thread(_fetch_game_name, new_id)
-            if name:
-                target["game_name"] = name
-                result.game_name = name
-        except Exception:
-            pass
-    elif old_app_id:
-        result.status = "skipped"
-        result.new_app_id = old_app_id
+            new_id = await _asyncio.to_thread(_search_steam_app_id, game_name_candidate)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Steam API 查询失败: {e}")
+
+        if new_id:
+            target["app_id"] = new_id
+            result.new_app_id = str(new_id)
+            result.status = "updated"
+            # Also fetch game name
+            try:
+                name = await _asyncio.to_thread(_fetch_game_name, new_id)
+                if name:
+                    target["game_name"] = name
+                    result.game_name = name
+            except Exception:
+                pass
+        elif old_app_id:
+            result.new_app_id = old_app_id
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -1445,7 +1560,13 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="patches.json 格式错误")
 
     patches = data.get("patches", [])
-    from scan_patches import _extract_game_name, _search_steam_app_id, _fetch_game_name
+    from scan_patches import (
+        _extract_game_name,
+        _fetch_game_name,
+        _nextmoe_match_by_name,
+        _search_steam_app_id,
+    )
+    nextmoe_mode = _nextmoe_mode_enabled()
 
     results: list[RescrapeResult] = []
 
@@ -1453,7 +1574,6 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
         filename = p.get("file", "").split("/")[-1]
         old_id = str(p.get("app_id", "") or "")
         lookup = old_id or p.get("file", "")
-        game_name_candidate = _extract_game_name(filename)
 
         r = RescrapeResult(lookup_key=lookup, file=filename, old_app_id=old_id)
 
@@ -1463,8 +1583,26 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
             r.status = "locked"
             return r
 
+        if nextmoe_mode:
+            new_id, nextmoe_title = await _asyncio.to_thread(
+                _nextmoe_match_by_name, filename
+            )
+            if new_id:
+                if new_id.isdigit():
+                    p["app_id"] = new_id
+                r.new_app_id = str(new_id)
+                r.status = "updated"
+                if nextmoe_title:
+                    p["game_name"] = nextmoe_title
+                    r.game_name = nextmoe_title
+            else:
+                r.new_app_id = old_id
+                r.status = "not_found"
+            return r
+
+        game_name_candidate = _extract_game_name(filename)
         if not game_name_candidate:
-            r.status = "skipped"
+            r.status = "not_found"
             return r
 
         try:
@@ -1484,10 +1622,8 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
                     r.game_name = name
             except Exception:
                 pass
-        elif old_id:
-            r.new_app_id = old_id
-            r.status = "skipped"
         else:
+            r.new_app_id = old_id
             r.status = "not_found"
 
         return r
@@ -1513,6 +1649,18 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
         "total": len(patches),
         "results": [r.model_dump() for r in results],
     }
+
+
+# NextMoe mode helpers
+
+def _nextmoe_mode_enabled() -> bool:
+    config = load_config()
+    enabled = [
+        str(source).strip().lower()
+        for source in (config.scrapers.enabled_scrapers or [])
+    ]
+    return enabled == ["nextmoe"]
+
 
 
 # Steam game name resolution

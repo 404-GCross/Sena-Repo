@@ -10,6 +10,7 @@ import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../services/api_client.dart";
+import "../services/nextmoe_oauth.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
@@ -58,6 +59,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   String? _importError;
   String? _importDone;
   String? _importOwner;
+  String _oauthRequestId = "";
+  String _oauthName = "";
+  String _oauthUserId = "";
+  bool _oauthBusy = false;
 
   final _userCtrl = TextEditingController(text: "admin");
   final _passCtrl = TextEditingController();
@@ -202,6 +207,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   .where((source) => _scraperEnabled[source] ?? false)
                   .toList(),
           "nextmoe_api_key": _nextmoeApiKeyCtrl.text.trim(),
+          "oauth_request_id": _oauthRequestId,
         }),
       );
       if (resp.statusCode != 200) {
@@ -745,41 +751,48 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildAdminStep({required bool compact}) {
-    final primary = _setupCard(
-      title: "服主信息",
-      icon: Icons.manage_accounts_outlined,
-      child: Column(
-        children: [
-          TextField(
-            controller: _userCtrl,
-            decoration: const InputDecoration(
-              labelText: "服主用户名",
-              prefixIcon: Icon(Icons.person),
-            ),
-            onChanged: (_) => setState(() {}),
+    final primary = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _setupCard(
+          title: "服主信息",
+          icon: Icons.manage_accounts_outlined,
+          child: Column(
+            children: [
+              TextField(
+                controller: _userCtrl,
+                decoration: const InputDecoration(
+                  labelText: "服主用户名",
+                  prefixIcon: Icon(Icons.person),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppGap.md),
+              TextField(
+                controller: _passCtrl,
+                decoration: const InputDecoration(
+                  labelText: "密码",
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                obscureText: true,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppGap.md),
+              TextField(
+                controller: _passConfirmCtrl,
+                decoration: const InputDecoration(
+                  labelText: "确认密码",
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                obscureText: true,
+                onChanged: (_) => setState(() {}),
+              ),
+            ],
           ),
-          const SizedBox(height: AppGap.md),
-          TextField(
-            controller: _passCtrl,
-            decoration: const InputDecoration(
-              labelText: "密码",
-              prefixIcon: Icon(Icons.lock),
-            ),
-            obscureText: true,
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: AppGap.md),
-          TextField(
-            controller: _passConfirmCtrl,
-            decoration: const InputDecoration(
-              labelText: "确认密码",
-              prefixIcon: Icon(Icons.lock),
-            ),
-            obscureText: true,
-            onChanged: (_) => setState(() {}),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: AppGap.md),
+        _oauthBindingCard(),
+      ],
     );
     final passwordMatches = _passCtrl.text == _passConfirmCtrl.text;
     final side = Column(
@@ -818,12 +831,134 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           rows: {
             "用户": _userCtrl.text.trim().isEmpty ? "未填写" : _userCtrl.text.trim(),
             "密码": _passCtrl.text.isEmpty ? "未填写" : "已填写",
+            "NextMoe": _oauthRequestId.isEmpty
+                ? "未绑定（可选）"
+                : "已绑定${_oauthName.isEmpty ? "" : "：$_oauthName"}",
             "权限": "服主",
           },
         ),
       ],
     );
     return _twoColumn(primary, side, compact: compact);
+  }
+
+  Widget _nextmoeMark() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(9),
+      child: Image.asset(
+        nextmoeSourceIcon,
+        width: 34,
+        height: 34,
+        fit: BoxFit.cover,
+      ),
+    );
+  }
+
+  Widget _oauthBindingCard() {
+    final bound = _oauthRequestId.isNotEmpty;
+    final subtitle = bound
+        ? "${_oauthName.isEmpty ? "已绑定 NextMoe 账号" : _oauthName}"
+            "${_oauthUserId.isEmpty ? "" : " · NextMoe ID $_oauthUserId"}"
+        : "绑定后可用 NextMoe 账号免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
+    return _setupCard(
+      title: "NextMoe 账号（可选）",
+      icon: Icons.link_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _nextmoeMark(),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bound ? "已绑定" : "未绑定",
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: bound ? Colors.green : null,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.5,
+                        color: hintColor(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppGap.md),
+          if (bound)
+            OutlinedButton.icon(
+              onPressed: _oauthBusy
+                  ? null
+                  : () => setState(() {
+                        _oauthRequestId = "";
+                        _oauthName = "";
+                        _oauthUserId = "";
+                      }),
+              icon: const Icon(Icons.link_off, size: 18),
+              label: const Text("解除绑定"),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: BorderSide(color: Colors.red.withValues(alpha: 0.45)),
+              ),
+            )
+          else
+            FilledButton.icon(
+              onPressed: _oauthBusy ? null : _bindOauth,
+              icon: _oauthBusy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.link, size: 18),
+              label: Text(_oauthBusy ? "等待浏览器授权…" : "绑定 NextMoe 账号"),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _bindOauth() async {
+    if (_oauthBusy) return;
+    setState(() {
+      _oauthBusy = true;
+      _error = null;
+    });
+    final outcome = await NextmoeOAuth.authorize(widget.api, purpose: "setup");
+    if (!mounted) return;
+    setState(() => _oauthBusy = false);
+    switch (outcome.kind) {
+      case NextmoeAuthKind.bound:
+        setState(() {
+          _oauthRequestId = outcome.requestId;
+          _oauthName = outcome.boundName;
+          _oauthUserId = outcome.boundUserId;
+        });
+        return;
+      case NextmoeAuthKind.error:
+        if (outcome.cancelled) return;
+        setState(() => _error = outcome.error);
+        return;
+      case NextmoeAuthKind.pending:
+      case NextmoeAuthKind.rejected:
+      case NextmoeAuthKind.session:
+        return;
+    }
   }
 
   Widget _buildDirectoryStep({required bool compact}) {

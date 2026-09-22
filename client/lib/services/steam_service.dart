@@ -227,10 +227,22 @@ class SteamService {
   }
 
   /// Trigger server-side patch directory scan.
-  static Future<Map<String, dynamic>> scanPatches(ApiClient api) async {
-    final resp = await http.post(Uri.parse("${api.baseUrl}/api/steam/scan-patches"), headers: api.headers);
+  static Future<Map<String, dynamic>> scanPatches(ApiClient api, {String mode = "merge"}) async {
+    final uri = Uri.parse("${api.baseUrl}/api/steam/scan-patches")
+        .replace(queryParameters: {"mode": mode});
+    final resp = await http.post(uri, headers: api.headers);
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
     throw HttpException("Failed to scan patches: ${resp.statusCode}");
+  }
+
+  /// Current patch scan progress reported by the server.
+  static Future<Map<String, dynamic>> patchScanStatus(ApiClient api) async {
+    final resp = await http.get(
+      Uri.parse("${api.baseUrl}/api/steam/scan-patches/status"),
+      headers: api.headers,
+    );
+    if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
+    throw HttpException("Failed to read patch scan status: ${resp.statusCode}");
   }
 
   /// Ask the server for a short-lived signed URL so aria2 can fetch the patch

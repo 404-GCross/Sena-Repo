@@ -29,6 +29,18 @@ def _parse_positive_int(value, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _parse_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
 SCRAPER_SOURCE_ORDER = ["hikarinagi", "vndb_kana", "bangumi", "steam", "nextmoe"]
 DEFAULT_ENABLED_SCRAPERS = ["hikarinagi", "vndb_kana", "bangumi", "steam"]
 
@@ -101,6 +113,14 @@ class ScraperConfig:
 
 
 @dataclass
+class OAuthConfig:
+    enabled: bool = True
+    issuer: str = "https://account.nextmoe.com/api/v1"
+    client_id: str = "5b726fdccdb94ded61628f503e072ac5"
+    scopes: str = "openid profile"
+
+
+@dataclass
 class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     games_path: str = "/games"
@@ -110,6 +130,7 @@ class Config:
     proxy: str = ""
     custom_regex: list[CustomRegex] = field(default_factory=list)
     scrapers: ScraperConfig = field(default_factory=ScraperConfig)
+    oauth: OAuthConfig = field(default_factory=OAuthConfig)
 
     @property
     def database_url(self) -> str:
@@ -227,6 +248,10 @@ def load_config(config_path: str | None = None) -> Config:
             config.scrapers = ScraperConfig(
                 **_dataclass_kwargs(ScraperConfig, data["scrapers"])
             )
+        if "oauth" in data:
+            config.oauth = OAuthConfig(
+                **_dataclass_kwargs(OAuthConfig, data["oauth"])
+            )
 
     # 2. Env var overrides
     if os.environ.get("SENA_GAMES_PATH"):
@@ -261,6 +286,16 @@ def load_config(config_path: str | None = None) -> Config:
         config.scrapers.hikarinagi_scope = os.environ["SENA_HIKARINAGI_SCOPE"]
     if os.environ.get("SENA_NEXTMOE_API_KEY"):
         config.scrapers.nextmoe_api_key = os.environ["SENA_NEXTMOE_API_KEY"]
+
+    # NextMoe OAuth (public client, PKCE)
+    if os.environ.get("SENA_OAUTH_ENABLED"):
+        config.oauth.enabled = _parse_bool(os.environ["SENA_OAUTH_ENABLED"], False)
+    if os.environ.get("SENA_OAUTH_ISSUER"):
+        config.oauth.issuer = os.environ["SENA_OAUTH_ISSUER"].strip()
+    if os.environ.get("SENA_OAUTH_CLIENT_ID"):
+        config.oauth.client_id = os.environ["SENA_OAUTH_CLIENT_ID"].strip()
+    if os.environ.get("SENA_OAUTH_SCOPES"):
+        config.oauth.scopes = os.environ["SENA_OAUTH_SCOPES"].strip()
 
     # 3. CLI arg overrides
     if args.host:
