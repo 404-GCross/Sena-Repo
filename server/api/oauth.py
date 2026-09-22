@@ -132,7 +132,7 @@ async def _has_owner(session: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
-async def _exchange_code(config, code: str, flow: OAuthFlow) -> str:
+async def _exchange_code(config, code: str, flow: OAuthFlow) -> dict:
     payload = {
         "grant_type": "authorization_code",
         "code": code,
@@ -156,11 +156,23 @@ async def _exchange_code(config, code: str, flow: OAuthFlow) -> str:
         data = resp.json()
     except ValueError:
         raise HTTPException(status_code=502, detail="NextMoe 返回了无效的响应")
-    access_token = data.get("access_token")
-    if not access_token:
+    if not data.get("access_token"):
         logger.warning("OAuth token exchange returned no access_token")
         raise HTTPException(status_code=400, detail="NextMoe 授权失败，请重试")
-    return access_token
+    return data
+
+
+def _token_payload(tokens: dict) -> dict:
+    """NextMoe tokens handed to the client for user-scoped scraping."""
+    try:
+        expires_in = int(tokens.get("expires_in") or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    return {
+        "nextmoe_access_token": str(tokens.get("access_token") or ""),
+        "nextmoe_refresh_token": str(tokens.get("refresh_token") or ""),
+        "nextmoe_expires_in": expires_in,
+    }
 
 
 async def _fetch_userinfo(config, access_token: str) -> dict:
@@ -266,6 +278,7 @@ async def oauth_providers():
             "enabled": _is_enabled(),
             "name": PROVIDER_LABEL,
             "issuer": config.issuer,
+            "client_id": config.client_id.strip(),
         }
     }
 
@@ -340,7 +353,8 @@ async def oauth_complete(
     code = (body.code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="缺少授权码")
-    access_token = await _exchange_code(config, code, flow)
+    tokens = await _exchange_code(config, code, flow)
+    access_token = tokens["access_token"]
     profile = await _fetch_userinfo(config, access_token)
     subject = str(profile["sub"])
     name = str(profile.get("name") or "").strip()
@@ -350,7 +364,12 @@ async def oauth_complete(
         flow.subject = subject
         flow.name = name
         flow.oauth_id = _parse_oauth_id(profile.get("id"))
-        return {"bound": True, "name": name, "user_id": flow.oauth_id}
+        return {
+            "bound": True,
+            "name": name,
+            "user_id": flow.oauth_id,
+            **_token_payload(tokens),
+        }
 
     if flow.purpose == "bind":
         _flows.pop(body.request_id, None)
@@ -376,7 +395,12 @@ async def oauth_complete(
         user.oauth_user_id = _parse_oauth_id(profile.get("id"))
         await session.commit()
         logger.info("OAuth account bound: user_id=%s", user.id)
-        return {"bound": True, "name": name, "user_id": user.oauth_user_id}
+        return {
+            "bound": True,
+            "name": name,
+            "user_id": user.oauth_user_id,
+            **_token_payload(tokens),
+        }
 
     # purpose == "login"
     _flows.pop(body.request_id, None)
@@ -384,6 +408,24 @@ async def oauth_complete(
         select(User).where(User.oauth_subject == subject)
     )
     user = result.scalar_one_or_none()
+    if user is None:
+        oauth_id = _parse_oauth_id(profile.get("id"))
+        if oauth_id is not None:
+            pre_created = await session.execute(
+                select(User).where(
+                    User.oauth_provider == PROVIDER,
+                    User.oauth_user_id == oauth_id,
+                    User.oauth_subject.is_(None),
+                )
+            )
+            user = pre_created.scalar_one_or_none()
+            if user is not None:
+                user.oauth_subject = subject
+                user.oauth_name = name
+                await session.flush()
+                logger.info(
+                    "OAuth account auto-bound by user id: user_id=%s", user.id
+                )
     if user is None:
         username = await _derive_username(session, name, profile.get("id"))
         password_hash, salt = hash_password(secrets.token_urlsafe(32))
@@ -431,6 +473,7 @@ async def oauth_complete(
         "is_admin": user.role in ("owner", "admin"),
         "role": user.role,
         "username": user.username,
+        **_token_payload(tokens),
     }
 
 

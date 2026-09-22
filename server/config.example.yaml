@@ -72,4 +72,4 @@ oauth:
   enabled: true
   issuer: "https://account.nextmoe.com/api/v1"
   client_id: "5b726fdccdb94ded61628f503e072ac5"
-  scopes: "openid profile"
+  scopes: "openid profile catalog:read"
