@@ -12,6 +12,7 @@ import "package:file_picker/file_picker.dart";
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
+import "../utils/source_icons.dart";
 import "../services/api_response_utils.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_oauth.dart";
@@ -1184,27 +1185,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                                 child:
                                     CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(6),
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      Color(0xFF6366F1),
-                                      Color(0xFFA855F7),
-                                    ],
-                                  ),
-                                ),
-                                alignment: Alignment.center,
-                                child: const Text(
-                                  "未",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    height: 1.1,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                            : ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: Image.asset(
+                                  nextmoeSourceIcon,
+                                  width: 20,
+                                  height: 20,
+                                  fit: BoxFit.cover,
                                 ),
                               ),
                         label: Text(

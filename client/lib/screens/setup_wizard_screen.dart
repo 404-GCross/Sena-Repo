@@ -843,24 +843,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _nextmoeMark() {
-    return Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(11),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF6366F1), Color(0xFFA855F7)],
-        ),
-      ),
-      alignment: Alignment.center,
-      child: const Text(
-        "未",
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 15,
-          height: 1.1,
-          fontWeight: FontWeight.w700,
-        ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(9),
+      child: Image.asset(
+        nextmoeSourceIcon,
+        width: 34,
+        height: 34,
+        fit: BoxFit.cover,
       ),
     );
   }

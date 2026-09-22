@@ -12,6 +12,7 @@ import "../services/api_client.dart";
 import "../services/nextmoe_oauth.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
+import "../utils/source_icons.dart";
 import "../widgets/app_shell.dart";
 
 class ProfileEditScreen extends StatefulWidget {
@@ -200,24 +201,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Widget _nextmoeMark(double size) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.3),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF6366F1), Color(0xFFA855F7)],
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        "未",
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.45,
-          height: 1.1,
-          fontWeight: FontWeight.w700,
-        ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.25),
+      child: Image.asset(
+        nextmoeSourceIcon,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
       ),
     );
   }
