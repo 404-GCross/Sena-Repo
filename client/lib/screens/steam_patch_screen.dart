@@ -1014,7 +1014,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   OutlinedButton.icon(
                       onPressed: () => _jumpToServerPatch(m),
                       icon: const Icon(Icons.rule_folder_outlined, size: 16),
-                      label: Text("补丁配置",
+                      label: Text("跳转配置",
                           style: AppText.bodySmall
                               .copyWith(fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(
