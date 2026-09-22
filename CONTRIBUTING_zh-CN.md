@@ -140,7 +140,7 @@ flutter analyze --no-fatal-infos --no-fatal-warnings
 
 请确认：
 
-- README、文档站和 `CONTRIBUTING.md` 的功能描述一致
+- README、文档站和 `CONTRIBUTING_zh-CN.md` 的功能描述一致
 - 工作流名称、Flutter 版本、Docker 镜像标签和平台产物没有过期
 - 示例命令不包含真实路径、Token 或私有 URL
 

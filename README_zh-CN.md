@@ -83,7 +83,7 @@ Sena-Repo并非本地游戏管理器，而更像是由您自己完全掌控的�
 
 ## 贡献
 
-欢迎任何形式的贡献！请查看 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解如何开始。
+欢迎任何形式的贡献！请查看 [CONTRIBUTING_zh-CN.md](./CONTRIBUTING_zh-CN.md) 了解如何开始。
 
 ---
 
