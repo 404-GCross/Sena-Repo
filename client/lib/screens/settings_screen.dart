@@ -3528,6 +3528,9 @@ class _UserManagePageState extends State<_UserManagePage> {
   Future<void> _editUser(Map<String, dynamic> u) async {
     final nameCtrl = TextEditingController(text: u["username"] ?? "");
     final passCtrl = TextEditingController();
+    final nextmoeIdCtrl = TextEditingController(
+      text: u["oauth_user_id"]?.toString() ?? "",
+    );
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -3546,6 +3549,16 @@ class _UserManagePageState extends State<_UserManagePage> {
               obscureText: true,
               decoration:
                   const InputDecoration(labelText: "新密码（留空不修改）", isDense: true),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: nextmoeIdCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: "NextMoe 用户 ID",
+                helperText: "留空则解除现有绑定；修改后需重新登录完成绑定",
+                isDense: true,
+              ),
             ),
           ],
         ),
@@ -3566,6 +3579,13 @@ class _UserManagePageState extends State<_UserManagePage> {
     try {
       final body = <String, dynamic>{"username": nameCtrl.text.trim()};
       if (passCtrl.text.isNotEmpty) body["password"] = passCtrl.text;
+      final originalId = u["oauth_user_id"];
+      final nextmoeId = int.tryParse(nextmoeIdCtrl.text.trim());
+      if (nextmoeId != null && nextmoeId > 0) {
+        if (nextmoeId != originalId) body["nextmoe_user_id"] = nextmoeId;
+      } else if (originalId != null) {
+        body["clear_nextmoe"] = true;
+      }
       final resp = await http.put(
         Uri.parse("${widget.api.baseUrl}/api/auth/users/${u["id"]}"),
         headers: await _authHeaders,
@@ -3621,6 +3641,7 @@ class _UserManagePageState extends State<_UserManagePage> {
   Future<void> _createUser() async {
     final nameCtrl = TextEditingController();
     final passCtrl = TextEditingController();
+    final nextmoeIdCtrl = TextEditingController();
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -3637,7 +3658,21 @@ class _UserManagePageState extends State<_UserManagePage> {
             TextField(
               controller: passCtrl,
               obscureText: true,
-              decoration: const InputDecoration(labelText: "密码", isDense: true),
+              decoration: const InputDecoration(
+                labelText: "密码（可留空）",
+                helperText: "留空则只能使用 NextMoe 账号登录",
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: nextmoeIdCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: "NextMoe 用户 ID（可选）",
+                helperText: "填写后该用户首次 NextMoe 登录会自动完成绑定",
+                isDense: true,
+              ),
             ),
           ],
         ),
@@ -3646,7 +3681,13 @@ class _UserManagePageState extends State<_UserManagePage> {
               onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
           FilledButton(
             onPressed: () {
-              if (nameCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) return;
+              if (nameCtrl.text.trim().isEmpty) return;
+              final password = passCtrl.text;
+              if (password.isNotEmpty && password.length < 4) return;
+              final nextmoeId = nextmoeIdCtrl.text.trim();
+              if (nextmoeId.isNotEmpty && int.tryParse(nextmoeId) == null) {
+                return;
+              }
               Navigator.pop(ctx, true);
             },
             child: const Text("创建"),
@@ -3656,14 +3697,19 @@ class _UserManagePageState extends State<_UserManagePage> {
     );
     if (result != true) return;
     try {
+      final body = <String, dynamic>{
+        "username": nameCtrl.text.trim(),
+        "role": "user",
+      };
+      if (passCtrl.text.isNotEmpty) body["password"] = passCtrl.text;
+      final nextmoeId = int.tryParse(nextmoeIdCtrl.text.trim());
+      if (nextmoeId != null && nextmoeId > 0) {
+        body["nextmoe_user_id"] = nextmoeId;
+      }
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/auth/users"),
         headers: await _authHeaders,
-        body: jsonEncode({
-          "username": nameCtrl.text.trim(),
-          "password": passCtrl.text,
-          "role": "user"
-        }),
+        body: jsonEncode(body),
       );
       if (resp.statusCode == 200) {
         _loadUsers();
@@ -3675,6 +3721,67 @@ class _UserManagePageState extends State<_UserManagePage> {
     } catch (_) {
       if (mounted) _toast(context, "创建失败");
     }
+  }
+
+  Widget _nextmoeChip({
+    required String name,
+    required String userId,
+    bool pending = false,
+  }) {
+    final displayName = name.length > 12 ? "${name.substring(0, 12)}…" : name;
+    final idLabel = userId.isEmpty ? "" : " (#$userId)";
+    final label = pending
+        ? "未萌 · 待绑定$idLabel"
+        : "未萌 · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.indigo.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: Image.asset(
+              nextmoeSourceIcon,
+              width: 12,
+              height: 12,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.indigo,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plainChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 
   Widget _roleChip(String role) {
@@ -3706,8 +3813,7 @@ class _UserManagePageState extends State<_UserManagePage> {
     );
   }
 
-  Widget _statusChip(String status) {
-    Color color;
+  Widget _statusChip(String status) {    Color color;
     String label;
     switch (status) {
       case "active":
@@ -3939,9 +4045,23 @@ class _UserManagePageState extends State<_UserManagePage> {
                                   ],
                                 ),
                                 const SizedBox(height: 4),
-                                Wrap(spacing: 6, children: [
+                                Wrap(spacing: 6, runSpacing: 6, children: [
                                   _roleChip(role),
                                   _statusChip(status),
+                                  if (u["oauth_bound"] == true)
+                                    _nextmoeChip(
+                                      name: u["oauth_name"]?.toString() ?? "",
+                                      userId:
+                                          u["oauth_user_id"]?.toString() ?? "",
+                                    )
+                                  else if (u["oauth_user_id"] != null)
+                                    _nextmoeChip(
+                                      name: "",
+                                      userId: u["oauth_user_id"].toString(),
+                                      pending: true,
+                                    ),
+                                  if (u["password_set"] == false)
+                                    _plainChip("无本地密码", Colors.orange),
                                 ]),
                               ],
                             ),

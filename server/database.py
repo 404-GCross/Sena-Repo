@@ -260,6 +260,13 @@ async def create_tables():
             WHERE oauth_subject IS NOT NULL
             """
         )
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_users_oauth_user_id
+            ON users (oauth_provider, oauth_user_id)
+            WHERE oauth_user_id IS NOT NULL
+            """
+        )
         from utils.secrets import encrypt_secret, is_encrypted
 
         source_rows = await conn.exec_driver_sql(

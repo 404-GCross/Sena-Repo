@@ -99,6 +99,8 @@ def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
         return "服务器已完成初始化，请重试注册"
     if "users.username" in message:
         return "用户名已存在"
+    if "ix_users_oauth_user_id" in message or "users.oauth_user_id" in message:
+        return "该 NextMoe 用户 ID 已被使用"
     return None
 
 
@@ -278,6 +280,8 @@ class AdminUserUpdate(BaseModel):
     password: str | None = None
     is_admin: bool | None = None   # legacy; ignored if role is set
     role: str | None = None        # owner | admin | user (owner-only for admin/owner targets)
+    nextmoe_user_id: int | None = None
+    clear_nextmoe: bool = False
 
 
 # ── Auth endpoints ───────────────────────────────────────────────────────────
@@ -403,13 +407,18 @@ async def list_users(current: User = Depends(require_admin),
     users = result.scalars().all()
     return [{"id": u.id, "username": u.username, "role": u.role,
              "is_admin": u.role in ("owner", "admin"),
-             "status": u.status, "created_at": str(u.created_at)} for u in users]
+             "status": u.status, "created_at": str(u.created_at),
+             "oauth_bound": bool(u.oauth_subject),
+             "oauth_name": u.oauth_name or "",
+             "oauth_user_id": u.oauth_user_id,
+             "password_set": bool(u.password_set)} for u in users]
 
 
 class CreateUserRequest(BaseModel):
     username: str = Field(min_length=2, max_length=128)
-    password: str = Field(min_length=4, max_length=128)
+    password: str | None = Field(default=None, min_length=4, max_length=128)
     role: str = "user"
+    nextmoe_user_id: int | None = None
 
 
 @router.post("/users")
@@ -424,18 +433,52 @@ async def admin_create_user(body: CreateUserRequest,
     existing = await session.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="用户名已存在")
-    pw_hash, salt = hash_password(body.password)
+    nextmoe_user_id = body.nextmoe_user_id
+    if nextmoe_user_id is not None:
+        if nextmoe_user_id <= 0:
+            raise HTTPException(status_code=400, detail="NextMoe 用户 ID 无效")
+        taken = await session.execute(
+            select(User).where(
+                User.oauth_provider == "nextmoe",
+                User.oauth_user_id == nextmoe_user_id,
+            )
+        )
+        if taken.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="该 NextMoe 用户 ID 已被使用")
+    if body.password:
+        pw_hash, salt = hash_password(body.password)
+        password_set = True
+    else:
+        pw_hash, salt = hash_password(secrets.token_urlsafe(32))
+        password_set = False
     role = body.role if body.role in ("admin", "user") else "user"
-    user = User(username=body.username, password_hash=pw_hash, salt=salt,
-                role=role, is_admin=role == "admin", status="active")
+    user = User(
+        username=body.username,
+        password_hash=pw_hash,
+        salt=salt,
+        role=role,
+        is_admin=role == "admin",
+        status="active",
+        password_set=password_set,
+        oauth_provider="nextmoe" if nextmoe_user_id is not None else None,
+        oauth_user_id=nextmoe_user_id,
+    )
     session.add(user)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        detail = _integrity_conflict_detail(exc)
+        if detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise
     logger.info(
-        "User created by admin: actor_id=%s user_id=%s username=%s role=%s",
+        "User created by admin: actor_id=%s user_id=%s username=%s role=%s oauth_linked=%s",
         current.id,
         user.id,
         user.username,
         role,
+        nextmoe_user_id is not None,
     )
     return {"message": "创建成功", "user_id": user.id}
 
@@ -534,10 +577,42 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
         user.password_set = True
         await _revoke_user_sessions(user.id, session)
 
-    await session.commit()
+    if body.nextmoe_user_id is not None:
+        if body.nextmoe_user_id <= 0:
+            raise HTTPException(status_code=400, detail="NextMoe 用户 ID 无效")
+        if user.oauth_user_id != body.nextmoe_user_id:
+            taken = await session.execute(
+                select(User).where(
+                    User.oauth_provider == "nextmoe",
+                    User.oauth_user_id == body.nextmoe_user_id,
+                    User.id != user.id,
+                )
+            )
+            if taken.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=409, detail="该 NextMoe 用户 ID 已被使用"
+                )
+            user.oauth_provider = "nextmoe"
+            user.oauth_user_id = body.nextmoe_user_id
+            user.oauth_subject = None
+            user.oauth_name = None
+    elif body.clear_nextmoe:
+        user.oauth_provider = None
+        user.oauth_user_id = None
+        user.oauth_subject = None
+        user.oauth_name = None
+
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        detail = _integrity_conflict_detail(exc)
+        if detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise
     changed = [
         name
-        for name in ("username", "password", "role", "is_admin")
+        for name in ("username", "password", "role", "is_admin", "nextmoe_user_id")
         if getattr(body, name, None) is not None
     ]
     logger.info(
