@@ -785,7 +785,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.meta.outputs.version }}"
-          BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          BUILD_TIME="$(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M:%S UTC+8')"
           NOTES_SOURCE=".github/dev-pre-release-notes.md"
           git fetch --tags --force --prune
 
