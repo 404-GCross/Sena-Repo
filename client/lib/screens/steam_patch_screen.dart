@@ -1635,7 +1635,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   Divider(height: 1, color: cardBorder(context)),
                   const SizedBox(height: 10),
                   _patchDetailRow("Steam AppID", appId),
-                  _patchDetailRow("Steam 名称", steamName),
+                  _patchDetailRow("游戏名称", steamName),
                   _patchDetailRow("文件大小", size > 0 ? _formatSize(size) : ""),
                   _patchDetailRow(
                       "注入规则",
@@ -2146,7 +2146,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         TextField(
             controller: _gameNameCtrl,
             decoration: const InputDecoration(
-                labelText: "Steam 名称",
+                labelText: "游戏名称",
                 hintText: "留空则回退到显示名称 / 文件名",
                 isDense: true)),
         const SizedBox(height: 10),
