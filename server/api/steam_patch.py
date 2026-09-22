@@ -409,7 +409,7 @@ def _enrich_patch_record(patch: dict) -> dict:
 
 
 def _patch_display_name(item: dict) -> str:
-    """Prefer the scraped Steam name, then the derived label, then the filename."""
+    """Prefer the scraped game name, then the label, then the filename."""
     game_name = str(item.get("game_name") or "").strip()
     if game_name:
         return game_name
