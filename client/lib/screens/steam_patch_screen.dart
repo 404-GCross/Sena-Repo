@@ -1493,7 +1493,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         tooltip: "编辑元数据",
         onPressed: () => _showEditDialog(PatchMatch(
             appId: appId,
-            gameName: label.isNotEmpty ? label : displayFile.split("/").last,
+            gameName: displayName.isNotEmpty
+                ? displayName
+                : (label.isNotEmpty ? label : displayFile.split("/").last),
             steamName: steamName,
             installDir: "",
             patchAvailable: true,
@@ -2139,15 +2141,15 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         TextField(
             controller: _labelCtrl,
             decoration: const InputDecoration(
-                labelText: "显示名称 (label)",
-                hintText: "界面显示的补丁名",
+                labelText: "别名 / 短名",
+                hintText: "用于搜索与无 AppID 时的名称匹配",
                 isDense: true)),
         const SizedBox(height: 10),
         TextField(
             controller: _gameNameCtrl,
             decoration: const InputDecoration(
                 labelText: "游戏名称",
-                hintText: "留空则回退到显示名称 / 文件名",
+                hintText: "留空则回退到别名 / 文件名",
                 isDense: true)),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(
