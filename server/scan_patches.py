@@ -131,6 +131,7 @@ _NEXTMOE_LAST_CALL = 0.0
 _NEXTMOE_LOCK = threading.Lock()
 _NEXTMOE_MATCH_ACCEPT = 60
 _NEXTMOE_MATCH_MARGIN = 15
+_NEXTMOE_DETAIL_ENRICH_LIMIT = 3
 
 
 def _nextmoe_mode() -> bool:
@@ -305,29 +306,67 @@ def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
     query = _normalize_for_match(name)
     if not query:
         return "", ""
-    candidates: list[tuple[int, str, str]] = []
+    rows: list[tuple[int, str, str, str]] = []
     for item in _nextmoe_work_items(_extract_game_name(name) or name):
         app_id = _nextmoe_steam_id(item)
         if not app_id:
             continue
-        zh_title = _nextmoe_zh_title(item)
-        best_score = max(
+        rows.append(
             (
-                _name_match_score(query, _normalize_for_match(title))
-                for title in _nextmoe_candidate_titles(item)
-            ),
-            default=0,
+                _score_nextmoe_titles(query, item),
+                app_id,
+                _nextmoe_zh_title(item),
+                str(item.get("id") or ""),
+            )
         )
-        candidates.append((best_score, app_id, zh_title))
-    if not candidates:
+    if not rows:
         return "", ""
-    candidates.sort(key=lambda row: -row[0])
-    best = candidates[0]
+    rows.sort(key=lambda row: -row[0])
+    if rows[0][0] < _NEXTMOE_MATCH_ACCEPT:
+        # The list endpoint carries no `titles` block, so official English
+        # names and player aliases only show up on the detail endpoint.
+        rows = _enrich_nextmoe_rows(query, rows)
+        rows.sort(key=lambda row: -row[0])
+    best = rows[0]
     if best[0] < _NEXTMOE_MATCH_ACCEPT:
         return "", ""
-    if len(candidates) > 1 and best[0] - candidates[1][0] < _NEXTMOE_MATCH_MARGIN:
+    if len(rows) > 1 and best[0] - rows[1][0] < _NEXTMOE_MATCH_MARGIN:
         return "", ""
     return best[1], best[2]
+
+
+def _score_nextmoe_titles(query: str, item: dict) -> int:
+    return max(
+        (
+            _name_match_score(query, _normalize_for_match(title))
+            for title in _nextmoe_candidate_titles(item)
+        ),
+        default=0,
+    )
+
+
+def _enrich_nextmoe_rows(
+    query: str,
+    rows: list[tuple[int, str, str, str]],
+) -> list[tuple[int, str, str, str]]:
+    """Rescore the top candidates against their detail titles."""
+    enriched: list[tuple[int, str, str, str]] = []
+    for index, (score, app_id, zh_title, work_id) in enumerate(rows):
+        if index < _NEXTMOE_DETAIL_ENRICH_LIMIT and work_id:
+            detail = _nextmoe_work_detail(work_id)
+            if detail:
+                score = max(score, _score_nextmoe_titles(query, detail))
+                zh_title = _nextmoe_zh_title(detail) or zh_title
+        enriched.append((score, app_id, zh_title, work_id))
+    return enriched
+
+
+def _nextmoe_work_detail(work_id: str) -> dict:
+    payload = _nextmoe_get(
+        f"/catalog/works/{work_id}",
+        {"nsfw": "true", "include": "titles,refs"},
+    )
+    return payload if isinstance(payload, dict) else {}
 
 
 def _nextmoe_candidate_titles(item: dict) -> list[str]:
