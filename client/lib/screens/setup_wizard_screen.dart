@@ -30,7 +30,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "vndb_kana": "VNDB",
     "bangumi": "Bangumi",
     "steam": "Steam",
-    "nextmoe": "NextMoe",
+    "nextmoe": "鲲Galgame",
   };
   List<String> _scraperOrder = [
     "hikarinagi",
@@ -831,7 +831,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           rows: {
             "用户": _userCtrl.text.trim().isEmpty ? "未填写" : _userCtrl.text.trim(),
             "密码": _passCtrl.text.isEmpty ? "未填写" : "已填写",
-            "NextMoe": _oauthRequestId.isEmpty
+            "鲲Galgame": _oauthRequestId.isEmpty
                 ? "未绑定（可选）"
                 : "已绑定${_oauthName.isEmpty ? "" : "：$_oauthName"}",
             "权限": "服主",
@@ -857,11 +857,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Widget _oauthBindingCard() {
     final bound = _oauthRequestId.isNotEmpty;
     final subtitle = bound
-        ? "${_oauthName.isEmpty ? "已绑定 NextMoe 账号" : _oauthName}"
-            "${_oauthUserId.isEmpty ? "" : " · NextMoe ID $_oauthUserId"}"
-        : "绑定后可用 NextMoe 账号免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
+        ? "${_oauthName.isEmpty ? "已绑定 鲲Galgame账号" : _oauthName}"
+            "${_oauthUserId.isEmpty ? "" : " · 鲲Galgame ID $_oauthUserId"}"
+        : "绑定后可用 鲲Galgame账号 免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
     return _setupCard(
-      title: "NextMoe 账号（可选）",
+      title: "鲲Galgame账号（可选）",
       icon: Icons.link_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -926,7 +926,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       ),
                     )
                   : const Icon(Icons.link, size: 18),
-              label: Text(_oauthBusy ? "等待浏览器授权…" : "绑定 NextMoe 账号"),
+              label: Text(_oauthBusy ? "等待浏览器授权…" : "绑定 鲲Galgame账号"),
             ),
         ],
       ),
@@ -1290,7 +1290,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           stats: {
             "启用来源": "$enabledCount",
             "主来源": _scraperMode == "nextmoe"
-                ? "NextMoe"
+                ? "鲲Galgame"
                 : (_scraperLabels[_classicScraperOrder.first] ??
                     _classicScraperOrder.first),
             "凭据": _hikarinagiClientIdCtrl.text.trim().isEmpty &&
@@ -1341,7 +1341,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Widget _nextmoeCredentialsCard() {
     return _setupCard(
-      title: "NextMoe 凭据",
+      title: "鲲Galgame 凭据",
       icon: Icons.key_outlined,
       child: TextField(
         controller: _nextmoeApiKeyCtrl,
@@ -1796,7 +1796,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               duration: _modeSlideDuration,
               curve: Curves.easeInOutCubic,
               width: nextmoeWidth,
-              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
+              child: _scraperModeCard("nextmoe", "鲲Galgame 模式"),
             ),
           ],
         );
@@ -1952,7 +1952,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         _setupRow(
           icon: Icons.hub_outlined,
           leading: _scraperSourceLeading("nextmoe"),
-          title: _scraperLabels["nextmoe"] ?? "NextMoe",
+          title: _scraperLabels["nextmoe"] ?? "鲲Galgame",
           trailing: _credToggle("nextmoe", _nextmoeCredsOpen),
         ),
         if (_nextmoeCredsOpen) _nextmoeCredentialsCard(),

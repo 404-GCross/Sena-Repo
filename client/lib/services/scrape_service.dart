@@ -46,7 +46,7 @@ class ScrapeService {
       case "nextmoe":
         final client = api;
         if (client == null) {
-          throw NextmoeAuthRequiredException("请先使用 NextMoe 登录");
+          throw NextmoeAuthRequiredException("请先使用 鲲Galgame 登录");
         }
         return _searchNextmoe(query, client);
       default:
@@ -546,7 +546,7 @@ class ScrapeService {
     if (keyword.isEmpty) return const [];
     final token = await NextmoeTokenStore.getValidAccessToken(api);
     if (token == null || token.isEmpty) {
-      throw NextmoeAuthRequiredException("请先使用 NextMoe 登录");
+      throw NextmoeAuthRequiredException("请先使用 鲲Galgame 登录");
     }
     final headers = {
       "Accept": "application/json",
@@ -606,8 +606,8 @@ class ScrapeService {
     await NextmoeTokenStore.clear(api);
     throw NextmoeAuthRequiredException(
       statusCode == 403
-          ? "需要重新使用 NextMoe 登录以授权目录读取"
-          : "NextMoe 授权已失效，请重新登录",
+          ? "需要重新使用 鲲Galgame 登录以授权目录读取"
+          : "鲲Galgame 授权已失效，请重新登录",
     );
   }
 

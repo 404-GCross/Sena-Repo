@@ -701,7 +701,7 @@ class ApiClient {
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "无法发起 NextMoe 授权");
+    throw AuthException(data?["detail"]?.toString() ?? "无法发起 鲲Galgame 授权");
   }
 
   Future<Map<String, dynamic>> oauthComplete({
@@ -732,7 +732,7 @@ class ApiClient {
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "NextMoe 授权失败，请重试");
+    throw AuthException(data?["detail"]?.toString() ?? "鲲Galgame 授权失败，请重试");
   }
 
   Future<Map<String, dynamic>?> getOauthBinding() async {

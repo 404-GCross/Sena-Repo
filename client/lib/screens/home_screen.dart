@@ -904,7 +904,7 @@ class _HomeScreenState extends State<HomeScreen> {
         "bangumi" => "Bangumi",
         "steam" => "Steam",
         "hikarinagi" => "Hikarinagi",
-        "nextmoe" => "NextMoe",
+        "nextmoe" => "鲲Galgame",
         _ => s,
       };
 

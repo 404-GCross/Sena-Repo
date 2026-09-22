@@ -1134,7 +1134,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     "bangumi": "Bangumi",
     "steam": "Steam",
     "hikarinagi": "Hikarinagi",
-    "nextmoe": "NextMoe",
+    "nextmoe": "鲲Galgame",
   };
   static const _hikarinagiScopes = ["catalog:full", "catalog:read"];
   List<String> _scraperOrder = List<String>.from(_defaultScraperOrder);
@@ -2787,7 +2787,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "NextMoe 凭据",
+            "鲲Galgame 凭据",
             style: AppText.bodySmall.copyWith(
               fontWeight: FontWeight.w600,
               color: subTextColor(context),
@@ -2846,12 +2846,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         _toast(
           context,
           data["ok"] == true
-              ? "NextMoe 连接正常（${data["latency_ms"]}ms）"
-              : "NextMoe 连接失败: ${data["error"]}",
+              ? "鲲Galgame 连接正常（${data["latency_ms"]}ms）"
+              : "鲲Galgame 连接失败: ${data["error"]}",
         );
       }
     } catch (e) {
-      if (mounted) _toast(context, "NextMoe 连接失败: $e");
+      if (mounted) _toast(context, "鲲Galgame 连接失败: $e");
     } finally {
       if (mounted) setState(() => _testingNextMoe = false);
     }
@@ -3026,7 +3026,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               duration: _modeSlideDuration,
               curve: Curves.easeInOutCubic,
               width: nextmoeWidth,
-              child: _scraperModeCard("nextmoe", "NextMoe 模式"),
+              child: _scraperModeCard("nextmoe", "鲲Galgame 模式"),
             ),
           ],
         );
@@ -3555,7 +3555,7 @@ class _UserManagePageState extends State<_UserManagePage> {
               controller: nextmoeIdCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: "NextMoe 用户 ID",
+                labelText: "鲲Galgame 用户 ID",
                 helperText: "留空则解除现有绑定；修改后需重新登录完成绑定",
                 isDense: true,
               ),
@@ -3660,7 +3660,7 @@ class _UserManagePageState extends State<_UserManagePage> {
               obscureText: true,
               decoration: const InputDecoration(
                 labelText: "密码（可留空）",
-                helperText: "留空则只能使用 NextMoe 账号登录",
+                helperText: "留空则只能使用 鲲Galgame账号 登录",
                 isDense: true,
               ),
             ),
@@ -3669,8 +3669,8 @@ class _UserManagePageState extends State<_UserManagePage> {
               controller: nextmoeIdCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: "NextMoe 用户 ID（可选）",
-                helperText: "填写后该用户首次 NextMoe 登录会自动完成绑定",
+                labelText: "鲲Galgame 用户 ID（可选）",
+                helperText: "填写后该用户首次 鲲Galgame 登录会自动完成绑定",
                 isDense: true,
               ),
             ),
@@ -3731,8 +3731,8 @@ class _UserManagePageState extends State<_UserManagePage> {
     final displayName = name.length > 12 ? "${name.substring(0, 12)}…" : name;
     final idLabel = userId.isEmpty ? "" : " (#$userId)";
     final label = pending
-        ? "未萌 · 待绑定$idLabel"
-        : "未萌 · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
+        ? "鲲Galgame · 待绑定$idLabel"
+        : "鲲Galgame · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(

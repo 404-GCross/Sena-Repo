@@ -1069,7 +1069,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Widget _nextmoeLoginButton({
     required bool busy,
     required VoidCallback? onPressed,
-    String label = "使用 NextMoe·未萌 账号登录",
+    String label = "使用 鲲Galgame账号 登录",
   }) {
     return SizedBox(
       width: double.infinity,
@@ -1144,8 +1144,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
         await _showOauthNotice(
           title: "等待管理员审批",
           message: "已提交注册申请，用户名 ${outcome.username}。\n\n"
-              "管理员审批通过后即可用 NextMoe 账号登录本服务器。"
-              "用户名由 NextMoe 昵称自动派生，审批通过后可在「设置 → 个人信息」修改。",
+              "管理员审批通过后即可用 鲲Galgame账号 登录本服务器。"
+              "用户名由 鲲Galgame 昵称自动派生，审批通过后可在「设置 → 个人信息」修改。",
         );
         break;
       case NextmoeAuthKind.rejected:
@@ -1323,7 +1323,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     const SizedBox(height: 12),
                     _nextmoeLoginButton(
                       busy: oauthBusy,
-                      label: "使用 NextMoe·未萌 账号登录 / 注册",
+                      label: "使用 鲲Galgame账号 登录 / 注册",
                       onPressed:
                           oauthBusy ? null : () => startNextmoe(ctx, setD),
                     ),

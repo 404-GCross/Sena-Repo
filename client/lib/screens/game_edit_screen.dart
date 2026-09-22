@@ -2800,12 +2800,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
               borderRadius: BorderRadius.circular(16),
             ),
             title: const Text(
-              "请先使用 NextMoe 登录",
+              "请先使用 鲲Galgame 登录",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             content: const Text(
-              "NextMoe 模式下搜索元数据需要你的 NextMoe 账号授权。\n\n"
-              "前往「设置 → 个人信息」绑定 NextMoe 账号后即可使用。",
+              "鲲Galgame 模式下搜索元数据需要你的 鲲Galgame账号 授权。\n\n"
+              "前往「设置 → 个人信息」绑定 鲲Galgame账号 后即可使用。",
               style: TextStyle(fontSize: 13, height: 1.6),
             ),
             actions: [
@@ -3216,7 +3216,7 @@ const _allMetadataSources = {
   "bangumi": "Bangumi",
   "steam": "Steam",
   "hikarinagi": "Hikarinagi",
-  "nextmoe": "NextMoe",
+  "nextmoe": "鲲Galgame",
 };
 
 /// Hikarinagi and NextMoe need server-held credentials, so their search
@@ -3227,7 +3227,7 @@ const _serverSideMetadataSources = {"hikarinagi"};
 /// offers NextMoe, mirroring the server-side scraper settings.
 Map<String, String> _metadataSourcesFor(List<String> enabled) {
   if (enabled.contains("nextmoe")) {
-    return const {"nextmoe": "NextMoe"};
+    return const {"nextmoe": "鲲Galgame"};
   }
   return {
     for (final entry in _allMetadataSources.entries)
