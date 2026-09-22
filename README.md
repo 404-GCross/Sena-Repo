@@ -4,7 +4,7 @@
 
 # Sena Repo
 
-[English](README.md) | [简体中文](README_CN.md)
+[English](README.md) | [简体中文](README_zh-CN.md)
 
 ![Release](https://img.shields.io/github/v/release/404-GCross/Sena-Repo)
 ![Downloads](https://img.shields.io/github/downloads/404-GCross/Sena-Repo/total)
