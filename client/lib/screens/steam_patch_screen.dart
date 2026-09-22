@@ -1851,6 +1851,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
   bool _saving = false;
   bool _rescraping = false;
   bool _loadingDialogOpen = false;
+  bool _savedAny = false;
 
   @override
   void initState() {
@@ -1964,6 +1965,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       }
       if (newId.isNotEmpty && newId != "None") _appIdCtrl.text = newId;
       if (name.isNotEmpty) _gameNameCtrl.text = name;
+      if (status == "updated") _savedAny = true;
       await _showResultDialog(message, error: error);
     } catch (e) {
       if (!mounted) return;
@@ -1974,38 +1976,69 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
     }
   }
 
-  Future<void> _save() async {
+  Future<void> _saveMetadata() async {
+    final appId = _appIdCtrl.text.trim();
+    if (appId.isNotEmpty && int.tryParse(appId) == null) {
+      await _showResultDialog("Steam App ID 需为数字", error: true);
+      return;
+    }
     setState(() => _saving = true);
     try {
-      final rules = _rulesKey.currentState;
-      final patchDir =
-          (rules?.patchDirValue ?? widget.match.patchDir ?? "").trim();
-      final targetDir =
-          (rules?.targetDirValue ?? widget.match.targetDir ?? "").trim();
       await SteamService.updatePatch(
         api: widget.api,
-        appId: _appIdCtrl.text.trim(),
+        appId: appId,
         file: widget.match.patchFilename,
         lookupKey: widget.match.patchLookupKey,
         label: _labelCtrl.text.trim(),
         gameName: _gameNameDirty ? _gameNameCtrl.text.trim() : null,
         type: _type,
       );
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _savedAny = true;
+      });
+      _showSavedToast("元数据已保存");
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      await _showResultDialog("保存失败: $e", error: true);
+    }
+  }
+
+  Future<void> _saveManifest() async {
+    final rules = _rulesKey.currentState;
+    final patchDir =
+        (rules?.patchDirValue ?? widget.match.patchDir ?? "").trim();
+    final targetDir =
+        (rules?.targetDirValue ?? widget.match.targetDir ?? "").trim();
+    setState(() => _saving = true);
+    try {
       await SteamService.updatePatchManifest(
         api: widget.api,
-        appId: _appIdCtrl.text.trim(),
+        appId: "",
         file: widget.match.patchFilename,
         lookupKey: widget.match.patchLookupKey,
         patchDir: patchDir,
         targetDir: targetDir,
       );
       if (!mounted) return;
-      Navigator.pop(context, true);
+      setState(() {
+        _saving = false;
+        _savedAny = true;
+      });
+      _showSavedToast("补丁配置已保存");
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       await _showResultDialog("保存失败: $e", error: true);
     }
+  }
+
+  void _showSavedToast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
   }
 
   @override
@@ -2068,18 +2101,22 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextButton(
-              onPressed: _saving ? null : () => Navigator.pop(context),
-              child: const Text("取消"),
+              onPressed: _saving
+                  ? null
+                  : () => Navigator.pop(context, _savedAny ? true : null),
+              child: const Text("关闭"),
             ),
             const SizedBox(width: 8),
             FilledButton(
-              onPressed: _saving || _rescraping ? null : _save,
+              onPressed: _saving || _rescraping
+                  ? null
+                  : (_tabIndex == 0 ? _saveMetadata : _saveManifest),
               child: _saving
                   ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("保存"),
+                  : Text(_tabIndex == 0 ? "保存元数据" : "保存配置"),
             ),
           ],
         ),
