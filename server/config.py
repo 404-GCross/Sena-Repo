@@ -116,7 +116,7 @@ class ScraperConfig:
 class OAuthConfig:
     enabled: bool = False
     issuer: str = "https://account.nextmoe.com/api/v1"
-    client_id: str = ""
+    client_id: str = "5b726fdccdb94ded61628f503e072ac5"
     scopes: str = "openid profile"
 
 
