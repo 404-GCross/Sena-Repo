@@ -4,7 +4,17 @@
 import "dart:convert";
 import "dart:math" as math;
 
+import "api_client.dart";
 import "logged_http.dart" as http;
+import "nextmoe_token_store.dart";
+
+/// Raised when a NextMoe-backed scrape needs the user to log in again.
+class NextmoeAuthRequiredException implements Exception {
+  final String message;
+  NextmoeAuthRequiredException(this.message);
+  @override
+  String toString() => message;
+}
 
 class ScrapeService {
   static const int _maxScrapedTags = 20;
@@ -24,6 +34,7 @@ class ScrapeService {
     String source,
     String query, {
     String? proxy,
+    ApiClient? api,
   }) async {
     switch (source) {
       case "vndb_kana":
@@ -32,6 +43,12 @@ class ScrapeService {
         return _searchBangumi(query, proxy);
       case "steam":
         return _searchSteam(query, proxy);
+      case "nextmoe":
+        final client = api;
+        if (client == null) {
+          throw NextmoeAuthRequiredException("请先使用 NextMoe 登录");
+        }
+        return _searchNextmoe(query, client);
       default:
         return [];
     }
@@ -491,6 +508,522 @@ class ScrapeService {
     }
 
     return tags.take(_maxScrapedTags).toList();
+  }
+
+  // ── NextMoe (user OAuth token) ──
+
+  static const String _nextmoeApiBase = "https://api.nextmoe.dev/v2";
+  static const String _nextmoeUserAgent =
+      "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)";
+  static const int _nextmoeSearchLimit = 5;
+  static const int _nextmoeEnrichLimit = 3;
+  static const String _nextmoeListInclude =
+      "titles,refs,companies,intros,covers,tags,ratings";
+  static const String _nextmoeDetailInclude = "screenshots,playtimes";
+  static const Set<String> _nextmoeExternalSources = {
+    "vndb",
+    "bangumi",
+    "steam",
+  };
+  static const Set<String> _nextmoeChineseLangs = {
+    "zh-hans",
+    "zh-cn",
+    "zh-sg",
+    "zh",
+  };
+  static const Map<String, int> _nextmoeCompanyRoleRank = {
+    "developer": 0,
+    "brand": 0,
+    "circle": 0,
+    "publisher": 1,
+  };
+
+  static Future<List<Map<String, dynamic>>> _searchNextmoe(
+    String query,
+    ApiClient api,
+  ) async {
+    final keyword = query.trim();
+    if (keyword.isEmpty) return const [];
+    final token = await NextmoeTokenStore.getValidAccessToken(api);
+    if (token == null || token.isEmpty) {
+      throw NextmoeAuthRequiredException("请先使用 NextMoe 登录");
+    }
+    final headers = {
+      "Accept": "application/json",
+      "Authorization": "Bearer $token",
+      "User-Agent": _nextmoeUserAgent,
+    };
+    final uri = Uri.parse("$_nextmoeApiBase/catalog/works").replace(
+      queryParameters: {
+        "q": keyword,
+        "limit": "$_nextmoeSearchLimit",
+        "nsfw": "true",
+        "include": _nextmoeListInclude,
+      },
+    );
+    final resp = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 20));
+    await _throwIfNextmoeAuthError(resp.statusCode, api);
+    if (resp.statusCode != 200) return const [];
+    final payload = jsonDecode(resp.body);
+    if (payload is! Map) return const [];
+    final items = (payload["items"] as List?) ?? const [];
+
+    final results = <Map<String, dynamic>>[];
+    var enriched = 0;
+    for (final entry in items) {
+      if (entry is! Map) continue;
+      var candidate = _parseNextmoeWork(Map<String, dynamic>.from(entry));
+      if (candidate == null) continue;
+      final id = (candidate["source_id"] ?? "").toString();
+      if (id.isNotEmpty && enriched < _nextmoeEnrichLimit) {
+        enriched++;
+        final detail = await _nextmoeDetail(id, headers, api);
+        if (detail != null) {
+          candidate = {
+            ...candidate,
+            if ((detail["screenshots"] as List?)?.isNotEmpty == true)
+              "screenshots": detail["screenshots"],
+            if ((detail["hero_url"] ?? "").toString().isNotEmpty)
+              "hero_url": detail["hero_url"],
+            if ((detail["covers"] as List?)?.isNotEmpty == true)
+              "covers": detail["covers"],
+          };
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      results.add(candidate);
+    }
+    return _rankMetadataResults(keyword, results);
+  }
+
+  static Future<void> _throwIfNextmoeAuthError(
+    int statusCode,
+    ApiClient api,
+  ) async {
+    if (statusCode != 401 && statusCode != 403) return;
+    await NextmoeTokenStore.clear(api);
+    throw NextmoeAuthRequiredException(
+      statusCode == 403
+          ? "需要重新使用 NextMoe 登录以授权目录读取"
+          : "NextMoe 授权已失效，请重新登录",
+    );
+  }
+
+  static Future<Map<String, dynamic>?> _nextmoeDetail(
+    String workId,
+    Map<String, String> headers,
+    ApiClient api,
+  ) async {
+    final uri = Uri.parse("$_nextmoeApiBase/catalog/works/$workId").replace(
+      queryParameters: {
+        "nsfw": "true",
+        "include": "$_nextmoeListInclude,$_nextmoeDetailInclude",
+      },
+    );
+    try {
+      final resp = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 20));
+      await _throwIfNextmoeAuthError(resp.statusCode, api);
+      if (resp.statusCode != 200) return null;
+      final payload = jsonDecode(resp.body);
+      if (payload is! Map) return null;
+      return _parseNextmoeWork(Map<String, dynamic>.from(payload));
+    } on NextmoeAuthRequiredException {
+      rethrow;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _parseNextmoeWork(Map<String, dynamic> item) {
+    final id = (item["id"] ?? "").toString().trim();
+    final title = _nextmoeTitle(item);
+    if (id.isEmpty && title.isEmpty) return null;
+    final primaryCover = _nextmoeImageUrl(item["cover"]);
+    final covers = _nextmoeCoverCandidates(item["covers"], primaryCover);
+    return {
+      "title": title,
+      "developer": _nextmoeCompanies(item["companies"]),
+      "release_date": _nextmoeDate(item["release_date"]),
+      "description": _nextmoeDescription(item["intros"]),
+      "cover_url": primaryCover.isNotEmpty
+          ? primaryCover
+          : (covers.isNotEmpty ? covers.first : ""),
+      "covers": covers,
+      "hero_url": _nextmoeImageUrl(item["banner"]),
+      "screenshots": _nextmoeImageUrls(item["screenshots"]),
+      "external_ids": _nextmoeExternalIds(item["refs"]),
+      "source_id": id,
+      "is_nsfw": _nextmoeNsfw(item["content_rating"]),
+      "tags": _nextmoeTags(item["tags"]),
+    };
+  }
+
+  static String _nextmoeTitle(Map<String, dynamic> item) {
+    final localized = item["localized"];
+    if (localized is Map) {
+      var machine = "";
+      for (final entry in localized.entries) {
+        final lang = entry.key.toString().trim().toLowerCase();
+        if (!_nextmoeChineseLangs.contains(lang)) continue;
+        final parsed = _nextmoeLocalizedEntry(entry.value);
+        if (parsed.text.isEmpty) continue;
+        if (parsed.isMachine) {
+          if (machine.isEmpty) machine = parsed.text;
+        } else {
+          return parsed.text;
+        }
+      }
+      if (machine.isNotEmpty) return machine;
+    }
+    final display = (item["display_name"] ?? "").toString().trim();
+    if (display.isNotEmpty) return display;
+    return (item["latin"] ?? "").toString().trim();
+  }
+
+  static ({String text, bool isMachine}) _nextmoeLocalizedEntry(dynamic value) {
+    if (value is String) return (text: value.trim(), isMachine: false);
+    if (value is Map) {
+      final text = (value["value"] ?? value["text"] ?? "").toString().trim();
+      return (text: text, isMachine: value["is_machine"] == true);
+    }
+    return (text: "", isMachine: false);
+  }
+
+  static String _nextmoeCompanies(dynamic companies) {
+    if (companies is! List) return "";
+    final ranked = <(int, int, String)>[];
+    for (var index = 0; index < companies.length; index++) {
+      final entry = companies[index];
+      var name = "";
+      var role = "";
+      if (entry is String) {
+        name = entry.trim();
+      } else if (entry is Map) {
+        name = (entry["display_name"] ?? entry["name"] ?? "").toString().trim();
+        role =
+            (entry["attribution_role"] ?? "").toString().trim().toLowerCase();
+      }
+      if (name.isEmpty) continue;
+      ranked.add((_nextmoeCompanyRoleRank[role] ?? 2, index, name));
+    }
+    ranked.sort((a, b) {
+      final byRole = a.$1.compareTo(b.$1);
+      return byRole != 0 ? byRole : a.$2.compareTo(b.$2);
+    });
+    final names = <String>[];
+    for (final row in ranked) {
+      if (!names.contains(row.$3)) names.add(row.$3);
+    }
+    return names.take(3).join(", ");
+  }
+
+  static String _nextmoeDescription(dynamic intros) {
+    var authoredZh = "";
+    var machineZh = "";
+    var authored = "";
+    var machine = "";
+    void consider(String lang, String text, bool isMachine) {
+      if (text.isEmpty) return;
+      if (lang.startsWith("zh")) {
+        if (isMachine) {
+          if (machineZh.isEmpty) machineZh = text;
+        } else if (authoredZh.isEmpty) {
+          authoredZh = text;
+        }
+      } else if (isMachine) {
+        if (machine.isEmpty) machine = text;
+      } else if (authored.isEmpty) {
+        authored = text;
+      }
+    }
+
+    if (intros is Map) {
+      intros.forEach((key, entry) {
+        if (entry is Map) {
+          consider(
+            _nextmoeIntroLang(entry, key.toString()),
+            _nextmoeIntroText(entry),
+            entry["is_machine"] == true,
+          );
+        } else {
+          consider(
+            key.toString().trim().toLowerCase(),
+            entry?.toString().trim() ?? "",
+            false,
+          );
+        }
+      });
+    } else if (intros is List) {
+      for (final entry in intros) {
+        if (entry is String) {
+          consider("", entry.trim(), false);
+        } else if (entry is Map) {
+          consider(
+            _nextmoeIntroLang(entry, ""),
+            _nextmoeIntroText(entry),
+            entry["is_machine"] == true,
+          );
+        }
+      }
+    }
+
+    final best = authoredZh.isNotEmpty
+        ? authoredZh
+        : machineZh.isNotEmpty
+            ? machineZh
+            : authored.isNotEmpty
+                ? authored
+                : machine;
+    return best.length > 2000 ? best.substring(0, 2000) : best;
+  }
+
+  static String _nextmoeIntroText(Map entry) {
+    for (final key in const [
+      "intro",
+      "text",
+      "value",
+      "description",
+      "body",
+      "content",
+    ]) {
+      final text = (entry[key] ?? "").toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return "";
+  }
+
+  static String _nextmoeIntroLang(Map entry, String fallback) {
+    for (final key in const ["lang", "intro_lang", "language", "locale"]) {
+      final lang = (entry[key] ?? "").toString().trim().toLowerCase();
+      if (lang.isNotEmpty) return lang;
+    }
+    return fallback.trim().toLowerCase();
+  }
+
+  static Map<String, String> _nextmoeExternalIds(dynamic refs) {
+    final ids = <String, String>{};
+    void add(String source, String externalId) {
+      final key = source.trim().toLowerCase();
+      final id = externalId.trim();
+      if (!_nextmoeExternalSources.contains(key) ||
+          id.isEmpty ||
+          ids.containsKey(key)) {
+        return;
+      }
+      ids[key] = id;
+    }
+
+    if (refs is Map) {
+      refs.forEach((source, entry) => add(source.toString(), _nextmoeRefId(entry)));
+    } else if (refs is List) {
+      for (final entry in refs) {
+        if (entry is String) {
+          final index = entry.indexOf(":");
+          if (index > 0) {
+            add(entry.substring(0, index), entry.substring(index + 1));
+          }
+        } else if (entry is Map) {
+          add(
+            _nextmoeFirstText(
+              entry,
+              const ["source", "kind", "type", "provider"],
+            ),
+            _nextmoeRefId(entry),
+          );
+        }
+      }
+    }
+    return ids;
+  }
+
+  static String _nextmoeRefId(dynamic value) {
+    if (value is Map) {
+      return _nextmoeFirstText(
+        value,
+        const ["external_id", "id", "value", "slug"],
+      );
+    }
+    return value?.toString().trim() ?? "";
+  }
+
+  static String _nextmoeFirstText(Map entry, List<String> keys) {
+    for (final key in keys) {
+      final text = (entry[key] ?? "").toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return "";
+  }
+
+  static String _nextmoeImageUrl(dynamic value) {
+    if (value is String) {
+      final url = value.trim();
+      return (url.startsWith("http://") || url.startsWith("https://"))
+          ? url
+          : "";
+    }
+    if (value is Map) {
+      for (final key in const ["url", "image_url", "src"]) {
+        final url = _nextmoeImageUrl(value[key]);
+        if (url.isNotEmpty) return url;
+      }
+    }
+    return "";
+  }
+
+  static List<String> _nextmoeImageUrls(dynamic value) {
+    if (value is! List) return const [];
+    final urls = <String>[];
+    for (final entry in value) {
+      final url = _nextmoeImageUrl(entry);
+      if (url.isNotEmpty && !urls.contains(url)) urls.add(url);
+    }
+    return urls;
+  }
+
+  static List<String> _nextmoeCoverCandidates(dynamic covers, String primary) {
+    final portrait = <(int, String)>[];
+    final others = <String>[];
+    if (covers is List) {
+      for (final entry in covers) {
+        final url = _nextmoeCoverRowUrl(entry);
+        if (url.isEmpty) continue;
+        final size = _nextmoeCoverRowSize(entry);
+        if (size.$1 > 0 && size.$2 > size.$1) {
+          portrait.add((_nextmoeCoverRowVotes(entry), url));
+        } else {
+          others.add(url);
+        }
+      }
+    }
+    portrait.sort((a, b) => b.$1.compareTo(a.$1));
+    final ordered = <String>[];
+    for (final url in [
+      primary,
+      ...portrait.map((row) => row.$2),
+      ...others,
+    ]) {
+      if (url.isNotEmpty && !ordered.contains(url)) ordered.add(url);
+    }
+    return ordered.take(12).toList();
+  }
+
+  static String _nextmoeCoverRowUrl(dynamic value) {
+    var url = _nextmoeImageUrl(value);
+    if (url.isNotEmpty) return url;
+    if (value is Map) {
+      url = _nextmoeImageUrl(value["image"]);
+      if (url.isEmpty) url = _nextmoeImageUrl(value["media"]);
+    }
+    return url;
+  }
+
+  static (int, int) _nextmoeCoverRowSize(dynamic value) {
+    if (value is! Map) return (0, 0);
+    for (final candidate in [value, value["image"], value["media"]]) {
+      if (candidate is! Map) continue;
+      final width = int.tryParse(candidate["width"]?.toString() ?? "") ?? 0;
+      final height = int.tryParse(candidate["height"]?.toString() ?? "") ?? 0;
+      if (width > 0 && height > 0) return (width, height);
+    }
+    return (0, 0);
+  }
+
+  static int _nextmoeCoverRowVotes(dynamic value) {
+    if (value is! Map) return 0;
+    return int.tryParse(value["votes"]?.toString() ?? "") ?? 0;
+  }
+
+  static bool? _nextmoeNsfw(dynamic value) {
+    final rating = (value ?? "").toString().trim().toLowerCase();
+    if (rating == "r18") return true;
+    if (rating == "all_ages" || rating == "sensitive") return false;
+    return null;
+  }
+
+  static List<Map<String, dynamic>> _nextmoeTags(dynamic value) {
+    if (value is! List) return const [];
+    final result = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final entry in value) {
+      final parsed = _nextmoeTag(entry);
+      if (parsed.name.isEmpty || !seen.add(parsed.name.toLowerCase())) continue;
+      result.add({
+        "name": parsed.name,
+        "rating": parsed.rating,
+        "is_spoiler": parsed.spoiler,
+      });
+    }
+    result.sort(
+      (a, b) => (b["rating"] as double).compareTo(a["rating"] as double),
+    );
+    return result.take(_maxScrapedTags).toList();
+  }
+
+  static ({String name, double rating, bool spoiler}) _nextmoeTag(
+    dynamic entry,
+  ) {
+    if (entry is String) {
+      return (name: entry.trim(), rating: 0, spoiler: false);
+    }
+    if (entry is! Map) return (name: "", rating: 0, spoiler: false);
+    var name = "";
+    final rawName = entry["name"];
+    if (rawName is String) {
+      name = rawName.trim();
+    } else if (rawName is Map) {
+      for (final key in const [
+        "zh-cn",
+        "zh-Hans",
+        "zh-hans",
+        "zh",
+        "en",
+        "ja",
+      ]) {
+        final value = rawName[key];
+        if (value is String && value.trim().isNotEmpty) {
+          name = value.trim();
+          break;
+        }
+      }
+      if (name.isEmpty) {
+        for (final value in rawName.values) {
+          if (value is String && value.trim().isNotEmpty) {
+            name = value.trim();
+            break;
+          }
+        }
+      }
+    }
+    if (name.isEmpty) {
+      name = (entry["display_name"] ?? entry["slug"] ?? "").toString().trim();
+    }
+    var rating = 0.0;
+    for (final key in const ["rating", "score", "votes", "count"]) {
+      final parsed = double.tryParse(entry[key]?.toString() ?? "");
+      if (parsed != null && parsed != 0) {
+        rating = parsed;
+        break;
+      }
+    }
+    final rawSpoiler = entry["spoiler"];
+    final spoiler = rawSpoiler is bool
+        ? rawSpoiler
+        : rawSpoiler is String
+            ? !const ["", "none", "false", "0"]
+                .contains(rawSpoiler.trim().toLowerCase())
+            : rawSpoiler is num && rawSpoiler > 0;
+    return (name: name, rating: rating, spoiler: spoiler);
+  }
+
+  static String _nextmoeDate(dynamic value) {
+    final text = (value ?? "").toString().trim();
+    if (text.isEmpty) return "";
+    final index = text.indexOf("T");
+    return index > 0 ? text.substring(0, index) : text;
   }
 
   static List<Map<String, dynamic>> _rankMetadataResults(

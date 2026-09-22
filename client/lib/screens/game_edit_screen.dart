@@ -17,10 +17,12 @@ import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
+import "../services/nextmoe_token_store.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/new_game_dialog.dart";
 import "../widgets/nsfw_image.dart";
+import "profile_edit_screen.dart";
 
 class GameEditScreen extends StatefulWidget {
   final GameDetail game;
@@ -67,7 +69,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
     String query,
   ) async {
     if (!_serverSideMetadataSources.contains(source)) {
-      return ScrapeService.search(source, query);
+      return ScrapeService.search(
+        source,
+        query,
+        api: context.read<GameProvider>().api,
+      );
     }
 
     final uri = Uri.parse("$_baseUrl/api/scrape/search").replace(
@@ -2782,6 +2788,49 @@ class _GameEditScreenState extends State<GameEditScreen> {
           );
     if (src == null || !mounted) return;
 
+    if (src == "nextmoe") {
+      final api = context.read<GameProvider>().api;
+      final token = await NextmoeTokenStore.getValidAccessToken(api);
+      if (!mounted) return;
+      if (token == null || token.isEmpty) {
+        final goBind = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text(
+              "请先使用 NextMoe 登录",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            content: const Text(
+              "NextMoe 模式下搜索元数据需要你的 NextMoe 账号授权。\n\n"
+              "前往「设置 → 个人信息」绑定 NextMoe 账号后即可使用。",
+              style: TextStyle(fontSize: 13, height: 1.6),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text("取消"),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text("去绑定"),
+              ),
+            ],
+          ),
+        );
+        if (goBind != true || !mounted) return;
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
+        );
+        if (!mounted) return;
+        await _downloadMetadata();
+        return;
+      }
+    }
+
     // Step 2: Search with inline loading + results
     final picked = await showDialog<Object?>(
       context: context,
@@ -3172,7 +3221,7 @@ const _allMetadataSources = {
 
 /// Hikarinagi and NextMoe need server-held credentials, so their search
 /// runs on the server instead of from the client.
-const _serverSideMetadataSources = {"hikarinagi", "nextmoe"};
+const _serverSideMetadataSources = {"hikarinagi"};
 
 /// NextMoe is an exclusive mode: when it is enabled the edit screen only
 /// offers NextMoe, mirroring the server-side scraper settings.

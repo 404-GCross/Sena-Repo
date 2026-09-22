@@ -10,6 +10,7 @@ import "package:provider/provider.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_oauth.dart";
+import "../services/nextmoe_token_store.dart";
 import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 import "../utils/source_icons.dart";
@@ -188,7 +189,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _msg = null;
     });
     try {
-      await context.read<GameProvider>().api.unbindOauth();
+      final api = context.read<GameProvider>().api;
+      await api.unbindOauth();
+      await NextmoeTokenStore.clear(api);
       await _loadBinding();
       if (mounted) setState(() => _msg = "已解除 NextMoe 绑定");
     } on AuthException catch (e) {
