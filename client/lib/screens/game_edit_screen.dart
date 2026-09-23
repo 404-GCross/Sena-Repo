@@ -2876,6 +2876,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 "screenshots": detail["screenshots"],
               if ((detail["hero_url"] ?? "").toString().isNotEmpty)
                 "hero_url": detail["hero_url"],
+              "length_minutes": detail["length_minutes"],
             };
           }
         } on NextmoeAuthRequiredException {
