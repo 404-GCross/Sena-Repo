@@ -181,6 +181,18 @@ def _nextmoe_get(path: str, params: dict) -> dict:
                 )
                 resp.raise_for_status()
                 payload = resp.json()
+        except httpx.HTTPStatusError as exc:
+            request_id = exc.response.headers.get("X-Request-ID", "")
+            if request_id:
+                logger.warning(
+                    "NextMoe request failed (%s): %s (X-Request-ID: %s)",
+                    path,
+                    exc,
+                    request_id,
+                )
+            else:
+                logger.warning("NextMoe request failed (%s): %s", path, exc)
+            return {}
         except Exception as exc:
             logger.warning("NextMoe request failed (%s): %s", path, exc)
             return {}
@@ -339,6 +351,24 @@ def _nextmoe_match_by_name(name: str) -> tuple[str, str]:
     if len(rows) > 1 and best[0] - rows[1][0] < _NEXTMOE_MATCH_MARGIN:
         return "", ""
     return best[1], best[2]
+
+
+def _nextmoe_match_by_refs(app_id: str, name: str) -> tuple[str, str]:
+    """Resolve (app_id, title) through the steam ref before falling back.
+
+    Only accepted when the ref work still matches the patch name, so the
+    lookup stays an equivalent shortcut of the name search.
+    """
+    query = _normalize_for_match(name)
+    if not query:
+        return "", ""
+    work = _nextmoe_work_by_steam_id(str(app_id))
+    if not work:
+        return "", ""
+    score, title = _best_nextmoe_title(query, work)
+    if score < _NEXTMOE_MATCH_ACCEPT:
+        return "", ""
+    return _nextmoe_steam_id(work), title or _nextmoe_zh_title(work)
 
 
 def _best_nextmoe_title(query: str, item: dict) -> tuple[int, str]:

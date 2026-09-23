@@ -60,6 +60,22 @@ def _exception_summary(exc: Exception) -> str:
     return _safe_progress_text(f"{type(exc).__name__}: {exc}")
 
 
+def _nextmoe_refs_hint(game: Game) -> str:
+    """Build the refs= anchors for NextMoe from the game's saved ids."""
+    refs: list[str] = []
+    vndb_id = str(getattr(game, "vndb_id", "") or "").strip()
+    if vndb_id:
+        anchor = vndb_id if vndb_id[0].isalpha() else f"v{vndb_id}"
+        refs.append(f"vndb:{anchor}")
+    steam_id = str(getattr(game, "steam_id", "") or "").strip()
+    if steam_id:
+        refs.append(f"steam:{steam_id}")
+    bangumi_id = str(getattr(game, "bangumi_id", "") or "").strip()
+    if bangumi_id:
+        refs.append(f"bangumi:{bangumi_id}")
+    return ",".join(refs)
+
+
 async def _update_job_progress(
     session: AsyncSession,
     job: ScrapeJob | None,
@@ -419,6 +435,7 @@ async def scrape_single_game(
         scraper: BaseScraper,
         query: str,
         context: str,
+        refs_hint: str | None = None,
     ) -> ScraperResult | None:
         await _update_job_progress(
             session,
@@ -430,7 +447,7 @@ async def scrape_single_game(
         )
         try:
             result = await asyncio.wait_for(
-                scraper.search_best(query, company_hint),
+                scraper.search_best(query, company_hint, refs_hint=refs_hint),
                 timeout=_SCRAPER_SEARCH_TIMEOUT,
             )
             if result is not None:
@@ -545,6 +562,27 @@ async def scrape_single_game(
             except Exception as e:
                 logger.error(
                     f"Scraper {scraper.source_name} error for Hikarinagi ID '{game.hikarinagi_id}': {e}"
+                )
+
+    # Prefer saved external anchors for NextMoe's refs lookup; a weak or
+    # missing ref falls through to the standard name search below.
+    nextmoe_refs = _nextmoe_refs_hint(game)
+    if nextmoe_refs:
+        for scraper in scrapers:
+            if scraper.source_name != "nextmoe":
+                continue
+            try:
+                result = await search_best(
+                    scraper,
+                    game.name,
+                    "NextMoe refs",
+                    refs_hint=nextmoe_refs,
+                )
+                if result:
+                    await handle_result(scraper, result)
+            except Exception as e:
+                logger.error(
+                    f"Scraper nextmoe error for refs '{nextmoe_refs}': {e}"
                 )
 
     # ── Standard search: try candidates × scrapers ──

@@ -38,6 +38,20 @@ _COMPANY_ROLE_RANK = {
 }
 
 
+def _log_request_id(path: str, resp: httpx.Response) -> None:
+    """Keep NextMoe's X-Request-ID in the logs so failures can be reported."""
+    request_id = resp.headers.get("X-Request-ID", "")
+    if request_id:
+        logger.warning(
+            "NextMoe %s failed with %s (X-Request-ID: %s)",
+            path,
+            resp.status_code,
+            request_id,
+        )
+    else:
+        logger.warning("NextMoe %s failed with %s", path, resp.status_code)
+
+
 class NextMoeScraper(BaseScraper):
     """Scrape NextMoe's aggregated VNDB/Bangumi/DLsite catalog."""
 
@@ -60,6 +74,7 @@ class NextMoeScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> list[ScraperResult]:
         keyword = clean_title(name)
         if not keyword:
@@ -71,22 +86,30 @@ class NextMoeScraper(BaseScraper):
             client_kwargs["proxy"] = self.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
             try:
+                if refs_hint:
+                    refs_results = await self._search_by_refs(client, refs_hint)
+                    if refs_results:
+                        return refs_results
+
                 work_id = _normalize_work_id(keyword)
                 if work_id:
                     detail = await self._get_work(client, work_id)
                     return [detail] if detail else []
 
-                results: list[ScraperResult] = []
-                for index, item in enumerate(await self._search_items(client, keyword)):
-                    parsed = _parse_work(item)
-                    if not parsed:
-                        continue
-                    if index < _DETAIL_ENRICH_LIMIT and parsed.source_id:
-                        parsed = await self._get_work(
-                            client, parsed.source_id, parsed
-                        ) or parsed
-                    results.append(parsed)
-                return results
+                candidates = [
+                    parsed
+                    for item in await self._search_items(client, keyword)
+                    if (parsed := _parse_work(item))
+                ]
+                # Only the first candidate gets the detail blocks (covers,
+                # screenshots); the collection lanes reject those includes.
+                if candidates and candidates[0].source_id:
+                    detail = await self._get_work(
+                        client, candidates[0].source_id, candidates[0]
+                    )
+                    if detail:
+                        candidates[0] = detail
+                return candidates
             except Exception as e:
                 logger.warning("NextMoe search failed for '%s': %s", name, e)
                 return []
@@ -95,6 +118,7 @@ class NextMoeScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> ScraperResult | None:
         """Batch path: one list request per game, no per-record enrichment."""
         keyword = clean_title(name)
@@ -107,6 +131,12 @@ class NextMoeScraper(BaseScraper):
             client_kwargs["proxy"] = self.proxy
         async with httpx.AsyncClient(**client_kwargs) as client:
             try:
+                if refs_hint:
+                    refs_candidates = await self._search_by_refs(client, refs_hint)
+                    best = pick_best_scraper_result(keyword, refs_candidates)
+                    if best:
+                        return best
+
                 work_id = _normalize_work_id(keyword)
                 if work_id:
                     return await self._get_work(client, work_id)
@@ -138,15 +168,38 @@ class NextMoeScraper(BaseScraper):
         path: str,
         params: dict[str, str],
     ) -> dict:
-        resp = await self._request_with_retry(
-            client,
-            "GET",
-            f"{NEXTMOE_API_BASE}{path}",
-            params=params,
-            headers=self._headers(),
-        )
+        try:
+            resp = await self._request_with_retry(
+                client,
+                "GET",
+                f"{NEXTMOE_API_BASE}{path}",
+                params=params,
+                headers=self._headers(),
+            )
+        except httpx.HTTPStatusError as e:
+            _log_request_id(path, e.response)
+            raise
         payload = resp.json()
         return payload if isinstance(payload, dict) else {}
+
+    async def _search_by_refs(
+        self,
+        client: httpx.AsyncClient,
+        refs: str,
+    ) -> list[ScraperResult]:
+        payload = await self._api_get(
+            client,
+            "/catalog/works",
+            {"refs": refs, "nsfw": "true", "include": _LIST_INCLUDE},
+        )
+        items = payload.get("items")
+        if not isinstance(items, list):
+            return []
+        return [
+            parsed
+            for item in items
+            if isinstance(item, dict) and (parsed := _parse_work(item))
+        ]
 
     async def _search_items(
         self,
