@@ -46,6 +46,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _bgUrl;
   bool _saving = false;
   bool _isNsfw = false;
+  int? _scrapedLengthMinutes;
   bool _tagsDirty = false;
   bool _versionPasswordChanged = false;
   bool _desktopBgActionsHovered = false;
@@ -273,6 +274,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "hikarinagi_id": _hikarinagi.text.trim(),
         "is_nsfw": _isNsfw,
       };
+      final scrapedLengthMinutes = _scrapedLengthMinutes;
+      if (scrapedLengthMinutes != null) {
+        body["length_minutes"] = scrapedLengthMinutes;
+      }
       if (_tagsDirty) {
         body["tag_names"] = _tagNames;
         body["tag_source"] = _tagSource;
@@ -423,6 +428,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final r = picked as Map<String, dynamic>;
 
     // Apply to form (mark dirty)
+    final scrapedLengthMinutes = r["length_minutes"];
     setState(() {
       _name.text = (r["title"] ?? "").toString();
       _dev.text = (r["developer"] ?? "").toString();
@@ -430,6 +436,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _date.text = (r["release_date"] ?? "").toString();
       final nsfw = r["is_nsfw"];
       if (nsfw is bool) _isNsfw = nsfw;
+      if (scrapedLengthMinutes is int && scrapedLengthMinutes > 0) {
+        _scrapedLengthMinutes = scrapedLengthMinutes;
+      }
     });
     _showMsg("已填入 $label 数据");
   }
