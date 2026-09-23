@@ -387,7 +387,11 @@ def _enrich_nextmoe_rows(
     query: str,
     rows: list[tuple[int, str, str, str]],
 ) -> list[tuple[int, str, str, str]]:
-    """Rescore the top candidates against their detail titles."""
+    """Rescore the top candidates against their detail titles.
+
+    `titles` only exists on the single-work endpoint; no collection lane
+    returns it, so this stays one detail request per candidate.
+    """
     enriched: list[tuple[int, str, str, str]] = []
     for index, (score, app_id, title, work_id) in enumerate(rows):
         if index < _NEXTMOE_DETAIL_ENRICH_LIMIT and work_id:

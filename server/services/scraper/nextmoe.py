@@ -23,10 +23,9 @@ logger = logging.getLogger(__name__)
 NEXTMOE_API_BASE = "https://api.nextmoe.dev/v2"
 NEXTMOE_USER_AGENT = "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)"
 
-_LIST_INCLUDE = "titles,refs,companies,intros,covers,tags,ratings"
+_LIST_INCLUDE = "titles,refs,companies,intros,covers,tags"
 _DETAIL_INCLUDE = "screenshots,playtimes"
 _SEARCH_LIMIT = 5
-_DETAIL_ENRICH_LIMIT = 3
 _EXTERNAL_ID_SOURCES = {"vndb", "bangumi", "steam"}
 _CHINESE_LANGS = ("zh-hans", "zh-cn", "zh-sg", "zh")
 # Maker roles share the top rank so circle/brand credits beat a publisher.

@@ -6,6 +6,7 @@ import "dart:math" as math;
 
 import "api_client.dart";
 import "logged_http.dart" as http;
+import "logger_service.dart";
 import "nextmoe_token_store.dart";
 
 /// Raised when a NextMoe-backed scrape needs the user to log in again.
@@ -516,10 +517,9 @@ class ScrapeService {
   static const String _nextmoeUserAgent =
       "SenaRepo/0.1 (https://github.com/404-GCross/Sena-Repo)";
   static const int _nextmoeSearchLimit = 5;
-  static const int _nextmoeEnrichLimit = 3;
   static const String _nextmoeListInclude =
-      "titles,refs,companies,intros,covers,tags,ratings";
-  static const String _nextmoeDetailInclude = "screenshots,playtimes";
+      "titles,refs,companies,intros,covers,tags";
+  static const String _nextmoeDetailInclude = "screenshots";
   static const Set<String> _nextmoeExternalSources = {
     "vndb",
     "bangumi",
@@ -561,41 +561,80 @@ class ScrapeService {
         "include": _nextmoeListInclude,
       },
     );
-    final resp = await http
-        .get(uri, headers: headers)
-        .timeout(const Duration(seconds: 20));
-    await _throwIfNextmoeAuthError(resp.statusCode, api);
+    final resp = await _nextmoeGet(uri, headers, api);
     if (resp.statusCode != 200) return const [];
     final payload = jsonDecode(resp.body);
     if (payload is! Map) return const [];
     final items = (payload["items"] as List?) ?? const [];
 
     final results = <Map<String, dynamic>>[];
-    var enriched = 0;
     for (final entry in items) {
       if (entry is! Map) continue;
-      var candidate = _parseNextmoeWork(Map<String, dynamic>.from(entry));
-      if (candidate == null) continue;
-      final id = (candidate["source_id"] ?? "").toString();
-      if (id.isNotEmpty && enriched < _nextmoeEnrichLimit) {
-        enriched++;
-        final detail = await _nextmoeDetail(id, headers, api);
-        if (detail != null) {
-          candidate = {
-            ...candidate,
-            if ((detail["screenshots"] as List?)?.isNotEmpty == true)
-              "screenshots": detail["screenshots"],
-            if ((detail["hero_url"] ?? "").toString().isNotEmpty)
-              "hero_url": detail["hero_url"],
-            if ((detail["covers"] as List?)?.isNotEmpty == true)
-              "covers": detail["covers"],
-          };
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      }
-      results.add(candidate);
+      final candidate = _parseNextmoeWork(Map<String, dynamic>.from(entry));
+      if (candidate != null) results.add(candidate);
     }
     return _rankMetadataResults(keyword, results);
+  }
+
+  /// Fetch one work's detail blocks after the user picks a candidate.
+  ///
+  /// The collection lanes reject the `covers`/`screenshots` includes, so
+  /// they are only requested for the work that is actually selected.
+  static Future<Map<String, dynamic>?> fetchNextmoeDetail(
+    String workId, {
+    required ApiClient api,
+  }) async {
+    final id = workId.trim();
+    if (id.isEmpty) return null;
+    final token = await NextmoeTokenStore.getValidAccessToken(api);
+    if (token == null || token.isEmpty) {
+      throw NextmoeAuthRequiredException("请先使用 鲲Galgame 登录");
+    }
+    final headers = {
+      "Accept": "application/json",
+      "Authorization": "Bearer $token",
+      "User-Agent": _nextmoeUserAgent,
+    };
+    return _nextmoeDetail(id, headers, api);
+  }
+
+  static Future<http.Response> _nextmoeGet(
+    Uri uri,
+    Map<String, String> headers,
+    ApiClient api,
+  ) async {
+    var resp = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 20));
+    _logNextmoeRequestId(uri.path, resp);
+    await _throwIfNextmoeAuthError(resp.statusCode, api);
+    if (resp.statusCode != 429) return resp;
+    final wait =
+        _nextmoeRetryAfter(resp.headers["retry-after"]) ??
+        const Duration(seconds: 1);
+    if (wait > const Duration(seconds: 30)) return resp;
+    await Future<void>.delayed(wait);
+    resp = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 20));
+    _logNextmoeRequestId(uri.path, resp);
+    await _throwIfNextmoeAuthError(resp.statusCode, api);
+    return resp;
+  }
+
+  static Duration? _nextmoeRetryAfter(String? value) {
+    final seconds = int.tryParse((value ?? "").trim());
+    if (seconds == null || seconds < 0) return null;
+    return Duration(seconds: seconds);
+  }
+
+  static void _logNextmoeRequestId(String path, http.Response resp) {
+    if (resp.statusCode < 400) return;
+    final requestId = resp.headers["x-request-id"] ?? "";
+    final suffix = requestId.isEmpty ? "" : " requestId=$requestId";
+    LoggerService().warn(
+      "NextMoe $path failed status=${resp.statusCode}$suffix",
+    );
   }
 
   static Future<void> _throwIfNextmoeAuthError(
@@ -623,10 +662,7 @@ class ScrapeService {
       },
     );
     try {
-      final resp = await http
-          .get(uri, headers: headers)
-          .timeout(const Duration(seconds: 20));
-      await _throwIfNextmoeAuthError(resp.statusCode, api);
+      final resp = await _nextmoeGet(uri, headers, api);
       if (resp.statusCode != 200) return null;
       final payload = jsonDecode(resp.body);
       if (payload is! Map) return null;
