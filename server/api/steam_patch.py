@@ -1493,7 +1493,7 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
     )
 
     if _nextmoe_mode_enabled():
-        from scan_patches import _nextmoe_match_by_name
+        from scan_patches import _nextmoe_match_by_name, _nextmoe_match_by_refs
 
         query_names: list[str] = []
         label = str(target.get("label") or "").strip()
@@ -1501,12 +1501,17 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
             query_names.append(label)
         query_names.append(filename)
         new_id, nextmoe_title = "", ""
-        for candidate_name in query_names:
+        if old_app_id.isdigit():
             new_id, nextmoe_title = await _asyncio.to_thread(
-                _nextmoe_match_by_name, candidate_name
+                _nextmoe_match_by_refs, old_app_id, label or filename
             )
-            if new_id:
-                break
+        if not new_id:
+            for candidate_name in query_names:
+                new_id, nextmoe_title = await _asyncio.to_thread(
+                    _nextmoe_match_by_name, candidate_name
+                )
+                if new_id:
+                    break
         if new_id:
             target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
             result.new_app_id = str(new_id)
@@ -1573,6 +1578,7 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
         _extract_game_name,
         _fetch_game_name,
         _nextmoe_match_by_name,
+        _nextmoe_match_by_refs,
         _search_steam_app_id,
     )
     nextmoe_mode = _nextmoe_mode_enabled()
@@ -1593,9 +1599,15 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
             return r
 
         if nextmoe_mode:
-            new_id, nextmoe_title = await _asyncio.to_thread(
-                _nextmoe_match_by_name, filename
-            )
+            new_id, nextmoe_title = "", ""
+            if old_id.isdigit():
+                new_id, nextmoe_title = await _asyncio.to_thread(
+                    _nextmoe_match_by_refs, old_id, filename
+                )
+            if not new_id:
+                new_id, nextmoe_title = await _asyncio.to_thread(
+                    _nextmoe_match_by_name, filename
+                )
             if new_id:
                 if new_id.isdigit():
                     p["app_id"] = new_id

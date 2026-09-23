@@ -2846,7 +2846,34 @@ class _GameEditScreenState extends State<GameEditScreen> {
       return;
     }
     if (picked == null || !mounted) return;
-    final r = picked as Map<String, dynamic>;
+    var r = picked as Map<String, dynamic>;
+
+    // Step 2.4: NextMoe detail blocks (covers, screenshots) are fetched only
+    // for the selected work; the search lane does not carry them.
+    if (src == "nextmoe") {
+      final workId = (r["source_id"] ?? "").toString();
+      if (workId.isNotEmpty) {
+        try {
+          final detail = await ScrapeService.fetchNextmoeDetail(
+            workId,
+            api: context.read<GameProvider>().api,
+          );
+          if (detail != null) {
+            r = {
+              ...r,
+              if ((detail["covers"] as List?)?.isNotEmpty == true)
+                "covers": detail["covers"],
+              if ((detail["screenshots"] as List?)?.isNotEmpty == true)
+                "screenshots": detail["screenshots"],
+              if ((detail["hero_url"] ?? "").toString().isNotEmpty)
+                "hero_url": detail["hero_url"],
+            };
+          }
+        } on NextmoeAuthRequiredException {
+          // Keep the list-lane candidate when the token just expired.
+        }
+      }
+    }
 
     // Step 2.5: Sources that carry several covers (NextMoe, Hikarinagi) let
     // the user pick which one to apply.

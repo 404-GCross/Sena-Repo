@@ -39,6 +39,7 @@ class BangumiScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> list[ScraperResult]:
         keyword = clean_title(name)
         if not keyword:
@@ -61,6 +62,7 @@ class BangumiScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> ScraperResult | None:
         """Batch path: pick from legacy search, then enrich aliases via v0 detail."""
         keyword = clean_title(name)

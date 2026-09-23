@@ -132,6 +132,7 @@ class HikarinagiScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> list[ScraperResult]:
         keyword = clean_title(name)
         if not keyword:
@@ -173,6 +174,7 @@ class HikarinagiScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> ScraperResult | None:
         keyword = clean_title(name)
         if not keyword:

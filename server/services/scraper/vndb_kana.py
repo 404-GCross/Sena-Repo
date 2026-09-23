@@ -66,6 +66,7 @@ class VndbKanaScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> list[ScraperResult]:
         return await self._search(name, results=5)
 
@@ -73,6 +74,7 @@ class VndbKanaScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> ScraperResult | None:
         if _normalize_vndb_id(name):
             results = await self._search(name, results=1)
@@ -239,6 +241,7 @@ class VndbTitlesScraper(BaseScraper):
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> list[ScraperResult]:
         client = await self._get_client()
         results = []
