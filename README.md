@@ -106,6 +106,12 @@ Thanks to the authors and contributors of the projects above.
 
 ---
 
+## Data Sources
+
+- Galgame metadata is provided by the **NextMoe open API** (`https://api.nextmoe.dev/v2`). Per its attribution requirement, the API is credited as **"Kun Galgame Forum"** for Galgame data.
+
+---
+
 ## Disclaimer
 
 - This is an open-source project intended for lawful use only, for managing games/applications you have the right to use. If anything infringes your rights, please let us know.
