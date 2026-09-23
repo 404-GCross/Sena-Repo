@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
+from email.utils import parsedate_to_datetime
 import logging
+import random
 import re
 import time
 import unicodedata
@@ -67,12 +70,51 @@ class ScraperResult:
     aliases: list[str] = field(default_factory=list)  # alternative titles for search
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a Retry-After header (seconds or HTTP date) into seconds."""
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return float(text)
+    try:
+        when = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+
+
+def _is_quota_exceeded(resp: httpx.Response) -> bool:
+    """Detect a 429 that carries a terminal QUOTA_EXCEEDED error code."""
+    if resp.status_code != 429:
+        return False
+    try:
+        payload = resp.json()
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    code = str(payload.get("code") or "").strip().upper()
+    if not code:
+        error = payload.get("error")
+        if isinstance(error, dict):
+            code = str(error.get("code") or "").strip().upper()
+    return code == "QUOTA_EXCEEDED"
+
+
 class BaseScraper(ABC):
     """Base class for all metadata scrapers with retry and throttle support."""
 
     source_name: str = "base"
     max_retries: int = 2
     retry_delay: float = 1.5
+    max_retry_delay: float = 30.0
     throttle_interval: float = 1.0  # seconds between requests
 
     def __init__(self, proxy: str = "", client: httpx.AsyncClient | None = None):
@@ -103,6 +145,26 @@ class BaseScraper(ABC):
                 await asyncio.sleep(self.throttle_interval - elapsed)
             _last_request_time = time.monotonic()
 
+    def _should_retry(self, resp: httpx.Response) -> bool:
+        """Retry 429 and 5xx; other 4xx are terminal (quota errors included)."""
+        if _is_quota_exceeded(resp):
+            return False
+        return resp.status_code == 429 or resp.status_code >= 500
+
+    def _backoff_delay(
+        self,
+        attempt: int,
+        resp: httpx.Response | None = None,
+    ) -> float:
+        """Exponential backoff with Retry-After support and jitter."""
+        delay = self.retry_delay * (2**attempt)
+        if resp is not None and resp.status_code == 429:
+            retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
+            if retry_after is not None:
+                delay = max(delay, retry_after)
+        delay = min(delay, self.max_retry_delay)
+        return delay * (0.8 + 0.4 * random.random())
+
     async def _request_with_retry(
         self,
         client: httpx.AsyncClient,
@@ -111,43 +173,49 @@ class BaseScraper(ABC):
         **kwargs,
     ) -> httpx.Response:
         """Make an HTTP request with retry logic for transient errors."""
-        last_error = None
+        last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 await self._throttle()
                 resp = await client.request(method, url, **kwargs)
-                if resp.status_code in (429, 503):
-                    if attempt < self.max_retries:
-                        await asyncio.sleep(self.retry_delay * (attempt + 1))
-                        continue
-                resp.raise_for_status()
-                return resp
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries:
-                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    await asyncio.sleep(self._backoff_delay(attempt))
                     continue
                 raise
             except Exception:
                 raise
-        raise last_error  # type: ignore
+            if self._should_retry(resp):
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self._backoff_delay(attempt, resp))
+                    continue
+            resp.raise_for_status()
+            return resp
+        raise last_error or RuntimeError(f"Request failed: {method} {url}")
 
     @abstractmethod
     async def search(
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> list[ScraperResult]:
-        """Search for games matching the given name."""
+        """Search for games matching the given name.
+
+        `refs_hint` carries saved external anchors (`source:external_id`) for
+        scrapers that can resolve them directly; other scrapers ignore it.
+        """
         ...
 
     async def search_best(
         self,
         name: str,
         company_hint: str | None = None,
+        refs_hint: str | None = None,
     ) -> ScraperResult | None:
         """Search and return the best (first) match, or None."""
-        results = await self.search(name, company_hint)
+        results = await self.search(name, company_hint, refs_hint)
         if _looks_like_source_id(name):
             return results[0] if results else None
         return pick_best_scraper_result(name, results)
