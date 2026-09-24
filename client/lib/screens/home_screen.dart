@@ -11,6 +11,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/theme_provider.dart";
+import "../providers/settings_provider.dart";
 
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
@@ -55,8 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isWide(BuildContext ctx) =>
       !_isHandheldPlatform || MediaQuery.of(ctx).size.shortestSide > 600;
-  bool _isMobile(BuildContext ctx) =>
-      _isHandheldPlatform && MediaQuery.of(ctx).size.shortestSide <= 600;
 
   @override
   void initState() {
@@ -138,10 +137,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGameLibrary(GameProvider gameProvider) {
-    final mobile = _isMobile(context);
     return Column(
       children: [
-        _buildLibraryToolbar(gameProvider, inlineSearch: !mobile),
+        _buildLibraryToolbar(gameProvider),
         Expanded(
           child: gameProvider.isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -180,8 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildLibraryToolbar(GameProvider gameProvider,
-      {required bool inlineSearch}) {
+  Widget _buildLibraryToolbar(GameProvider gameProvider) {
     final hasFilters = gameProvider.filterPlatform != null ||
         gameProvider.filterHasCover != null ||
         gameProvider.sortBy != null;
@@ -192,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
       curve: Curves.easeOutCubic,
       child: _toolbarVisible
           ? Container(
-              height: inlineSearch ? 62 : 58,
+              height: 62,
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               decoration: BoxDecoration(
                 color: cardBg(context).withValues(alpha: 0.96),
@@ -204,15 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Row(
                 children: [
-                  if (inlineSearch)
-                    Expanded(child: _inlineSearchField(gameProvider))
-                  else
-                    _mobileToolbarButton(
-                      icon: Icons.search_rounded,
-                      tooltip: "搜索",
-                      active: _searchController.text.trim().isNotEmpty,
-                      onPressed: () => _showMobileSearch(gameProvider),
-                    ),
+                  Expanded(child: _inlineSearchField(gameProvider)),
                   const SizedBox(width: 8),
                   Text(
                     "${gameProvider.games.length} 款",
@@ -221,10 +210,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: subTextColor(context),
                     ),
                   ),
-                  if (inlineSearch)
-                    const SizedBox(width: 8)
-                  else
-                    const Spacer(),
+                  const SizedBox(width: 8),
                   _mobileToolbarButton(
                     icon: Icons.refresh_rounded,
                     tooltip: "刷新",
@@ -327,65 +313,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showMobileSearch(GameProvider gameProvider) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-          ),
-          child: Material(
-            color: cardBg(context),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: "搜索游戏、会社、补丁关键词...",
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded),
-                            onPressed: () {
-                              _searchController.clear();
-                              gameProvider.search("");
-                              setState(() {});
-                              setSheetState(() {});
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
-                        .withValues(alpha: 0.72),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(15),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: (value) {
-                    gameProvider.search(value);
-                    setState(() {});
-                    setSheetState(() {});
-                  },
-                  onSubmitted: (_) => Navigator.pop(sheetContext),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _showLibraryFilters(GameProvider gameProvider) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -398,6 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
             action();
             setSheetState(() {});
           }
+          final cs = Theme.of(context).colorScheme;
 
           return Material(
             color: cardBg(context),
@@ -434,6 +362,79 @@ class _HomeScreenState extends State<HomeScreen> {
                             () => refresh(
                                 () => setState(() => _isGridView = false)),
                           ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Divider(height: 1, color: cardBorder(context)),
+                    const SizedBox(height: 12),
+                    Text("显示",
+                        style: AppText.label
+                            .copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text("封面大小",
+                            style: AppText.bodyMedium
+                                .copyWith(fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Text(
+                          "${context.read<SettingsProvider>().coverSize.round()} px",
+                          style: AppText.label.copyWith(
+                            color: cs.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      value: context.read<SettingsProvider>().coverSize,
+                      min: 100,
+                      max: 300,
+                      divisions: 20,
+                      activeColor: cs.primary,
+                      onChanged: (v) {
+                        context.read<SettingsProvider>().setCoverSize(v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("100",
+                            style: AppText.caption
+                                .copyWith(color: hintColor(context))),
+                        Text("300",
+                            style: AppText.caption
+                                .copyWith(color: hintColor(context))),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("模糊 NSFW 图片",
+                                  style: AppText.bodyMedium
+                                      .copyWith(fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 2),
+                              Text("列表和详情页默认保护 NSFW 封面与背景",
+                                  style: AppText.label
+                                      .copyWith(color: hintColor(context))),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value:
+                              context.read<SettingsProvider>().blurNsfwCovers,
+                          onChanged: (v) {
+                            context
+                                .read<SettingsProvider>()
+                                .setBlurNsfwCovers(v);
+                            setSheetState(() {});
+                          },
                         ),
                       ],
                     ),
