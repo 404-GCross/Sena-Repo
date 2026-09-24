@@ -10,6 +10,7 @@ import "package:url_launcher/url_launcher.dart";
 
 import "../providers/game_provider.dart";
 import "../services/logged_http.dart" as http;
+import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../widgets/app_shell.dart";
@@ -429,34 +430,35 @@ class _AboutScreenState extends State<AboutScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppSectionTitle(icon: Icons.auto_awesome_rounded, title: "数据来源"),
-          const SizedBox(height: AppGap.sm),
-          Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                child: Image.asset(
-                  "assets/source_icons/nextmoe.png",
-                  width: 28,
-                  height: 28,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                ),
-              ),
-              const SizedBox(width: AppGap.sm),
-              Expanded(
-                child: Text(
-                  "NextMoe·未萌 开放 API",
-                  style: AppText.bodyMedium.copyWith(
-                    color: sectionTextColor(context),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+          const SizedBox(height: AppGap.md),
+          Text(
+            "支持的来源",
+            style: AppText.label.copyWith(
+              color: subTextColor(context),
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: AppGap.sm),
+          _sourceRow(nextmoeSourceIcon, "NextMoe·未萌 开放 API",
+              badge: "NextMoe 模式"),
+          _sourceRow(vndbSourceIcon, "VNDB"),
+          _sourceRow(bangumiSourceIcon, "Bangumi"),
+          _sourceRow(steamSourceIcon, "Steam"),
+          _sourceRow(hikarinagiSourceIcon, "Hikarinagi"),
+          const SizedBox(height: AppGap.md),
+          Divider(height: 1, color: cardBorder(context)),
+          const SizedBox(height: AppGap.md),
           Text(
-            "Galgame 元数据来自 NextMoe·未萌 开放 API；按官方署名要求，"
-            "Galgame 数据标注为「鲲 Galgame 论坛」。",
+            "NextMoe 模式署名",
+            style: AppText.label.copyWith(
+              color: subTextColor(context),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "NextMoe 模式下，元数据来自 NextMoe·未萌 开放 API（聚合上游六源）；"
+            "数据标注为「鲲 Galgame 论坛」。",
             style: AppText.bodySmall.copyWith(
               color: subTextColor(context),
               height: 1.5,
@@ -467,6 +469,53 @@ class _AboutScreenState extends State<AboutScreen> {
             "上游六源：$_upstreamSources",
             style: AppText.label.copyWith(color: hintColor(context)),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sourceRow(String iconAsset, String label, {String? badge}) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: Image.asset(
+              iconAsset,
+              width: 26,
+              height: 26,
+              errorBuilder: (_, __, ___) =>
+                  const SizedBox(width: 26, height: 26),
+            ),
+          ),
+          const SizedBox(width: AppGap.sm),
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.bodyMedium.copyWith(
+                color: sectionTextColor(context),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (badge != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: cs.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: cs.primary.withValues(alpha: 0.28)),
+              ),
+              child: Text(
+                badge,
+                style: AppText.caption.copyWith(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
         ],
       ),
     );
