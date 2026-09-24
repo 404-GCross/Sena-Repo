@@ -10,7 +10,6 @@ import "dart:convert";
 import "dart:io" show Platform;
 
 import "../providers/game_provider.dart";
-import "../providers/settings_provider.dart";
 import "../providers/theme_provider.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
@@ -133,16 +132,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                       },
                     ),
-                    _menuItem(
-                      Icons.grid_view,
-                      Colors.teal,
-                      "显示",
-                      "封面大小、托盘设置",
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const _DisplayPage()),
+                    if (!Platform.isAndroid)
+                      _menuItem(
+                        Icons.window_outlined,
+                        Colors.teal,
+                        "窗口行为",
+                        "关闭时最小化到托盘",
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const _WindowBehaviorPage()),
+                        ),
                       ),
-                    ),
                     _menuItem(
                       Icons.download_outlined,
                       Colors.green,
@@ -3203,13 +3204,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
 }
 
 // ── Display Sub-Page ──
-class _DisplayPage extends StatefulWidget {
-  const _DisplayPage();
+class _WindowBehaviorPage extends StatefulWidget {
+  const _WindowBehaviorPage();
   @override
-  State<_DisplayPage> createState() => _DisplayPageState();
+  State<_WindowBehaviorPage> createState() => _WindowBehaviorPageState();
 }
 
-class _DisplayPageState extends State<_DisplayPage> {
+class _WindowBehaviorPageState extends State<_WindowBehaviorPage> {
   bool _trayEnabled = false;
 
   @override
@@ -3228,101 +3229,16 @@ class _DisplayPageState extends State<_DisplayPage> {
 
   @override
   Widget build(BuildContext context) {
-    final coverSize = context.watch<SettingsProvider>().coverSize;
     return AppScaffold(
-      title: "显示",
-      subtitle: "调整封面尺寸、托盘行为和桌面体验",
-      leading: const Icon(Icons.grid_view_outlined, size: 24),
+      title: "窗口行为",
+      subtitle: "桌面客户端的窗口与托盘行为",
+      leading: const Icon(Icons.window_outlined, size: 24),
       scrollable: false,
       padding: EdgeInsets.zero,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _sectionTitle("封面大小"),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: cardBg(context),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: cardBorder(context)),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.teal.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        Icons.image,
-                        size: 20,
-                        color: Colors.teal[200],
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "${coverSize.round()} px",
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            "网格封面尺寸",
-                            style: AppText.label.copyWith(
-                              color: hintColor(context),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 32,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: cardBorder(context),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Slider(
-                  value: coverSize,
-                  min: 100,
-                  max: 300,
-                  divisions: 20,
-                  activeColor: Theme.of(context).colorScheme.primary,
-                  onChanged: (v) async {
-                    await context.read<SettingsProvider>().setCoverSize(v);
-                  },
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "100",
-                      style: AppText.caption.copyWith(color: Colors.grey[600]),
-                    ),
-                    Text(
-                      "300",
-                      style: AppText.caption.copyWith(color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          _sectionTitle("内容保护"),
+          _sectionTitle("窗口行为"),
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
@@ -3331,43 +3247,21 @@ class _DisplayPageState extends State<_DisplayPage> {
               border: Border.all(color: cardBorder(context)),
             ),
             child: SwitchListTile(
-              secondary: const Icon(Icons.visibility_off_outlined),
-              title: const Text("模糊 NSFW 图片", style: TextStyle(fontSize: 14)),
+              secondary: const Icon(Icons.window_outlined),
+              title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
               subtitle: Text(
-                "列表和详情页默认保护 NSFW 封面与背景",
+                _trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
                 style: AppText.label.copyWith(color: hintColor(context)),
               ),
-              value: context.watch<SettingsProvider>().blurNsfwCovers,
-              onChanged: (v) =>
-                  context.read<SettingsProvider>().setBlurNsfwCovers(v),
+              value: _trayEnabled,
+              onChanged: (v) async {
+                setState(() => _trayEnabled = v);
+                await SharedPreferences.getInstance().then(
+                  (p) => p.setBool("minimize_to_tray", v),
+                );
+              },
             ),
           ),
-          const SizedBox(height: 24),
-          if (!Platform.isAndroid) ...[
-            _sectionTitle("窗口行为"),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: cardBg(context),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: cardBorder(context)),
-              ),
-              child: SwitchListTile(
-                title: const Text("关闭时最小化到托盘", style: TextStyle(fontSize: 14)),
-                subtitle: Text(
-                  _trayEnabled ? "点击关闭按钮时隐藏到系统托盘" : "点击关闭按钮直接退出",
-                  style: AppText.label.copyWith(color: hintColor(context)),
-                ),
-                value: _trayEnabled,
-                onChanged: (v) async {
-                  setState(() => _trayEnabled = v);
-                  await SharedPreferences.getInstance().then(
-                    (p) => p.setBool("minimize_to_tray", v),
-                  );
-                },
-              ),
-            ),
-          ],
           const SizedBox(height: 24),
         ],
       ),

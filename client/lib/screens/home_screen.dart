@@ -11,6 +11,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
 import "../providers/theme_provider.dart";
+import "../providers/settings_provider.dart";
 
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
@@ -324,6 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
             action();
             setSheetState(() {});
           }
+          final cs = Theme.of(context).colorScheme;
 
           return Material(
             color: cardBg(context),
@@ -360,6 +362,79 @@ class _HomeScreenState extends State<HomeScreen> {
                             () => refresh(
                                 () => setState(() => _isGridView = false)),
                           ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Divider(height: 1, color: cardBorder(context)),
+                    const SizedBox(height: 12),
+                    Text("显示",
+                        style: AppText.label
+                            .copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text("封面大小",
+                            style: AppText.bodyMedium
+                                .copyWith(fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Text(
+                          "${context.read<SettingsProvider>().coverSize.round()} px",
+                          style: AppText.label.copyWith(
+                            color: cs.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      value: context.read<SettingsProvider>().coverSize,
+                      min: 100,
+                      max: 300,
+                      divisions: 20,
+                      activeColor: cs.primary,
+                      onChanged: (v) {
+                        context.read<SettingsProvider>().setCoverSize(v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("100",
+                            style: AppText.caption
+                                .copyWith(color: hintColor(context))),
+                        Text("300",
+                            style: AppText.caption
+                                .copyWith(color: hintColor(context))),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("模糊 NSFW 图片",
+                                  style: AppText.bodyMedium
+                                      .copyWith(fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 2),
+                              Text("列表和详情页默认保护 NSFW 封面与背景",
+                                  style: AppText.label
+                                      .copyWith(color: hintColor(context))),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value:
+                              context.read<SettingsProvider>().blurNsfwCovers,
+                          onChanged: (v) {
+                            context
+                                .read<SettingsProvider>()
+                                .setBlurNsfwCovers(v);
+                            setSheetState(() {});
+                          },
                         ),
                       ],
                     ),
