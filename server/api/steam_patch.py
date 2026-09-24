@@ -1599,15 +1599,20 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
             return r
 
         if nextmoe_mode:
+            label = str(p.get("label") or "").strip()
+            query_names = ([label] if label else []) + [filename]
             new_id, nextmoe_title = "", ""
             if old_id.isdigit():
                 new_id, nextmoe_title = await _asyncio.to_thread(
-                    _nextmoe_match_by_refs, old_id, filename
+                    _nextmoe_match_by_refs, old_id, label or filename
                 )
             if not new_id:
-                new_id, nextmoe_title = await _asyncio.to_thread(
-                    _nextmoe_match_by_name, filename
-                )
+                for candidate_name in query_names:
+                    new_id, nextmoe_title = await _asyncio.to_thread(
+                        _nextmoe_match_by_name, candidate_name
+                    )
+                    if new_id:
+                        break
             if new_id:
                 if new_id.isdigit():
                     p["app_id"] = new_id
