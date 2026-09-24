@@ -1,7 +1,6 @@
 /// Adaptive game metadata editor.
 /// Desktop uses a two-column editor; mobile uses compact segmented sections.
 
-import "dart:async";
 import "dart:convert";
 import "dart:io" show File;
 import "dart:math" as math;
@@ -2829,6 +2828,30 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _showMsg("已清除平均时长");
   }
 
+  /// Fetch the detail blocks (covers, screenshots, playtime) of the picked
+  /// NextMoe work while the search dialog shows its progress state.
+  Future<Map<String, dynamic>> _prepareNextmoeResult(
+    Map<String, dynamic> result,
+  ) async {
+    final workId = (result["source_id"] ?? "").toString();
+    if (workId.isEmpty) return result;
+    final detail = await ScrapeService.fetchNextmoeDetail(
+      workId,
+      api: context.read<GameProvider>().api,
+    );
+    if (detail == null) return result;
+    return {
+      ...result,
+      if ((detail["covers"] as List?)?.isNotEmpty == true)
+        "covers": detail["covers"],
+      if ((detail["screenshots"] as List?)?.isNotEmpty == true)
+        "screenshots": detail["screenshots"],
+      if ((detail["hero_url"] ?? "").toString().isNotEmpty)
+        "hero_url": detail["hero_url"],
+      "length_minutes": detail["length_minutes"],
+    };
+  }
+
   Future<void> _downloadMetadata() async {
     // Step 1: Pick source. The enabled-scrapers list is served from a local
     // cache so the dialog opens immediately; the network copy refreshes in
@@ -2855,6 +2878,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         sourceName: sources[src] ?? src,
         initialQuery: _name.text,
         onSearch: (query) => _searchMetadataSource(src, query),
+        onPick: src == "nextmoe" ? _prepareNextmoeResult : null,
       ),
     );
     if (picked == "retry") {
@@ -2868,35 +2892,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (picked == null || !mounted) return;
     var r = picked as Map<String, dynamic>;
 
-    // Step 2.4: NextMoe detail blocks (covers, screenshots) are fetched only
-    // for the selected work; the search lane does not carry them.
-    if (src == "nextmoe") {
-      final workId = (r["source_id"] ?? "").toString();
-      if (workId.isNotEmpty) {
-        try {
-          final detail = await ScrapeService.fetchNextmoeDetail(
-            workId,
-            api: context.read<GameProvider>().api,
-          );
-          if (detail != null) {
-            r = {
-              ...r,
-              if ((detail["covers"] as List?)?.isNotEmpty == true)
-                "covers": detail["covers"],
-              if ((detail["screenshots"] as List?)?.isNotEmpty == true)
-                "screenshots": detail["screenshots"],
-              if ((detail["hero_url"] ?? "").toString().isNotEmpty)
-                "hero_url": detail["hero_url"],
-              "length_minutes": detail["length_minutes"],
-            };
-          }
-        } on NextmoeAuthRequiredException {
-          // Keep the list-lane candidate when the token just expired.
-        }
-      }
-    }
-
-    // Step 2.5: Sources that carry several covers (NextMoe, Hikarinagi) let
+    // Step 2.4: Sources that carry several covers (NextMoe, Hikarinagi) let
     // the user pick which one to apply.
     final coverCandidates =
         (r["covers"] as List<dynamic>?)?.cast<String>() ?? [];
@@ -2910,7 +2906,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
     }
 
-    // Step 2.6: If multiple screenshots, let user pick hero image.
+    // Step 2.5: If multiple screenshots, let user pick hero image.
     final screenshots =
         (r["screenshots"] as List<dynamic>?)?.cast<String>() ?? [];
     if (screenshots.length > 1) {
@@ -2923,66 +2919,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
     }
 
-    // Step 3: Preload cover image before showing comparison
+    // Step 3: Per-field comparison. Images load inside the dialog, so no
+    // separate preload window interrupts the flow.
     final coverUrl = (r["cover_url"] ?? "").toString();
-    if (coverUrl.isNotEmpty) {
-      final preloadDone = Completer<void>();
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => PopScope(
-          canPop: false,
-          child: AlertDialog(
-            title: const Text("加载中..."),
-            content: SizedBox(
-              width: 200,
-              height: 100,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.network(
-                    coverUrl,
-                    width: 90,
-                    height: 120,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (_, child, progress) {
-                      if (progress == null) {
-                        preloadDone.complete();
-                        return child;
-                      }
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(
-                            value: progress.expectedTotalBytes != null
-                                ? progress.cumulativeBytesLoaded /
-                                    progress.expectedTotalBytes!
-                                : null,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "${(progress.cumulativeBytesLoaded / 1024).toStringAsFixed(0)} KB",
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      );
-                    },
-                    errorBuilder: (_, __, ___) {
-                      preloadDone.complete();
-                      return const SizedBox.shrink();
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      await preloadDone.future;
-      if (mounted) Navigator.pop(context);
-    }
-
-    // Step 4: Per-field comparison
     final incomingTags = _metadataTagNames(r);
     bool? scrapedNsfw;
     final nsfwRaw = r["is_nsfw"];
@@ -3454,11 +3393,18 @@ class _MetadataSearchDialog extends StatefulWidget {
   final String initialQuery;
   final Future<List<Map<String, dynamic>>> Function(String) onSearch;
 
+  /// Optional preparation run after a result is picked. The dialog stays open
+  /// with a progress state until it resolves, so the next step starts without
+  /// a blank gap.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> result)?
+      onPick;
+
   const _MetadataSearchDialog({
     required this.sourceKey,
     required this.sourceName,
     required this.initialQuery,
     required this.onSearch,
+    this.onPick,
   });
 
   @override
@@ -3469,6 +3415,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
   late final TextEditingController _controller;
   List<Map<String, dynamic>> _results = const [];
   bool _loading = false;
+  bool _preparing = false;
   bool _searched = false;
   String? _error;
   int _requestId = 0;
@@ -3528,19 +3475,43 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
     }
   }
 
+  Future<void> _pick(Map<String, dynamic> result) async {
+    final onPick = widget.onPick;
+    if (onPick == null) {
+      Navigator.pop<Object?>(context, result);
+      return;
+    }
+    setState(() {
+      _preparing = true;
+      _error = null;
+    });
+    try {
+      final prepared = await onPick(result);
+      if (!mounted) return;
+      Navigator.pop<Object?>(context, prepared);
+    } catch (_) {
+      // Keep the list-lane candidate when preparation fails.
+      if (!mounted) return;
+      Navigator.pop<Object?>(context, result);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final size = MediaQuery.sizeOf(context);
     final width = size.width > 680 ? 620.0 : size.width - 32;
     final height = size.height > 640 ? 560.0 : size.height - 32;
-    final statusLabel = _loading
-        ? "搜索中"
-        : _error != null
-            ? "失败"
-            : _results.isNotEmpty
-                ? "${_results.length} 项"
-                : widget.sourceName;
+    final busy = _loading || _preparing;
+    final statusLabel = _preparing
+        ? "准备中"
+        : _loading
+            ? "搜索中"
+            : _error != null
+                ? "失败"
+                : _results.isNotEmpty
+                    ? "${_results.length} 项"
+                    : widget.sourceName;
     final statusColor = _error != null
         ? cs.error
         : _results.isNotEmpty
@@ -3584,11 +3555,13 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
                       ),
                     ),
                     AppStatusPill(
-                      icon: _loading
-                          ? Icons.sync_rounded
-                          : _error != null
-                              ? Icons.error_outline_rounded
-                              : Icons.manage_search_rounded,
+                      icon: _preparing
+                          ? Icons.cloud_download_rounded
+                          : _loading
+                              ? Icons.sync_rounded
+                              : _error != null
+                                  ? Icons.error_outline_rounded
+                                  : Icons.manage_search_rounded,
                       label: statusLabel,
                       color: statusColor,
                     ),
@@ -3602,7 +3575,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
                   controller: _controller,
                   autofocus: true,
                   textInputAction: TextInputAction.search,
-                  enabled: !_loading,
+                  enabled: !busy,
                   onSubmitted: (_) => _search(),
                   decoration: InputDecoration(
                     filled: true,
@@ -3613,7 +3586,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
                     suffixIcon: IconButton(
                       tooltip: "搜索",
                       icon: const Icon(Icons.arrow_forward_rounded),
-                      onPressed: _loading ? null : _search,
+                      onPressed: busy ? null : _search,
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -3645,7 +3618,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
                       icon: Icons.swap_horiz_rounded,
                       label: "更换来源",
                       color: Colors.orange,
-                      onPressed: _loading
+                      onPressed: busy
                           ? null
                           : () => Navigator.pop<Object?>(context, "retry"),
                     ),
@@ -3654,8 +3627,8 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
                       icon: Icons.search_rounded,
                       label: "搜索",
                       filled: true,
-                      busy: _loading,
-                      onPressed: _loading ? null : _search,
+                      busy: busy,
+                      onPressed: busy ? null : _search,
                     ),
                   ],
                 ),
@@ -3669,6 +3642,14 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
 
   Widget _buildBody(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    if (_preparing) {
+      return const _MetadataStateMessage(
+        icon: Icons.cloud_download_rounded,
+        title: "正在获取详情",
+        message: "请稍候，正在读取该条目的封面与截图。",
+        showProgress: true,
+      );
+    }
     if (_loading) {
       return const _MetadataStateMessage(
         icon: Icons.sync_rounded,
@@ -3714,10 +3695,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
         sourceName: widget.sourceName,
         query: _controller.text.trim(),
         result: _results[index],
-        onTap: () => Navigator.pop<Object?>(
-          context,
-          _results[index],
-        ),
+        onTap: () => _pick(_results[index]),
       ),
     );
   }
