@@ -313,6 +313,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _sheetGrabber() {
+    return SizedBox(
+      width: double.infinity,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          child: Container(
+            width: 42,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showLibraryFilters(GameProvider gameProvider) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -327,18 +349,30 @@ class _HomeScreenState extends State<HomeScreen> {
           }
           final cs = Theme.of(context).colorScheme;
 
-          return Material(
-            color: cardBg(context),
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(22)),
-            child: SafeArea(
-              top: false,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("显示方式",
+          return DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.5,
+            maxChildSize: 0.92,
+            snap: true,
+            snapSizes: const [0.5, 0.92],
+            expand: false,
+            shouldCloseOnMinExtent: true,
+            builder: (sheetContext, scrollController) => Material(
+              color: cardBg(context),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(22)),
+              clipBehavior: Clip.antiAlias,
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _sheetGrabber(),
+                      const SizedBox(height: 12),
+                      Text("显示方式",
                         style: AppText.label
                             .copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
@@ -591,6 +625,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+            ),
             ),
           );
         },
