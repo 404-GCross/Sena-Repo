@@ -910,39 +910,42 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {
     if (_multiSelect && _selectedIds.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          border: Border(top: BorderSide(color: cardBorder(context))),
+      return SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            border: Border(top: BorderSide(color: cardBorder(context))),
+          ),
+          child: Row(children: [
+            TextButton.icon(
+              onPressed: _batchClearSelection,
+              icon: const Icon(Icons.close, size: 18),
+              label: Text("${_selectedIds.length} 项"),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+            ),
+            const Spacer(),
+            FilledButton.tonalIcon(
+              onPressed: _batchScrape,
+              icon: const Icon(Icons.image_search, size: 18),
+              label: const Text("刮削"),
+              style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: _batchDelete,
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text("删除"),
+              style: FilledButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
+            ),
+          ]),
         ),
-        child: Row(children: [
-          TextButton.icon(
-            onPressed: _batchClearSelection,
-            icon: const Icon(Icons.close, size: 18),
-            label: Text("${_selectedIds.length} 项"),
-            style: TextButton.styleFrom(foregroundColor: Colors.white70),
-          ),
-          const Spacer(),
-          FilledButton.tonalIcon(
-            onPressed: _batchScrape,
-            icon: const Icon(Icons.image_search, size: 18),
-            label: const Text("刮削"),
-            style: FilledButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.tonalIcon(
-            onPressed: _batchDelete,
-            icon: const Icon(Icons.delete_outline, size: 18),
-            label: const Text("删除"),
-            style: FilledButton.styleFrom(
-                foregroundColor: Colors.red,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
-          ),
-        ]),
       );
     }
     if (_isWide(context)) return null;
@@ -1144,7 +1147,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-          body: Row(children: [
+          body: SafeArea(
+            top: wide,
+            bottom: false,
+            child: Row(children: [
             // ── Left Sidebar (desktop/wide only) ──
             if (wide) ...[
               Container(
@@ -1249,7 +1255,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 )),
               ]),
             ),
-          ]),
+            ]),
+          ),
           floatingActionButton: _multiSelect || !_isAdmin
               ? null
               : AnimatedScale(
