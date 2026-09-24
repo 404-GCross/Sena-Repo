@@ -331,114 +331,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
   }
 
-  Future<void> _downloadFromSource(String source, String label) async {
-    final ctrl = TextEditingController(text: _name.text);
-    final q = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text("搜索 $label"),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(labelText: "名称或 ID", hintText: "输入后回车搜索"),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text("搜索"),
-          ),
-        ],
-      ),
-    );
-    if (q == null || q.isEmpty) return;
-
-    List<Map<String, dynamic>> results = [];
-    try {
-      final resp = await http.get(
-        Uri.parse(
-          "$_baseUrl/api/scrape/search?q=${Uri.encodeComponent(q)}&source=$source",
-        ),
-        headers: await _authHeaders,
-      );
-      results = ((jsonDecode(resp.body) as Map)["results"] as List)
-          .cast<Map<String, dynamic>>();
-    } catch (_) {
-      _showError("搜索失败");
-      return;
-    }
-    if (results.isEmpty) {
-      _showError("无结果");
-      return;
-    }
-
-    // Show results
-    final picked = await showDialog<Object?>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text("$label — 搜索结果"),
-        content: SizedBox(
-          width: 450,
-          height: 400,
-          child: ListView.builder(
-            itemCount: results.length,
-            itemBuilder: (_, i) {
-              final r = results[i];
-              return ListTile(
-                leading: (r["cover_url"] ?? "").toString().isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: Image.network(
-                          r["cover_url"].toString(),
-                          width: 50,
-                          height: 70,
-                          key: ValueKey(r["cover_url"]),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _noCover(),
-                        ),
-                      )
-                    : _noCover(),
-                title: Text(
-                  r["title"] ?? "",
-                  style: const TextStyle(fontSize: 13),
-                ),
-                subtitle: Text(
-                  [r["developer"], r["release_date"]]
-                      .where((s) => s != null && s.toString().isNotEmpty)
-                      .join(" · "),
-                  style: const TextStyle(fontSize: 12),
-                ),
-                onTap: () => Navigator.pop(ctx, r),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-        ],
-      ),
-    );
-    if (picked == null || !mounted) return;
-    final r = picked as Map<String, dynamic>;
-
-    // Apply to form (mark dirty)
-    setState(() {
-      _name.text = (r["title"] ?? "").toString();
-      _dev.text = (r["developer"] ?? "").toString();
-      _desc.text = (r["description"] ?? "").toString();
-      _date.text = (r["release_date"] ?? "").toString();
-      final nsfw = r["is_nsfw"];
-      if (nsfw is bool) _isNsfw = nsfw;
-    });
-    _showMsg("已填入 $label 数据");
-  }
-
   Future<void> _moveVersionDialog(version) async {
     final searchCtrl = TextEditingController();
     var results = <Map<String, dynamic>>[];
@@ -811,24 +703,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
-  Future<void> _reloadGame() async {
-    try {
-      final resp = await http.get(
-        Uri.parse("$_baseUrl/api/games/${widget.game.id}"),
-      );
-      if (resp.statusCode == 200) {
-        final fresh = GameDetail.fromJson(
-          jsonDecode(resp.body) as Map<String, dynamic>,
-        );
-        if (mounted)
-          setState(() {
-            _coverPath = fresh.coverPath;
-            _coverVersion = DateTime.now().millisecondsSinceEpoch;
-          });
-      }
-    } catch (_) {}
-  }
-
   void _showMsg(String m) {
     showDialog(
       context: context,
@@ -1002,8 +876,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
   }
 
-  Widget _noCover() => const Icon(Icons.image, size: 36, color: Colors.grey);
-
   Widget _section(String t, [IconData? icon]) => Padding(
         padding: const EdgeInsets.only(bottom: 8, top: 4),
         child: Row(
@@ -1022,16 +894,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
             ),
           ],
         ),
-      );
-
-  Widget _fieldCard({required List<Widget> children}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(
-          color: cardBg(context),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cardBorder(context)),
-        ),
-        child: Column(children: children),
       );
 
   Widget _tagEditorContent() {
@@ -2659,18 +2521,6 @@ class _GameEditScreenState extends State<GameEditScreen> {
         height: 280,
         child: Center(
           child: Icon(Icons.image, size: 64, color: placeholderIcon(context)),
-        ),
-      );
-
-  Widget _coverPlaceholderSmall() => Container(
-        width: 90,
-        height: 120,
-        decoration: BoxDecoration(
-          color: placeholderBg(context),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Center(
-          child: Icon(Icons.image, size: 32, color: placeholderIcon(context)),
         ),
       );
 
