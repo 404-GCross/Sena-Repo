@@ -3096,6 +3096,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (confirmed is! Map<String, bool>) return;
     // Apply only selected fields to form
     final apply = confirmed as Map<String, bool>;
+    final scrapedLengthMinutes = r["length_minutes"];
     setState(() {
       if (apply["名称"] == true) _name.text = incoming["名称"]!;
       if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
@@ -3108,6 +3109,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
       if (apply["NSFW"] == true && scrapedNsfw != null) {
         _isNsfw = scrapedNsfw == true;
+      }
+      if (scrapedLengthMinutes is int && scrapedLengthMinutes > 0) {
+        _scrapedLengthMinutes = scrapedLengthMinutes;
       }
       if (sourceIdLabel != null &&
           apply[sourceIdLabel] == true &&
