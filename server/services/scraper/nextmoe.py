@@ -119,7 +119,11 @@ class NextMoeScraper(BaseScraper):
         company_hint: str | None = None,
         refs_hint: str | None = None,
     ) -> ScraperResult | None:
-        """Batch path: one list request per game, no per-record enrichment."""
+        """Batch path: one list request per game, plus the winner's detail.
+
+        The detail endpoint is the only source of playtimes, covers and
+        screenshots, so the picked work is hydrated once.
+        """
         keyword = clean_title(name)
         if not keyword:
             return None
@@ -134,7 +138,7 @@ class NextMoeScraper(BaseScraper):
                     refs_candidates = await self._search_by_refs(client, refs_hint)
                     best = pick_best_scraper_result(keyword, refs_candidates)
                     if best:
-                        return best
+                        return await self._hydrate_work(client, best)
 
                 work_id = _normalize_work_id(keyword)
                 if work_id:
@@ -145,10 +149,29 @@ class NextMoeScraper(BaseScraper):
                     for item in await self._search_items(client, keyword)
                     if (parsed := _parse_work(item))
                 ]
-                return pick_best_scraper_result(keyword, candidates)
+                best = pick_best_scraper_result(keyword, candidates)
+                return await self._hydrate_work(client, best) if best else None
             except Exception as e:
                 logger.warning("NextMoe search_best failed for '%s': %s", name, e)
                 return None
+
+    async def _hydrate_work(
+        self,
+        client: httpx.AsyncClient,
+        result: ScraperResult,
+    ) -> ScraperResult:
+        if not result.source_id:
+            return result
+        try:
+            detail = await self._get_work(client, result.source_id, result)
+        except Exception as e:
+            logger.warning(
+                "NextMoe detail hydration failed for %s: %s",
+                result.source_id,
+                e,
+            )
+            return result
+        return detail or result
 
     def _require_api_key(self) -> None:
         if not self._api_key.strip():

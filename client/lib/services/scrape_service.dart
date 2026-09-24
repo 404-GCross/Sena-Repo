@@ -519,7 +519,7 @@ class ScrapeService {
   static const int _nextmoeSearchLimit = 5;
   static const String _nextmoeListInclude =
       "titles,refs,companies,intros,covers,tags";
-  static const String _nextmoeDetailInclude = "screenshots";
+  static const String _nextmoeDetailInclude = "screenshots,playtimes";
   static const Set<String> _nextmoeExternalSources = {
     "vndb",
     "bangumi",
@@ -695,7 +695,48 @@ class ScrapeService {
       "source_id": id,
       "is_nsfw": _nextmoeNsfw(item["content_rating"]),
       "tags": _nextmoeTags(item["tags"]),
+      "length_minutes": _nextmoePlaytimeMinutes(item["playtimes"]),
     };
+  }
+
+  static int _nextmoePlaytimeMinutes(dynamic value) {
+    final rows = _nextmoePlaytimeRows(value);
+    for (final row in rows) {
+      if (row.source == "nextmoe" && row.minutes > 0) return row.minutes;
+    }
+    var bestMinutes = 0;
+    var bestVotes = -1;
+    for (final row in rows) {
+      if (row.minutes > 0 && row.votes > bestVotes) {
+        bestVotes = row.votes;
+        bestMinutes = row.minutes;
+      }
+    }
+    return bestMinutes;
+  }
+
+  static List<({String source, int minutes, int votes})> _nextmoePlaytimeRows(
+    dynamic value,
+  ) {
+    final entries = value is List
+        ? value
+        : (value is Map ? <dynamic>[value] : const <dynamic>[]);
+    final rows = <({String source, int minutes, int votes})>[];
+    for (final entry in entries) {
+      if (entry is! Map) continue;
+      rows.add((
+        source: (entry["source"] ?? "").toString().trim().toLowerCase(),
+        minutes: _nextmoeInt(entry["minutes"]),
+        votes: _nextmoeInt(entry["vote_count"]),
+      ));
+    }
+    return rows;
+  }
+
+  static int _nextmoeInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse((value ?? "").toString().trim()) ?? 0;
   }
 
   static String _nextmoeTitle(Map<String, dynamic> item) {
