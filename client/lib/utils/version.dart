@@ -18,3 +18,12 @@ String versionLabel(String version) {
 }
 
 String get appVersionLabel => versionLabel(appVersion);
+
+/// Build channel of a version string: "dev-xxxx" builds are pre-releases,
+/// everything else counts as a release.
+String versionChannel(String version) {
+  final v = version.trim().toLowerCase();
+  if (v.isEmpty) return "unknown";
+  if (v == "dev" || v == "test" || v.startsWith("dev-")) return "dev";
+  return "release";
+}
