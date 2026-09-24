@@ -214,12 +214,60 @@ def _read_scraper_config() -> dict:
     return {}
 
 
+_SCRAPER_SECRET_KEYS = (
+    "bangumi_token",
+    "vndb_token",
+    "hikarinagi_client_secret",
+    "nextmoe_api_key",
+    "proxy",
+)
+
+
 def _write_scraper_config(data: dict):
-    """Write scraper config to JSON file."""
-    _scraper_config_path().parent.mkdir(parents=True, exist_ok=True)
-    import json
+    """Write scraper config to JSON file; credentials are encrypted at rest."""
+    from utils.secrets import encrypt_secret
+
+    payload = dict(data)
+    for key in _SCRAPER_SECRET_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str) and value and "****" not in value:
+            payload[key] = encrypt_secret(value)
     p = _scraper_config_path()
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        p.chmod(0o600)
+    except OSError:
+        pass
+
+
+def migrate_scraper_config_secrets(config) -> None:
+    """Encrypt plaintext credentials persisted by older versions."""
+    from utils.secrets import encrypt_secret, is_encrypted
+
+    path = Path(config.data_path) / "scraper_config.json"
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    changed = False
+    for key in _SCRAPER_SECRET_KEYS:
+        value = data.get(key)
+        if (
+            isinstance(value, str)
+            and value
+            and "****" not in value
+            and not is_encrypted(value)
+        ):
+            data[key] = encrypt_secret(value)
+            changed = True
+    if changed:
+        _write_scraper_config(data)
+        logger.info("Encrypted persisted scraper credentials")
 
 
 @router.put("/scraper")

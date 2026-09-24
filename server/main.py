@@ -80,6 +80,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Sena Repo server...")
 
     config = load_config()
+    from api.settings import migrate_scraper_config_secrets
+
+    migrate_scraper_config_secrets(config)
     init_database(config)
     await create_tables()
     await _fail_interrupted_scrape_jobs(logger)
