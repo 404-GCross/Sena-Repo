@@ -55,8 +55,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isWide(BuildContext ctx) =>
       !_isHandheldPlatform || MediaQuery.of(ctx).size.shortestSide > 600;
-  bool _isMobile(BuildContext ctx) =>
-      _isHandheldPlatform && MediaQuery.of(ctx).size.shortestSide <= 600;
 
   @override
   void initState() {
@@ -138,10 +136,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGameLibrary(GameProvider gameProvider) {
-    final mobile = _isMobile(context);
     return Column(
       children: [
-        _buildLibraryToolbar(gameProvider, inlineSearch: !mobile),
+        _buildLibraryToolbar(gameProvider),
         Expanded(
           child: gameProvider.isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -180,8 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildLibraryToolbar(GameProvider gameProvider,
-      {required bool inlineSearch}) {
+  Widget _buildLibraryToolbar(GameProvider gameProvider) {
     final hasFilters = gameProvider.filterPlatform != null ||
         gameProvider.filterHasCover != null ||
         gameProvider.sortBy != null;
@@ -192,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
       curve: Curves.easeOutCubic,
       child: _toolbarVisible
           ? Container(
-              height: inlineSearch ? 62 : 58,
+              height: 62,
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               decoration: BoxDecoration(
                 color: cardBg(context).withValues(alpha: 0.96),
@@ -204,15 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Row(
                 children: [
-                  if (inlineSearch)
-                    Expanded(child: _inlineSearchField(gameProvider))
-                  else
-                    _mobileToolbarButton(
-                      icon: Icons.search_rounded,
-                      tooltip: "搜索",
-                      active: _searchController.text.trim().isNotEmpty,
-                      onPressed: () => _showMobileSearch(gameProvider),
-                    ),
+                  Expanded(child: _inlineSearchField(gameProvider)),
                   const SizedBox(width: 8),
                   Text(
                     "${gameProvider.games.length} 款",
@@ -221,10 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: subTextColor(context),
                     ),
                   ),
-                  if (inlineSearch)
-                    const SizedBox(width: 8)
-                  else
-                    const Spacer(),
+                  const SizedBox(width: 8),
                   _mobileToolbarButton(
                     icon: Icons.refresh_rounded,
                     tooltip: "刷新",
@@ -324,65 +309,6 @@ class _HomeScreenState extends State<HomeScreen> {
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
       onPressed: onPressed,
-    );
-  }
-
-  Future<void> _showMobileSearch(GameProvider gameProvider) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-          ),
-          child: Material(
-            color: cardBg(context),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: "搜索游戏、会社、补丁关键词...",
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded),
-                            onPressed: () {
-                              _searchController.clear();
-                              gameProvider.search("");
-                              setState(() {});
-                              setSheetState(() {});
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
-                        .withValues(alpha: 0.72),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(15),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: (value) {
-                    gameProvider.search(value);
-                    setState(() {});
-                    setSheetState(() {});
-                  },
-                  onSubmitted: (_) => Navigator.pop(sheetContext),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
