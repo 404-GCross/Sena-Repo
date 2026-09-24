@@ -6054,7 +6054,7 @@ class _HeroBackgroundPickerSheetState
                                 url: widget.screenshots[index],
                                 label: "背景 ${index + 1}",
                                 selected: index == _selectedIndex,
-                                width: 132,
+                                width: 176,
                                 onTap: () =>
                                     setState(() => _selectedIndex = index),
                               ),
@@ -6220,7 +6220,29 @@ class _HeroCandidateTile extends StatelessWidget {
                     // 16:9 so candidates are not cropped sideways like the final asset.
                     width: 80,
                     height: 45,
-                    child: _HeroNetworkImage(url: url),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _HeroNetworkImage(url: url),
+                        if (selected)
+                          Positioned(
+                            top: 3,
+                            right: 3,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: cs.primary,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.check_rounded,
+                                size: 11,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: AppGap.sm),
@@ -6250,10 +6272,6 @@ class _HeroCandidateTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (selected) ...[
-                  const SizedBox(width: AppGap.xs),
-                  Icon(Icons.check_circle_rounded, size: 18, color: cs.primary),
-                ],
               ],
             ),
           ),
