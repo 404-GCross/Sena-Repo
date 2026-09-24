@@ -13,6 +13,7 @@ import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_token_store.dart";
 import "../widgets/app_shell.dart";
+import "about_screen.dart";
 import "settings_screen.dart";
 import "connect_screen.dart";
 import "../providers/game_provider.dart";
@@ -302,67 +303,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showAbout(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Column(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: Image.asset("assets/icon.png", width: 56, height: 56),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              "Sena Repo",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Column(
-              children: [
-                Text(
-                  "客户端  $appVersionLabel",
-                  style: TextStyle(fontSize: 13, color: cs.primary),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  "服务端  ${_serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知"}",
-                  style: TextStyle(fontSize: 13, color: cs.primary),
-                ),
-              ],
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Divider(),
-            const SizedBox(height: 8),
-            Text(
-              "GalGame 私有库管理器",
-              style: AppText.bodyMedium.copyWith(color: subTextColor(context)),
-            ),
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: () {},
-              child: Text(
-                "github.com/404-GCross/Sena-Repo",
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.primary.withValues(alpha: 0.8),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AboutScreen()),
     );
   }
 
