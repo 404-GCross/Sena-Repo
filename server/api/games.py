@@ -632,6 +632,8 @@ class GameUpdate(BaseModel):
     bangumi_id: str | None = None
     hikarinagi_id: str | None = None
     is_nsfw: bool | None = None
+    length: int | None = Field(default=None, ge=0)
+    length_minutes: int | None = Field(default=None, ge=0)
     tag_names: list[str] | None = None
     tag_source: str | None = None
 

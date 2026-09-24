@@ -250,6 +250,7 @@ async def search_candidates(
                  "external_ids": r.external_ids,
                  "developer": r.developer,
                  "description": r.description, "release_date": r.release_date,
+                 "length": r.length, "length_minutes": r.length_minutes,
                  "is_nsfw": r.is_nsfw,
                  "source_id": r.source_id,
                  "tags": [

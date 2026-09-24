@@ -45,6 +45,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _bgUrl;
   bool _saving = false;
   bool _isNsfw = false;
+  int _lengthMinutes = 0;
+  int _lengthCategory = 0;
   bool _tagsDirty = false;
   bool _versionPasswordChanged = false;
   bool _desktopBgActionsHovered = false;
@@ -99,6 +101,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
+    _lengthMinutes = g.lengthMinutes;
+    _lengthCategory = g.length;
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
     _name = TextEditingController(text: g.name);
     _dev = TextEditingController(text: g.developer ?? "");
@@ -271,6 +275,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "bangumi_id": _bgm.text.trim(),
         "hikarinagi_id": _hikarinagi.text.trim(),
         "is_nsfw": _isNsfw,
+        "length": _lengthCategory,
+        "length_minutes": _lengthMinutes,
       };
       if (_tagsDirty) {
         body["tag_names"] = _tagNames;
@@ -850,6 +856,64 @@ class _GameEditScreenState extends State<GameEditScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text("关闭"),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _readonlyField(
+    String label,
+    String value, {
+    IconData? icon,
+    VoidCallback? onDelete,
+    String? deleteTooltip,
+    bool muted = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Icon(icon, size: 18, color: hintColor(context)),
+            ),
+            const SizedBox(width: 8),
+          ],
+          SizedBox(
+            width: 80,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                label,
+                style: TextStyle(color: subTextColor(context), fontSize: 14),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: muted ? hintColor(context) : null,
+                ),
+              ),
+            ),
+          ),
+          if (onDelete != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: IconButton(
+                icon: const Icon(Icons.delete_outline, size: 20),
+                color: hintColor(context),
+                tooltip: deleteTooltip ?? "清除",
+                onPressed: onDelete,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
         ],
       ),
     );
@@ -1454,6 +1518,17 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 hintText: "YYYY-MM-DD",
               ),
               const SizedBox(height: 14),
+              _mobileReadonlyField(
+                "平均时长",
+                _formatLengthValue(),
+                icon: Icons.schedule_outlined,
+                muted: _lengthMinutes <= 0 && _lengthCategory <= 0,
+                onDelete: (_lengthMinutes > 0 || _lengthCategory > 0)
+                    ? _clearLengthMetadata
+                    : null,
+                deleteTooltip: "清除平均时长",
+              ),
+              const SizedBox(height: 14),
               _mobileTextField(
                 "VNDB ID",
                 _vndb,
@@ -1683,6 +1758,58 @@ class _GameEditScreenState extends State<GameEditScreen> {
       padding: padding,
       radius: AppRadius.lg,
       child: child,
+    );
+  }
+
+  Widget _mobileReadonlyField(
+    String label,
+    String value, {
+    IconData? icon,
+    VoidCallback? onDelete,
+    String? deleteTooltip,
+    bool muted = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: sectionIconColor(context)),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: AppText.label.copyWith(
+                color: subTextColor(context),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                value,
+                style: AppText.body.copyWith(
+                  height: 1.45,
+                  color: muted ? hintColor(context) : null,
+                ),
+              ),
+            ),
+            if (onDelete != null)
+              IconButton(
+                icon: const Icon(Icons.delete_outline, size: 20),
+                color: hintColor(context),
+                tooltip: deleteTooltip ?? "清除",
+                onPressed: onDelete,
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -2271,6 +2398,17 @@ class _GameEditScreenState extends State<GameEditScreen> {
             sourceId: g.vndbId,
           ),
           _divider(),
+          _readonlyField(
+            "平均时长",
+            _formatLengthValue(),
+            icon: Icons.schedule,
+            muted: _lengthMinutes <= 0 && _lengthCategory <= 0,
+            onDelete: (_lengthMinutes > 0 || _lengthCategory > 0)
+                ? _clearLengthMetadata
+                : null,
+            deleteTooltip: "清除平均时长",
+          ),
+          _divider(),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2809,6 +2947,38 @@ class _GameEditScreenState extends State<GameEditScreen> {
     await _downloadMetadata();
   }
 
+  String _formatLengthValue() {
+    if (_lengthMinutes > 0) {
+      final h = _lengthMinutes ~/ 60;
+      final m = _lengthMinutes % 60;
+      if (h > 0 && m > 0) return "$h 小时 $m 分";
+      if (h > 0) return "$h 小时";
+      return "$m 分";
+    }
+    switch (_lengthCategory) {
+      case 1:
+        return "很短 (< 2h)";
+      case 2:
+        return "短 (2–10h)";
+      case 3:
+        return "中等 (10–30h)";
+      case 4:
+        return "长 (30–50h)";
+      case 5:
+        return "很长 (> 50h)";
+      default:
+        return "未设置";
+    }
+  }
+
+  void _clearLengthMetadata() {
+    setState(() {
+      _lengthMinutes = 0;
+      _lengthCategory = 0;
+    });
+    _showMsg("已清除平均时长");
+  }
+
   Future<void> _downloadMetadata() async {
     // Step 1: Pick source. The enabled-scrapers list is served from a local
     // cache so the dialog opens immediately; the network copy refreshes in
@@ -2867,6 +3037,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 "screenshots": detail["screenshots"],
               if ((detail["hero_url"] ?? "").toString().isNotEmpty)
                 "hero_url": detail["hero_url"],
+              "length_minutes": detail["length_minutes"],
             };
           }
         } on NextmoeAuthRequiredException {
@@ -3086,6 +3257,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (confirmed is! Map<String, bool>) return;
     // Apply only selected fields to form
     final apply = confirmed as Map<String, bool>;
+    final scrapedLengthMinutes = r["length_minutes"];
     setState(() {
       if (apply["名称"] == true) _name.text = incoming["名称"]!;
       if (apply["开发商"] == true) _dev.text = incoming["开发商"]!;
@@ -3098,6 +3270,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
       if (apply["NSFW"] == true && scrapedNsfw != null) {
         _isNsfw = scrapedNsfw == true;
+      }
+      if (scrapedLengthMinutes is int && scrapedLengthMinutes > 0) {
+        _lengthMinutes = scrapedLengthMinutes;
       }
       if (sourceIdLabel != null &&
           apply[sourceIdLabel] == true &&
