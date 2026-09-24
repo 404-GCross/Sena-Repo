@@ -87,6 +87,10 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN hikarinagi_id VARCHAR(64)"
             )
+        if "nextmoe_id" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN nextmoe_id VARCHAR(32)"
+            )
         if "entry_source" not in game_columns:
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN entry_source VARCHAR(32) NOT NULL DEFAULT 'library'"
