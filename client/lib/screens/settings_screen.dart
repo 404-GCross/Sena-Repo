@@ -2677,12 +2677,15 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         }
         final enabled = data["enabled_scrapers"];
         if (enabled is List) {
-          final enabledSet = enabled.map((value) => value.toString()).toSet();
+          final enabledSources =
+              enabled.map((value) => value.toString()).toList();
+          final enabledSet = enabledSources.toSet();
           for (final source in _sources.keys) {
             _sources[source] = enabledSet.contains(source);
           }
           _scraperMode =
               enabledSet.contains("nextmoe") ? "nextmoe" : "classic";
+          await widget.api.rememberEnabledScraperSources(enabledSources);
         }
       }
     } catch (_) {}
@@ -2768,6 +2771,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
     if (!mounted) return false;
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      final enabled = body["enabled_scrapers"];
+      if (enabled is List) {
+        await widget.api.rememberEnabledScraperSources(enabled.cast<String>());
+      }
       if (showSuccessToast) _toast(context, "刮削源配置已保存");
       return true;
     }
