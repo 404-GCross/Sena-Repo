@@ -1333,6 +1333,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
               _desktopMetadataRow("Steam", game.steamId),
               _desktopMetadataRow("Bangumi", game.bangumiId),
               _desktopMetadataRow("Hikarinagi", game.hikarinagiId),
+              _desktopMetadataRow("NextMoe", game.nextmoeId),
             ],
           ),
         ),
@@ -1536,6 +1537,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
           _metadataInfoRow("Bangumi", game.bangumiId),
           _divider(),
           _metadataInfoRow("Hikarinagi", game.hikarinagiId),
+          _divider(),
+          _metadataInfoRow("NextMoe", game.nextmoeId),
         ],
       );
 
