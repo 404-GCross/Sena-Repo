@@ -109,6 +109,8 @@ jobs:
           cp assets/binaries/7zip-zstd/Android-arm64/7zz assets/binaries/7zz
           cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
           cp assets/binaries/aria2/android-aarch64/aria2c assets/binaries/aria2c
+          cp assets/binaries/7zip-zstd/Android-arm64/License.txt assets/binaries/LICENSE-7z.txt
+          cp assets/binaries/aria2/android-aarch64/COPYING assets/binaries/COPYING-aria2.txt
           chmod +x assets/binaries/7zz
           chmod +x assets/binaries/aria2c
 
@@ -175,6 +177,7 @@ jobs:
           if (Test-Path "assets/binaries/7zip-zstd/Windows-x64/readme.txt") { Copy-Item "assets/binaries/7zip-zstd/Windows-x64/readme.txt" assets/binaries/README-7z.txt }
           Copy-Item "assets/binaries/7zip-zstd/NOTICE.txt" assets/binaries/NOTICE-7zip-zstd.txt
           Copy-Item "assets/binaries/aria2/windows-x64/aria2c.exe" assets/binaries/aria2c.exe
+          Copy-Item "assets/binaries/aria2/windows-x64/COPYING" assets/binaries/COPYING-aria2.txt
 
       - name: Enable Windows + generate platform files
         run: |
@@ -310,6 +313,8 @@ jobs:
           cp assets/binaries/7zip-zstd/Linux-x64/7zz assets/binaries/7zz
           cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
           cp assets/binaries/aria2/linux-x64/aria2c assets/binaries/aria2c
+          cp assets/binaries/7zip-zstd/Linux-x64/License.txt assets/binaries/LICENSE-7z.txt
+          cp assets/binaries/aria2/linux-x64/COPYING assets/binaries/COPYING-aria2.txt
           chmod +x assets/binaries/7zz
           chmod +x assets/binaries/aria2c
 
@@ -503,6 +508,8 @@ jobs:
           cp assets/binaries/7zip-zstd/Linux-arm64/7zz assets/binaries/7zz
           cp assets/binaries/7zip-zstd/NOTICE.txt assets/binaries/NOTICE-7zip-zstd.txt
           cp assets/binaries/aria2/linux-arm64/aria2c assets/binaries/aria2c
+          cp assets/binaries/7zip-zstd/Linux-arm64/License.txt assets/binaries/LICENSE-7z.txt
+          cp assets/binaries/aria2/linux-arm64/COPYING assets/binaries/COPYING-aria2.txt
           chmod +x assets/binaries/7zz
           chmod +x assets/binaries/aria2c
 
