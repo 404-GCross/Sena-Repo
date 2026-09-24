@@ -5,6 +5,7 @@ import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
+import "package:font_awesome_flutter/font_awesome_flutter.dart";
 import "package:provider/provider.dart";
 import "package:url_launcher/url_launcher.dart";
 
@@ -21,6 +22,42 @@ const _issuesUrl = "https://github.com/404-GCross/Sena-Repo/issues/new";
 const _releasesUrl = "https://github.com/404-GCross/Sena-Repo/releases";
 const _thanksUrl =
     "https://github.com/404-GCross/Sena-Repo/blob/main/README_zh-CN.md#特别鸣谢";
+const _thanksProjects = <({String name, String repo})>[
+  (name: "mcmilk/7-Zip-zstd", repo: "https://github.com/mcmilk/7-Zip-zstd"),
+  (
+    name: "OpenListTeam/OpenList",
+    repo: "https://github.com/OpenListTeam/OpenList",
+  ),
+  (
+    name: "KunMoe/kun-galgame-forum",
+    repo: "https://github.com/KunMoe/kun-galgame-forum",
+  ),
+  (name: "Ringyuki/shionlib", repo: "https://github.com/Ringyuki/shionlib"),
+  (name: "xm486/YukiHub", repo: "https://github.com/xm486/YukiHub"),
+  (name: "INK666/myGal", repo: "https://github.com/INK666/myGal"),
+  (
+    name: "JosefNemec/Playnite",
+    repo: "https://github.com/JosefNemec/Playnite",
+  ),
+  (
+    name: "huoshen80/ReinaManager",
+    repo: "https://github.com/huoshen80/ReinaManager",
+  ),
+  (
+    name: "Saramanda9988/LunaBox",
+    repo: "https://github.com/Saramanda9988/LunaBox",
+  ),
+  (
+    name: "bggRGjQaUbCoE/PiliPlus",
+    repo: "https://github.com/bggRGjQaUbCoE/PiliPlus",
+  ),
+  (
+    name: "moraroy/NonSteamLaunchers-On-Steam-Deck",
+    repo: "https://github.com/moraroy/NonSteamLaunchers-On-Steam-Deck",
+  ),
+];
+const _sevenZipRepo = "https://github.com/mcmilk/7-Zip-zstd";
+const _aria2Repo = "https://github.com/aria2/aria2";
 const _disclaimerUrl =
     "https://github.com/404-GCross/Sena-Repo/blob/main/README_zh-CN.md#免责声明";
 const _upstreamSources = "VNDB · Bangumi · DLsite · ErogameScape · Ci-en · Getchu";
@@ -120,6 +157,297 @@ class _AboutScreenState extends State<AboutScreen> {
       applicationIcon: Padding(
         padding: const EdgeInsets.all(8),
         child: Image.asset("assets/icon.png", width: 48, height: 48),
+      ),
+    );
+  }
+
+  Future<void> _showComponents() {
+    return _showListDialog(
+      title: "开源组件",
+      intro: "本客户端随包分发以下开源可执行文件，点击条目可在浏览器打开对应仓库。",
+      rows: [
+        _dialogEntry(
+          leading: Icon(
+            Icons.inventory_2_outlined,
+            size: 20,
+            color: sectionIconColor(context),
+          ),
+          title: "7-Zip（7-Zip-zstd 构建）",
+          subtitle: "压缩包解压 / 压缩（含 RAR、Zstd）",
+          license: "GNU LGPL-2.1（RAR 部分含 unRAR 限制；另含 BSD-2/BSD-3/public domain 组件）",
+          actionLabel: "许可全文",
+          onAction: () => _showBundledLicense(
+            title: "7-Zip 许可",
+            assetPath: "assets/binaries/LICENSE-7z.txt",
+            fallbackUrl: _sevenZipRepo,
+          ),
+          url: _sevenZipRepo,
+        ),
+        _dialogEntry(
+          leading: Icon(
+            Icons.download_rounded,
+            size: 20,
+            color: sectionIconColor(context),
+          ),
+          title: "aria2",
+          subtitle: "多线程下载（HTTP/BT，失败时回退内置下载）",
+          license: "GNU GPL-2.0（含 OpenSSL 链接例外）",
+          actionLabel: "许可全文",
+          onAction: () => _showBundledLicense(
+            title: "aria2 许可",
+            assetPath: "assets/binaries/COPYING-aria2.txt",
+            fallbackUrl: _aria2Repo,
+          ),
+          url: _aria2Repo,
+        ),
+      ],
+      footer: _dialogFooterRow(
+        icon: Icons.article_outlined,
+        label: "查看全部 Dart/Flutter 组件许可",
+        onTap: () {
+          Navigator.of(context, rootNavigator: true).pop();
+          _showLicenses();
+        },
+      ),
+    );
+  }
+
+  Future<void> _showThanks() {
+    return _showListDialog(
+      title: "特别鸣谢",
+      intro: "开发过程中参考与学习了以下开源项目（排名不分先后），点击条目可在浏览器打开对应仓库。",
+      rows: [
+        for (final project in _thanksProjects)
+          _dialogEntry(
+            leading: FaIcon(
+              FontAwesomeIcons.github,
+              size: 16,
+              color: sectionIconColor(context),
+            ),
+            title: project.name,
+            subtitle: project.repo.replaceFirst("https://", ""),
+            url: project.repo,
+          ),
+      ],
+      footer: _dialogFooterRow(
+        icon: Icons.link_rounded,
+        label: "在浏览器查看完整名单",
+        onTap: () {
+          Navigator.of(context, rootNavigator: true).pop();
+          _openUrl(_thanksUrl);
+        },
+      ),
+    );
+  }
+
+  Future<void> _showListDialog({
+    required String title,
+    required String intro,
+    required List<Widget> rows,
+    Widget? footer,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        title: Text(title),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 440,
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.62,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  intro,
+                  style: AppText.bodySmall.copyWith(
+                    color: subTextColor(ctx),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: AppGap.md),
+                ...rows,
+                if (footer != null) ...[
+                  const SizedBox(height: AppGap.sm),
+                  Divider(height: 1, color: cardBorder(ctx)),
+                  const SizedBox(height: 2),
+                  footer,
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("关闭"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dialogEntry({
+    required Widget leading,
+    required String title,
+    required String subtitle,
+    String? license,
+    String? actionLabel,
+    VoidCallback? onAction,
+    String? url,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      onTap: url == null ? null : () => _openUrl(url),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              child: Center(child: leading),
+            ),
+            const SizedBox(width: AppGap.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppText.bodyMedium.copyWith(
+                      color: sectionTextColor(context),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: AppText.label.copyWith(color: hintColor(context)),
+                  ),
+                  if (license != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      license,
+                      style: AppText.caption.copyWith(
+                        color: hintColor(context),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: AppGap.sm),
+            if (actionLabel != null)
+              TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  actionLabel,
+                  style: AppText.label.copyWith(fontWeight: FontWeight.w700),
+                ),
+              )
+            else
+              Icon(
+                Icons.open_in_new_rounded,
+                size: 15,
+                color: hintColor(context),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dialogFooterRow({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: hintColor(context)),
+            const SizedBox(width: AppGap.sm),
+            Expanded(
+              child: Text(
+                label,
+                style: AppText.label.copyWith(color: subTextColor(context)),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: hintColor(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showBundledLicense({
+    required String title,
+    required String assetPath,
+    required String fallbackUrl,
+  }) async {
+    String content;
+    try {
+      content = await rootBundle.loadString(assetPath);
+    } catch (_) {
+      content = "";
+    }
+    if (!mounted) return;
+    if (content.trim().isEmpty) {
+      _toast("应用内未随包该许可文本，已改为浏览器打开");
+      await _openUrl(fallbackUrl);
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        title: Text(title),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 520,
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.62,
+          ),
+          child: SingleChildScrollView(
+            child: SelectableText(
+              content,
+              style: const TextStyle(fontSize: 12, height: 1.6),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("关闭"),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openUrl(fallbackUrl);
+            },
+            child: const Text("在浏览器查看"),
+          ),
+        ],
       ),
     );
   }
@@ -228,15 +556,15 @@ class _AboutScreenState extends State<AboutScreen> {
             children: [
               _linkRow(
                 icon: Icons.gavel_rounded,
-                title: "开源许可",
-                subtitle: "第三方组件许可",
-                onTap: _showLicenses,
+                title: "开源组件",
+                subtitle: "7-Zip · aria2",
+                onTap: _showComponents,
               ),
               _linkRow(
                 icon: Icons.favorite_outline_rounded,
                 title: "特别鸣谢",
                 subtitle: "参考与学习的开源项目",
-                url: _thanksUrl,
+                onTap: _showThanks,
               ),
               _linkRow(
                 icon: Icons.warning_amber_rounded,
