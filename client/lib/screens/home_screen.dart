@@ -4,6 +4,7 @@
 import "dart:async";
 import "dart:io" show File, Platform;
 
+import "package:flutter/gestures.dart";
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
@@ -30,6 +31,27 @@ import "dart:convert";
 import "download_manager_screen.dart";
 import "notification_screen.dart";
 
+/// Library filter sheet geometry and gesture thresholds.
+const double _filterSheetMinSize = 0.5;
+const double _filterSheetMaxSize = 0.92;
+const double _filterSheetDismissPull = 20;
+const double _filterSheetHandleClosePull = 40;
+const double _filterSheetFlingVelocity = 320;
+
+/// Per-gesture bookkeeping for the library filter sheet drag layer.
+class _FilterSheetDragState {
+  _FilterSheetDragState({required this.startedAtTop});
+
+  /// Whether the content was already scrolled to the top when the drag began.
+  final bool startedAtTop;
+
+  /// Whether this gesture resized the sheet instead of scrolling the content.
+  bool movedSheet = false;
+
+  /// Pull accumulated past an edge, used to decide when to dismiss.
+  double downPull = 0;
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -51,6 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
   double _lastLibraryScrollOffset = 0;
   int _downloadCount = 0;
   StreamSubscription? _downloadSub;
+  DraggableScrollableController? _filterSheetController;
+  _FilterSheetDragState? _filterSheetDrag;
 
   bool get _isHandheldPlatform => Platform.isAndroid || Platform.isIOS;
 
@@ -316,27 +340,225 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _sheetGrabber() {
     return SizedBox(
       width: double.infinity,
+      height: 26,
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 2),
-          child: Container(
-            width: 42,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(999),
-            ),
+        child: Container(
+          width: 42,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(999),
           ),
         ),
       ),
     );
   }
 
-  Future<void> _showLibraryFilters(GameProvider gameProvider) async {
-    await showModalBottomSheet<void>(
+  bool _filterSheetScrollAtTop(ScrollController scrollController) {
+    if (!scrollController.hasClients) return true;
+    final position = scrollController.position;
+    return position.pixels <= position.minScrollExtent + 0.5;
+  }
+
+  double _filterSheetScrollOffset(ScrollController scrollController) =>
+      scrollController.hasClients ? scrollController.position.pixels : 0;
+
+  bool get _filterSheetAttached =>
+      _filterSheetController?.isAttached ?? false;
+
+  double get _filterSheetSize {
+    final controller = _filterSheetController;
+    if (controller == null || !controller.isAttached) {
+      return _filterSheetMinSize;
+    }
+    return controller.size;
+  }
+
+  double get _filterSheetParentHeight {
+    final controller = _filterSheetController;
+    if (controller == null || !controller.isAttached) {
+      return MediaQuery.sizeOf(context).height;
+    }
+    return controller.sizeToPixels(_filterSheetMaxSize) / _filterSheetMaxSize;
+  }
+
+  void _setFilterSheetSize(double size) {
+    if (!_filterSheetAttached) return;
+    _filterSheetController!.jumpTo(
+      size.clamp(_filterSheetMinSize, _filterSheetMaxSize),
+    );
+  }
+
+  void _animateFilterSheet(double target) {
+    if (!_filterSheetAttached) return;
+    _filterSheetController!.animateTo(
+      target.clamp(_filterSheetMinSize, _filterSheetMaxSize),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _scrollFilterContent(ScrollController scrollController, double delta) {
+    if (!scrollController.hasClients) return;
+    final position = scrollController.position;
+    final target = (position.pixels + delta)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((target - position.pixels).abs() < 0.01) return;
+    position.jumpTo(target);
+  }
+
+  void _closeFilterSheet() {
+    if (!mounted) return;
+    _filterSheetDrag = null;
+    Navigator.of(context).maybePop();
+  }
+
+  void _onFilterSheetPointerSignal(
+    PointerSignalEvent event,
+    ScrollController scrollController,
+  ) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
+    if (!_filterSheetAttached) return;
+    if (event.scrollDelta.dy < 0) {
+      // Wheel up collapses the sheet: scroll the content back to the top first,
+      // then dismiss once there is nothing left to scroll.
+      if (!_filterSheetScrollAtTop(scrollController)) return;
+      GestureBinding.instance.pointerSignalResolver.register(event, (_) {});
+      _closeFilterSheet();
+      return;
+    }
+    // Wheel down expands the peek sheet instead of scrolling its content.
+    if (_filterSheetSize >= _filterSheetMaxSize - 0.001) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {});
+    _animateFilterSheet(_filterSheetMaxSize);
+  }
+
+  void _onFilterSheetDragStart(
+    DragStartDetails details,
+    ScrollController scrollController,
+  ) {
+    _filterSheetDrag = _FilterSheetDragState(
+      startedAtTop: _filterSheetScrollAtTop(scrollController),
+    );
+  }
+
+  void _onFilterSheetDragUpdate(
+    DragUpdateDetails details,
+    ScrollController scrollController,
+  ) {
+    final drag = _filterSheetDrag;
+    if (drag == null || !_filterSheetAttached) return;
+    final dy = details.delta.dy;
+    if (dy == 0) return;
+
+    if (dy < 0) {
+      if (_filterSheetSize < _filterSheetMaxSize - 0.001 &&
+          _filterSheetScrollAtTop(scrollController)) {
+        drag.movedSheet = true;
+        _setFilterSheetSize(_filterSheetSize - dy / _filterSheetParentHeight);
+        return;
+      }
+      _scrollFilterContent(scrollController, -dy);
+      return;
+    }
+
+    if (drag.movedSheet && _filterSheetSize > _filterSheetMinSize + 0.001) {
+      _setFilterSheetSize(_filterSheetSize - dy / _filterSheetParentHeight);
+      return;
+    }
+    if (_filterSheetScrollOffset(scrollController) > 0) {
+      _scrollFilterContent(scrollController, -dy);
+      return;
+    }
+    if (!drag.startedAtTop) return;
+    drag.downPull += dy;
+    if (drag.downPull < _filterSheetDismissPull) return;
+    drag.downPull = 0;
+    _closeFilterSheet();
+  }
+
+  void _onFilterSheetDragEnd(
+    DragEndDetails details,
+    ScrollController scrollController,
+  ) {
+    final drag = _filterSheetDrag;
+    _filterSheetDrag = null;
+    if (drag == null || !_filterSheetAttached) return;
+    final velocity = details.primaryVelocity ?? 0;
+    if (drag.movedSheet) {
+      if (velocity.abs() > _filterSheetFlingVelocity) {
+        _animateFilterSheet(
+          velocity < 0 ? _filterSheetMaxSize : _filterSheetMinSize,
+        );
+        return;
+      }
+      _animateFilterSheet(
+        _filterSheetSize >= (_filterSheetMinSize + _filterSheetMaxSize) / 2
+            ? _filterSheetMaxSize
+            : _filterSheetMinSize,
+      );
+      return;
+    }
+    if (!scrollController.hasClients || velocity.abs() < 120) return;
+    final position = scrollController.position;
+    final target = (position.pixels - velocity * 0.18)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((target - position.pixels).abs() < 1) return;
+    position.animateTo(
+      target,
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.decelerate,
+    );
+  }
+
+  void _onFilterHandleDragStart(DragStartDetails details) {
+    _filterSheetDrag = _FilterSheetDragState(startedAtTop: false);
+  }
+
+  void _onFilterHandleDragUpdate(DragUpdateDetails details) {
+    final drag = _filterSheetDrag;
+    if (drag == null || !_filterSheetAttached) return;
+    final dy = details.delta.dy;
+    if (dy == 0) return;
+    final next = _filterSheetSize - dy / _filterSheetParentHeight;
+    if (next >= _filterSheetMinSize) {
+      drag.downPull = 0;
+      _setFilterSheetSize(next);
+      return;
+    }
+    _setFilterSheetSize(_filterSheetMinSize);
+    drag.downPull += (_filterSheetMinSize - next) * _filterSheetParentHeight;
+    if (drag.downPull < _filterSheetHandleClosePull) return;
+    drag.downPull = 0;
+    _closeFilterSheet();
+  }
+
+  void _onFilterHandleDragEnd(DragEndDetails details) {
+    final drag = _filterSheetDrag;
+    _filterSheetDrag = null;
+    if (drag == null || !_filterSheetAttached) return;
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() > _filterSheetFlingVelocity) {
+      _animateFilterSheet(
+        velocity < 0 ? _filterSheetMaxSize : _filterSheetMinSize,
+      );
+      return;
+    }
+    _animateFilterSheet(
+      _filterSheetSize >= (_filterSheetMinSize + _filterSheetMaxSize) / 2
+          ? _filterSheetMaxSize
+          : _filterSheetMinSize,
+    );
+  }
+
+  Future<void> _showLibraryFilters(GameProvider gameProvider) {
+    final sheetController = DraggableScrollableController();
+    _filterSheetController = sheetController;
+    _filterSheetDrag = null;
+    return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -350,287 +572,318 @@ class _HomeScreenState extends State<HomeScreen> {
           final cs = Theme.of(context).colorScheme;
 
           return DraggableScrollableSheet(
-            initialChildSize: 0.5,
-            minChildSize: 0.5,
-            maxChildSize: 0.92,
+            controller: sheetController,
+            initialChildSize: _filterSheetMinSize,
+            minChildSize: _filterSheetMinSize,
+            maxChildSize: _filterSheetMaxSize,
             snap: true,
-            snapSizes: const [0.5, 0.92],
+            snapSizes: const [_filterSheetMinSize, _filterSheetMaxSize],
             expand: false,
-            shouldCloseOnMinExtent: true,
-            builder: (sheetContext, scrollController) => Material(
-              color: cardBg(context),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(22)),
-              clipBehavior: Clip.antiAlias,
-              child: SafeArea(
-                top: false,
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _sheetGrabber(),
-                      const SizedBox(height: 12),
-                      Text("显示方式",
-                        style: AppText.label
-                            .copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _viewModeChip(
-                            "网格",
-                            Icons.grid_view_rounded,
-                            _isGridView,
-                            () => refresh(
-                                () => setState(() => _isGridView = true)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _viewModeChip(
-                            "列表",
-                            Icons.view_list_rounded,
-                            !_isGridView,
-                            () => refresh(
-                                () => setState(() => _isGridView = false)),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Divider(height: 1, color: cardBorder(context)),
-                    const SizedBox(height: 12),
-                    Text("显示",
-                        style: AppText.label
-                            .copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text("封面大小",
-                            style: AppText.bodyMedium
-                                .copyWith(fontWeight: FontWeight.w600)),
-                        const Spacer(),
-                        Text(
-                          "${context.read<SettingsProvider>().coverSize.round()} px",
-                          style: AppText.label.copyWith(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: context.read<SettingsProvider>().coverSize,
-                      min: 100,
-                      max: 300,
-                      divisions: 20,
-                      activeColor: cs.primary,
-                      onChanged: (v) {
-                        context.read<SettingsProvider>().setCoverSize(v);
-                        setSheetState(() {});
-                      },
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text("100",
-                            style: AppText.caption
-                                .copyWith(color: hintColor(context))),
-                        Text("300",
-                            style: AppText.caption
-                                .copyWith(color: hintColor(context))),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
+            shouldCloseOnMinExtent: false,
+            builder: (sheetContext, scrollController) {
+              return Material(
+                color: cardBg(context),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(22)),
+                clipBehavior: Clip.antiAlias,
+                child: SafeArea(
+                  top: false,
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: Listener(
+                      onPointerSignal: (event) =>
+                          _onFilterSheetPointerSignal(event, scrollController),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onVerticalDragStart: (details) =>
+                            _onFilterSheetDragStart(details, scrollController),
+                        onVerticalDragUpdate: (details) =>
+                            _onFilterSheetDragUpdate(details, scrollController),
+                        onVerticalDragEnd: (details) =>
+                            _onFilterSheetDragEnd(details, scrollController),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("模糊 NSFW 图片",
-                                  style: AppText.bodyMedium
-                                      .copyWith(fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 2),
-                              Text("列表和详情页默认保护 NSFW 封面与背景",
+                              MouseRegion(
+                                cursor: SystemMouseCursors.grab,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onVerticalDragStart: _onFilterHandleDragStart,
+                                  onVerticalDragUpdate: _onFilterHandleDragUpdate,
+                                  onVerticalDragEnd: _onFilterHandleDragEnd,
+                                  child: _sheetGrabber(),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text("显示方式",
+                                style: AppText.label
+                                    .copyWith(fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _viewModeChip(
+                                      "网格",
+                                      Icons.grid_view_rounded,
+                                      _isGridView,
+                                      () => refresh(
+                                          () => setState(() => _isGridView = true)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _viewModeChip(
+                                      "列表",
+                                      Icons.view_list_rounded,
+                                      !_isGridView,
+                                      () => refresh(
+                                          () => setState(() => _isGridView = false)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              Divider(height: 1, color: cardBorder(context)),
+                              const SizedBox(height: 12),
+                              Text("显示",
                                   style: AppText.label
-                                      .copyWith(color: hintColor(context))),
+                                      .copyWith(fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Text("封面大小",
+                                      style: AppText.bodyMedium
+                                          .copyWith(fontWeight: FontWeight.w600)),
+                                  const Spacer(),
+                                  Text(
+                                    "${context.read<SettingsProvider>().coverSize.round()} px",
+                                    style: AppText.label.copyWith(
+                                      color: cs.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Slider(
+                                value: context.read<SettingsProvider>().coverSize,
+                                min: 100,
+                                max: 300,
+                                divisions: 20,
+                                activeColor: cs.primary,
+                                onChanged: (v) {
+                                  context.read<SettingsProvider>().setCoverSize(v);
+                                  setSheetState(() {});
+                                },
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("100",
+                                      style: AppText.caption
+                                          .copyWith(color: hintColor(context))),
+                                  Text("300",
+                                      style: AppText.caption
+                                          .copyWith(color: hintColor(context))),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text("模糊 NSFW 图片",
+                                            style: AppText.bodyMedium
+                                                .copyWith(fontWeight: FontWeight.w600)),
+                                        const SizedBox(height: 2),
+                                        Text("列表和详情页默认保护 NSFW 封面与背景",
+                                            style: AppText.label
+                                                .copyWith(color: hintColor(context))),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value:
+                                        context.read<SettingsProvider>().blurNsfwCovers,
+                                    onChanged: (v) {
+                                      context
+                                          .read<SettingsProvider>()
+                                          .setBlurNsfwCovers(v);
+                                      setSheetState(() {});
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              Divider(height: 1, color: cardBorder(context)),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Text("筛选与排序", style: AppText.subtitle),
+                                  const Spacer(),
+                                  if (gameProvider.filterPlatform != null ||
+                                      gameProvider.filterHasCover != null ||
+                                      gameProvider.sortBy != null)
+                                    TextButton(
+                                      onPressed: () {
+                                        gameProvider.clearFilters();
+                                        setSheetState(() {});
+                                      },
+                                      child: const Text("清除"),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text("平台", style: AppText.label.copyWith(
+                                  fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  _filterChip(
+                                    "PC",
+                                    Icons.desktop_windows,
+                                    gameProvider.filterPlatform == "PC",
+                                    () => refresh(() => _togglePlatformFilter("PC")),
+                                  ),
+                                  _filterChip(
+                                    "KRKR",
+                                    Icons.android,
+                                    gameProvider.filterPlatform == "KRKR",
+                                    () => refresh(() => _togglePlatformFilter("KRKR")),
+                                  ),
+                                  _filterChip(
+                                    "ONS",
+                                    Icons.language,
+                                    gameProvider.filterPlatform == "ONS",
+                                    () => refresh(() => _togglePlatformFilter("ONS")),
+                                  ),
+                                  _filterChip(
+                                    "Ty",
+                                    Icons.phone_android,
+                                    gameProvider.filterPlatform == "Ty",
+                                    () => refresh(() => _togglePlatformFilter("Ty")),
+                                  ),
+                                  _filterChip(
+                                    "直装",
+                                    Icons.phone_iphone,
+                                    gameProvider.filterPlatform == "直装",
+                                    () => refresh(() => _togglePlatformFilter("直装")),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Text("封面", style: AppText.label.copyWith(
+                                  fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                children: [
+                                  _filterChip(
+                                    "有封面",
+                                    Icons.image_outlined,
+                                    gameProvider.filterHasCover == true,
+                                    () => refresh(() => gameProvider.setFilters(
+                                        hasCover: gameProvider.filterHasCover == true
+                                            ? null
+                                            : true)),
+                                  ),
+                                  _filterChip(
+                                    "缺封面",
+                                    Icons.hide_image_outlined,
+                                    gameProvider.filterHasCover == false,
+                                    () => refresh(() => gameProvider.setFilters(
+                                        hasCover: gameProvider.filterHasCover == false
+                                            ? null
+                                            : false)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Text("排序", style: AppText.label.copyWith(
+                                  fontWeight: FontWeight.w700)),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("导入时间 ↓"),
+                                value: "imported",
+                                groupValue: gameProvider.sortBy ?? "imported",
+                                onChanged: (_) => refresh(() => gameProvider.setSort(null)),
+                              ),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("名称 A → Z"),
+                                value: "name",
+                                groupValue: gameProvider.sortBy,
+                                onChanged: (_) => refresh(() => gameProvider.setSort("name")),
+                              ),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("名称 Z → A"),
+                                value: "name_desc",
+                                groupValue: gameProvider.sortBy,
+                                onChanged: (_) =>
+                                    refresh(() => gameProvider.setSort("name_desc")),
+                              ),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("别名 A → Z"),
+                                value: "alias",
+                                groupValue: gameProvider.sortBy,
+                                onChanged: (_) =>
+                                    refresh(() => gameProvider.setSort("alias")),
+                              ),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("别名 Z → A"),
+                                value: "alias_desc",
+                                groupValue: gameProvider.sortBy,
+                                onChanged: (_) =>
+                                    refresh(() => gameProvider.setSort("alias_desc")),
+                              ),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("会社 A → Z"),
+                                value: "developer",
+                                groupValue: gameProvider.sortBy,
+                                onChanged: (_) =>
+                                    refresh(() => gameProvider.setSort("developer")),
+                              ),
+                              RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: const Text("会社 Z → A"),
+                                value: "developer_desc",
+                                groupValue: gameProvider.sortBy,
+                                onChanged: (_) =>
+                                    refresh(() => gameProvider.setSort("developer_desc")),
+                              ),
                             ],
                           ),
                         ),
-                        Switch(
-                          value:
-                              context.read<SettingsProvider>().blurNsfwCovers,
-                          onChanged: (v) {
-                            context
-                                .read<SettingsProvider>()
-                                .setBlurNsfwCovers(v);
-                            setSheetState(() {});
-                          },
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    Divider(height: 1, color: cardBorder(context)),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Text("筛选与排序", style: AppText.subtitle),
-                        const Spacer(),
-                        if (gameProvider.filterPlatform != null ||
-                            gameProvider.filterHasCover != null ||
-                            gameProvider.sortBy != null)
-                          TextButton(
-                            onPressed: () {
-                              gameProvider.clearFilters();
-                              setSheetState(() {});
-                            },
-                            child: const Text("清除"),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text("平台", style: AppText.label.copyWith(
-                        fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        _filterChip(
-                          "PC",
-                          Icons.desktop_windows,
-                          gameProvider.filterPlatform == "PC",
-                          () => refresh(() => _togglePlatformFilter("PC")),
-                        ),
-                        _filterChip(
-                          "KRKR",
-                          Icons.android,
-                          gameProvider.filterPlatform == "KRKR",
-                          () => refresh(() => _togglePlatformFilter("KRKR")),
-                        ),
-                        _filterChip(
-                          "ONS",
-                          Icons.language,
-                          gameProvider.filterPlatform == "ONS",
-                          () => refresh(() => _togglePlatformFilter("ONS")),
-                        ),
-                        _filterChip(
-                          "Ty",
-                          Icons.phone_android,
-                          gameProvider.filterPlatform == "Ty",
-                          () => refresh(() => _togglePlatformFilter("Ty")),
-                        ),
-                        _filterChip(
-                          "直装",
-                          Icons.phone_iphone,
-                          gameProvider.filterPlatform == "直装",
-                          () => refresh(() => _togglePlatformFilter("直装")),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text("封面", style: AppText.label.copyWith(
-                        fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        _filterChip(
-                          "有封面",
-                          Icons.image_outlined,
-                          gameProvider.filterHasCover == true,
-                          () => refresh(() => gameProvider.setFilters(
-                              hasCover: gameProvider.filterHasCover == true
-                                  ? null
-                                  : true)),
-                        ),
-                        _filterChip(
-                          "缺封面",
-                          Icons.hide_image_outlined,
-                          gameProvider.filterHasCover == false,
-                          () => refresh(() => gameProvider.setFilters(
-                              hasCover: gameProvider.filterHasCover == false
-                                  ? null
-                                  : false)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text("排序", style: AppText.label.copyWith(
-                        fontWeight: FontWeight.w700)),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("导入时间 ↓"),
-                      value: "imported",
-                      groupValue: gameProvider.sortBy ?? "imported",
-                      onChanged: (_) => refresh(() => gameProvider.setSort(null)),
-                    ),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("名称 A → Z"),
-                      value: "name",
-                      groupValue: gameProvider.sortBy,
-                      onChanged: (_) => refresh(() => gameProvider.setSort("name")),
-                    ),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("名称 Z → A"),
-                      value: "name_desc",
-                      groupValue: gameProvider.sortBy,
-                      onChanged: (_) =>
-                          refresh(() => gameProvider.setSort("name_desc")),
-                    ),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("别名 A → Z"),
-                      value: "alias",
-                      groupValue: gameProvider.sortBy,
-                      onChanged: (_) =>
-                          refresh(() => gameProvider.setSort("alias")),
-                    ),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("别名 Z → A"),
-                      value: "alias_desc",
-                      groupValue: gameProvider.sortBy,
-                      onChanged: (_) =>
-                          refresh(() => gameProvider.setSort("alias_desc")),
-                    ),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("会社 A → Z"),
-                      value: "developer",
-                      groupValue: gameProvider.sortBy,
-                      onChanged: (_) =>
-                          refresh(() => gameProvider.setSort("developer")),
-                    ),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text("会社 Z → A"),
-                      value: "developer_desc",
-                      groupValue: gameProvider.sortBy,
-                      onChanged: (_) =>
-                          refresh(() => gameProvider.setSort("developer_desc")),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            ),
+              );
+            },
           );
         },
       ),
-    );
+    ).whenComplete(() {
+      _filterSheetController = null;
+      _filterSheetDrag = null;
+      sheetController.dispose();
+    });
   }
 
   Future<void> _addNewGame(BuildContext ctx, GameProvider provider) async {
