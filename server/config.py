@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_csv_list(value) -> list[str]:
@@ -167,6 +170,19 @@ def _parse_args() -> argparse.Namespace:
 _cached_config: Config | None = None
 
 
+def _decrypt_persisted_secret(value: str, key: str) -> str | None:
+    """Decrypt a persisted credential, or None when it cannot be recovered."""
+    try:
+        from utils.secrets import decrypt_secret
+
+        return decrypt_secret(value)
+    except Exception:
+        logger.warning(
+            "Persisted %s could not be decrypted; ignoring the stored value", key
+        )
+        return None
+
+
 def _apply_persisted_scraper_config(config: Config) -> None:
     path = Path(config.data_path) / "scraper_config.json"
     if not path.is_file():
@@ -191,10 +207,13 @@ def _apply_persisted_scraper_config(config: Config) -> None:
         value = data.get(key)
         if not isinstance(value, str) or "****" in value:
             continue
+        plain = _decrypt_persisted_secret(value, key)
+        if plain is None:
+            continue
         if target == "scrapers":
-            setattr(config.scrapers, key, value)
+            setattr(config.scrapers, key, plain)
         else:
-            setattr(config, key, value)
+            setattr(config, key, plain)
     if isinstance(data.get("scraper_order"), list):
         config.scrapers.scraper_order = data["scraper_order"]
     if isinstance(data.get("enabled_scrapers"), list):
@@ -307,8 +326,10 @@ def load_config(config_path: str | None = None) -> Config:
     if args.data_path:
         config.data_path = args.data_path
 
+    # Cache before applying persisted config: decrypting credentials loads the
+    # encryption key through load_config() and must not recurse into a rebuild.
+    _cached_config = config
     _apply_persisted_scraper_config(config)
     normalize_scraper_config(config.scrapers)
 
-    _cached_config = config
     return config
