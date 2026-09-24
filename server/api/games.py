@@ -40,6 +40,7 @@ _SOURCE_ID_FIELDS = {
     "bangumi": "bangumi_id",
     "steam": "steam_id",
     "hikarinagi": "hikarinagi_id",
+    "nextmoe": "nextmoe_id",
 }
 
 
@@ -270,6 +271,7 @@ async def get_game(
         steam_id=game.steam_id,
         bangumi_id=game.bangumi_id,
         hikarinagi_id=game.hikarinagi_id,
+        nextmoe_id=game.nextmoe_id,
         length=game.length or 0,
         length_minutes=game.length_minutes or 0,
         is_deleted=game.is_deleted,
@@ -631,6 +633,7 @@ class GameUpdate(BaseModel):
     steam_id: str | None = None
     bangumi_id: str | None = None
     hikarinagi_id: str | None = None
+    nextmoe_id: str | None = None
     is_nsfw: bool | None = None
     length: int | None = Field(default=None, ge=0)
     length_minutes: int | None = Field(default=None, ge=0)

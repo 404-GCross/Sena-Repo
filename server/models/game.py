@@ -62,6 +62,7 @@ class Game(Base):
     steam_id = Column(String(32), nullable=True)
     bangumi_id = Column(String(32), nullable=True)
     hikarinagi_id = Column(String(64), nullable=True)
+    nextmoe_id = Column(String(32), nullable=True)
 
     length = Column(Integer, default=0)
     length_minutes = Column(Integer, default=0)

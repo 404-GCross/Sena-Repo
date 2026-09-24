@@ -40,6 +40,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _steam,
       _bgm,
       _hikarinagi,
+      _nextmoe,
       _notes,
       _bgUrl;
   bool _saving = false;
@@ -112,6 +113,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _steam = TextEditingController(text: g.steamId ?? "");
     _bgm = TextEditingController(text: g.bangumiId ?? "");
     _hikarinagi = TextEditingController(text: g.hikarinagiId ?? "");
+    _nextmoe = TextEditingController(text: g.nextmoeId ?? "");
     _bgUrl = TextEditingController(text: g.bgPath ?? "");
     _notes = TextEditingController();
     for (final controller in [
@@ -123,6 +125,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _steam,
       _bgm,
       _hikarinagi,
+      _nextmoe,
       _bgUrl
     ]) {
       controller.addListener(_onMetadataEdited);
@@ -273,6 +276,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "steam_id": _steam.text.trim(),
         "bangumi_id": _bgm.text.trim(),
         "hikarinagi_id": _hikarinagi.text.trim(),
+        "nextmoe_id": _nextmoe.text.trim(),
         "is_nsfw": _isNsfw,
         "length": _lengthCategory,
         "length_minutes": _lengthMinutes,
@@ -1090,7 +1094,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _vndb.text.trim().isNotEmpty ||
           _steam.text.trim().isNotEmpty ||
           _bgm.text.trim().isNotEmpty ||
-          _hikarinagi.text.trim().isNotEmpty,
+          _hikarinagi.text.trim().isNotEmpty ||
+          _nextmoe.text.trim().isNotEmpty,
     ];
     return ((checks.where((value) => value).length / checks.length) * 100)
         .round();
@@ -1111,7 +1116,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (_vndb.text.trim().isEmpty &&
         _steam.text.trim().isEmpty &&
         _bgm.text.trim().isEmpty &&
-        _hikarinagi.text.trim().isEmpty) {
+        _hikarinagi.text.trim().isEmpty &&
+        _nextmoe.text.trim().isEmpty) {
       missing.add("来源ID");
     }
     return missing;
@@ -1301,6 +1307,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     _sourceBadge("Steam", _steam.text.trim()),
                     _sourceBadge("Bangumi", _bgm.text.trim()),
                     _sourceBadge("Hikarinagi", _hikarinagi.text.trim()),
+                    _sourceBadge("NextMoe", _nextmoe.text.trim()),
                   ],
                 ),
               ],
@@ -1416,6 +1423,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 _hikarinagi,
                 icon: Icons.tag_outlined,
                 hintText: "Hikarinagi game ID",
+              ),
+              const SizedBox(height: 14),
+              _mobileTextField(
+                "NextMoe ID",
+                _nextmoe,
+                icon: Icons.tag_outlined,
+                hintText: "NextMoe 作品 ID",
               ),
             ],
           ),
@@ -2318,6 +2332,23 @@ class _GameEditScreenState extends State<GameEditScreen> {
               ),
             ],
           ),
+          _divider(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _field(
+                  "NextMoe ID",
+                  _nextmoe,
+                  icon: Icons.tag,
+                  sourceId:
+                      g.nextmoeId?.isNotEmpty == true ? g.nextmoeId : null,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(child: SizedBox()),
+            ],
+          ),
         ],
       ),
     );
@@ -2958,6 +2989,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       "bangumi": _bgm,
       "steam": _steam,
       "hikarinagi": _hikarinagi,
+      "nextmoe": _nextmoe,
     };
     if (sourceIdLabel != null && sourceId.isNotEmpty) {
       currentFields[sourceIdLabel] = sourceFields[src]?.text.trim() ?? "";
@@ -3097,6 +3129,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _steam,
       _bgm,
       _hikarinagi,
+      _nextmoe,
       _bgUrl
     ]) {
       controller.removeListener(_onMetadataEdited);
@@ -3110,6 +3143,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _steam.dispose();
     _bgm.dispose();
     _hikarinagi.dispose();
+    _nextmoe.dispose();
     _bgUrl.dispose();
     _notes.dispose();
     super.dispose();
@@ -4189,6 +4223,8 @@ String? _metadataSourceIdLabel(String sourceKey) {
       return "Steam ID";
     case "hikarinagi":
       return "Hikarinagi ID";
+    case "nextmoe":
+      return "NextMoe ID";
     default:
       return null;
   }

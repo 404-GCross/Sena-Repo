@@ -734,6 +734,7 @@ async def _apply_result(
             "steam": "steam_id",
             "bangumi": "bangumi_id",
             "hikarinagi": "hikarinagi_id",
+            "nextmoe": "nextmoe_id",
         }
         col = _id_map.get(source_name)
         if col and result.source_id and (overwrite or not getattr(game, col, None)):
