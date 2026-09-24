@@ -23,6 +23,8 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
    track the required GitHub Actions checks unless the user says not to commit or push.
 7. HTML design mockups and UI draft files are local-only working artifacts unless the user
    explicitly asks to commit or publish them; do not stage, commit, or push them by default.
+8. For UI or interaction changes, present the design first (mockup or written design) and wait
+   for explicit approval before implementing. Never implement from an unapproved design.
 
 ## Repository Shape
 
