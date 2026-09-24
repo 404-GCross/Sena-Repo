@@ -181,6 +181,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       _loading = true;
       _error = null;
     });
+    final enabledScrapers = _scraperMode == "nextmoe"
+        ? <String>["nextmoe"]
+        : _classicScraperOrder
+            .where((source) => _scraperEnabled[source] ?? false)
+            .toList();
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/setup/initialize"),
@@ -201,11 +206,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               ? "catalog:full"
               : _hikarinagiScopeCtrl.text.trim(),
           "scraper_order": _scraperOrder,
-          "enabled_scrapers": _scraperMode == "nextmoe"
-              ? <String>["nextmoe"]
-              : _classicScraperOrder
-                  .where((source) => _scraperEnabled[source] ?? false)
-                  .toList(),
+          "enabled_scrapers": enabledScrapers,
           "nextmoe_api_key": _nextmoeApiKeyCtrl.text.trim(),
           "oauth_request_id": _oauthRequestId,
         }),
@@ -221,6 +222,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
 
       await _saveScraperPrefs();
+      await widget.api.rememberEnabledScraperSources(enabledScrapers);
       if (mounted) {
         Navigator.pop(context, {
           "username": _userCtrl.text.trim(),

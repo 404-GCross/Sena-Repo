@@ -17,7 +17,6 @@ import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
-import "../services/nextmoe_token_store.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/new_game_dialog.dart";
@@ -2773,8 +2772,47 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
+  Future<void> _promptNextmoeBinding() async {
+    final goBind = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          "请先使用 鲲Galgame 登录",
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        content: const Text(
+          "鲲Galgame 模式下搜索元数据需要你的 鲲Galgame账号 授权。\n\n"
+          "前往「设置 → 个人信息」绑定 鲲Galgame账号 后即可使用。",
+          style: TextStyle(fontSize: 13, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("去绑定"),
+          ),
+        ],
+      ),
+    );
+    if (goBind != true || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
+    );
+    if (!mounted) return;
+    await _downloadMetadata();
+  }
+
   Future<void> _downloadMetadata() async {
-    // Step 1: Pick source
+    // Step 1: Pick source. The enabled-scrapers list is served from a local
+    // cache so the dialog opens immediately; the network copy refreshes in
+    // the background (see ApiClient.getEnabledScraperSources).
     final enabled =
         await context.read<GameProvider>().api.getEnabledScraperSources();
     if (!mounted) return;
@@ -2788,50 +2826,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
           );
     if (src == null || !mounted) return;
 
-    if (src == "nextmoe") {
-      final api = context.read<GameProvider>().api;
-      final token = await NextmoeTokenStore.getValidAccessToken(api);
-      if (!mounted) return;
-      if (token == null || token.isEmpty) {
-        final goBind = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: const Text(
-              "请先使用 鲲Galgame 登录",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            content: const Text(
-              "鲲Galgame 模式下搜索元数据需要你的 鲲Galgame账号 授权。\n\n"
-              "前往「设置 → 个人信息」绑定 鲲Galgame账号 后即可使用。",
-              style: TextStyle(fontSize: 13, height: 1.6),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text("取消"),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text("去绑定"),
-              ),
-            ],
-          ),
-        );
-        if (goBind != true || !mounted) return;
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
-        );
-        if (!mounted) return;
-        await _downloadMetadata();
-        return;
-      }
-    }
-
-    // Step 2: Search with inline loading + results
+    // Step 2: Search with inline loading + results. The NextMoe token is
+    // checked inside the search call so a refresh never delays the dialog.
     final picked = await showDialog<Object?>(
       context: context,
       builder: (ctx) => _MetadataSearchDialog(
@@ -2843,6 +2839,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     if (picked == "retry") {
       await _downloadMetadata();
+      return;
+    }
+    if (picked == "auth") {
+      await _promptNextmoeBinding();
       return;
     }
     if (picked == null || !mounted) return;
@@ -3491,6 +3491,9 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
         _results = results;
         _loading = false;
       });
+    } on NextmoeAuthRequiredException {
+      if (!mounted || requestId != _requestId) return;
+      Navigator.pop<Object?>(context, "auth");
     } catch (_) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
