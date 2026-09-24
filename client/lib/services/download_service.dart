@@ -1536,12 +1536,6 @@ class DownloadService with WidgetsBindingObserver {
     await tmp.rename(file.path);
   }
 
-  Future<int> _parallelDownloadedBytes(File dest) async {
-    final state = await _readParallelDownloadState(dest);
-    if (state == null) return 0;
-    return _parallelDownloadedBytesForParts(state.parts);
-  }
-
   Future<int> _parallelDownloadedBytesForParts(
     List<_ParallelDownloadPart> parts,
   ) async {

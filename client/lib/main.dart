@@ -34,16 +34,6 @@ import "services/notification_service.dart";
 import "services/download_service.dart";
 import "utils/theme_utils.dart";
 
-Future<bool> _check7zAvailable() async {
-  try {
-    final exe = Platform.isWindows ? "7z" : "7z";
-    final result = await Process.run(exe, ["--help"]);
-    return result.exitCode == 0 || result.exitCode == 7;
-  } catch (_) {
-    return false;
-  }
-}
-
 /// Palette derived from the accent, but with neutral surfaces and outlines.
 ///
 /// `ColorScheme.fromSeed` tints every surface with the seed, which made cards,

@@ -447,11 +447,6 @@ def _nextmoe_name_for_app_id(app_id: str) -> str:
     return _nextmoe_zh_title(work) if work else ""
 
 
-def _nextmoe_app_id_for_name(name: str) -> str:
-    app_id, _ = _nextmoe_match_by_name(name)
-    return app_id
-
-
 def _steam_name_for_app_id(app_id) -> str:
     try:
         return _fetch_game_name(int(app_id)) or ""
