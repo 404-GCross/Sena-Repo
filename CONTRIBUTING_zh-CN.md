@@ -201,7 +201,7 @@ Steam 补丁功能分为客户端本机扫描/注入和服务端补丁库管理/
 如果改动影响用户可见行为，请同步更新至少一个相关文档：
 
 - `README.md`
-- 文档站：https://sena-repo.github.io/（源仓库 `Sena-Repo/sena-repo.github.io`）
+- 文档站：https://sena-repo.github.io/ （源仓库 `Sena-Repo/sena-repo.github.io`）
 
 ## 许可证
 
