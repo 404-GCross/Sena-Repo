@@ -263,11 +263,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static Color _boldColor(BuildContext c) => sectionTextColor(c);
 
   Widget _buildStatusSummary() {
-    final cs = Theme.of(context).colorScheme;
+    final clientColor = versionChannelColor(context, appVersion);
     final serverValue =
         _serverVersion.isNotEmpty ? versionLabel(_serverVersion) : "未知";
-    final serverColor =
-        _serverVersion.isNotEmpty ? Colors.green : Colors.orange;
+    final serverColor = _serverVersion.isEmpty
+        ? hintColor(context)
+        : versionChannelColor(context, _serverVersion);
     final roleColor = _isAdmin ? Colors.purple : Colors.grey;
 
     return LayoutBuilder(
@@ -281,7 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.phone_android_outlined,
                   label: "客户端",
                   value: appVersionLabel,
-                  color: cs.primary,
+                  color: clientColor,
                 ),
                 Divider(height: 1, color: cardBorder(context)),
                 _statusRow(
@@ -314,7 +315,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               AppStatusPill(
                 icon: Icons.phone_android_outlined,
                 label: "客户端 $appVersionLabel",
-                color: cs.primary,
+                color: clientColor,
               ),
               AppStatusPill(
                 icon: Icons.dns_outlined,

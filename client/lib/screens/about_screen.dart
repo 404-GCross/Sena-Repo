@@ -588,13 +588,8 @@ class _AboutScreenState extends State<AboutScreen> {
   }
 
   Widget _headerCard(bool compact) {
-    final clientColor =
-        versionChannel(appVersion) == "dev" ? Colors.orange : Colors.green;
-    final serverColor = _serverVersion.isEmpty
-        ? hintColor(context)
-        : (versionChannel(_serverVersion) == "dev"
-            ? Colors.orange
-            : Colors.green);
+    final clientColor = versionChannelColor(context, appVersion);
+    final serverColor = versionChannelColor(context, _serverVersion);
     final details = Column(
       crossAxisAlignment:
           compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,

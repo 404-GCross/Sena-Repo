@@ -2,6 +2,8 @@
 
 import "package:flutter/material.dart";
 
+import "version.dart";
+
 /// Family list used for every text style in the app.
 ///
 /// The official Linux arm64 engine is built without fontconfig, and its
@@ -60,6 +62,19 @@ Color subTextColor(BuildContext context) =>
 
 Color hintColor(BuildContext context) =>
     Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+
+/// Version badge colour by build channel: pre-releases orange, releases green,
+/// unknown versions muted.
+Color versionChannelColor(BuildContext context, String version) {
+  switch (versionChannel(version)) {
+    case "dev":
+      return Colors.orange;
+    case "release":
+      return Colors.green;
+    default:
+      return hintColor(context);
+  }
+}
 
 Color dimIconColor(BuildContext context) =>
     Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
