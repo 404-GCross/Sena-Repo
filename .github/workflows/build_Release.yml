@@ -386,10 +386,16 @@ jobs:
       - name: Push to registries (multi-arch)
         run: |
           DOCKERHUB_NAMESPACE=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')
+          BASE="${VERSION%%+*}"
+          case "$BASE" in
+            *-*) MOVE_TAG="pre-release" ;;
+            *) MOVE_TAG="latest" ;;
+          esac
+          echo "Pushing Docker images with moving tag: $MOVE_TAG"
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/404-gcross/sena-repo:latest \
+            -t ghcr.io/404-gcross/sena-repo:${MOVE_TAG} \
             -t ghcr.io/404-gcross/sena-repo:v${VERSION} \
-            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:latest \
+            -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:${MOVE_TAG} \
             -t docker.io/${DOCKERHUB_NAMESPACE}/sena-repo:v${VERSION} \
             server/ --build-arg SENA_VERSION=${VERSION} --push
 
