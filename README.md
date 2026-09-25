@@ -87,7 +87,7 @@ Contributions of any kind are welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) 
 
 ---
 
-## Special Thanks
+## Acknowledgments
 
 During development, this project referenced and learned from the following excellent open-source projects (in no particular order):
 - [mcmilk/7-Zip-zstd](https://github.com/mcmilk/7-Zip-zstd)
