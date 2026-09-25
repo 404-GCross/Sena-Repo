@@ -151,7 +151,7 @@ flutter analyze --no-fatal-infos --no-fatal-warnings
 | 工作流 | 触发 | 作用 |
 |--------|------|------|
 | `.github/workflows/build.yml` | 任意分支 push；PR 到 `main`、`master`；也支持手动触发 | 服务端 `compileall`、Flutter analyze、构建 Android / Windows / Linux / Server，并在非 PR 时发布 `dev-release` 预发布 |
-| `.github/workflows/build_Release.yml` | 手动触发 | 构建正式 Release 产物，发布 GitHub Release，并推送 Docker 镜像 |
+| `.github/workflows/build_Release.yml` | 推送 `v*.*.*` tag；也支持手动触发 | 校验 tag 与 `VERSION` 是否一致，构建正式 Release 产物，按 `CHANGELOG.md` 对应段落发布 GitHub Release，并推送 Docker 镜像 |
 | `.github/workflows/build-7zz-zstd.yml` | 手动或维护触发 | 构建各平台 7-Zip-zstd 二进制 |
 
 `build.yml` 中的关键检查是：
@@ -160,6 +160,14 @@ flutter analyze --no-fatal-infos --no-fatal-warnings
 - `Flutter analyze`：安装 Flutter `3.44.8` 并执行 `flutter analyze --no-fatal-infos --no-fatal-warnings`
 
 不要把完整打包成功当成 analyzer 的替代信号；客户端改动应明确确认 `Flutter analyze` 通过。
+
+### 正式发版
+
+1. 在 `VERSION` 里填写版本号（如 `0.2.0`，预发布如 `0.2.0-beta.1`）
+2. 在 `CHANGELOG.md` 最上面加一段 `## <版本号>`（中英文都可以写，段内小标题用 `###`）
+3. 提交并推送 `main`，然后打 tag：`git tag v0.2.0 && git push origin v0.2.0`
+
+工作流会校验 `tag == v$(cat VERSION)`，用该版本号构建全部产物并发布 GitHub Release。带预发布后缀（`-beta.1`、`-rc.2` 等）的版本会发布为 Pre-release，不占 "Latest"；`CHANGELOG.md` 缺少对应段落时会退化为一句带提交链接的兜底说明。
 
 ## 开发注意事项
 

@@ -151,7 +151,7 @@ Main workflows:
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `.github/workflows/build.yml` | Push to any branch; PRs to `main`, `master`; manual dispatch | Server `compileall`, Flutter analyze, Android / Windows / Linux / Server builds, and publishes the `dev-release` pre-release on non-PR runs |
-| `.github/workflows/build_Release.yml` | Manual dispatch | Builds official Release artifacts, publishes a GitHub Release, and pushes Docker images |
+| `.github/workflows/build_Release.yml` | Push a `v*.*.*` tag; manual dispatch | Validates the tag against `VERSION`, builds official Release artifacts, publishes a GitHub Release with the matching `CHANGELOG.md` section, and pushes Docker images |
 | `.github/workflows/build-7zz-zstd.yml` | Manual or maintenance trigger | Builds 7-Zip-zstd binaries for each platform |
 
 The key checks in `build.yml` are:
@@ -160,6 +160,14 @@ The key checks in `build.yml` are:
 - `Flutter analyze`: installs Flutter `3.44.8` and runs `flutter analyze --no-fatal-infos --no-fatal-warnings`
 
 Do not treat a successful full packaging run as a substitute for the analyzer; client changes must explicitly confirm that `Flutter analyze` passed.
+
+### Official releases
+
+1. Set the version in `VERSION` (for example `0.2.0`, or a pre-release such as `0.2.0-beta.1`).
+2. Add a matching `## <version>` section at the top of `CHANGELOG.md` (Chinese and English text both work; keep subheadings at `###` level).
+3. Commit and push `main`, then push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The workflow validates `tag == v$(cat VERSION)`, builds every artifact with that version, and publishes the GitHub Release. Versions with a pre-release suffix (`-beta.1`, `-rc.2`, ...) are published as pre-releases and do not take the "Latest" slot; a missing `CHANGELOG.md` section falls back to a short note linking to the commits.
 
 ## Development Notes
 

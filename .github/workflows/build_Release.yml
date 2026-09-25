@@ -1,24 +1,13 @@
 name: 编译并发布 Release
 
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（留空则从 pubspec.yaml 读取）'
-        required: false
-        default: ''
-        type: string
-      notes_mode:
-        description: '发布说明模式'
-        required: false
-        default: 'both'
-        type: choice
-        options:
-          - both
-          - custom
-          - auto
-      custom_notes:
-        description: '自定义发布说明（可选）'
+        description: '版本号（留空则读取仓库根目录的 VERSION 文件）'
         required: false
         default: ''
         type: string
@@ -39,10 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Resolve version
-        run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
-          echo "VERSION=$V" >> "$GITHUB_ENV"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash ../.github/scripts/resolve_release_version.sh
       - name: Sync version into code
         run: |
           sed -i "s/versionName = \".*\"/versionName = \"${VERSION}\"/" android/app/build.gradle.kts
@@ -98,11 +86,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Resolve version
-        shell: pwsh
-        run: |
-          $V = "${{ inputs.version }}"
-          if (-not $V) { $V = ((Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace 'version: *','').Trim() }
-          echo "VERSION=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash ../.github/scripts/resolve_release_version.sh
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.44.8"
@@ -218,10 +205,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Resolve version
-        run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" pubspec.yaml | head -1 | sed 's/version: *//'); fi
-          echo "VERSION=$V" >> "$GITHUB_ENV"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash ../.github/scripts/resolve_release_version.sh
       - name: Sync version into code
         run: |
           sed -i "s/const appVersion = \".*\"/const appVersion = \"${VERSION}\"/" lib/utils/version.dart
@@ -365,10 +351,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Resolve version
-        run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
-          echo "VERSION=$V" >> "$GITHUB_ENV"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash .github/scripts/resolve_release_version.sh
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -422,7 +407,6 @@ jobs:
 
   # Publish Release
   publish:
-    if: github.event_name == 'workflow_dispatch'
     needs: [build-android, build-windows, build-linux, build-server]
     runs-on: ubuntu-latest
     permissions:
@@ -434,10 +418,9 @@ jobs:
       - name: Resolve version
         id: version
         working-directory: .
-        run: |
-          V="${{ inputs.version }}"
-          if [ -z "$V" ]; then V=$(grep "^version:" client/pubspec.yaml | head -1 | sed 's/version: *//'); fi
-          echo "version=$V" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash .github/scripts/resolve_release_version.sh
       - name: Validate release tag
         working-directory: .
         run: |
@@ -448,6 +431,23 @@ jobs:
               echo "::error::Tag $TAG already exists at $TAG_SHA, but this run is $GITHUB_SHA. Use a new version or move/delete the old tag."
               exit 1
             fi
+          fi
+      - name: Determine release type
+        id: release_type
+        working-directory: .
+        run: |
+          BASE="${{ steps.version.outputs.version }}"
+          BASE="${BASE%%+*}"
+          case "$BASE" in
+            *-*) PRERELEASE=true ;;
+            *) PRERELEASE=false ;;
+          esac
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-release version detected: $BASE"
+          else
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -491,38 +491,40 @@ jobs:
           find release -maxdepth 1 -type f -printf '%f\n' | sort
       - name: Generate release notes
         working-directory: .
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          MODE="${{ inputs.notes_mode }}"
-          TAG="v${{ steps.version.outputs.version }}"
-          cat > custom_notes.md <<'CUSTOM_NOTES_EOF'
-          ${{ inputs.custom_notes }}
-          CUSTOM_NOTES_EOF
-          sed -i 's/^          //' custom_notes.md
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
 
-          git fetch --tags --force --prune
-
-          PREV_TAG=""
-          while IFS= read -r candidate; do
-            if git rev-parse "$candidate^{commit}" >/dev/null 2>&1 && git merge-base --is-ancestor "$candidate" "$GITHUB_SHA"; then
-              PREV_TAG="$candidate"
-              break
-            fi
-          done < <(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq ".[] | select(.prerelease == false and .tag_name != \"${TAG}\") | .tag_name")
-
-          if [ -n "$PREV_TAG" ]; then
-            RANGE="$PREV_TAG..$GITHUB_SHA"
-            RELEASE_TITLE="更新内容 ($PREV_TAG -> $TAG)"
-          else
-            RANGE="$GITHUB_SHA"
-            RELEASE_TITLE="更新内容 ($TAG)"
+          if [ -f CHANGELOG.md ]; then
+            awk -v version="$VERSION" '
+              BEGIN {
+                sub(/^v/, "", version)
+              }
+              function normalize(line, heading) {
+                heading = line
+                sub(/^##[[:space:]]+/, "", heading)
+                sub(/^v/, "", heading)
+                sub(/[[:space:]]+$/, "", heading)
+                return heading
+              }
+              /^##[[:space:]]+/ {
+                current = normalize($0)
+                if (found && current != version) { exit }
+                if (current == version) { found = 1 }
+              }
+              found { print }
+            ' CHANGELOG.md > release_notes_changelog.md
           fi
 
-          RELEASE_NOTES_TITLE="$RELEASE_TITLE" \
-            RELEASE_NOTES_RANGE="$RANGE" \
-            RELEASE_NOTES_FALLBACK="构建产物已更新。" \
-            bash .github/scripts/generate_release_notes.sh
+          if [ ! -s release_notes_changelog.md ]; then
+            {
+              printf '## v%s\n\n' "$VERSION"
+              printf '### 📝 更新内容\n\n'
+              printf '请查看 [提交记录](https://github.com/%s/commits/v%s)。\n' "$GITHUB_REPOSITORY" "$VERSION"
+            } > release_notes_changelog.md
+          fi
+
+          cp release_notes_changelog.md release_notes.md
 
           cat > release_notes_download.md <<'EOF'
           ## 下载说明
@@ -541,37 +543,17 @@ jobs:
           EOF
           sed -i 's/^          //' release_notes_download.md
 
-          case "$MODE" in
-            custom)
-              if [ ! -s custom_notes.md ]; then
-                echo "::error::custom_notes is required when notes_mode is custom."
-                exit 1
-              fi
-              cp custom_notes.md release_notes.md
-              ;;
-            auto)
-              cp release_notes_auto.md release_notes.md
-              ;;
-            both|*)
-              if [ -s custom_notes.md ]; then
-                cat custom_notes.md > release_notes.md
-                printf '\n' >> release_notes.md
-                cat release_notes_auto.md >> release_notes.md
-              else
-                cp release_notes_auto.md release_notes.md
-              fi
-              ;;
-          esac
           printf '\n' >> release_notes.md
           cat release_notes_download.md >> release_notes.md
+          cat release_notes.md
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
-          prerelease: false
+          prerelease: ${{ steps.release_type.outputs.prerelease }}
           body_path: release_notes.md
           files: release/*
-          make_latest: true
+          make_latest: ${{ steps.release_type.outputs.make_latest }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
