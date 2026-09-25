@@ -241,8 +241,9 @@ def remote_source_sha(repo_url: str, repo_ref: str) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=30,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return ""
     if proc.returncode != 0:
         return ""

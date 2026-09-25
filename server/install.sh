@@ -208,6 +208,15 @@ deployment_exists() {
   [ -e "$APP_DIR" ] || [ -e "$VENV_DIR" ] || [ -e "$SERVICE_FILE" ] || [ -f "$VERSION_FILE" ]
 }
 
+deployment_complete() {
+  [ -x "$VENV_DIR/bin/python" ] || return 1
+  [ -x "$APP_DIR/senacli.py" ] || return 1
+  [ -x "$CLI_BIN" ] || return 1
+  [ -f "$SERVICE_FILE" ] || return 1
+  systemctl is-enabled "$SERVICE_NAME.service" >/dev/null 2>&1 || return 1
+  return 0
+}
+
 installed_source_sha() {
   [ -f "$VERSION_FILE" ] || return 0
   sed -n 's/^SOURCE_SHA=//p' "$VERSION_FILE" | head -n 1
@@ -215,7 +224,11 @@ installed_source_sha() {
 
 remote_source_sha() {
   command -v git >/dev/null 2>&1 || return 1
-  git ls-remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 30 git ls-remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+  else
+    git ls-remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+  fi
 }
 
 check_remote_update() {
@@ -232,7 +245,7 @@ check_remote_update() {
     return 2
   fi
   if [ "$current_sha" = "$remote_sha" ]; then
-    log "Sena Repo server is already up to date ($current_sha)"
+    log "Sena Repo server is already up to date ($current_sha) at $INSTALL_ROOT"
     return 0
   fi
 
@@ -709,7 +722,10 @@ case "$ACTION" in
       local_check_status=0
       check_remote_update || local_check_status=$?
       if [ "$local_check_status" -eq 0 ]; then
-        exit 0
+        if deployment_complete; then
+          exit 0
+        fi
+        log "installation at $INSTALL_ROOT is incomplete; repairing it"
       elif [ "$local_check_status" -eq 2 ]; then
         die "version check failed; use --update to force an update"
       fi
