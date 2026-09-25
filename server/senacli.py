@@ -16,7 +16,7 @@ if str(SERVER_DIR) not in sys.path:
 from cli.common import CliError, echo
 
 SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
-CHANNELS = ("dev", "release")
+CHANNELS = ("dev", "beta", "release")
 RUN_TITLE = "bye~bye~"
 
 
@@ -74,7 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("-y", "--yes", action="store_true", help="全部使用默认选项，不提问")
 
     update = sub.add_parser("update", help="检查并更新裸机部署的服务端")
-    update.add_argument("--channel", choices=CHANNELS, default="dev")
+    update.add_argument(
+        "--channel",
+        choices=CHANNELS,
+        default=None,
+        help="版本通道：dev=main（默认）、beta=最新预发布 tag、release=最新正式版 tag；"
+        "不指定时沿用安装时记录的 ref",
+    )
     update.add_argument("--ref", help="直接指定 Git ref，优先于 --channel")
     update.add_argument("--repo-url", help="直接指定 Git 仓库地址")
     update.add_argument("--force", action="store_true", help="即使版本相同也强制执行更新")

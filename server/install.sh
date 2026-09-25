@@ -10,8 +10,11 @@ DATA_ACTION="ask"
 REQUESTED_DATA_PATH="${SENA_DATA_PATH:-}"
 REQUESTED_REPO_URL="${SENA_REPO_URL:-}"
 REQUESTED_REPO_REF="${SENA_REPO_REF:-}"
+REQUESTED_CHANNEL="${SENA_CHANNEL:-}"
 CHECK_ONLY="false"
-for arg in "$@"; do
+while [ "$#" -gt 0 ]; do
+  arg="$1"
+  shift
   case "$arg" in
     --install)
       ACTION="install"
@@ -21,6 +24,17 @@ for arg in "$@"; do
       ;;
     --check)
       CHECK_ONLY="true"
+      ;;
+    --channel)
+      [ "$#" -gt 0 ] || {
+        printf '[sena-repo] ERROR: --channel requires a value (dev|stable|beta)\n' >&2
+        exit 2
+      }
+      REQUESTED_CHANNEL="$1"
+      shift
+      ;;
+    --channel=*)
+      REQUESTED_CHANNEL="${arg#--channel=}"
       ;;
     --uninstall)
       ACTION="uninstall"
@@ -44,10 +58,17 @@ for arg in "$@"; do
 Sena Repo server bare-metal installer.
 
 Usage:
-  sudo bash server/install.sh
+  sudo bash server/install.sh [--channel dev|stable|beta]
   sudo bash server/install.sh --update
   sudo bash server/install.sh --check
   sudo bash server/install.sh --uninstall [--keep-data|--purge-data]
+
+Version channels:
+  --channel dev      Latest main branch (default, rolling)
+  --channel stable   Latest v* tag without a suffix
+  --channel beta     Latest v* tag with a suffix (beta/rc)
+  Installing interactively without --channel/--ref asks which channel to use
+  and remembers the choice for later --update runs.
 
 Update behavior:
   --update      Fetch the latest source from SENA_REPO_URL/SENA_REPO_REF,
@@ -69,6 +90,10 @@ Environment overrides:
                  (mirrors and self-hosted git URLs work too, for example
                   https://gh-proxy.com/https://github.com/404-GCross/Sena-Repo.git)
   SENA_REPO_REF=main
+  SENA_CHANNEL=dev|stable|beta
+  SENA_GH_MIRROR=https://gh-proxy.com/
+                 (prefix used when the GitHub URL is unreachable; set it to an
+                  empty value to disable the fallback)
   SENA_HIKARINAGI_CLIENT_ID=...
   SENA_HIKARINAGI_CLIENT_SECRET=...
   SENA_HIKARINAGI_SCOPE=catalog:full
@@ -105,6 +130,8 @@ HOST_VALUE="${SENA_HOST:-0.0.0.0}"
 PORT_VALUE="${SENA_PORT:-11451}"
 REPO_URL="${SENA_REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_REF="${SENA_REPO_REF:-$DEFAULT_REPO_REF}"
+GH_MIRROR="${SENA_GH_MIRROR-https://gh-proxy.com/}"
+VERSION_VALUE=""
 PYTHON_BIN="${SENA_PYTHON_BIN:-}"
 HIKARINAGI_CLIENT_ID="${SENA_HIKARINAGI_CLIENT_ID:-}"
 HIKARINAGI_CLIENT_SECRET="${SENA_HIKARINAGI_CLIENT_SECRET:-}"
@@ -222,12 +249,187 @@ installed_source_sha() {
   sed -n 's/^SOURCE_SHA=//p' "$VERSION_FILE" | head -n 1
 }
 
+git_ls_remote() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 30 git ls-remote "$@"
+  else
+    git ls-remote "$@"
+  fi
+}
+
 remote_source_sha() {
   command -v git >/dev/null 2>&1 || return 1
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 30 git ls-remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+  git_ls_remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+}
+
+repo_url_reachable() {
+  command -v git >/dev/null 2>&1 || return 1
+  git_ls_remote "$REPO_URL" main >/dev/null 2>&1
+}
+
+switch_to_gh_mirror() {
+  [ -n "$GH_MIRROR" ] || return 1
+  case "$REPO_URL" in
+    "$GH_MIRROR"*) return 1 ;;
+  esac
+  REPO_URL="${GH_MIRROR%/}/$REPO_URL"
+  return 0
+}
+
+ensure_repo_url() {
+  if [ -n "$REQUESTED_REPO_URL" ]; then
+    return 0
+  fi
+  if repo_url_reachable; then
+    return 0
+  fi
+  if switch_to_gh_mirror; then
+    log "unable to reach $DEFAULT_REPO_URL directly; using mirror $GH_MIRROR"
+    if repo_url_reachable; then
+      return 0
+    fi
+    log "warning: mirror $GH_MIRROR is not reachable either"
   else
-    git ls-remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+    log "warning: unable to reach $REPO_URL (set SENA_REPO_URL or SENA_GH_MIRROR to change the source)"
+  fi
+  return 1
+}
+
+validate_channel() {
+  case "$1" in
+    dev|stable|beta) ;;
+    *) die "unknown channel: $1 (expected dev, stable, or beta)" ;;
+  esac
+}
+
+latest_tag_for_channel() {
+  local channel="$1" line tag
+  while IFS= read -r line; do
+    tag="${line##*refs/tags/}"
+    [ -n "$tag" ] || continue
+    case "$channel" in
+      stable)
+        case "$tag" in *-*) continue ;; esac
+        ;;
+      beta)
+        case "$tag" in *-*) ;; *) continue ;; esac
+        ;;
+    esac
+    printf '%s\n' "$tag"
+    return 0
+  done < <(git_ls_remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null || true)
+  return 1
+}
+
+latest_remote_tag() {
+  local line
+  line="$(git_ls_remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null | head -n 1 || true)"
+  [ -n "$line" ] || return 1
+  printf '%s\n' "${line##*refs/tags/}"
+}
+
+resolve_channel_ref() {
+  local channel="$1" tag
+  case "$channel" in
+    dev)
+      printf 'main\n'
+      ;;
+    stable)
+      tag="$(latest_tag_for_channel stable || true)"
+      [ -n "$tag" ] || die "no stable release yet (no v* tag without a suffix); use --channel dev or --ref <tag>"
+      printf '%s\n' "$tag"
+      ;;
+    beta)
+      tag="$(latest_remote_tag || true)"
+      case "$tag" in
+        "")
+          die "no release tags on $REPO_URL yet; use --channel dev or --ref <tag>"
+          ;;
+        *-*)
+          printf '%s\n' "$tag"
+          ;;
+        *)
+          die "no test/pre-release available (the newest v* tag is stable: $tag); use --channel stable or --ref <tag>"
+          ;;
+      esac
+      ;;
+    *)
+      die "unknown channel: $channel (expected dev, stable, or beta)"
+      ;;
+  esac
+}
+
+prompt_for_channel() {
+  local answer
+  [ -r /dev/tty ] || return 1
+  {
+    printf '\n[sena-repo] 请选择要安装的版本通道：\n'
+    printf '  1) 稳定版（最新正式版 tag）\n'
+    printf '  2) 测试版（最新预发布 beta/rc tag）\n'
+    printf '  3) 开发版（main，滚动最新）[默认]\n'
+    printf '通道 [3]: '
+  } > /dev/tty
+  if ! IFS= read -r answer < /dev/tty; then
+    return 1
+  fi
+  case "$answer" in
+    1|stable) printf 'stable\n' ;;
+    2|beta) printf 'beta\n' ;;
+    *) printf 'dev\n' ;;
+  esac
+}
+
+installed_version_value() {
+  local source_dir="$1" sha
+  case "$REPO_REF" in
+    v*) printf '%s\n' "$REPO_REF"; return 0 ;;
+  esac
+  sha="$(git -C "$source_dir" rev-parse --short=7 HEAD 2>/dev/null || true)"
+  if [ -n "$sha" ]; then
+    printf 'dev-%s\n' "$sha"
+  else
+    printf '%s\n' "$REPO_REF"
+  fi
+}
+
+prompt_firewall_open() {
+  local name="$1" command_text="$2" answer
+  if [ -r /dev/tty ]; then
+    printf '\n[sena-repo] %s 正在运行，但端口 %s/tcp 未放行。是否现在放行？[y/N] ' "$name" "$PORT_VALUE" > /dev/tty
+    if IFS= read -r answer < /dev/tty; then
+      case "$answer" in
+        y|Y|yes|YES) return 0 ;;
+      esac
+    fi
+    printf '[sena-repo] 已跳过；如需手动放行：%s\n' "$command_text" > /dev/tty
+    return 1
+  fi
+  log "warning: $name is running but port $PORT_VALUE/tcp is not open; run: $command_text"
+  return 1
+}
+
+ensure_firewall_port() {
+  if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    if firewall-cmd --query-port="$PORT_VALUE/tcp" >/dev/null 2>&1; then
+      log "firewall: port $PORT_VALUE/tcp is already open (firewalld)"
+      return 0
+    fi
+    if prompt_firewall_open "firewalld" "firewall-cmd --permanent --add-port=$PORT_VALUE/tcp && firewall-cmd --reload"; then
+      firewall-cmd --permanent --add-port="$PORT_VALUE/tcp" >/dev/null 2>&1 || true
+      firewall-cmd --reload >/dev/null 2>&1 || true
+      log "firewall: opened $PORT_VALUE/tcp (firewalld)"
+    fi
+    return 0
+  fi
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    if ufw status 2>/dev/null | grep -q "^$PORT_VALUE/tcp"; then
+      log "firewall: port $PORT_VALUE/tcp is already allowed (ufw)"
+      return 0
+    fi
+    if prompt_firewall_open "ufw" "ufw allow $PORT_VALUE/tcp"; then
+      ufw allow "$PORT_VALUE/tcp" >/dev/null 2>&1 || true
+      log "firewall: allowed $PORT_VALUE/tcp (ufw)"
+    fi
   fi
 }
 
@@ -453,17 +655,54 @@ local_server_dir() {
   return 1
 }
 
+run_git_source_fetch() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 300 git -C "$REPO_CACHE_DIR" fetch --depth 1 origin "$REPO_REF"
+  else
+    git -C "$REPO_CACHE_DIR" fetch --depth 1 origin "$REPO_REF"
+  fi
+}
+
+run_git_source_clone() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 300 git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
+  else
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
+  fi
+}
+
 remote_server_dir() {
   mkdir -p "$INSTALL_ROOT"
+  local attempt
   if [ -d "$REPO_CACHE_DIR/.git" ]; then
     log "updating cached source from $REPO_URL ($REPO_REF)"
-    git -C "$REPO_CACHE_DIR" remote set-url origin "$REPO_URL"
-    git -C "$REPO_CACHE_DIR" fetch --depth 1 origin "$REPO_REF"
-    git -C "$REPO_CACHE_DIR" checkout --force FETCH_HEAD
+    for attempt in 1 2 3; do
+      git -C "$REPO_CACHE_DIR" remote set-url origin "$REPO_URL"
+      if run_git_source_fetch; then
+        git -C "$REPO_CACHE_DIR" checkout --force FETCH_HEAD
+        break
+      fi
+      log "source fetch failed (attempt $attempt/3)"
+      if [ "$attempt" -ge 3 ]; then
+        die "failed to fetch $REPO_REF from $REPO_URL; set SENA_REPO_URL to another mirror or check the network"
+      fi
+      switch_to_gh_mirror && log "switched source to mirror $GH_MIRROR" || true
+      sleep 3
+    done
   else
     rm -rf "$REPO_CACHE_DIR"
     log "cloning source from $REPO_URL ($REPO_REF)"
-    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
+    for attempt in 1 2 3; do
+      if run_git_source_clone; then
+        break
+      fi
+      log "source clone failed (attempt $attempt/3)"
+      if [ "$attempt" -ge 3 ]; then
+        die "failed to clone $REPO_REF from $REPO_URL; set SENA_REPO_URL to another mirror or check the network"
+      fi
+      switch_to_gh_mirror && log "switched source to mirror $GH_MIRROR" || true
+      sleep 3
+    done
   fi
 
   [ -f "$REPO_CACHE_DIR/server/requirements.txt" ] || die "server requirements not found in cloned repository"
@@ -547,11 +786,26 @@ write_version_metadata() {
   mv -f -- "$metadata_tmp" "$VERSION_FILE"
 }
 
+update_env_version() {
+  [ -n "$VERSION_VALUE" ] || return 0
+  [ -f "$ENV_FILE" ] || return 0
+  local current tmp
+  current="$(sed -n 's/^SENA_VERSION=//p' "$ENV_FILE" | head -n 1)"
+  [ "$current" = "$VERSION_VALUE" ] && return 0
+  tmp="$ENV_FILE.tmp"
+  umask 077
+  { grep -v '^SENA_VERSION=' "$ENV_FILE" || true; } > "$tmp"
+  printf 'SENA_VERSION=%s\n' "$VERSION_VALUE" >> "$tmp"
+  mv -f -- "$tmp" "$ENV_FILE"
+  log "updated SENA_VERSION=$VERSION_VALUE in $ENV_FILE"
+}
+
 write_environment_file() {
   mkdir -p "$ENV_DIR" "$DATA_PATH" "$GAMES_PATH" "$PATCH_DIR"
 
   if [ -f "$ENV_FILE" ]; then
     log "keeping existing environment file: $ENV_FILE"
+    update_env_version
     return
   fi
 
@@ -563,6 +817,7 @@ write_environment_file() {
     printf 'SENA_DATA_PATH=%s\n' "$DATA_PATH"
     printf 'SENA_GAMES_PATH=%s\n' "$GAMES_PATH"
     printf 'SENA_PATCH_DIR=%s\n' "$PATCH_DIR"
+    printf 'SENA_VERSION=%s\n' "$VERSION_VALUE"
     if [ -n "$HIKARINAGI_CLIENT_ID" ]; then
       printf 'SENA_HIKARINAGI_CLIENT_ID=%s\n' "$HIKARINAGI_CLIENT_ID"
     fi
@@ -619,6 +874,7 @@ install_or_update() {
   detect_arch
   install_system_dependencies
   source_dir="$(resolve_source_server_dir)"
+  VERSION_VALUE="$(installed_version_value "$source_dir")"
   if [ "$ACTION" = "update" ]; then
     log "updating Sena Repo server from $REPO_URL ($REPO_REF)"
   else
@@ -632,6 +888,7 @@ install_or_update() {
   install_cli_command
   write_systemd_service
   start_service
+  ensure_firewall_port
   write_version_metadata "$source_dir"
 
   log "done"
@@ -715,10 +972,27 @@ case "$ACTION" in
       check_installation
       exit $?
     fi
+    if [ "$DATA_ACTION" != "ask" ]; then
+      die "--keep-data and --purge-data can only be used with --uninstall"
+    fi
+    require_root
+    load_existing_source_config
+    validate_paths
+    if [ -n "$REQUESTED_CHANNEL" ]; then
+      validate_channel "$REQUESTED_CHANNEL"
+    fi
+    ensure_repo_url || true
+    selected_channel=""
+    if [ -n "$REQUESTED_CHANNEL" ]; then
+      selected_channel="$REQUESTED_CHANNEL"
+    elif [ -z "$REQUESTED_REPO_REF" ] && [ "$ACTION" = "install" ] && [ ! -f "$VERSION_FILE" ]; then
+      selected_channel="$(prompt_for_channel || true)"
+    fi
+    if [ -n "$selected_channel" ] && [ -z "$REQUESTED_REPO_REF" ]; then
+      REPO_REF="$(resolve_channel_ref "$selected_channel")"
+      log "selected channel: $selected_channel ($REPO_REF)"
+    fi
     if [ "$ACTION" = "install" ] && deployment_exists; then
-      require_root
-      load_existing_source_config
-      validate_paths
       local_check_status=0
       check_remote_update || local_check_status=$?
       if [ "$local_check_status" -eq 0 ]; then
@@ -730,9 +1004,6 @@ case "$ACTION" in
         die "version check failed; use --update to force an update"
       fi
       ACTION="update"
-    fi
-    if [ "$DATA_ACTION" != "ask" ]; then
-      die "--keep-data and --purge-data can only be used with --uninstall"
     fi
     install_or_update
     ;;

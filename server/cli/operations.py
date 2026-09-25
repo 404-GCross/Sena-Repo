@@ -46,8 +46,8 @@ DEFAULT_REPO_URL = "https://github.com/404-GCross/Sena-Repo.git"
 CHANNEL_REFS = {"dev": "main"}
 
 
-def latest_release_tag(repo_url: str) -> str:
-    """Newest non-prerelease v* tag on the remote; "" when there is none."""
+def _remote_tags(repo_url: str) -> list[str]:
+    """Remote v* tags, newest first (version order); [] when unavailable."""
     try:
         proc = subprocess.run(
             [
@@ -66,17 +66,31 @@ def latest_release_tag(repo_url: str) -> str:
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return ""
+        return []
     if proc.returncode != 0:
-        return ""
+        return []
+    tags = []
     for line in proc.stdout.splitlines():
         parts = line.split()
         if len(parts) != 2:
             continue
-        tag = parts[1].rsplit("/", 1)[-1]
-        if "-" in tag:
-            continue
-        return tag
+        tags.append(parts[1].rsplit("/", 1)[-1])
+    return tags
+
+
+def latest_release_tag(repo_url: str) -> str:
+    """Newest non-prerelease v* tag on the remote; "" when there is none."""
+    for tag in _remote_tags(repo_url):
+        if "-" not in tag:
+            return tag
+    return ""
+
+
+def latest_prerelease_tag(repo_url: str) -> str:
+    """Newest v* tag when it is a pre-release; "" otherwise."""
+    tags = _remote_tags(repo_url)
+    if tags and "-" in tags[0]:
+        return tags[0]
     return ""
 
 
@@ -84,14 +98,25 @@ def channel_ref(channel: str, repo_url: str) -> str:
     """Git ref for a release channel; exits when the channel has no usable ref."""
     if channel in CHANNEL_REFS:
         return CHANNEL_REFS[channel]
-    tag = latest_release_tag(repo_url)
-    if not tag:
-        fail(
-            "还没有已发布的正式版（没有 v* tag）；"
-            "请使用 --channel dev，或用 --ref 指定一个分支/tag",
-            2,
-        )
-    return tag
+    if channel == "release":
+        tag = latest_release_tag(repo_url)
+        if not tag:
+            fail(
+                "还没有已发布的正式版（没有 v* tag）；"
+                "请使用 --channel dev，或用 --ref 指定一个分支/tag",
+                2,
+            )
+        return tag
+    if channel == "beta":
+        tag = latest_prerelease_tag(repo_url)
+        if not tag:
+            fail(
+                "当前没有可用的测试版（最新 tag 不是预发布，或还没有任何 v* tag）；"
+                "请使用 --channel dev / release，或用 --ref 指定",
+                2,
+            )
+        return tag
+    fail(f"未知通道：{channel}", 2)
 SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
 
 
@@ -456,7 +481,12 @@ def cmd_update(args) -> int:
 
     metadata = read_version_metadata()
     repo_url = args.repo_url or metadata.get("SOURCE_URL") or DEFAULT_REPO_URL
-    repo_ref = args.ref or channel_ref(args.channel, repo_url)
+    if args.ref:
+        repo_ref = args.ref
+    elif args.channel:
+        repo_ref = channel_ref(args.channel, repo_url)
+    else:
+        repo_ref = metadata.get("SOURCE_REF") or channel_ref("dev", repo_url)
     current_sha = metadata.get("SOURCE_SHA", "")
     remote_sha = remote_source_sha(repo_url, repo_ref)
     if not remote_sha:
