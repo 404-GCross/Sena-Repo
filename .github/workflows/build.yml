@@ -812,9 +812,9 @@ jobs:
             bash .github/scripts/generate_release_notes.sh
 
           {
-            printf '> [!CAUTION]\n'
+            printf '> [!TIP]\n'
             printf '>\n'
-            printf '> **Pre-Release 自动测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n'
+            printf '> **Pre-Release 滚动更新测试版本，可能存在未知 bug，仅限测试人员使用。**\n\n'
             printf '## 版本信息\n\n'
             printf -- '- 版本号: `%s`\n' "${{ steps.meta.outputs.version }}"
             printf -- '- 发布标签: `%s`\n' "${{ steps.meta.outputs.tag }}"
