@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 
 import "../services/api_client.dart";
 import "../utils/theme_utils.dart";
+import "app_shell.dart";
 
 /// Ask the user for their Sena Repo username when registering through NextMoe.
 ///

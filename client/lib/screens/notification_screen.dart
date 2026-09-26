@@ -24,7 +24,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<Map<String, String>> get _authHeaders async {
     await ApiClient.restoreToken();
-    final token = ApiClient.globalToken ?? "";
+    final token = globalToken ?? "";
     final headers = {"Content-Type": "application/json"};
     if (token.isNotEmpty) {
       headers["Authorization"] = "Bearer $token";
