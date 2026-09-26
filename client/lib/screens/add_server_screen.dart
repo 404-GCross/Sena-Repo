@@ -83,10 +83,20 @@ class _AddServerScreenState extends State<AddServerScreen> {
       );
       if (setupResult != null && mounted) {
         final creds = setupResult as Map;
+        // Keep the connection profile even when the backup replaced the accounts.
+        final chosenName = creds["username"]?.toString().trim() ?? "";
+        await ProfileService().saveCurrentAsProfile(
+          chosenName.isEmpty ? host : chosenName,
+        );
         if (creds["imported"] == true) {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("备份已导入，请用备份中的账号登录")),
           );
+          setState(() {
+            _connecting = false;
+            _step = 1;
+          });
           return;
         }
         final loginResult = await api.login(
