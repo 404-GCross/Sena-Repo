@@ -185,6 +185,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
                 "nextmoe_id": game.nextmoe_id,
                 "length": game.length or 0,
                 "length_minutes": game.length_minutes or 0,
+                "metadata_locked": bool(game.metadata_locked),
                 "is_deleted": bool(game.is_deleted),
                 "imported_at": _iso(game.imported_at),
                 "updated_at": _iso(game.updated_at),
@@ -641,6 +642,7 @@ async def import_library(config, session, library: dict[str, Any], *,
         game.folder_path: game for game in (await session.execute(select(Game))).scalars()
     }
     game_ids: dict[str, int] = {}
+    locked_game_ids: set[int] = set()
     directories = media_dirs(config)
 
     for entry in library.get("games") or []:
@@ -686,6 +688,7 @@ async def import_library(config, session, library: dict[str, Any], *,
             "nextmoe_id": entry.get("nextmoe_id"),
             "length": entry.get("length") or 0,
             "length_minutes": entry.get("length_minutes") or 0,
+            "metadata_locked": bool(entry.get("metadata_locked", False)),
             "is_deleted": bool(entry.get("is_deleted", False)),
         }
         game = games_by_path.get(folder_path)
@@ -698,6 +701,11 @@ async def import_library(config, session, library: dict[str, Any], *,
             await session.flush()
             games_by_path[folder_path] = game
             stats["games_new"] += 1
+        elif game.metadata_locked:
+            # Keep local metadata of locked games; never unlock on restore.
+            locked_game_ids.add(game.id)
+            stats["games_skipped"] += 1
+            notes.append(f"游戏「{game.name}」已锁定，已保留本机元数据")
         else:
             for key, value in fields.items():
                 setattr(game, key, value)
@@ -767,7 +775,7 @@ async def import_library(config, session, library: dict[str, Any], *,
     for entry in library.get("game_tags") or []:
         game_id = game_ids.get(str(entry.get("game") or ""))
         tag = tags.get(str(entry.get("tag") or ""))
-        if game_id is None or tag is None:
+        if game_id is None or tag is None or game_id in locked_game_ids:
             continue
         source = str(entry.get("source") or "user")
         weight = float(entry.get("weight") or 0.0)

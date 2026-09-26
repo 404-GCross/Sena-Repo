@@ -98,6 +98,7 @@ class GameSummary {
   final String importedAt;
   final int length;
   final int lengthMinutes;
+  final bool metadataLocked;
 
   GameSummary({
     required this.id,
@@ -114,6 +115,7 @@ class GameSummary {
     required this.importedAt,
     this.length = 0,
     this.lengthMinutes = 0,
+    this.metadataLocked = false,
   });
 
   factory GameSummary.fromJson(Map<String, dynamic> json) {
@@ -132,6 +134,7 @@ class GameSummary {
       importedAt: json["imported_at"] ?? "",
       length: json["length"] ?? 0,
       lengthMinutes: json["length_minutes"] ?? 0,
+      metadataLocked: json["metadata_locked"] == true,
     );
   }
 }
@@ -157,6 +160,7 @@ class GameDetail {
   final String? nextmoeId;
   final int length;
   final int lengthMinutes;
+  final bool metadataLocked;
   final bool isDeleted;
   final String importedAt;
   final String updatedAt;
@@ -184,6 +188,7 @@ class GameDetail {
     this.nextmoeId,
     this.length = 0,
     this.lengthMinutes = 0,
+    this.metadataLocked = false,
     required this.isDeleted,
     required this.importedAt,
     required this.updatedAt,
@@ -213,6 +218,7 @@ class GameDetail {
       nextmoeId: json["nextmoe_id"],
       length: json["length"] ?? 0,
       lengthMinutes: json["length_minutes"] ?? 0,
+      metadataLocked: json["metadata_locked"] == true,
       isDeleted: json["is_deleted"] ?? false,
       importedAt: json["imported_at"] ?? "",
       updatedAt: json["updated_at"] ?? "",

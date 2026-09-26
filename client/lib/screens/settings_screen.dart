@@ -1632,7 +1632,15 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final jobId = data["job_id"] as int;
-        if (mounted) _toast(context, "扫描完成，已开始批量刮削");
+        final skipped = (data["skipped_locked"] as num?)?.toInt() ?? 0;
+        if (mounted) {
+          _toast(
+            context,
+            skipped > 0
+                ? "扫描完成，已开始批量刮削（跳过 $skipped 个已锁定条目）"
+                : "扫描完成，已开始批量刮削",
+          );
+        }
         if (mounted) _pollJob(jobId);
       } else {
         if (mounted) _toast(context, "刮削启动失败: ${_responseMessage(resp)}");

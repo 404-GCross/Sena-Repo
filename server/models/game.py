@@ -67,6 +67,8 @@ class Game(Base):
     length = Column(Integer, default=0)
     length_minutes = Column(Integer, default=0)
 
+    metadata_locked = Column(Boolean, nullable=False, default=False)
+
     is_deleted = Column(Boolean, default=False)
     imported_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

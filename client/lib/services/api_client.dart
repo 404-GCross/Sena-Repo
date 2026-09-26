@@ -511,6 +511,23 @@ class ApiClient {
     if (resp.statusCode != 200) throw HttpException("Failed to delete game");
   }
 
+  Future<bool> setGameMetadataLock(int id, bool locked) async {
+    final uri = Uri.parse("$baseUrl/api/games/$id/metadata-lock");
+    final resp = await _execute(
+      () => _client.put(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"locked": locked}),
+      ),
+      method: "PUT",
+      uri: uri,
+      label: "set game metadata lock id=$id locked=$locked",
+    );
+    checkResponse(resp, fallbackMessage: locked ? "锁定失败" : "解锁失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return data["metadata_locked"] == true;
+  }
+
   // --- Tags ---
 
   Future<List<Tag>> getTags() async {

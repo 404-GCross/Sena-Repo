@@ -277,6 +277,8 @@ async def _reuse_existing_metadata(
 ) -> bool:
     if mode == "overwrite":
         return False
+    if game.metadata_locked:
+        return False
 
     result = await session.execute(
         select(Game)
@@ -398,6 +400,18 @@ async def scrape_single_game(
     Returns:
         Dict with {source_name: ScraperResult or None}
     """
+    if game.metadata_locked:
+        await _update_job_progress(
+            session,
+            job,
+            game=game,
+            source=None,
+            query=None,
+            stage="locked",
+        )
+        logger.info("Skipped scrape for locked game %s", game.id)
+        return {}
+
     company_hint = game.company.name if game.company else None
     results = {}
 
@@ -639,6 +653,10 @@ async def _apply_result(
     replace_tags: bool | None = None,
 ):
     """Apply a scraper result to a game, respecting the scrape mode."""
+    if game.metadata_locked:
+        logger.debug("Skip scraper result apply for locked game %s", game.id)
+        return
+
     overwrite = mode == "overwrite"
     images_only = mode == "images"
     metadata_only = mode == "metadata"
@@ -846,13 +864,17 @@ async def run_batch_scrape(
     if game_ids:
         result = await session.execute(
             select(Game).options(selectinload(Game.company))
-            .where(Game.id.in_(game_ids), Game.is_deleted == False)
+            .where(
+                Game.id.in_(game_ids),
+                Game.is_deleted == False,
+                Game.metadata_locked == False,
+            )
         )
     elif mode in ("overwrite", "images"):
         # overwrite/images mode: scrape ALL games (not just missing covers)
         result = await session.execute(
             select(Game).options(selectinload(Game.company))
-            .where(Game.is_deleted == False)
+            .where(Game.is_deleted == False, Game.metadata_locked == False)
             .order_by(Game.imported_at.desc())
         )
     elif mode == "metadata":
@@ -862,6 +884,7 @@ async def run_batch_scrape(
             select(Game).options(selectinload(Game.company))
             .where(
                 Game.is_deleted == False,
+                Game.metadata_locked == False,
                 or_(
                     Game.description == None, Game.description == "",
                     Game.developer == None, Game.developer == "",
@@ -874,6 +897,7 @@ async def run_batch_scrape(
             select(Game).options(selectinload(Game.company))
             .where(
                 Game.is_deleted == False,
+                Game.metadata_locked == False,
                 Game.cover_path == None,
             ).order_by(Game.imported_at.desc())
         )

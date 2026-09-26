@@ -1148,6 +1148,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       }
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final skipped = (data["skipped_locked"] as num?)?.toInt() ?? 0;
       final count = _selectedIds.length;
       setState(() {
         _selectedIds.clear();
@@ -1158,7 +1160,11 @@ class _HomeScreenState extends State<HomeScreen> {
             context: context,
             builder: (c) => AlertDialog(
                   title: const Text("批量刮削"),
-                  content: Text("已触发 $count 个游戏的刮削任务"),
+                  content: Text(
+                    skipped > 0
+                        ? "已触发 $count 个游戏的刮削任务，$skipped 个已锁定条目已跳过"
+                        : "已触发 $count 个游戏的刮削任务",
+                  ),
                   actions: [
                     FilledButton(
                         onPressed: () => Navigator.pop(c),

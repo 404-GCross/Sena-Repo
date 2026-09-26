@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
+from api.games import ensure_game_unlocked
 from database import get_session
 from models.user import User
 from models.game import Game, GameTag
@@ -107,9 +108,11 @@ async def add_tag_to_game(
 ):
     """Add a tag to a game by tag name (admin only)."""
     # Verify game exists
-    game = await session.execute(select(Game).where(Game.id == game_id))
-    if game.scalar_one_or_none() is None:
+    game_result = await session.execute(select(Game).where(Game.id == game_id))
+    game = game_result.scalar_one_or_none()
+    if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     # Get or create tag
     tag_result = await session.execute(select(Tag).where(Tag.name == tag_name))
@@ -145,6 +148,12 @@ async def remove_tag_from_game(
     session: AsyncSession = Depends(get_session),
 ):
     """Remove a tag from a game (admin only)."""
+    game_result = await session.execute(select(Game).where(Game.id == game_id))
+    game = game_result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
+
     result = await session.execute(
         select(GameTag).where(GameTag.game_id == game_id, GameTag.tag_id == tag_id)
     )

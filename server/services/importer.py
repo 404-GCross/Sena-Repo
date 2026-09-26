@@ -254,12 +254,13 @@ async def _upsert_game(
         await session.flush()
     else:
         # Update fields if changed, restore if previously deleted
-        game.name = clean_name
-        game.company_id = company_id
+        if not game.metadata_locked:
+            game.name = clean_name
+            game.company_id = company_id
+            if game.developer is None and developer:
+                game.developer = developer
         game.entry_source = "library"
         game.is_deleted = False
-        if game.developer is None and developer:
-            game.developer = developer
         game.updated_at = datetime.utcnow()
     return game
 
