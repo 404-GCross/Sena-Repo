@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # Resolves the official release version for build_Release.yml.
 #
-# Priority: workflow input (`INPUT_VERSION`) > repository VERSION file.
+# The repository VERSION file is the only source of the release version.
 # When the workflow runs on a tag push, the tag must equal "v$(cat VERSION)";
 # a mismatch fails the run instead of publishing a wrong version.
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-V="$(printf '%s' "${INPUT_VERSION:-}" | tr -d '[:space:]')"
-if [ -z "$V" ]; then
-  V="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
-fi
+V="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
 if [ -z "$V" ]; then
   echo "::error::No release version: pass the version input or fill the VERSION file."
   exit 1
