@@ -44,6 +44,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _notes,
       _bgUrl;
   bool _saving = false;
+  bool _locked = false;
   bool _isNsfw = false;
   int _lengthMinutes = 0;
   int _lengthCategory = 0;
@@ -98,6 +99,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     super.initState();
     final g = widget.game;
     _versions = List<GameVersion>.from(g.versions);
+    _locked = g.metadataLocked;
     _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
@@ -738,6 +740,65 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
   }
 
+  Future<void> _toggleLock() async {
+    final target = !_locked;
+    if (target) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("锁定元数据"),
+          content: const Text(
+            "锁定后该条目的元数据、封面、标签与版本信息将不可修改，需要解锁后才能编辑。",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("取消"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("锁定"),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    try {
+      final locked = await context
+          .read<GameProvider>()
+          .api
+          .setGameMetadataLock(widget.game.id, target);
+      if (!mounted) return;
+      setState(() => _locked = locked);
+    } catch (e) {
+      if (mounted) _showError("${target ? "锁定" : "解锁"}失败: $e");
+    }
+  }
+
+  Widget _lockedBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lock_rounded, size: 18, color: Colors.amber[700]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "元数据已锁定，解锁后才能编辑元数据、封面、标签与版本信息。",
+              style: AppText.bodySmall.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _readonlyField(
     String label,
     String value, {
@@ -829,6 +890,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             child: TextField(
               controller: ctrl,
               maxLines: maxLines,
+              enabled: !_locked,
               decoration: _dec(
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -942,13 +1004,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
           runSpacing: AppGap.sm,
           children: [
             FilledButton.tonalIcon(
-              onPressed: _showAddTagDialog,
+              onPressed: _locked ? null : _showAddTagDialog,
               icon: const Icon(Icons.add_rounded),
               label: const Text("新增标签"),
             ),
             if (_tagNames.isNotEmpty)
               OutlinedButton.icon(
-                onPressed: _clearTags,
+                onPressed: _locked ? null : _clearTags,
                 icon: const Icon(Icons.clear_all_rounded),
                 label: const Text("清空标签"),
               ),
@@ -964,8 +1026,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       label: Text(tag),
       avatar: Icon(Icons.local_offer_outlined, size: 16, color: cs.primary),
       tooltip: "点击编辑标签",
-      onPressed: () => _showEditTagDialog(index),
-      onDeleted: () => _removeTagAt(index),
+      onPressed: _locked ? null : () => _showEditTagDialog(index),
+      onDeleted: _locked ? null : () => _removeTagAt(index),
       deleteIcon: const Icon(Icons.close_rounded, size: 16),
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: VisualDensity.compact,
@@ -1160,28 +1222,35 @@ class _GameEditScreenState extends State<GameEditScreen> {
         AppActionButton(
           icon: Icons.cloud_download_outlined,
           label: "下载元数据",
-          onPressed: _downloadMetadata,
+          onPressed: _locked ? null : _downloadMetadata,
         ),
         if (isDesktop)
           AppActionButton(
             icon: Icons.merge_outlined,
             label: "合并游戏",
-            onPressed: _mergeGameDialog,
+            onPressed: _locked ? null : _mergeGameDialog,
           ),
         if (isDesktop)
           AppActionButton(
             icon: Icons.delete_outline,
             label: "删除",
             color: Colors.red,
-            onPressed: _confirmDelete,
+            onPressed: _locked ? null : _confirmDelete,
           ),
+        AppActionButton(
+          icon: _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+          label: _locked ? "解锁" : "锁定",
+          color: _locked ? Colors.amber[700] : null,
+          filled: _locked,
+          onPressed: _toggleLock,
+        ),
         if (isDesktop)
           AppActionButton(
             icon: Icons.save_outlined,
             label: "保存",
             filled: true,
             busy: _saving,
-            onPressed: _saving ? null : _save,
+            onPressed: (_saving || _locked) ? null : _save,
           ),
       ],
       child: isDesktop
@@ -1223,6 +1292,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _mobileHeader(g, hasCover: hasCover),
+                if (_locked) ...[
+                  const SizedBox(height: 12),
+                  _lockedBanner(),
+                ],
                 const SizedBox(height: 12),
                 _mobileTabs(),
                 const SizedBox(height: 12),
@@ -1264,6 +1337,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   controller: _name,
                   maxLines: 2,
                   minLines: 1,
+                  enabled: !_locked,
                   style: AppText.title.copyWith(
                     fontWeight: FontWeight.w800,
                     height: 1.18,
@@ -1391,7 +1465,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 _formatLengthValue(),
                 icon: Icons.schedule_outlined,
                 muted: _lengthMinutes <= 0 && _lengthCategory <= 0,
-                onDelete: (_lengthMinutes > 0 || _lengthCategory > 0)
+                onDelete: (!_locked && (_lengthMinutes > 0 || _lengthCategory > 0))
                     ? _clearLengthMetadata
                     : null,
                 deleteTooltip: "清除平均时长",
@@ -1476,12 +1550,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     runSpacing: 8,
                     children: [
                       FilledButton.tonalIcon(
-                        onPressed: _pickLocalBg,
+                        onPressed: _locked ? null : _pickLocalBg,
                         icon: const Icon(Icons.add_photo_alternate_outlined),
                         label: const Text("上传背景"),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () => _promptImageUrl(cover: false),
+                        onPressed: _locked ? null : () => _promptImageUrl(cover: false),
                         icon: const Icon(Icons.link_outlined),
                         label: const Text("背景 URL"),
                       ),
@@ -1511,12 +1585,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 runSpacing: 8,
                 children: [
                   FilledButton.tonalIcon(
-                    onPressed: _pickLocalCover,
+                    onPressed: _locked ? null : _pickLocalCover,
                     icon: const Icon(Icons.add_photo_alternate_outlined),
                     label: const Text("上传封面"),
                   ),
                   OutlinedButton.icon(
-                    onPressed: () => _promptImageUrl(cover: true),
+                    onPressed: _locked ? null : () => _promptImageUrl(cover: true),
                     icon: const Icon(Icons.link_outlined),
                     label: const Text("封面 URL"),
                   ),
@@ -1533,7 +1607,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             title: const Text("NSFW 内容"),
             subtitle: const Text("启用后封面和背景默认模糊"),
             value: _isNsfw,
-            onChanged: (value) => setState(() => _isNsfw = value),
+            onChanged: _locked ? null : (value) => setState(() => _isNsfw = value),
           ),
         ),
       ],
@@ -1552,7 +1626,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 ? "暂无可管理版本"
                 : _versions.length.toString() + " 个版本",
             trailing: OutlinedButton.icon(
-              onPressed: _mergeGameDialog,
+              onPressed: _locked ? null : _mergeGameDialog,
               icon: const Icon(Icons.merge_outlined, size: 16),
               label: const Text("合并"),
             ),
@@ -1717,6 +1791,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         TextField(
           controller: controller,
           maxLines: maxLines,
+          enabled: !_locked,
           decoration: _dec(
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
@@ -1836,6 +1911,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             ),
           ),
           PopupMenuButton<String>(
+            enabled: !_locked,
             icon: const Icon(Icons.more_vert, size: 18),
             onSelected: (action) {
               if (action == "move") _moveVersionDialog(version);
@@ -1940,7 +2016,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         child: Row(
           children: [
             TextButton.icon(
-              onPressed: _confirmDelete,
+              onPressed: _locked ? null : _confirmDelete,
               icon: const Icon(Icons.delete_outline),
               label: const Text("删除"),
               style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -1948,7 +2024,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
+                onPressed: (_saving || _locked) ? null : _save,
                 icon: _saving
                     ? const SizedBox(
                         width: 16,
@@ -1992,6 +2068,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (_locked) ...[
+                      _lockedBanner(),
+                      const SizedBox(height: 16),
+                    ],
                     _desktopTitlePanel(g),
                     const SizedBox(height: 16),
                     _desktopMetadataPanel(g),
@@ -2098,12 +2178,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
                           runSpacing: 8,
                           children: [
                             FilledButton.tonalIcon(
-                              onPressed: _pickLocalBg,
+                              onPressed: _locked ? null : _pickLocalBg,
                               icon: const Icon(Icons.add_photo_alternate_outlined),
                               label: const Text("背景"),
                             ),
                             FilledButton.tonalIcon(
-                              onPressed: () => _promptImageUrl(cover: false),
+                              onPressed: _locked ? null : () => _promptImageUrl(cover: false),
                               icon: const Icon(Icons.link),
                               label: const Text("URL"),
                             ),
@@ -2127,12 +2207,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
                     runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
-                        onPressed: _pickLocalCover,
+                        onPressed: _locked ? null : _pickLocalCover,
                         icon: const Icon(Icons.add_photo_alternate_outlined),
                         label: const Text("上传封面"),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () => _promptImageUrl(cover: true),
+                        onPressed: _locked ? null : () => _promptImageUrl(cover: true),
                         icon: const Icon(Icons.link),
                         label: const Text("封面 URL"),
                       ),
@@ -2211,7 +2291,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             title: const Text("NSFW 内容"),
             subtitle: const Text("启用后封面和背景默认模糊"),
             value: _isNsfw,
-            onChanged: (value) => setState(() => _isNsfw = value),
+            onChanged: _locked ? null : (value) => setState(() => _isNsfw = value),
           ),
         ],
       ),
@@ -2226,6 +2306,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         children: [
           TextField(
             controller: _name,
+            enabled: !_locked,
             style: AppText.headline.copyWith(
               fontWeight: FontWeight.w800,
               height: 1.15,
@@ -2278,7 +2359,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
             _formatLengthValue(),
             icon: Icons.schedule,
             muted: _lengthMinutes <= 0 && _lengthCategory <= 0,
-            onDelete: (_lengthMinutes > 0 || _lengthCategory > 0)
+            onDelete: (!_locked && (_lengthMinutes > 0 || _lengthCategory > 0))
                 ? _clearLengthMetadata
                 : null,
             deleteTooltip: "清除平均时长",
@@ -2369,6 +2450,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
           TextField(
             controller: controller,
             maxLines: maxLines,
+            enabled: !_locked,
             decoration: _dec(
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -2449,6 +2531,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                             ),
                           ),
                           PopupMenuButton<String>(
+                            enabled: !_locked,
                             icon: const Icon(Icons.more_vert, size: 18),
                             onSelected: (action) {
                               if (action == "move") _moveVersionDialog(version);

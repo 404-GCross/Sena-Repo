@@ -60,6 +60,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   // Pending download info — retried after storage permission granted
   GameDetail? _pendingGame;
   dynamic _pendingVersion;
+  String? _pendingTargetDir;
 
   ApiClient get _api => context.read<GameProvider>().api;
   String get _baseUrl => _api.baseUrl;
@@ -115,12 +116,14 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   Future<void> _retryPendingDownload() async {
     final game = _pendingGame;
     final v = _pendingVersion;
+    final targetDir = _pendingTargetDir;
     _pendingGame = null;
     _pendingVersion = null;
+    _pendingTargetDir = null;
     if (game == null || v == null || !mounted) return;
     final granted = await DownloadService().checkStoragePermissionGranted();
     if (granted) {
-      _startDownload(game, v);
+      _startDownload(game, v, targetDir: targetDir);
     }
   }
 
@@ -1846,101 +1849,121 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   }
 
   Future<void> _showDownloadDialog(GameDetail game) async {
+    if (game.versions.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final defaultDir = prefs.getString("local_download_dir") ?? "";
+    var selectedVersion = game.versions.first;
+    var targetDir = defaultDir;
+    if (!mounted) return;
+
     final v = await showDialog<dynamic>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.download, size: 22, color: Colors.blue),
-            SizedBox(width: 8),
-            Text("选择版本"),
-          ],
-        ),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: game.versions
-                .map(
-                  (v) => Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () => Navigator.pop(ctx, v),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.insert_drive_file_outlined,
-                              size: 20,
-                              color: subTextColor(context),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    v.filename,
-                                    style: AppText.bodyMedium.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    "${_formatSize(v.fileSize)} · ${_versionSourceDetail(v)}",
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppText.label.copyWith(
-                                      color: hintColor(context),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(10),
-                                color: _platformColor(
-                                  v.platform,
-                                ).withValues(alpha: 0.12),
-                              ),
-                              child: Text(
-                                v.platform,
-                                style: AppText.label.copyWith(
-                                  fontWeight: FontWeight.w500,
-                                  color: _platformColor(v.platform),
-                                ),
-                              ),
-                            ),
-                          ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
+            contentPadding: const EdgeInsets.fromLTRB(22, 16, 22, 8),
+            actionsPadding: const EdgeInsets.fromLTRB(22, 0, 22, 18),
+            title: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: Icon(
+                    Icons.download_outlined,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "下载游戏",
+                        style: AppText.title.copyWith(
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 3),
+                      Text(
+                        "选择下载版本与安装目录",
+                        style: AppText.caption.copyWith(
+                          color: hintColor(context),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
-                )
-                .toList(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-        ],
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (game.versions.length > 1) ...[
+                    _managerVersionSelector(
+                      versions: game.versions,
+                      selected: selectedVersion,
+                      disabled: false,
+                      onChanged: (version) {
+                        setDialogState(() {
+                          selectedVersion = version;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  _managerPayloadSummary(game, selectedVersion),
+                  const SizedBox(height: 12),
+                  _downloadDirSelector(
+                    directory: targetDir,
+                    isDefault: targetDir == defaultDir,
+                    onChanged: () async {
+                      final picked = await FilePicker.platform.getDirectoryPath(
+                        dialogTitle: "选择安装目录",
+                      );
+                      if (picked == null || picked.isEmpty) return;
+                      setDialogState(() {
+                        targetDir = picked;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text("取消"),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(dialogContext, selectedVersion),
+                icon: const Icon(Icons.download, size: 18),
+                label: const Text("开始下载"),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (v == null || !mounted) return;
-    _startDownload(game, v);
+    await _startDownload(game, v, targetDir: targetDir);
   }
 
   Future<void> _showManagerInstallDialog(GameDetail game) async {
@@ -2213,6 +2236,51 @@ class _GameDetailScreenState extends State<GameDetailScreen>
     );
   }
 
+  Widget _downloadDirSelector({
+    required String directory,
+    required bool isDefault,
+    required VoidCallback onChanged,
+  }) {
+    final hasDir = directory.trim().isNotEmpty;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: onChanged,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: "安装目录",
+            prefixIcon: const Icon(Icons.folder_outlined, size: 20),
+            suffixIcon: TextButton(
+              onPressed: onChanged,
+              child: const Text("更改"),
+            ),
+            helperText: isDefault ? "默认使用设置中的游戏下载目录" : "仅本次下载",
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderSide: BorderSide(color: cardBorder(context)),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+          ),
+          child: Text(
+            hasDir ? directory : "未设置，点击「更改」选择目录",
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.label.copyWith(
+              color: hasDir ? subTextColor(context) : hintColor(context),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _managerMetaChip(String label, String value) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -2335,8 +2403,15 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         .replaceFirst(RegExp(r"^HttpException:\s*"), "");
   }
 
-  Future<void> _startDownload(GameDetail game, dynamic v) async {
-    final dlDir = await LocalDirs.ensureDownloadDir(context);
+  Future<void> _startDownload(
+    GameDetail game,
+    dynamic v, {
+    String? targetDir,
+  }) async {
+    final picked = targetDir?.trim() ?? "";
+    final dlDir = picked.isNotEmpty
+        ? picked
+        : await LocalDirs.ensureDownloadDir(context);
     if (dlDir == null || dlDir.isEmpty || !mounted) return;
 
     // On Android: check storage permission before starting download
@@ -2347,6 +2422,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         // Save pending download so we can retry after permission granted
         _pendingGame = game;
         _pendingVersion = v;
+        _pendingTargetDir = dlDir;
         await _showStoragePermissionDialog();
         return;
       }
@@ -2388,6 +2464,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       coverUrl: coverUrl,
       bgUrl: bgUrl,
       extractPassword: v.extractPassword,
+      targetDir: dlDir,
     );
     if (mounted) {
       showDialog(
@@ -2423,6 +2500,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
             onPressed: () {
               _pendingGame = null;
               _pendingVersion = null;
+              _pendingTargetDir = null;
               Navigator.pop(ctx);
             },
             child: const Text("取消"),

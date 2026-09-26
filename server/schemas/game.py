@@ -39,6 +39,7 @@ class GameSummary(BaseModel):
     imported_at: datetime
     length: int = 0
     length_minutes: int = 0
+    metadata_locked: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -65,6 +66,7 @@ class GameDetail(BaseModel):
     nextmoe_id: str | None = None
     length: int = 0
     length_minutes: int = 0
+    metadata_locked: bool = False
     is_deleted: bool
     imported_at: datetime
     updated_at: datetime

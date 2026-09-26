@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from config import load_config
 from models.game import Game
 from models.user import User
 from api.auth import get_current_user, require_admin
+from api.games import ensure_game_unlocked
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
@@ -292,6 +293,7 @@ async def scrape_apply(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     config = load_config()
     client_kwargs = {"timeout": httpx.Timeout(30.0), "trust_env": False}
@@ -370,6 +372,7 @@ async def scrape_game_cover(
     game = result.unique().scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     config = load_config()
     all_scrapers = _build_scrapers(config)
@@ -464,6 +467,24 @@ async def start_batch_scrape(
     if active_job is not None:
         raise HTTPException(status_code=409, detail="已有批量刮削任务正在运行")
 
+    locked_filters = [Game.is_deleted == False, Game.metadata_locked == True]
+    if body.game_ids:
+        locked_filters.append(Game.id.in_(body.game_ids))
+    elif body.mode == "missing":
+        locked_filters.append(Game.cover_path == None)
+    elif body.mode == "metadata":
+        locked_filters.append(
+            or_(
+                Game.description == None,
+                Game.description == "",
+                Game.developer == None,
+                Game.developer == "",
+            )
+        )
+    skipped_locked = (
+        await session.execute(select(func.count(Game.id)).where(*locked_filters))
+    ).scalar() or 0
+
     # Create job record
     now = datetime.utcnow()
     job = ScrapeJob(
@@ -530,6 +551,7 @@ async def start_batch_scrape(
     return {
         "job_id": job.id,
         "status": "started",
+        "skipped_locked": skipped_locked,
         "message": f"Batch scrape started for {job.total_games or 'all missing'} games",
     }
 
@@ -609,6 +631,7 @@ async def update_game_cover(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     if cover_url:
         config = load_config()
@@ -647,6 +670,7 @@ async def upload_game_cover(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     # Validate file type
     import os
@@ -688,6 +712,7 @@ async def delete_game_cover(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     if game.cover_path:
         import os
@@ -720,6 +745,7 @@ async def update_game_background(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     if bg_url:
         config = load_config()
@@ -761,6 +787,7 @@ async def upload_game_background(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     import os
     ext = os.path.splitext(file.filename or "bg.jpg")[1].lower()
@@ -801,6 +828,7 @@ async def delete_game_background(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     if game.bg_path:
         import os

@@ -50,6 +50,8 @@ class DownloadTask {
   final String gameName;
   final String companyName;
   final String sourceType;
+  /// Per-download output directory; falls back to the global download dir.
+  final String? targetDir;
   /// Set for Steam patch injections so an expired signed link can be renewed.
   final String? patchLookupKey;
 
@@ -87,6 +89,7 @@ class DownloadTask {
     required this.gameName,
     required this.companyName,
     this.sourceType = "local",
+    this.targetDir,
     this.patchLookupKey,
     this.status = "pending",
     this.progress = 0,
@@ -106,6 +109,7 @@ class DownloadTask {
     "gameName": gameName,
     "companyName": companyName,
     "sourceType": sourceType,
+    "targetDir": targetDir,
     "patchLookupKey": patchLookupKey,
     "status": status,
     "progress": progress,
@@ -195,6 +199,7 @@ class DownloadService with WidgetsBindingObserver {
                 gameName: m["gameName"] ?? "",
                 companyName: m["companyName"] ?? "",
                 sourceType: m["sourceType"]?.toString() ?? "local",
+                targetDir: m["targetDir"]?.toString(),
                 patchLookupKey: m["patchLookupKey"]?.toString(),
               )
               ..status = m["status"] ?? "failed"
@@ -235,6 +240,7 @@ class DownloadService with WidgetsBindingObserver {
               "gameName": t.gameName,
               "companyName": t.companyName,
               "sourceType": t.sourceType,
+              "targetDir": t.targetDir,
               "status": t.status,
               "receivedBytes": t.receivedBytes,
               "totalBytes": t.totalBytes,
@@ -615,6 +621,7 @@ class DownloadService with WidgetsBindingObserver {
     required String gameName,
     required String companyName,
     String sourceType = "local",
+    String? targetDir,
     String? coverUrl,
     String? bgUrl,
     String? extractPassword,
@@ -630,6 +637,7 @@ class DownloadService with WidgetsBindingObserver {
             gameName: gameName,
             companyName: companyName,
             sourceType: sourceType,
+            targetDir: targetDir,
           )
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
@@ -739,7 +747,7 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   Future<void> _runWithPassword(DownloadTask t, String password) async {
-    final dir = await downloadDir;
+    final dir = await _taskDir(t);
     final supportDir = (await getApplicationSupportDirectory()).path;
     final tmp = File(
       "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
@@ -1006,7 +1014,7 @@ class DownloadService with WidgetsBindingObserver {
   // ── core run loop ──
 
   Future<void> _run(DownloadTask t) async {
-    final dir = await downloadDir;
+    final dir = await _taskDir(t);
     // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
     final tmp = File(
@@ -3628,6 +3636,12 @@ class DownloadService with WidgetsBindingObserver {
 
   /// Strip path traversal sequences from a filename, keeping only the basename.
   String _safeName(String name) => name.split(RegExp(r"[/\\]")).last;
+
+  Future<String> _taskDir(DownloadTask t) async {
+    final target = t.targetDir?.trim() ?? "";
+    if (target.isNotEmpty) return target;
+    return downloadDir;
+  }
 
   String _outDir(DownloadTask t, String dir) {
     final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";

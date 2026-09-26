@@ -72,6 +72,11 @@ async def _add_ignore_path_once(session: AsyncSession, game: Game) -> None:
         session.add(IgnoreList(path=game.folder_path))
 
 
+def ensure_game_unlocked(game: Game) -> None:
+    if bool(game.metadata_locked):
+        raise HTTPException(status_code=409, detail="元数据已锁定，请先解锁")
+
+
 def _game_to_summary(game: Game) -> GameSummary:
     """Convert a Game ORM object to a GameSummary schema."""
     platforms = list({v.platform.value for v in game.versions}) if game.versions else []
@@ -91,6 +96,7 @@ def _game_to_summary(game: Game) -> GameSummary:
         imported_at=game.imported_at,
         length=game.length or 0,
         length_minutes=game.length_minutes or 0,
+        metadata_locked=bool(game.metadata_locked),
     )
 
 
@@ -274,6 +280,7 @@ async def get_game(
         nextmoe_id=game.nextmoe_id,
         length=game.length or 0,
         length_minutes=game.length_minutes or 0,
+        metadata_locked=bool(game.metadata_locked),
         is_deleted=game.is_deleted,
         imported_at=game.imported_at,
         updated_at=game.updated_at,
@@ -330,6 +337,7 @@ async def delete_game(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     # Soft delete
     game.is_deleted = True
@@ -374,7 +382,11 @@ async def batch_delete_games(
     else:
         ignored_paths = set()
     deleted = 0
+    skipped_locked = 0
     for game in games:
+        if game.metadata_locked:
+            skipped_locked += 1
+            continue
         game.is_deleted = True
         game.updated_at = datetime.utcnow()
         if _should_ignore_game_path(game) and game.folder_path not in ignored_paths:
@@ -384,12 +396,16 @@ async def batch_delete_games(
     await cleanup_empty_companies(session)
     await session.commit()
     logger.info(
-        "Games deleted in batch: actor_id=%s requested=%s deleted=%s",
+        "Games deleted in batch: actor_id=%s requested=%s deleted=%s skipped_locked=%s",
         user.id,
         len(body.game_ids),
         deleted,
+        skipped_locked,
     )
-    return MessageResponse(message=f"已删除 {deleted} 个游戏")
+    message = f"已删除 {deleted} 个游戏"
+    if skipped_locked:
+        message += f"，跳过 {skipped_locked} 个已锁定游戏"
+    return MessageResponse(message=message)
 
 
 class GameCreateTag(BaseModel):
@@ -563,6 +579,7 @@ async def _create_game_from_payload(
         )
         game = existing.scalar_one_or_none()
         if game is not None:
+            ensure_game_unlocked(game)
             game.is_deleted = False
             await _apply_create_payload(session, game, body, entry_source)
             await session.commit()
@@ -575,6 +592,7 @@ async def _create_game_from_payload(
     )
     game = existing_path.scalar_one_or_none()
     if game is not None:
+        ensure_game_unlocked(game)
         game.is_deleted = False
         await _apply_create_payload(session, game, body, entry_source)
         await session.commit()
@@ -658,6 +676,7 @@ async def update_game(
     game = result.scalar_one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
 
     data = body.model_dump(exclude_unset=True)
     tag_names = data.pop("tag_names", None)
@@ -680,6 +699,38 @@ async def update_game(
         tag_names is not None,
     )
     return {"message": "更新成功"}
+
+
+class MetadataLockUpdate(BaseModel):
+    locked: bool
+
+
+@router.put("/{game_id}/metadata-lock", response_model=dict)
+async def set_game_metadata_lock(
+    game_id: int,
+    body: MetadataLockUpdate,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Lock or unlock a game's metadata (admin only)."""
+    result = await session.execute(select(Game).where(Game.id == game_id))
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    game.metadata_locked = bool(body.locked)
+    game.updated_at = datetime.utcnow()
+    await session.commit()
+    logger.info(
+        "Game metadata lock changed: actor_id=%s game_id=%s locked=%s",
+        user.id,
+        game.id,
+        game.metadata_locked,
+    )
+    return {
+        "message": "已锁定" if game.metadata_locked else "已解锁",
+        "metadata_locked": bool(game.metadata_locked),
+    }
 
 
 async def _replace_game_tags(
@@ -732,6 +783,12 @@ async def update_version(
     session: AsyncSession = Depends(get_session),
 ):
     """Edit a game version's platform and extraction password (admin only)."""
+    game_result = await session.execute(select(Game).where(Game.id == game_id))
+    game = game_result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    ensure_game_unlocked(game)
+
     result = await session.execute(
         select(GameVersion).where(GameVersion.id == version_id, GameVersion.game_id == game_id)
     )
@@ -791,25 +848,30 @@ async def move_version(
     if version is None:
         raise HTTPException(status_code=404, detail="版本未找到")
 
+    from_game = await session.execute(select(Game).where(Game.id == game_id))
+    from_g = from_game.scalar_one_or_none()
+    if from_g is None:
+        raise HTTPException(status_code=404, detail="游戏未找到")
+    ensure_game_unlocked(from_g)
+
     # Verify target game exists
     target = await session.execute(select(Game).where(Game.id == to_game_id))
-    if target.scalar_one_or_none() is None:
+    to_g = target.scalar_one_or_none()
+    if to_g is None:
         raise HTTPException(status_code=404, detail="目标游戏未找到")
+    ensure_game_unlocked(to_g)
 
     version.game_id = to_game_id
     await session.flush()
 
     # Clean up source game if it has no versions left
-    from_game = await session.execute(select(Game).where(Game.id == game_id))
-    from_g = from_game.scalar_one_or_none()
-    if from_g:
-        remaining = await session.execute(
-            select(func.count(GameVersion.id)).where(GameVersion.game_id == game_id)
-        )
-        if remaining.scalar() == 0 and _entry_source(from_g) == "library":
-            from_g.is_deleted = True
-            from_g.updated_at = datetime.utcnow()
-            await _add_ignore_path_once(session, from_g)
+    remaining = await session.execute(
+        select(func.count(GameVersion.id)).where(GameVersion.game_id == game_id)
+    )
+    if remaining.scalar() == 0 and _entry_source(from_g) == "library":
+        from_g.is_deleted = True
+        from_g.updated_at = datetime.utcnow()
+        await _add_ignore_path_once(session, from_g)
 
     await cleanup_empty_companies(session)
     await session.commit()
@@ -835,6 +897,8 @@ async def merge_games(
     to_g = (await session.execute(select(Game).where(Game.id == to_id))).scalar_one_or_none()
     if from_g is None or to_g is None:
         raise HTTPException(status_code=404, detail="游戏未找到")
+    ensure_game_unlocked(from_g)
+    ensure_game_unlocked(to_g)
 
     # Move all versions
     versions = await session.execute(

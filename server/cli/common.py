@@ -233,6 +233,32 @@ def read_version_metadata() -> dict[str, str]:
     return result
 
 
+DEFAULT_GH_MIRROR = "https://gh-proxy.com/"
+REMOTE_CHECK_TIMEOUT = 20
+REMOTE_CHECK_ATTEMPTS = 2
+REMOTE_CHECK_DELAY = 1.5
+
+
+def gh_mirror_base() -> str:
+    """Configured GitHub mirror prefix; an explicitly empty value disables it."""
+    if "SENA_GH_MIRROR" in os.environ:
+        return os.environ.get("SENA_GH_MIRROR", "").strip()
+    return DEFAULT_GH_MIRROR
+
+
+def mirror_candidates(repo_url: str) -> list[str]:
+    """Alternate git URLs to try when the configured one is unreachable."""
+    base = gh_mirror_base().rstrip("/")
+    if not base:
+        return []
+    if repo_url.startswith(f"{base}/"):
+        direct = repo_url[len(base) + 1 :]
+        return [direct] if direct else []
+    if "github.com" in repo_url:
+        return [f"{base}/{repo_url}"]
+    return []
+
+
 def remote_source_sha(repo_url: str, repo_ref: str) -> str:
     try:
         proc = subprocess.run(
@@ -241,7 +267,7 @@ def remote_source_sha(repo_url: str, repo_ref: str) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=30,
+            timeout=REMOTE_CHECK_TIMEOUT,
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
