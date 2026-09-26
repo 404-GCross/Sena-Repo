@@ -11,7 +11,6 @@ import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_oauth.dart";
 import "../services/nextmoe_token_store.dart";
-import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 import "../utils/source_icons.dart";
 import "../widgets/app_shell.dart";
@@ -63,11 +62,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<Map<String, String>> get _authHeaders async {
-    final token = await SecureStore.getString("auth_token") ?? "";
-    return {
-      "Authorization": "Bearer $token",
-      "Content-Type": "application/json",
-    };
+    await ApiClient.restoreToken();
+    final token = ApiClient.globalToken ?? "";
+    final headers = {"Content-Type": "application/json"};
+    if (token.isNotEmpty) {
+      headers["Authorization"] = "Bearer $token";
+    }
+    return headers;
   }
 
   @override
@@ -102,10 +103,19 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           });
         _loadBinding();
       } else if (mounted) {
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _error = resp.statusCode == 401
+              ? "登录已失效，请重新登录"
+              : "加载失败（HTTP ${resp.statusCode}）";
+        });
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = "加载失败: $e";
+        });
     }
   }
 

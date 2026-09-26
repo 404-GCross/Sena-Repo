@@ -5,7 +5,6 @@ import "../services/logged_http.dart" as http;
 import "dart:convert";
 
 import "../services/api_client.dart";
-import "../services/secure_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 
@@ -24,11 +23,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
   bool _loading = true;
 
   Future<Map<String, String>> get _authHeaders async {
-    final token = await SecureStore.getString("auth_token") ?? "";
-    return {
-      "Authorization": "Bearer $token",
-      "Content-Type": "application/json",
-    };
+    await ApiClient.restoreToken();
+    final token = ApiClient.globalToken ?? "";
+    final headers = {"Content-Type": "application/json"};
+    if (token.isNotEmpty) {
+      headers["Authorization"] = "Bearer $token";
+    }
+    return headers;
   }
 
   @override

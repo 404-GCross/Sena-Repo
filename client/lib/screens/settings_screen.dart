@@ -19,7 +19,6 @@ import "../services/download_service.dart";
 import "backup_screen.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
-import "../services/secure_store.dart";
 import "../widgets/app_shell.dart";
 import "beautify_screen.dart";
 import "log_screen.dart";
@@ -3305,16 +3304,19 @@ class _UserManagePage extends StatefulWidget {
 
 class _UserManagePageState extends State<_UserManagePage> {
   List<Map<String, dynamic>> _users = [];
+  String? _usersError;
   bool _loading = true;
   int _currentUserId = 0;
   String _currentRole = "user";
 
   Future<Map<String, String>> get _authHeaders async {
-    final token = await SecureStore.getString("auth_token") ?? "";
-    return {
-      "Authorization": "Bearer $token",
-      "Content-Type": "application/json"
-    };
+    await ApiClient.restoreToken();
+    final token = ApiClient.globalToken ?? "";
+    final headers = {"Content-Type": "application/json"};
+    if (token.isNotEmpty) {
+      headers["Authorization"] = "Bearer $token";
+    }
+    return headers;
   }
 
   @override
@@ -3328,10 +3330,9 @@ class _UserManagePageState extends State<_UserManagePage> {
     final prefs = await SharedPreferences.getInstance();
     _currentRole = prefs.getString("role") ?? "user";
     try {
-      final token = await SecureStore.getString("auth_token") ?? "";
       final resp = await http.get(
         Uri.parse("${widget.api.baseUrl}/api/auth/profile/me"),
-        headers: {"Authorization": "Bearer $token"},
+        headers: await _authHeaders,
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -3345,7 +3346,11 @@ class _UserManagePageState extends State<_UserManagePage> {
   }
 
   Future<void> _loadUsers() async {
-    if (mounted) setState(() => _loading = true);
+    if (mounted)
+      setState(() {
+        _loading = true;
+        _usersError = null;
+      });
     try {
       final resp = await http.get(
         Uri.parse("${widget.api.baseUrl}/api/auth/users"),
@@ -3357,8 +3362,21 @@ class _UserManagePageState extends State<_UserManagePage> {
             _users =
                 (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
           });
+      } else if (mounted) {
+        setState(() {
+          _users = [];
+          _usersError = resp.statusCode == 401
+              ? "登录已失效，请重新登录"
+              : "加载失败（HTTP ${resp.statusCode}）";
+        });
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _users = [];
+          _usersError = "加载失败: $e";
+        });
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -3887,11 +3905,21 @@ class _UserManagePageState extends State<_UserManagePage> {
       child: _loading
           ? const AppStateView.loading(title: "正在读取用户")
           : _users.isEmpty
-              ? const AppStateView(
-                  icon: Icons.people_outline,
-                  title: "暂无用户",
-                  message: "当前服务器还没有可管理的用户",
-                )
+              ? (_usersError != null
+                  ? AppStateView(
+                      icon: Icons.error_outline_rounded,
+                      title: "无法读取用户",
+                      message: _usersError,
+                      action: FilledButton(
+                        onPressed: _loadUsers,
+                        child: const Text("重试"),
+                      ),
+                    )
+                  : const AppStateView(
+                      icon: Icons.people_outline,
+                      title: "暂无用户",
+                      message: "当前服务器还没有可管理的用户",
+                    ))
               : ListView.separated(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
