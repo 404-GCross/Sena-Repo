@@ -159,6 +159,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       case NextmoeAuthKind.pending:
       case NextmoeAuthKind.rejected:
       case NextmoeAuthKind.session:
+      case NextmoeAuthKind.registerRequired:
         return;
     }
   }

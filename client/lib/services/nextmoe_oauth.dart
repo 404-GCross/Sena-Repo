@@ -9,7 +9,7 @@ import "api_client.dart";
 import "logger_service.dart";
 import "nextmoe_token_store.dart";
 
-enum NextmoeAuthKind { session, pending, rejected, bound, error }
+enum NextmoeAuthKind { session, pending, rejected, bound, registerRequired, error }
 
 class NextmoeAuthOutcome {
   final NextmoeAuthKind kind;
@@ -18,6 +18,8 @@ class NextmoeAuthOutcome {
   final String boundName;
   final String boundUserId;
   final String requestId;
+  final String nextmoeName;
+  final String suggestedUsername;
   final String error;
   final bool cancelled;
 
@@ -28,6 +30,8 @@ class NextmoeAuthOutcome {
     this.boundName = "",
     this.boundUserId = "",
     this.requestId = "",
+    this.nextmoeName = "",
+    this.suggestedUsername = "",
     this.error = "",
     this.cancelled = false,
   });
@@ -166,6 +170,7 @@ class NextmoeOAuth {
             code: code,
             state: state,
             withAuth: withAuth,
+            expectUsername: purpose == "login",
           );
         } on AuthException catch (e) {
           return NextmoeAuthOutcome(
@@ -180,6 +185,14 @@ class NextmoeOAuth {
           );
         }
 
+        if (result["register_required"] == true) {
+          return NextmoeAuthOutcome(
+            kind: NextmoeAuthKind.registerRequired,
+            requestId: result["request_id"]?.toString() ?? requestId,
+            nextmoeName: result["name"]?.toString() ?? "",
+            suggestedUsername: result["suggested_username"]?.toString() ?? "",
+          );
+        }
         if (result["pending"] == true) {
           return NextmoeAuthOutcome(
             kind: NextmoeAuthKind.pending,
