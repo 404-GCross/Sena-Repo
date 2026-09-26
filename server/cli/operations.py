@@ -9,6 +9,8 @@ from pathlib import Path
 
 import database as db
 from cli.common import (
+    REMOTE_CHECK_ATTEMPTS,
+    REMOTE_CHECK_DELAY,
     choose,
     confirm,
     confirm_phrase,
@@ -18,6 +20,7 @@ from cli.common import (
     install_root,
     installer_path,
     is_interactive,
+    mirror_candidates,
     prepare_app,
     print_kv,
     print_table,
@@ -470,6 +473,25 @@ async def cmd_clear(args) -> int:
     )
 
 
+def resolve_remote_source(
+    repo_url: str, repo_ref: str
+) -> tuple[str, str, list[str]]:
+    """Try the configured git URL and its mirror.
+
+    Returns (sha, working url, tried urls); sha is empty when nothing worked.
+    """
+    candidates = [repo_url, *mirror_candidates(repo_url)]
+    tried: list[str] = []
+    for candidate in candidates:
+        for _ in range(REMOTE_CHECK_ATTEMPTS):
+            sha = remote_source_sha(candidate, repo_ref)
+            if sha:
+                return sha, candidate, tried
+            tried.append(candidate)
+            time.sleep(REMOTE_CHECK_DELAY)
+    return "", repo_url, tried or candidates
+
+
 def cmd_update(args) -> int:
     if in_docker():
         echo("Docker 部署不能在容器内自更新。")
@@ -488,14 +510,21 @@ def cmd_update(args) -> int:
     else:
         repo_ref = metadata.get("SOURCE_REF") or channel_ref("dev", repo_url)
     current_sha = metadata.get("SOURCE_SHA", "")
-    remote_sha = remote_source_sha(repo_url, repo_ref)
+    remote_sha, active_url, tried = resolve_remote_source(repo_url, repo_ref)
     if not remote_sha:
+        detail = "\n".join(f"  - {url}" for url in dict.fromkeys(tried))
         fail(
             "无法检查远程版本（"
-            f"{repo_url} @ {repo_ref}）；"
-            "请确认 git 可用、网络可达，或改用 --repo-url 指定镜像源、--ref 指定 ref",
+            f"{repo_ref}）；已重试 {REMOTE_CHECK_ATTEMPTS} 次，尝试过的源：\n"
+            f"{detail}\n"
+            "可以：① 稍后重试 senacli update；"
+            "② 用 sudo bash /opt/sena-repo/install.sh --update 跳过检查直接更新；"
+            "③ 用 --repo-url 换镜像源、--ref 指定 ref",
             2,
         )
+    if active_url != repo_url:
+        echo(f"直连不可用，已改用镜像源: {active_url}")
+        repo_url = active_url
     echo(f"当前版本: {short_sha(current_sha)}")
     echo(f"远程版本: {short_sha(remote_sha)} ({repo_ref})")
     if current_sha == remote_sha and not args.force:
