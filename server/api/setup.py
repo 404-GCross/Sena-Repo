@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -188,6 +188,13 @@ async def initialize_setup(
         raise HTTPException(status_code=400, detail="Server already initialized")
 
     # Create admin user
+    existing_user = await session.execute(
+        select(User).where(
+            func.lower(User.username) == body.admin_username.strip().lower()
+        )
+    )
+    if existing_user.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="用户名已被占用，请换一个")
     pw_hash, salt = hash_password(body.admin_password)
     user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="owner", is_admin=True)
     session.add(user)
