@@ -67,8 +67,8 @@ Version channels:
   --channel dev      Latest main branch (default, rolling)
   --channel stable   Latest v* tag without a suffix
   --channel beta     Latest v* tag with a suffix (beta/rc)
-  Installing interactively without --channel/--ref asks which channel to use
-  and remembers the choice for later --update runs.
+  Every interactive run (install or update) asks which channel to use; pressing
+  Enter keeps the current channel. The choice is stored in the install root.
 
 Update behavior:
   --update      Fetch the latest source from SENA_REPO_URL/SENA_REPO_REF,
@@ -359,15 +359,26 @@ resolve_channel_ref() {
   esac
 }
 
+describe_ref_channel() {
+  case "$REPO_REF" in
+    main|master) printf '开发版（%s）' "$REPO_REF" ;;
+    v*-*) printf '测试版（%s）' "$REPO_REF" ;;
+    v*) printf '稳定版（%s）' "$REPO_REF" ;;
+    *) printf '%s' "$REPO_REF" ;;
+  esac
+}
+
 prompt_for_channel() {
-  local answer
+  local answer current
   [ -r /dev/tty ] || return 1
+  current="$(describe_ref_channel)"
   {
-    printf '\n[sena-repo] 请选择要安装的版本通道：\n'
+    printf '\n[sena-repo] 当前通道：%s\n' "$current"
+    printf '请选择要使用的版本通道：\n'
     printf '  1) 稳定版（最新正式版 tag）\n'
     printf '  2) 测试版（最新预发布 beta/rc tag）\n'
-    printf '  3) 开发版（main，滚动最新）[默认]\n'
-    printf '通道 [3]: '
+    printf '  3) 开发版（main，滚动最新）\n'
+    printf '直接回车保持当前通道，通道 [回车=%s]: ' "$current"
   } > /dev/tty
   if ! IFS= read -r answer < /dev/tty; then
     return 1
@@ -375,7 +386,8 @@ prompt_for_channel() {
   case "$answer" in
     1|stable) printf 'stable\n' ;;
     2|beta) printf 'beta\n' ;;
-    *) printf 'dev\n' ;;
+    3|dev) printf 'dev\n' ;;
+    *) printf '\n' ;;
   esac
 }
 
@@ -985,7 +997,7 @@ case "$ACTION" in
     selected_channel=""
     if [ -n "$REQUESTED_CHANNEL" ]; then
       selected_channel="$REQUESTED_CHANNEL"
-    elif [ -z "$REQUESTED_REPO_REF" ] && [ "$ACTION" = "install" ] && [ ! -f "$VERSION_FILE" ]; then
+    elif [ -z "$REQUESTED_REPO_REF" ]; then
       selected_channel="$(prompt_for_channel || true)"
     fi
     if [ -n "$selected_channel" ] && [ -z "$REQUESTED_REPO_REF" ]; then
