@@ -24,7 +24,7 @@ from models.game import Game
 from models.ignore_list import IgnoreList
 from schemas.common import MessageResponse
 from services.scanner import normalize_game_depth, structure_from_depth
-from utils.secrets import encryption_key_status, redact_url
+from utils.secrets import SCRAPER_SECRET_KEYS, encryption_key_status, redact_url
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -214,21 +214,13 @@ def _read_scraper_config() -> dict:
     return {}
 
 
-_SCRAPER_SECRET_KEYS = (
-    "bangumi_token",
-    "vndb_token",
-    "hikarinagi_client_secret",
-    "nextmoe_api_key",
-    "proxy",
-)
-
 
 def _write_scraper_config(data: dict):
     """Write scraper config to JSON file; credentials are encrypted at rest."""
     from utils.secrets import encrypt_secret
 
     payload = dict(data)
-    for key in _SCRAPER_SECRET_KEYS:
+    for key in SCRAPER_SECRET_KEYS:
         value = payload.get(key)
         if isinstance(value, str) and value and "****" not in value:
             payload[key] = encrypt_secret(value)
@@ -255,7 +247,7 @@ def migrate_scraper_config_secrets(config) -> None:
     if not isinstance(data, dict):
         return
     changed = False
-    for key in _SCRAPER_SECRET_KEYS:
+    for key in SCRAPER_SECRET_KEYS:
         value = data.get(key)
         if (
             isinstance(value, str)

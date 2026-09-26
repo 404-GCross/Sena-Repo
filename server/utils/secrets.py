@@ -12,6 +12,15 @@ from config import load_config
 
 _PREFIX = "enc:v1:"
 
+# Persisted service credentials that are encrypted at rest.
+SCRAPER_SECRET_KEYS = (
+    "bangumi_token",
+    "vndb_token",
+    "hikarinagi_client_secret",
+    "nextmoe_api_key",
+    "proxy",
+)
+
 
 def _key_path() -> Path:
     return Path(load_config().data_path) / ".secrets_key"
