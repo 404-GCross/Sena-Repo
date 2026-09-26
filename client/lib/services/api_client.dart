@@ -756,6 +756,7 @@ class ApiClient {
     required String code,
     required String state,
     bool withAuth = false,
+    bool expectUsername = false,
   }) async {
     final uri = Uri.parse("$baseUrl/api/auth/oauth/complete");
     final resp = await _execute(
@@ -767,6 +768,7 @@ class ApiClient {
               "request_id": requestId,
               "code": code,
               "state": state,
+              "expect_username": expectUsername,
             }),
           )
           .timeout(const Duration(seconds: 20)),
@@ -780,6 +782,35 @@ class ApiClient {
       return data;
     }
     throw AuthException(data?["detail"]?.toString() ?? "鲲Galgame 授权失败，请重试");
+  }
+
+  /// Finish a deferred OAuth registration with the chosen username.
+  Future<Map<String, dynamic>> oauthRegister({
+    required String requestId,
+    required String username,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/register");
+    final resp = await _execute(
+      () => _client
+          .post(
+            uri,
+            headers: _jsonHeaders(),
+            body: jsonEncode({
+              "request_id": requestId,
+              "username": username,
+            }),
+          )
+          .timeout(const Duration(seconds: 20)),
+      allowRetry: false,
+      method: "POST",
+      uri: uri,
+      label: "oauth register",
+    );
+    final data = tryDecodeJsonMap(resp.body);
+    if (resp.statusCode == 200 && data != null) {
+      return data;
+    }
+    throw AuthException(data?["detail"]?.toString() ?? "注册失败，请重试");
   }
 
   Future<Map<String, dynamic>?> getOauthBinding() async {

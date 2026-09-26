@@ -358,7 +358,12 @@ async def logout(
 
 @router.post("/register")
 async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)):
-    existing = await session.execute(select(User).where(User.username == body.username))
+    # Case-insensitive so "Name" and "name" cannot coexist.
+    existing = await session.execute(
+        select(User).where(
+            func.lower(User.username) == body.username.strip().lower()
+        )
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="用户名已存在")
     count = await session.execute(select(func.count()).select_from(User))

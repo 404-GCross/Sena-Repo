@@ -959,6 +959,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       case NextmoeAuthKind.pending:
       case NextmoeAuthKind.rejected:
       case NextmoeAuthKind.session:
+      case NextmoeAuthKind.registerRequired:
         return;
     }
   }

@@ -13,8 +13,8 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
-from sqlalchemy import select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import _issue_session_token, get_current_user
@@ -46,6 +46,8 @@ class OAuthFlow:
     subject: str = ""
     name: str = ""
     oauth_id: int | None = None
+    register_pending: bool = False
+    tokens: dict | None = None
 
 
 _flows: dict[str, OAuthFlow] = {}
@@ -233,8 +235,9 @@ async def _derive_username(
         candidate = _normalize_username(candidate)[:128]
         if len(candidate) < 2:
             continue
+        # Compare case-insensitively so OAuth names never duplicate existing users.
         existing = await session.execute(
-            select(User).where(User.username == candidate)
+            select(User).where(func.lower(User.username) == candidate.lower())
         )
         if existing.scalar_one_or_none() is None:
             return candidate
@@ -267,6 +270,13 @@ class CompleteRequest(BaseModel):
     request_id: str
     code: str
     state: str
+    # Newer clients ask the user for a username before registering an OAuth account.
+    expect_username: bool = False
+
+
+class RegisterRequest(BaseModel):
+    request_id: str
+    username: str = Field(min_length=2, max_length=128)
 
 
 @router.get("/providers")
@@ -403,7 +413,6 @@ async def oauth_complete(
         }
 
     # purpose == "login"
-    _flows.pop(body.request_id, None)
     result = await session.execute(
         select(User).where(User.oauth_subject == subject)
     )
@@ -427,6 +436,20 @@ async def oauth_complete(
                     "OAuth account auto-bound by user id: user_id=%s", user.id
                 )
     if user is None:
+        oauth_id = _parse_oauth_id(profile.get("id"))
+        if body.expect_username:
+            flow.register_pending = True
+            flow.subject = subject
+            flow.name = name
+            flow.oauth_id = oauth_id
+            flow.tokens = tokens
+            suggested = await _derive_username(session, name, profile.get("id"))
+            return {
+                "register_required": True,
+                "request_id": body.request_id,
+                "name": name,
+                "suggested_username": suggested,
+            }
         username = await _derive_username(session, name, profile.get("id"))
         password_hash, salt = hash_password(secrets.token_urlsafe(32))
         user = User(
@@ -450,6 +473,7 @@ async def oauth_complete(
         except Exception:
             await session.rollback()
             raise
+        _flows.pop(body.request_id, None)
         logger.info(
             "OAuth registration submitted: user_id=%s username=%s",
             user.id,
@@ -457,6 +481,7 @@ async def oauth_complete(
         )
         return {"pending": True, "username": user.username, "created": True}
 
+    _flows.pop(body.request_id, None)
     if user.status == "pending":
         logger.info("OAuth login blocked pending: user_id=%s", user.id)
         return {"pending": True, "username": user.username}
@@ -474,6 +499,62 @@ async def oauth_complete(
         "role": user.role,
         "username": user.username,
         **_token_payload(tokens),
+    }
+
+
+@router.post("/register")
+async def oauth_register(
+    body: RegisterRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Finish a deferred OAuth registration with the username the user picked."""
+    if not _is_enabled():
+        raise HTTPException(status_code=400, detail="服务器未启用 鲲Galgame 登录")
+    _prune_flows()
+    flow = _flows.get(body.request_id)
+    if flow is None or flow.purpose != "login" or not flow.register_pending:
+        raise HTTPException(status_code=400, detail="授权请求已失效，请重试")
+    username = body.username.strip()
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="用户名至少需要 2 个字符")
+    existing = await session.execute(
+        select(User).where(func.lower(User.username) == username.lower())
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="用户名已被占用，请换一个")
+    _flows.pop(body.request_id, None)
+    password_hash, salt = hash_password(secrets.token_urlsafe(32))
+    user = User(
+        username=username,
+        password_hash=password_hash,
+        salt=salt,
+        role="user",
+        is_admin=False,
+        status="pending",
+        oauth_provider=PROVIDER,
+        oauth_subject=flow.subject,
+        oauth_name=flow.name,
+        oauth_user_id=flow.oauth_id,
+        password_set=False,
+    )
+    session.add(user)
+    try:
+        await session.flush()
+        await _notify_admins_new_user(session, user, "鲲Galgame")
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    logger.info(
+        "OAuth registration submitted with chosen username: user_id=%s username=%s",
+        user.id,
+        username,
+    )
+    return {
+        "pending": True,
+        "username": user.username,
+        "created": True,
+        **_token_payload(flow.tokens or {}),
     }
 
 

@@ -22,6 +22,7 @@ import "../services/notification_service.dart";
 import "../widgets/app_shell.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
+import "../widgets/nextmoe_username_dialog.dart";
 
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
@@ -1140,12 +1141,28 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final outcome = await NextmoeOAuth.authorize(api, purpose: "login");
     setBusy(false);
     switch (outcome.kind) {
+      case NextmoeAuthKind.registerRequired:
+        final registered = await showNextmoeUsernameDialog(
+          context,
+          api: api,
+          requestId: outcome.requestId,
+          nextmoeName: outcome.nextmoeName,
+          suggestedUsername: outcome.suggestedUsername,
+        );
+        if (registered == null) break;
+        await _showOauthNotice(
+          title: "等待管理员审批",
+          message: "已提交注册申请，用户名 ${registered["username"]}。\n\n"
+              "管理员审批通过后即可用 鲲Galgame账号 登录本服务器；"
+              "用户名之后可在「设置 → 个人信息」修改。",
+        );
+        break;
       case NextmoeAuthKind.pending:
         await _showOauthNotice(
           title: "等待管理员审批",
           message: "已提交注册申请，用户名 ${outcome.username}。\n\n"
-              "管理员审批通过后即可用 鲲Galgame账号 登录本服务器。"
-              "用户名由 鲲Galgame 昵称自动派生，审批通过后可在「设置 → 个人信息」修改。",
+              "管理员审批通过后即可用 鲲Galgame账号 登录本服务器；"
+              "用户名之后可在「设置 → 个人信息」修改。",
         );
         break;
       case NextmoeAuthKind.rejected:
@@ -1394,8 +1411,16 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           );
                           if (setupResult != null && mounted) {
                             final creds = setupResult as Map;
+                            // Keep the connection profile so only a login is needed.
+                            final chosenName =
+                                creds["username"]?.toString().trim() ?? "";
+                            await ProfileService().saveCurrentAsProfile(
+                              chosenName.isEmpty ? host : chosenName,
+                            );
+                            if (!mounted) return;
                             if (creds["imported"] == true) {
                               _showToast("备份已导入，请用备份中的账号登录");
+                              await _reloadProfiles();
                               return;
                             }
                             final loginResult = await api!.login(
