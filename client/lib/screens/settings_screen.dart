@@ -17,6 +17,7 @@ import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "backup_screen.dart";
+import "platform_categories_screen.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
 import "../widgets/app_shell.dart";
@@ -191,6 +192,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         MaterialPageRoute(
                             builder: (_) => _ScanSettingsPage(api: _api)),
                       ),
+                    ),
+                    _menuItem(
+                      Icons.category_outlined,
+                      Colors.teal,
+                      "分类管理",
+                      "自定义平台分类与识别规则",
+                      () {
+                        if (!_isAdmin) {
+                          showDialog(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: const Text("权限不足"),
+                              content: const Text("分类管理仅限管理员使用"),
+                              actions: [
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(c),
+                                  child: const Text("确定"),
+                                ),
+                              ],
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  PlatformCategoriesScreen(api: _api)),
+                        );
+                      },
                     ),
                     _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户",
                         () {

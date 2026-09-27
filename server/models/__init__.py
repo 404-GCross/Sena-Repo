@@ -1,4 +1,11 @@
-from .game import Company, Game, GameVersion, GameTag, Platform
+from .game import (
+    Company,
+    Game,
+    GameVersion,
+    GameTag,
+    PlatformCategory,
+    PlatformCategoryRule,
+)
 from .tag import Tag
 from .root_directory import RootDirectory
 from .file_source import FileSource, SteamPatchRoot

@@ -1547,17 +1547,29 @@ class _GameDetailScreenState extends State<GameDetailScreen>
 
   Color _platformColor(String platform) {
     switch (platform.toLowerCase()) {
-      case "windows":
+      case "pc":
         return Colors.blue;
-      case "android":
+      case "krkr":
         return Colors.green;
-      case "linux":
+      case "ons":
         return Colors.orange;
-      case "mac":
-        return Colors.grey;
-      default:
+      case "ty":
+        return Colors.purple;
+      case "直装":
+        return Colors.teal;
+      case "未分类":
         return Colors.blueGrey;
     }
+    const palette = [
+      Colors.indigo,
+      Colors.pink,
+      Colors.brown,
+      Colors.cyan,
+      Colors.deepOrange,
+      Colors.lightBlue,
+    ];
+    final seed = platform.codeUnits.fold<int>(0, (sum, unit) => sum + unit);
+    return palette[seed % palette.length];
   }
 
   Widget _infoRow(String label, String? value, [IconData? icon]) {

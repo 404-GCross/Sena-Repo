@@ -744,36 +744,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                 spacing: 6,
                                 runSpacing: 6,
                                 children: [
-                                  _filterChip(
-                                    "PC",
-                                    Icons.desktop_windows,
-                                    gameProvider.filterPlatform == "PC",
-                                    () => refresh(() => _togglePlatformFilter("PC")),
-                                  ),
-                                  _filterChip(
-                                    "KRKR",
-                                    Icons.android,
-                                    gameProvider.filterPlatform == "KRKR",
-                                    () => refresh(() => _togglePlatformFilter("KRKR")),
-                                  ),
-                                  _filterChip(
-                                    "ONS",
-                                    Icons.language,
-                                    gameProvider.filterPlatform == "ONS",
-                                    () => refresh(() => _togglePlatformFilter("ONS")),
-                                  ),
-                                  _filterChip(
-                                    "Ty",
-                                    Icons.phone_android,
-                                    gameProvider.filterPlatform == "Ty",
-                                    () => refresh(() => _togglePlatformFilter("Ty")),
-                                  ),
-                                  _filterChip(
-                                    "直装",
-                                    Icons.phone_iphone,
-                                    gameProvider.filterPlatform == "直装",
-                                    () => refresh(() => _togglePlatformFilter("直装")),
-                                  ),
+                                  for (final category in gameProvider.platforms)
+                                    _filterChip(
+                                      category.name,
+                                      _platformIcon(category.name),
+                                      gameProvider.filterPlatform ==
+                                          category.name,
+                                      () => refresh(() =>
+                                          _togglePlatformFilter(category.name)),
+                                    ),
                                 ],
                               ),
                               const SizedBox(height: 16),
@@ -1294,6 +1273,25 @@ class _HomeScreenState extends State<HomeScreen> {
     final provider = context.read<GameProvider>();
     provider.setFilters(
         platform: provider.filterPlatform == platform ? null : platform);
+  }
+
+  IconData _platformIcon(String name) {
+    switch (name.toLowerCase()) {
+      case "pc":
+        return Icons.desktop_windows;
+      case "krkr":
+        return Icons.android;
+      case "ons":
+        return Icons.language;
+      case "ty":
+        return Icons.phone_android;
+      case "直装":
+        return Icons.phone_iphone;
+      case "未分类":
+        return Icons.help_outline;
+      default:
+        return Icons.category_outlined;
+    }
   }
 
   Widget _filterChip(

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import enum
 from datetime import datetime
 
 from sqlalchemy import (
     Column,
     DateTime,
-    Enum,
     ForeignKey,
     Float,
     Integer,
@@ -22,12 +20,36 @@ from sqlalchemy.orm import relationship
 from database import Base
 
 
-class Platform(str, enum.Enum):
-    PC = "PC"
-    KRKR = "KRKR"
-    TYRANOR = "Ty"
-    ONS = "ONS"
-    DIRECT = "直装"
+class PlatformCategory(Base):
+    __tablename__ = "platform_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    is_system = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    rules = relationship(
+        "PlatformCategoryRule",
+        back_populates="category",
+        cascade="all, delete-orphan",
+        order_by="PlatformCategoryRule.sort_order",
+    )
+
+
+class PlatformCategoryRule(Base):
+    __tablename__ = "platform_category_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category_id = Column(
+        Integer, ForeignKey("platform_categories.id"), nullable=False
+    )
+    kind = Column(String(16), nullable=False, default="keyword")
+    pattern = Column(String(256), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    category = relationship("PlatformCategory", back_populates="rules")
 
 
 class Company(Base):
@@ -83,7 +105,7 @@ class GameVersion(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
-    platform = Column(Enum(Platform), nullable=False)
+    platform = Column(String(64), nullable=False)
     filename = Column(String(512), nullable=False)
     file_path = Column(String(1024), nullable=False)
     source_type = Column(String(32), nullable=False, default="local")

@@ -18,7 +18,7 @@ from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
 from models.user import User
-from models.game import Company, Game, GameVersion, GameTag, Platform
+from models.game import Company, Game, GameVersion, GameTag, PlatformCategory
 from models.ignore_list import IgnoreList
 from models.tag import Tag
 from schemas.common import MessageResponse
@@ -79,7 +79,7 @@ def ensure_game_unlocked(game: Game) -> None:
 
 def _game_to_summary(game: Game) -> GameSummary:
     """Convert a Game ORM object to a GameSummary schema."""
-    platforms = list({v.platform.value for v in game.versions}) if game.versions else []
+    platforms = list({v.platform for v in game.versions}) if game.versions else []
     tag_names = [gt.tag.name for gt in game.tags] if game.tags else []
     return GameSummary(
         id=game.id,
@@ -258,7 +258,7 @@ async def get_game(
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    platforms = list({v.platform.value for v in game.versions})
+    platforms = list({v.platform for v in game.versions})
     return GameDetail(
         id=game.id,
         name=game.name,
@@ -287,7 +287,7 @@ async def get_game(
         versions=[
             {
                 "id": v.id,
-                "platform": v.platform.value,
+                "platform": v.platform,
                 "filename": v.filename,
                 "file_path": v.file_path,
                 "file_size": v.file_size,
@@ -800,11 +800,28 @@ async def update_version(
         platform_value = body.platform.strip()
         if platform_value == "KR":
             platform_value = "KRKR"
-        try:
-            version.platform = Platform(platform_value)
-        except ValueError:
-            allowed = ", ".join(p.value for p in Platform)
-            raise HTTPException(status_code=400, detail=f"Invalid platform. Allowed: {allowed}")
+        if not platform_value:
+            raise HTTPException(status_code=400, detail="平台不能为空")
+        exists = (
+            await session.execute(
+                select(PlatformCategory.id).where(
+                    PlatformCategory.name == platform_value
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            allowed = (
+                await session.execute(
+                    select(PlatformCategory.name).order_by(
+                        PlatformCategory.is_system, PlatformCategory.sort_order
+                    )
+                )
+            ).scalars().all()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid platform. Allowed: {', '.join(allowed)}",
+            )
+        version.platform = platform_value
 
     if body.extract_password is not None:
         password = body.extract_password.strip()
@@ -816,14 +833,14 @@ async def update_version(
         user.id,
         game_id,
         version_id,
-        version.platform.value,
+        version.platform,
         bool(version.extract_password),
     )
     return {
         "message": "Version updated",
         "version": {
             "id": version.id,
-            "platform": version.platform.value,
+            "platform": version.platform,
             "filename": version.filename,
             "file_path": version.file_path,
             "file_size": version.file_size,

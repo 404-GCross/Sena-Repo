@@ -162,6 +162,7 @@ app.add_middleware(
 # Register API routers
 from api.games import router as games_router
 from api.tags import router as tags_router
+from api.platforms import router as platforms_router
 from api.roots import router as roots_router
 from api.download import router as download_router
 from api.file_sources import router as file_sources_router
@@ -176,6 +177,7 @@ from api.backup import router as backup_router
 
 app.include_router(games_router)
 app.include_router(tags_router)
+app.include_router(platforms_router)
 app.include_router(roots_router)
 # Must come before download_router: /api/download/signed/steam-patch/{key} would
 # otherwise be captured by /api/download/signed/{game_id}/{version_id}.
