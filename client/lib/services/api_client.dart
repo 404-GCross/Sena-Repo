@@ -528,6 +528,23 @@ class ApiClient {
     return data["metadata_locked"] == true;
   }
 
+  Future<String> batchSetGameMetadataLock(List<int> ids, bool locked) async {
+    final uri = Uri.parse("$baseUrl/api/games/batch-metadata-lock");
+    final resp = await _execute(
+      () => _client.post(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"game_ids": ids, "locked": locked}),
+      ),
+      method: "POST",
+      uri: uri,
+      label: "batch set metadata lock count=${ids.length} locked=$locked",
+    );
+    checkResponse(resp, fallbackMessage: locked ? "批量锁定失败" : "批量解锁失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return data["message"]?.toString() ?? (locked ? "已锁定" : "已解锁");
+  }
+
   // --- Tags ---
 
   Future<List<Tag>> getTags() async {

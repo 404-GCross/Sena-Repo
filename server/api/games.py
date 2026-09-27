@@ -733,6 +733,50 @@ async def set_game_metadata_lock(
     }
 
 
+class BatchMetadataLockRequest(BaseModel):
+    game_ids: list[int]
+    locked: bool
+
+
+@router.post("/batch-metadata-lock", response_model=dict)
+async def batch_set_game_metadata_lock(
+    body: BatchMetadataLockRequest,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Lock or unlock metadata for multiple games at once (admin only)."""
+    if not body.game_ids:
+        return {"message": "没有要操作的游戏", "changed": 0, "skipped": 0}
+
+    result = await session.execute(
+        select(Game).where(Game.id.in_(body.game_ids))
+    )
+    games = result.scalars().all()
+    changed = 0
+    skipped = 0
+    for game in games:
+        if bool(game.metadata_locked) == body.locked:
+            skipped += 1
+            continue
+        game.metadata_locked = body.locked
+        game.updated_at = datetime.utcnow()
+        changed += 1
+    await session.commit()
+    logger.info(
+        "Game metadata lock changed in batch: actor_id=%s requested=%s locked=%s changed=%s skipped=%s",
+        user.id,
+        len(body.game_ids),
+        body.locked,
+        changed,
+        skipped,
+    )
+    action = "锁定" if body.locked else "解锁"
+    message = f"已{action} {changed} 个游戏"
+    if skipped:
+        message += f"，{skipped} 个已是{action}状态"
+    return {"message": message, "changed": changed, "skipped": skipped}
+
+
 async def _replace_game_tags(
     session: AsyncSession,
     game: Game,
