@@ -1281,6 +1281,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Align(
                 alignment: Alignment.centerRight,
+                // heightFactor keeps the bar at its content height; without it
+                // the Align expands to the scaffold height and collapses the body.
+                heightFactor: 1,
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Row(
