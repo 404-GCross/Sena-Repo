@@ -169,6 +169,8 @@ Do not treat a successful full packaging run as a substitute for the analyzer; c
 
 The workflow validates `tag == v$(cat VERSION)`, builds every artifact with that version, and publishes the GitHub Release. Versions with a pre-release suffix (`-beta.1`, `-rc.2`, ...) are published as pre-releases and do not take the "Latest" slot; a missing `CHANGELOG.md` section falls back to a short note linking to the commits.
 
+Docker moving tags follow the channel: stable releases move `:latest`, pre-release versions move `:beta`, and dev builds (main pushes) move `:dev`.
+
 ## Development Notes
 
 ### Client / server protocol

@@ -373,7 +373,7 @@ jobs:
           DOCKERHUB_NAMESPACE=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')
           BASE="${VERSION%%+*}"
           case "$BASE" in
-            *-*) MOVE_TAG="pre-release" ;;
+            *-*) MOVE_TAG="beta" ;;
             *) MOVE_TAG="latest" ;;
           esac
           echo "Pushing Docker images with moving tag: $MOVE_TAG"
