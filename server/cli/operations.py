@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from datetime import datetime
@@ -492,13 +493,31 @@ def resolve_remote_source(
     return "", repo_url, tried or candidates
 
 
+def docker_channel_tag() -> str:
+    """Moving Docker tag that matches the running server version."""
+    version = os.environ.get("SENA_VERSION", "").strip()
+    if not version:
+        ref = read_version_metadata().get("SOURCE_REF", "").strip()
+        if ref in ("main", "master"):
+            version = "dev"
+        elif ref.startswith("v"):
+            version = ref[1:]
+    if version.startswith("dev"):
+        return "dev"
+    if "-" in version:
+        return "beta"
+    return "latest"
+
+
 def cmd_update(args) -> int:
     if in_docker():
+        tag = docker_channel_tag()
         echo("Docker 部署不能在容器内自更新。")
         echo("请在宿主机 pull 新镜像并重建容器，例如：")
-        echo("  docker pull 404gcross/sena-repo:pre-release")
+        echo(f"  docker pull 404gcross/sena-repo:{tag}")
         echo("  docker stop sena-repo && docker rm sena-repo")
-        echo("  docker run ... 404gcross/sena-repo:pre-release")
+        echo(f"  docker run ... 404gcross/sena-repo:{tag}")
+        echo("标签：latest 正式版 / beta 测试版 / dev 开发版")
         return 2
 
     metadata = read_version_metadata()
