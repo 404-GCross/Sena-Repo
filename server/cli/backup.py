@@ -23,18 +23,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import selectinload
 
 import database as db
 from cli import patch_rules
 from cli.common import choose, confirm, echo, fail, prepare_app
 from models.file_source import FileSource, SteamPatchRoot
-from models.game import Company, Game, GameTag, GameVersion, Platform
+from models.game import (
+    Company,
+    Game,
+    GameTag,
+    GameVersion,
+    PlatformCategory,
+    PlatformCategoryRule,
+)
 from models.ignore_list import IgnoreList
 from models.root_directory import RootDirectory
 from models.tag import Tag
 from models.user import User, UserSession
 from services.file_source import canonical_source_path
+from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
 from utils.secrets import (
     SCRAPER_SECRET_KEYS,
     decrypt_secret,
@@ -195,7 +204,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
         "versions": [
             {
                 "game": game_paths.get(version.game_id),
-                "platform": version.platform.value if version.platform else None,
+                "platform": version.platform or SYSTEM_CATEGORY_NAME,
                 "filename": version.filename,
                 "file_path": version.file_path,
                 "source_type": version.source_type,
@@ -224,6 +233,36 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
             {"path": item.path, "deleted_at": _iso(item.deleted_at)} for item in ignored
         ],
     }
+
+
+async def _export_platform_categories(session) -> list[dict[str, Any]]:
+    result = await session.execute(
+        select(PlatformCategory)
+        .options(selectinload(PlatformCategory.rules))
+        .order_by(
+            PlatformCategory.is_system,
+            PlatformCategory.sort_order,
+            PlatformCategory.id,
+        )
+    )
+    return [
+        {
+            "name": category.name,
+            "sort_order": category.sort_order,
+            "is_system": bool(category.is_system),
+            "rules": [
+                {
+                    "kind": rule.kind,
+                    "pattern": rule.pattern,
+                    "sort_order": rule.sort_order,
+                }
+                for rule in sorted(
+                    category.rules, key=lambda item: (item.sort_order, item.id)
+                )
+            ],
+        }
+        for category in result.scalars().all()
+    ]
 
 
 async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
@@ -331,6 +370,7 @@ async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
         async with db._session_factory() as session:
             payload["library"] = await _export_library(session)
             payload["library"]["file_sources"] = await _export_file_sources(session)
+            payload["library"]["platform_categories"] = await _export_platform_categories(session)
             payload["accounts"] = await _export_accounts(session)
         payload["settings"] = _export_settings(config)
 
@@ -493,11 +533,9 @@ def normalise_payload(data: dict[str, Any]) -> dict[str, Any]:
 # ── import ──
 
 
-def _platform(value: Any) -> Platform:
-    try:
-        return Platform(str(value or "PC").strip())
-    except ValueError:
-        return Platform.PC
+def _platform_name(value: Any) -> str:
+    name = str(value or "").strip()
+    return name or SYSTEM_CATEGORY_NAME
 
 
 async def import_file_sources(
@@ -545,6 +583,77 @@ async def import_file_sources(
     return stats, notes
 
 
+async def import_platform_categories(
+    session, entries: list[dict[str, Any]]
+) -> tuple[dict[str, int], list[str]]:
+    stats = {"categories_new": 0, "rules_new": 0}
+    notes: list[str] = []
+    if not isinstance(entries, list) or not entries:
+        return stats, notes
+    existing = {
+        category.name: category
+        for category in (await session.execute(select(PlatformCategory))).scalars()
+    }
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        category = existing.get(name)
+        if category is None:
+            category = await ensure_category(session, name)
+            existing[name] = category
+            stats["categories_new"] += 1
+        rules = entry.get("rules")
+        if not isinstance(rules, list) or not rules or category.is_system:
+            continue
+        known_rules = {
+            (rule.kind, rule.pattern)
+            for rule in (
+                await session.execute(
+                    select(PlatformCategoryRule).where(
+                        PlatformCategoryRule.category_id == category.id
+                    )
+                )
+            ).scalars()
+        }
+        next_order = (
+            await session.execute(
+                select(func.max(PlatformCategoryRule.sort_order)).where(
+                    PlatformCategoryRule.category_id == category.id
+                )
+            )
+        ).scalar()
+        next_order = (next_order if next_order is not None else -1) + 1
+        for rule_entry in rules:
+            if not isinstance(rule_entry, dict):
+                continue
+            kind = str(rule_entry.get("kind") or "").strip().lower()
+            pattern = str(rule_entry.get("pattern") or "").strip()
+            if kind not in ("keyword", "regex") or not pattern:
+                continue
+            if (kind, pattern) in known_rules:
+                continue
+            session.add(
+                PlatformCategoryRule(
+                    category_id=category.id,
+                    kind=kind,
+                    pattern=pattern,
+                    sort_order=next_order,
+                )
+            )
+            known_rules.add((kind, pattern))
+            next_order += 1
+            stats["rules_new"] += 1
+    if stats["categories_new"] or stats["rules_new"]:
+        notes.append(
+            f"分类: 新增 {stats['categories_new']} 个分类、{stats['rules_new']} 条匹配规则"
+        )
+    await session.flush()
+    return stats, notes
+
+
 async def import_library(config, session, library: dict[str, Any], *,
                          replace: bool) -> tuple[dict[str, int], list[str]]:
     stats = {
@@ -571,6 +680,15 @@ async def import_library(config, session, library: dict[str, Any], *,
     stats["sources_new"] = source_stats["sources_new"]
     stats["sources_updated"] = source_stats["sources_updated"]
     notes.extend(source_notes)
+
+    _, category_notes = await import_platform_categories(
+        session, library.get("platform_categories") or []
+    )
+    notes.extend(category_notes)
+    known_categories = {
+        category.name
+        for category in (await session.execute(select(PlatformCategory))).scalars()
+    }
 
     sources = list((await session.execute(select(FileSource))).scalars())
     sources_by_id = {source.id: source for source in sources}
@@ -729,9 +847,13 @@ async def import_library(config, session, library: dict[str, Any], *,
         source_id = entry.get("source_id")
         if source_id is not None:
             source_id = source_id_map.get(int(source_id), source_id)
+        platform = _platform_name(entry.get("platform"))
+        if platform not in known_categories:
+            await ensure_category(session, platform)
+            known_categories.add(platform)
         data = {
             "game_id": game_id,
-            "platform": _platform(entry.get("platform")),
+            "platform": platform,
             "filename": entry.get("filename") or _basename(file_path) or file_path,
             "file_path": file_path,
             "source_type": entry.get("source_type") or "local",

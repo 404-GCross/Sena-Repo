@@ -11,6 +11,7 @@ class GameProvider extends ChangeNotifier {
   ApiClient get api => _api;  // Expose for detail screens
   List<GameSummary> _games = [];
   List<Tag> _tags = [];
+  List<PlatformCategory> _platforms = _fallbackPlatforms();
   bool _isLoading = false;
   String? _error;
   String _searchQuery = "";
@@ -29,9 +30,12 @@ class GameProvider extends ChangeNotifier {
           (g.alias ?? "").toLowerCase().contains(query) ||
           g.tagNames.any((t) => t.toLowerCase().contains(query))).toList();
     }
-    // Client-side platform filter
+    // Client-side platform filter (exact category match)
     if (_filterPlatform != null) {
-      list = list.where((g) => g.platformSummary.contains(_filterPlatform!)).toList();
+      final target = _filterPlatform!;
+      list = list
+          .where((g) => g.platformSummary.split(", ").contains(target))
+          .toList();
     }
     // Client-side cover filter
     if (_filterHasCover == true) {
@@ -61,6 +65,29 @@ class GameProvider extends ChangeNotifier {
   /// Unfiltered list, for batch operations that must see hidden entries too.
   List<GameSummary> get allGames => _games;
 
+  /// Fallback categories for older servers without the platforms API.
+  static List<PlatformCategory> _fallbackPlatforms() {
+    const names = ["PC", "KRKR", "ONS", "Ty", "直装", "未分类"];
+    return [
+      for (var index = 0; index < names.length; index++)
+        PlatformCategory(
+          id: -1 - index,
+          name: names[index],
+          sortOrder: index,
+          isSystem: names[index] == "未分类",
+        ),
+    ];
+  }
+
+  Future<void> loadPlatforms() async {
+    try {
+      _platforms = await _api.getPlatformCategories();
+    } catch (e) {
+      LoggerService().warn("加载平台分类失败，沿用当前列表", e);
+    }
+    notifyListeners();
+  }
+
   String _aliasSortKey(GameSummary game) {
     final alias = (game.alias ?? "").trim();
     if (alias.isEmpty) return game.name.toLowerCase();
@@ -68,6 +95,7 @@ class GameProvider extends ChangeNotifier {
   }
 
   List<Tag> get tags => _tags;
+  List<PlatformCategory> get platforms => _platforms;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get sortBy => _sortBy;
@@ -94,6 +122,7 @@ class GameProvider extends ChangeNotifier {
       }
       _games = all;
       _tags = await _api.getTags();
+      await loadPlatforms();
       _error = null;
       LoggerService().info("加载游戏库完成: ${_games.length} 款游戏");
     } catch (e) {

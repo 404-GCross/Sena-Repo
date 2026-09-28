@@ -233,3 +233,58 @@ class GameDetail {
     );
   }
 }
+
+class PlatformCategoryRule {
+  final int id;
+  final String kind;
+  final String pattern;
+  final int sortOrder;
+
+  PlatformCategoryRule({
+    required this.id,
+    required this.kind,
+    required this.pattern,
+    this.sortOrder = 0,
+  });
+
+  factory PlatformCategoryRule.fromJson(Map<String, dynamic> json) {
+    return PlatformCategoryRule(
+      id: json["id"] ?? 0,
+      kind: json["kind"]?.toString() ?? "keyword",
+      pattern: json["pattern"]?.toString() ?? "",
+      sortOrder: json["sort_order"] ?? 0,
+    );
+  }
+}
+
+class PlatformCategory {
+  final int id;
+  final String name;
+  final int sortOrder;
+  final bool isSystem;
+  final int versionCount;
+  final List<PlatformCategoryRule> rules;
+
+  PlatformCategory({
+    required this.id,
+    required this.name,
+    this.sortOrder = 0,
+    this.isSystem = false,
+    this.versionCount = 0,
+    this.rules = const [],
+  });
+
+  factory PlatformCategory.fromJson(Map<String, dynamic> json) {
+    return PlatformCategory(
+      id: json["id"] ?? 0,
+      name: json["name"]?.toString() ?? "",
+      sortOrder: json["sort_order"] ?? 0,
+      isSystem: json["is_system"] == true,
+      versionCount: json["version_count"] ?? 0,
+      rules: (json["rules"] as List<dynamic>? ?? [])
+          .map((item) =>
+              PlatformCategoryRule.fromJson(item as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}

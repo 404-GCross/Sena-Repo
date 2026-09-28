@@ -10,11 +10,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
-from models.game import Company, Game, GameVersion, Platform, GameTag
+from models.game import Company, Game, GameVersion, GameTag
 from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from models.tag import Tag
-from services.cleaner import clean_filename, normalize_company_name, _clean_name
+from services.cleaner import normalize_company_name, _clean_name
+from services.platforms import load_platform_rules
+from utils.regex_patterns import UNCATEGORIZED, match_platform
 from services.file_source import adapter_from_source, canonical_source_path
 from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
 
@@ -80,6 +82,7 @@ async def import_from_root(
     )
 
     stats = {"new_games": 0, "updated_games": 0, "new_versions": 0, "total": 0}
+    platform_rules = await load_platform_rules(session, config)
 
     for company_folder in scan_result.companies:
         # Upsert company
@@ -103,28 +106,13 @@ async def import_from_root(
 
             version_count = 0
             for archive in game_folder.archives:
-                # Clean filename to extract platform + name
-                # Convert CustomRegex dataclass objects to dicts for the cleaner
-                custom_patterns = [
-                    {"pattern": r.pattern, "platform": r.platform}
-                    for r in config.custom_regex
-                    if r.pattern and r.platform
-                ] if config.custom_regex else None
-
-                extraction = clean_filename(
-                    archive.filename,
-                    custom_patterns,
-                )
-
-                if extraction is None:
-                    logger.warning(f"Could not extract platform from: {archive.filename}")
-                    continue
+                platform = match_platform(archive.filename, platform_rules)
 
                 # Upsert version
                 created = await _upsert_version(
                     session,
                     game_id=game.id,
-                    platform=extraction.platform,
+                    platform=platform,
                     filename=archive.filename,
                     file_path=canonical_source_path(source_type, root.source_id, archive.filepath),
                     file_size=archive.file_size,
@@ -268,7 +256,7 @@ async def _upsert_game(
 async def _upsert_version(
     session: AsyncSession,
     game_id: int,
-    platform: Platform,
+    platform: str,
     filename: str,
     file_path: str,
     file_size: int,
@@ -294,6 +282,9 @@ async def _upsert_version(
             existing.checksum_algo = None
             existing.checksum = None
             existing.checksum_updated_at = None
+        # Re-evaluate only uncategorized versions so manual edits stay intact.
+        if existing.platform == UNCATEGORIZED and platform != UNCATEGORIZED:
+            existing.platform = platform
         # Update size if changed
         existing.file_size = file_size
         existing.source_type = source_type

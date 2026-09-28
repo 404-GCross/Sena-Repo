@@ -97,7 +97,7 @@ class ServerConfig:
 @dataclass
 class CustomRegex:
     pattern: str = ""
-    platform: str = ""  # PC, KRKR, Ty, ONS, 直装
+    platform: str = ""  # platform category name (see 分类管理)
     description: str = ""
 
 

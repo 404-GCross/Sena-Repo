@@ -471,28 +471,28 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Future<void> _changeVersionPlatform(GameVersion version) async {
-    const options = [
-      {"label": "PC", "value": "PC"},
-      {"label": "KR", "value": "KRKR"},
-      {"label": "Ty", "value": "Ty"},
-      {"label": "ONS", "value": "ONS"},
-      {"label": "直装", "value": "直装"},
-    ];
+    final options = context
+        .read<GameProvider>()
+        .platforms
+        .map((category) => {"label": category.name, "value": category.name})
+        .toList();
     final selected = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("修改平台"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: options.map((item) {
-            final value = item["value"]!;
-            return RadioListTile<String>(
-              value: value,
-              groupValue: version.platform,
-              title: Text(item["label"]!),
-              onChanged: (v) => Navigator.pop(ctx, v),
-            );
-          }).toList(),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((item) {
+              final value = item["value"]!;
+              return RadioListTile<String>(
+                value: value,
+                groupValue: version.platform,
+                title: Text(item["label"]!),
+                onChanged: (v) => Navigator.pop(ctx, v),
+              );
+            }).toList(),
+          ),
         ),
         actions: [
           TextButton(
@@ -1187,17 +1187,29 @@ class _GameEditScreenState extends State<GameEditScreen> {
 
   Color _platformColor(String platform) {
     switch (platform.toLowerCase()) {
-      case "windows":
+      case "pc":
         return Colors.blue;
-      case "android":
+      case "krkr":
         return Colors.green;
-      case "linux":
+      case "ons":
         return Colors.orange;
-      case "mac":
-        return Colors.grey;
-      default:
+      case "ty":
+        return Colors.purple;
+      case "直装":
+        return Colors.teal;
+      case "未分类":
         return Colors.blueGrey;
     }
+    const palette = [
+      Colors.indigo,
+      Colors.pink,
+      Colors.brown,
+      Colors.cyan,
+      Colors.deepOrange,
+      Colors.lightBlue,
+    ];
+    final seed = platform.codeUnits.fold<int>(0, (sum, unit) => sum + unit);
+    return palette[seed % palette.length];
   }
 
   Widget _divider() =>

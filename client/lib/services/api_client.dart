@@ -545,6 +545,197 @@ class ApiClient {
     return data["message"]?.toString() ?? (locked ? "已锁定" : "已解锁");
   }
 
+  // --- Platform categories ---
+
+  Future<List<PlatformCategory>> getPlatformCategories() async {
+    final uri = Uri.parse("$baseUrl/api/platforms");
+    final resp = await _execute(
+      () => _client.get(uri, headers: headers),
+      method: "GET",
+      uri: uri,
+      label: "load platform categories",
+    );
+    if (resp.statusCode != 200) {
+      throw HttpException("Failed to load platform categories");
+    }
+    final List<dynamic> data = jsonDecode(resp.body);
+    return data
+        .map((item) => PlatformCategory.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<PlatformCategory> createPlatformCategory(String name) async {
+    final uri = Uri.parse("$baseUrl/api/platforms");
+    final resp = await _execute(
+      () => _client.post(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"name": name}),
+      ),
+      method: "POST",
+      uri: uri,
+      label: "create platform category name=$name",
+    );
+    checkResponse(resp, fallbackMessage: "创建分类失败");
+    return PlatformCategory.fromJson(
+        jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  Future<PlatformCategory> updatePlatformCategory(
+    int id, {
+    String? name,
+    int? sortOrder,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/$id");
+    final body = <String, dynamic>{};
+    if (name != null) body["name"] = name;
+    if (sortOrder != null) body["sort_order"] = sortOrder;
+    final resp = await _execute(
+      () => _client.put(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode(body),
+      ),
+      method: "PUT",
+      uri: uri,
+      label: "update platform category id=$id",
+    );
+    checkResponse(resp, fallbackMessage: "更新分类失败");
+    return PlatformCategory.fromJson(
+        jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  Future<void> reorderPlatformCategories(List<int> ids) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/order");
+    final resp = await _execute(
+      () => _client.put(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"ids": ids}),
+      ),
+      method: "PUT",
+      uri: uri,
+      label: "reorder platform categories",
+    );
+    checkResponse(resp, fallbackMessage: "保存分类顺序失败");
+  }
+
+  Future<String> deletePlatformCategory(int id, {int? reassignToId}) async {
+    final query = reassignToId == null ? "" : "?reassign_to_id=$reassignToId";
+    final uri = Uri.parse("$baseUrl/api/platforms/$id$query");
+    final resp = await _execute(
+      () => _client.delete(uri, headers: headers),
+      method: "DELETE",
+      uri: uri,
+      label: "delete platform category id=$id",
+    );
+    checkResponse(resp, fallbackMessage: "删除分类失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return data["message"]?.toString() ?? "已删除";
+  }
+
+  Future<PlatformCategoryRule> createPlatformRule(
+    int categoryId,
+    String kind,
+    String pattern,
+  ) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/$categoryId/rules");
+    final resp = await _execute(
+      () => _client.post(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"kind": kind, "pattern": pattern}),
+      ),
+      method: "POST",
+      uri: uri,
+      label: "create platform rule category=$categoryId kind=$kind",
+    );
+    checkResponse(resp, fallbackMessage: "添加规则失败");
+    return PlatformCategoryRule.fromJson(
+        jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  Future<PlatformCategoryRule> updatePlatformRule(
+    int categoryId,
+    int ruleId, {
+    String? kind,
+    String? pattern,
+  }) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/$categoryId/rules/$ruleId");
+    final body = <String, dynamic>{};
+    if (kind != null) body["kind"] = kind;
+    if (pattern != null) body["pattern"] = pattern;
+    final resp = await _execute(
+      () => _client.put(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode(body),
+      ),
+      method: "PUT",
+      uri: uri,
+      label: "update platform rule id=$ruleId",
+    );
+    checkResponse(resp, fallbackMessage: "更新规则失败");
+    return PlatformCategoryRule.fromJson(
+        jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  Future<void> deletePlatformRule(int categoryId, int ruleId) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/$categoryId/rules/$ruleId");
+    final resp = await _execute(
+      () => _client.delete(uri, headers: headers),
+      method: "DELETE",
+      uri: uri,
+      label: "delete platform rule id=$ruleId",
+    );
+    checkResponse(resp, fallbackMessage: "删除规则失败");
+  }
+
+  Future<void> reorderPlatformRules(int categoryId, List<int> ids) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/$categoryId/rules/order");
+    final resp = await _execute(
+      () => _client.put(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"ids": ids}),
+      ),
+      method: "PUT",
+      uri: uri,
+      label: "reorder platform rules category=$categoryId",
+    );
+    checkResponse(resp, fallbackMessage: "保存规则顺序失败");
+  }
+
+  Future<String> testPlatformMatch(String filename) async {
+    final uri = Uri.parse("$baseUrl/api/platforms/test-match");
+    final resp = await _execute(
+      () => _client.post(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"filename": filename}),
+      ),
+      method: "POST",
+      uri: uri,
+      label: "test platform match",
+    );
+    checkResponse(resp, fallbackMessage: "测试匹配失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return data["category"]?.toString() ?? "";
+  }
+
+  Future<String> reidentifyPlatformCategories() async {
+    final uri = Uri.parse("$baseUrl/api/platforms/reidentify");
+    final resp = await _execute(
+      () => _client.post(uri, headers: headers),
+      method: "POST",
+      uri: uri,
+      label: "reidentify platform categories",
+    );
+    checkResponse(resp, fallbackMessage: "重新识别失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return data["message"]?.toString() ?? "完成";
+  }
+
   // --- Tags ---
 
   Future<List<Tag>> getTags() async {

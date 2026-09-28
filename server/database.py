@@ -19,6 +19,65 @@ class Base(DeclarativeBase):
     pass
 
 
+SYSTEM_PLATFORM_CATEGORY = "未分类"
+SYSTEM_PLATFORM_CATEGORY_ORDER = 100000
+
+# Initial platform categories and their detection rules (first match wins).
+DEFAULT_PLATFORM_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
+    ("PC", [("regex", r"[\[\(（]PC[\]\)）]")]),
+    (
+        "KRKR",
+        [
+            ("regex", r"[\[\(（]KRKR[\]\)）]"),
+            ("regex", r"[\[\(（]KR[\]\)）]"),
+            ("keyword", "krkr"),
+            ("regex", r"^KR_"),
+            ("keyword", "kirikiroid"),
+        ],
+    ),
+    ("ONS", [("regex", r"[\[\(（]ONS[\]\)）]")]),
+    (
+        "Ty",
+        [
+            ("regex", r"[\[\(（]Ty[\]\)）]"),
+            ("regex", r"[\[\(（]Ar[\]\)）]"),
+            ("keyword", "tyranor"),
+        ],
+    ),
+    (
+        "直装",
+        [
+            ("keyword", "直装"),
+            ("keyword", "安卓"),
+            ("regex", r"\.apk$"),
+        ],
+    ),
+]
+
+
+async def _seed_platform_categories(conn) -> None:
+    """Insert the default platform categories and rules on first run."""
+    for index, (name, rules) in enumerate(DEFAULT_PLATFORM_CATEGORIES):
+        await conn.exec_driver_sql(
+            "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, 0)",
+            (name, index),
+        )
+        category_id = (
+            await conn.exec_driver_sql(
+                "SELECT id FROM platform_categories WHERE name = ?", (name,)
+            )
+        ).scalar()
+        for rule_index, (kind, pattern) in enumerate(rules):
+            await conn.exec_driver_sql(
+                "INSERT INTO platform_category_rules (category_id, kind, pattern, sort_order) VALUES (?, ?, ?, ?)",
+                (category_id, kind, pattern, rule_index),
+            )
+    await conn.exec_driver_sql(
+        "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, 1)",
+        (SYSTEM_PLATFORM_CATEGORY, SYSTEM_PLATFORM_CATEGORY_ORDER),
+    )
+
+
 def init_database(config: Config):
     """Initialize both async and sync engines."""
     global _engine, _session_factory, _sync_session_factory
@@ -292,6 +351,24 @@ async def create_tables():
         await conn.exec_driver_sql(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_sessions_token_hash ON user_sessions (token_hash)"
         )
+
+        # ── platform categories seed ───────────────────────────────────────
+        category_count = (
+            await conn.exec_driver_sql("SELECT COUNT(*) FROM platform_categories")
+        ).scalar() or 0
+        if category_count == 0:
+            await _seed_platform_categories(conn)
+        else:
+            system_count = (
+                await conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM platform_categories WHERE is_system = 1"
+                )
+            ).scalar() or 0
+            if system_count == 0:
+                await conn.exec_driver_sql(
+                    "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, 1)",
+                    (SYSTEM_PLATFORM_CATEGORY, SYSTEM_PLATFORM_CATEGORY_ORDER),
+                )
 
 
 async def get_engine():
