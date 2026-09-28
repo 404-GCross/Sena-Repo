@@ -187,11 +187,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Colors.blue,
                       "扫描设置",
                       "根目录、刮削源、扫描选项",
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => _ScanSettingsPage(api: _api)),
-                      ),
+                      () {
+                        if (!_isAdmin) {
+                          showDialog(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: const Text("权限不足"),
+                              content: const Text("扫描设置仅限管理员使用"),
+                              actions: [
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(c),
+                                  child: const Text("确定"),
+                                ),
+                              ],
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => _ScanSettingsPage(api: _api)),
+                        );
+                      },
                     ),
                     _menuItem(
                       Icons.category_outlined,
