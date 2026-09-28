@@ -1038,6 +1038,53 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _batchLock() async {
+    final selected = context
+        .read<GameProvider>()
+        .allGames
+        .where((game) => _selectedIds.contains(game.id))
+        .toList();
+    final lockedCount = selected.where((game) => game.metadataLocked).length;
+    final target = selected.isEmpty || lockedCount < selected.length;
+    final count = _selectedIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(target ? "锁定元数据" : "解锁元数据"),
+        content: Text(target
+            ? "锁定后所选 $count 个游戏的元数据、封面、标签与版本信息将不可修改，"
+                "需要解锁后才能编辑。"
+                "${lockedCount > 0 ? "其中 $lockedCount 个已锁定，将跳过。" : ""}"
+            : "解锁后自动扫描与刮削会重新更新所选 $count 个条目的元数据。"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text("取消")),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(target ? "锁定" : "解锁")),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final message = await context
+          .read<GameProvider>()
+          .api
+          .batchSetGameMetadataLock(_selectedIds.toList(), target);
+      if (!mounted) return;
+      await context.read<GameProvider>().loadGames();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${target ? "锁定" : "解锁"}失败: $e")),
+      );
+    }
+  }
+
   Future<void> _batchScrape() async {
     const allSrc = [
       "hikarinagi",
@@ -1205,10 +1252,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {
     if (_multiSelect && _selectedIds.isNotEmpty) {
+      final selected = context
+          .watch<GameProvider>()
+          .allGames
+          .where((game) => _selectedIds.contains(game.id))
+          .toList();
+      final allLocked =
+          selected.isNotEmpty && selected.every((game) => game.metadataLocked);
       return SafeArea(
         top: false,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             border: Border(top: BorderSide(color: cardBorder(context))),
@@ -1218,26 +1272,58 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _batchClearSelection,
               icon: const Icon(Icons.close, size: 18),
               label: Text("${_selectedIds.length} 项"),
-              style: TextButton.styleFrom(foregroundColor: Colors.white70),
-            ),
-            const Spacer(),
-            FilledButton.tonalIcon(
-              onPressed: _batchScrape,
-              icon: const Icon(Icons.image_search, size: 18),
-              label: const Text("刮削"),
-              style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white70,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
             ),
             const SizedBox(width: 8),
-            FilledButton.tonalIcon(
-              onPressed: _batchDelete,
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: const Text("删除"),
-              style: FilledButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                // heightFactor keeps the bar at its content height; without it
+                // the Align expands to the scaffold height and collapses the body.
+                heightFactor: 1,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _batchScrape,
+                          icon: const Icon(Icons.image_search, size: 18),
+                          label: const Text("刮削"),
+                          style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8)),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.tonalIcon(
+                          onPressed: _batchLock,
+                          icon: Icon(
+                            allLocked
+                                ? Icons.lock_open_rounded
+                                : Icons.lock_rounded,
+                            size: 18,
+                          ),
+                          label: Text(allLocked ? "解锁" : "锁定"),
+                          style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8)),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.tonalIcon(
+                          onPressed: _batchDelete,
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          label: const Text("删除"),
+                          style: FilledButton.styleFrom(
+                              foregroundColor: Colors.red,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8)),
+                        ),
+                      ]),
+                ),
+              ),
             ),
           ]),
         ),

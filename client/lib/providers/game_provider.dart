@@ -58,6 +58,9 @@ class GameProvider extends ChangeNotifier {
     return list;
   }
 
+  /// Unfiltered list, for batch operations that must see hidden entries too.
+  List<GameSummary> get allGames => _games;
+
   String _aliasSortKey(GameSummary game) {
     final alias = (game.alias ?? "").trim();
     if (alias.isEmpty) return game.name.toLowerCase();
