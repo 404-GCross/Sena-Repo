@@ -698,6 +698,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   setState(() => _tabIndex = index);
                   if (index == 1 && !_serverLoaded && !_serverLoading) {
                     _loadServerPatches();
+                  } else if (index == 0 &&
+                      _commonDir != null &&
+                      !_loading &&
+                      _injectState.isEmpty) {
+                    unawaited(_scanAndCheck());
                   }
                 },
               ),
