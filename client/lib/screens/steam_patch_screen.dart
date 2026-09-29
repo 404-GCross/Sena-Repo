@@ -1679,7 +1679,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
           _PatchEditDialog(api: api, match: m, installPath: installPath),
     );
     if (saved != true || !mounted) return;
-    _showMsg("已保存");
     _loadServerPatches();
     if (_tabIndex == 0) _scanAndCheck();
   }
@@ -2018,7 +2017,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         _saving = false;
         _savedAny = true;
       });
-      _showSavedToast("元数据已保存");
+      await _showResultDialog("元数据已保存");
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -2047,7 +2046,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         _saving = false;
         _savedAny = true;
       });
-      _showSavedToast("补丁配置已保存");
+      await _showResultDialog("补丁配置已保存");
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -2055,20 +2054,18 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
     }
   }
 
-  void _showSavedToast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
-  }
-
   Future<void> _openTargetFolder() async {
     final path = widget.installPath;
     if (path == null || path.isEmpty) return;
     try {
       final opened = await FileOpenService.openTargetFolder(path);
-      if (!opened && mounted) _showSavedToast("无法打开游戏目录\n$path");
+      if (!opened && mounted) {
+        await _showResultDialog("无法打开游戏目录\n$path", error: true);
+      }
     } catch (e) {
-      if (mounted) _showSavedToast("无法打开游戏目录: $e");
+      if (mounted) {
+        await _showResultDialog("无法打开游戏目录: $e", error: true);
+      }
     }
   }
 
