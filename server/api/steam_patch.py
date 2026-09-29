@@ -493,17 +493,19 @@ def _nextmoe_patch_name_source() -> str:
         return "nextmoe"
 
 
-async def _preferred_patch_name(app_id: str, nextmoe_title: str) -> str:
-    """Steam name first when configured, falling back to the NextMoe title."""
+async def _preferred_patch_name(app_id: str, nextmoe_title: str) -> tuple[str, str]:
+    """Name plus its source: Steam name first when configured, else NextMoe."""
     if _nextmoe_patch_name_source() != "steam" or not str(app_id or "").isdigit():
-        return nextmoe_title
+        return nextmoe_title, ("nextmoe" if nextmoe_title else "")
     from scan_patches import _fetch_game_name
 
     try:
         steam_name = await asyncio.to_thread(_fetch_game_name, int(app_id))
     except Exception:
         steam_name = ""
-    return steam_name or nextmoe_title
+    if steam_name:
+        return steam_name, "steam"
+    return nextmoe_title, ("nextmoe" if nextmoe_title else "")
 
 
 async def _game_name_for_app_id(app_id: str) -> str | None:
@@ -511,7 +513,7 @@ async def _game_name_for_app_id(app_id: str) -> str | None:
         from scan_patches import _nextmoe_name_for_app_id
 
         if _nextmoe_patch_name_source() == "steam":
-            name = await _preferred_patch_name(str(app_id), "")
+            name, _ = await _preferred_patch_name(str(app_id), "")
             if name:
                 return name
         try:
@@ -1467,12 +1469,17 @@ class RescrapeResult(BaseModel):
     old_app_id: str = ""
     new_app_id: str = ""
     game_name: str = ""
+    name_source: str = ""  # "nextmoe" / "steam" / ""
     status: str = ""  # "updated" / "skipped" / "not_found" / "locked" / "error"
 
 
 @router.post("/patches/{lookup_key}/rescrape")
-async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
-    """Re-search Steam for a single patch's app_id and update patches.json."""
+async def rescrape_patch(
+    lookup_key: str,
+    preview: bool = Query(default=False),
+    user: User = Depends(require_admin),
+):
+    """Re-search a patch's app_id; preview mode returns the result without saving."""
     import asyncio as _asyncio
     config = load_config()
     patches_dir = _get_patches_dir(config)
@@ -1540,13 +1547,16 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
                 if new_id:
                     break
         if new_id:
-            target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
+            if not preview:
+                target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
             result.new_app_id = str(new_id)
             result.status = "updated"
-            name = await _preferred_patch_name(new_id, nextmoe_title)
+            name, name_source = await _preferred_patch_name(new_id, nextmoe_title)
             if name:
-                target["game_name"] = name
+                if not preview:
+                    target["game_name"] = name
                 result.game_name = name
+                result.name_source = name_source
         elif old_app_id:
             result.new_app_id = old_app_id
     else:
@@ -1557,28 +1567,33 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
             raise HTTPException(status_code=500, detail=f"Steam API 查询失败: {e}")
 
         if new_id:
-            target["app_id"] = new_id
+            if not preview:
+                target["app_id"] = new_id
             result.new_app_id = str(new_id)
             result.status = "updated"
             # Also fetch game name
             try:
                 name = await _asyncio.to_thread(_fetch_game_name, new_id)
                 if name:
-                    target["game_name"] = name
+                    if not preview:
+                        target["game_name"] = name
                     result.game_name = name
+                    result.name_source = "steam"
             except Exception:
                 pass
         elif old_app_id:
             result.new_app_id = old_app_id
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    if not preview:
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     logger.info(
-        "Patch rescrape: lookup_key=%s status=%s app_id=%s",
+        "Patch rescrape: lookup_key=%s status=%s app_id=%s preview=%s",
         lookup_key,
         result.status,
         result.new_app_id or "-",
+        preview,
     )
     return result
 
@@ -1646,10 +1661,11 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
                     p["app_id"] = new_id
                 r.new_app_id = str(new_id)
                 r.status = "updated"
-                name = await _preferred_patch_name(new_id, nextmoe_title)
+                name, name_source = await _preferred_patch_name(new_id, nextmoe_title)
                 if name:
                     p["game_name"] = name
                     r.game_name = name
+                    r.name_source = name_source
             else:
                 r.new_app_id = old_id
                 r.status = "not_found"
@@ -1675,6 +1691,7 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
                 if name:
                     p["game_name"] = name
                     r.game_name = name
+                    r.name_source = "steam"
             except Exception:
                 pass
         else:
