@@ -1658,12 +1658,25 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
   // ── Edit dialog ──
 
+  String? _localInstallPath(String appId) {
+    if (appId.isEmpty || appId == "None" || appId == "null") return null;
+    if (_commonDir == null) return null;
+    for (final match in _matches) {
+      if (match.appId == appId && match.installDir.isNotEmpty) {
+        return _gameInstallPath(match);
+      }
+    }
+    return null;
+  }
+
   Future<void> _showEditDialog(PatchMatch m) async {
     final api = context.read<GameProvider>().api;
+    final installPath = _localInstallPath(m.appId);
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _PatchEditDialog(api: api, match: m),
+      builder: (_) =>
+          _PatchEditDialog(api: api, match: m, installPath: installPath),
     );
     if (saved != true || !mounted) return;
     _showMsg("已保存");
@@ -1835,8 +1848,13 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 class _PatchEditDialog extends StatefulWidget {
   final dynamic api;
   final PatchMatch match;
+  final String? installPath;
 
-  const _PatchEditDialog({required this.api, required this.match});
+  const _PatchEditDialog({
+    required this.api,
+    required this.match,
+    this.installPath,
+  });
 
   @override
   State<_PatchEditDialog> createState() => _PatchEditDialogState();
@@ -2043,6 +2061,17 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
     );
   }
 
+  Future<void> _openTargetFolder() async {
+    final path = widget.installPath;
+    if (path == null || path.isEmpty) return;
+    try {
+      final opened = await FileOpenService.openTargetFolder(path);
+      if (!opened && mounted) _showSavedToast("无法打开游戏目录\n$path");
+    } catch (e) {
+      if (mounted) _showSavedToast("无法打开游戏目录: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -2094,10 +2123,32 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       ),
       actionsAlignment: MainAxisAlignment.spaceBetween,
       actions: [
-        TextButton.icon(
-          onPressed: _saving || _rescraping ? null : _rescrape,
-          icon: const Icon(Icons.manage_search_rounded, size: 18),
-          label: const Text("重新刮削"),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton.icon(
+              onPressed: _saving || _rescraping ? null : _rescrape,
+              icon: const Icon(Icons.manage_search_rounded, size: 18),
+              label: const Text("重新刮削"),
+            ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: (widget.installPath == null ||
+                      widget.installPath!.isEmpty)
+                  ? "未找到本地游戏目录，请先在「补丁注入」页扫描 Steam 库"
+                  : "打开本机游戏目录",
+              child: TextButton.icon(
+                onPressed: (widget.installPath == null ||
+                        widget.installPath!.isEmpty ||
+                        _saving ||
+                        _rescraping)
+                    ? null
+                    : _openTargetFolder,
+                icon: const Icon(Icons.folder_open_rounded, size: 18),
+                label: const Text("打开目标文件夹"),
+              ),
+            ),
+          ],
         ),
         Row(
           mainAxisSize: MainAxisSize.min,
