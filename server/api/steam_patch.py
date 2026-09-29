@@ -483,10 +483,37 @@ async def _game_name_values_for_app_id_change(
     return {"game_name": name}
 
 
+def _nextmoe_patch_name_source() -> str:
+    """Patch game name source in NextMoe mode: "nextmoe" or "steam"."""
+    try:
+        from scan_patches import _patch_name_source
+
+        return _patch_name_source()
+    except Exception:
+        return "nextmoe"
+
+
+async def _preferred_patch_name(app_id: str, nextmoe_title: str) -> str:
+    """Steam name first when configured, falling back to the NextMoe title."""
+    if _nextmoe_patch_name_source() != "steam" or not str(app_id or "").isdigit():
+        return nextmoe_title
+    from scan_patches import _fetch_game_name
+
+    try:
+        steam_name = await asyncio.to_thread(_fetch_game_name, int(app_id))
+    except Exception:
+        steam_name = ""
+    return steam_name or nextmoe_title
+
+
 async def _game_name_for_app_id(app_id: str) -> str | None:
     if _nextmoe_mode_enabled():
         from scan_patches import _nextmoe_name_for_app_id
 
+        if _nextmoe_patch_name_source() == "steam":
+            name = await _preferred_patch_name(str(app_id), "")
+            if name:
+                return name
         try:
             name = await asyncio.to_thread(_nextmoe_name_for_app_id, str(app_id))
         except Exception as exc:
@@ -1516,9 +1543,10 @@ async def rescrape_patch(lookup_key: str, user: User = Depends(require_admin)):
             target["app_id"] = new_id if new_id.isdigit() else target.get("app_id")
             result.new_app_id = str(new_id)
             result.status = "updated"
-            if nextmoe_title:
-                target["game_name"] = nextmoe_title
-                result.game_name = nextmoe_title
+            name = await _preferred_patch_name(new_id, nextmoe_title)
+            if name:
+                target["game_name"] = name
+                result.game_name = name
         elif old_app_id:
             result.new_app_id = old_app_id
     else:
@@ -1618,9 +1646,10 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
                     p["app_id"] = new_id
                 r.new_app_id = str(new_id)
                 r.status = "updated"
-                if nextmoe_title:
-                    p["game_name"] = nextmoe_title
-                    r.game_name = nextmoe_title
+                name = await _preferred_patch_name(new_id, nextmoe_title)
+                if name:
+                    p["game_name"] = name
+                    r.game_name = name
             else:
                 r.new_app_id = old_id
                 r.status = "not_found"

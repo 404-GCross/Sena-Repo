@@ -63,6 +63,8 @@ def _normalize_source_list(value, default: list[str]) -> list[str]:
 def normalize_scraper_config(config: "ScraperConfig") -> None:
     if not config.hikarinagi_scope.strip():
         config.hikarinagi_scope = "catalog:full"
+    if config.nextmoe_patch_name_source not in ("nextmoe", "steam"):
+        config.nextmoe_patch_name_source = "nextmoe"
     order = _normalize_source_list(
         config.scraper_order, SCRAPER_SOURCE_ORDER
     )
@@ -109,6 +111,7 @@ class ScraperConfig:
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
     nextmoe_api_key: str = ""
+    nextmoe_patch_name_source: str = "nextmoe"
     scraper_order: list[str] = field(default_factory=lambda: list(SCRAPER_SOURCE_ORDER))
     enabled_scrapers: list[str] = field(
         default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
@@ -218,6 +221,8 @@ def _apply_persisted_scraper_config(config: Config) -> None:
         config.scrapers.scraper_order = data["scraper_order"]
     if isinstance(data.get("enabled_scrapers"), list):
         config.scrapers.enabled_scrapers = data["enabled_scrapers"]
+    if data.get("nextmoe_patch_name_source") in ("nextmoe", "steam"):
+        config.scrapers.nextmoe_patch_name_source = data["nextmoe_patch_name_source"]
 
 
 def load_config(config_path: str | None = None) -> Config:
