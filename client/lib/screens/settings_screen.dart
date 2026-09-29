@@ -2745,6 +2745,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               enabledSet.contains("nextmoe") ? "nextmoe" : "classic";
           await widget.api.rememberEnabledScraperSources(enabledSources);
         }
+        final nameSource = data["nextmoe_patch_name_source"];
+        if (nameSource is String && nameSource.isNotEmpty) {
+          _patchNameSource = nameSource == "steam" ? "steam" : "nextmoe";
+        }
       }
     } catch (_) {}
     if (mounted) setState(() {});
@@ -2811,6 +2815,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       body[k] = _keys[k]!.text.trim();
     }
     body["scraper_order"] = _scraperOrder;
+    body["nextmoe_patch_name_source"] = _patchNameSource;
     body["enabled_scrapers"] = _scraperMode == "nextmoe"
         ? <String>["nextmoe"]
         : _classicScraperOrder
@@ -3023,6 +3028,30 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     );
   }
 
+  Widget _patchNameSourceCard() {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: cardBg(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder(context)),
+      ),
+      child: SwitchListTile(
+        title: const Text("补丁名称用 Steam 名称", style: TextStyle(fontSize: 14)),
+        subtitle: Text(
+          "开启：先刮出 AppID，再用 Steam 商店名称；关闭：直接用 NextMoe 名称",
+          style: AppText.bodySmall.copyWith(color: hintColor(context)),
+        ),
+        value: _patchNameSource == "steam",
+        onChanged: (value) {
+          setState(() => _patchNameSource = value ? "steam" : "nextmoe");
+          _scheduleScraperSave(immediate: true);
+        },
+        dense: true,
+      ),
+    );
+  }
+
   Widget _nextmoeSourceCard() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -3039,12 +3068,14 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           onToggleCreds: () =>
               setState(() => _nextmoeCredsOpen = !_nextmoeCredsOpen),
         ),
+        _patchNameSourceCard(),
         if (_nextmoeCredsOpen) _nextmoeCredentialSettings(),
       ],
     );
   }
 
   String _scraperMode = "classic";
+  String _patchNameSource = "nextmoe";
   bool _hikarinagiCredsOpen = false;
   bool _nextmoeCredsOpen = false;
 

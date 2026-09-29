@@ -148,6 +148,17 @@ def _nextmoe_mode() -> bool:
         return False
 
 
+def _patch_name_source() -> str:
+    """Patch game name source in NextMoe mode: "nextmoe" or "steam"."""
+    try:
+        value = str(
+            load_config().scrapers.nextmoe_patch_name_source or ""
+        ).strip().lower()
+    except Exception:
+        return "nextmoe"
+    return value if value in ("nextmoe", "steam") else "nextmoe"
+
+
 def _nextmoe_api_key() -> str:
     try:
         from config import load_config
@@ -462,7 +473,13 @@ def _enrich_identity(app_id: int | None, file_name: str) -> tuple[int | None, st
             nm_id, nm_title = _nextmoe_match_by_name(file_name)
             if nm_id.isdigit():
                 app_id = int(nm_id)
-        if nm_title:
+        if app_id and _patch_name_source() == "steam":
+            game_name = (
+                _steam_name_for_app_id(app_id)
+                or nm_title
+                or _nextmoe_name_for_app_id(str(app_id))
+            )
+        elif nm_title:
             game_name = nm_title
         elif app_id:
             game_name = _nextmoe_name_for_app_id(str(app_id))

@@ -130,6 +130,7 @@ class ScraperConfigOut(BaseModel):
     hikarinagi_client_secret: str = ""
     hikarinagi_scope: str = "catalog:full"
     nextmoe_api_key: str = ""
+    nextmoe_patch_name_source: str = "nextmoe"
     scraper_order: list[str] = Field(
         default_factory=lambda: list(SCRAPER_SOURCE_ORDER)
     )
@@ -146,6 +147,7 @@ class ScraperConfigUpdate(BaseModel):
     hikarinagi_client_secret: str | None = None
     hikarinagi_scope: str | None = None
     nextmoe_api_key: str | None = None
+    nextmoe_patch_name_source: str | None = None
     scraper_order: list[str] | None = None
     enabled_scrapers: list[str] | None = None
     proxy: str | None = None
@@ -189,6 +191,7 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         hikarinagi_client_secret=_mask(s.hikarinagi_client_secret),
         hikarinagi_scope=s.hikarinagi_scope,
         nextmoe_api_key=_mask(s.nextmoe_api_key),
+        nextmoe_patch_name_source=s.nextmoe_patch_name_source,
         scraper_order=s.scraper_order,
         enabled_scrapers=s.enabled_scrapers,
         proxy=_mask(config.proxy),
@@ -277,6 +280,7 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
         "hikarinagi_client_secret",
         "hikarinagi_scope",
         "nextmoe_api_key",
+        "nextmoe_patch_name_source",
         "scraper_order",
         "enabled_scrapers",
         "proxy",
@@ -287,6 +291,14 @@ async def update_scraper_config(body: ScraperConfigUpdate, user: User = Depends(
                 continue
             if isinstance(val, str):
                 val = val.strip()
+            if key == "nextmoe_patch_name_source":
+                val = str(val).strip().lower()
+                if val not in ("nextmoe", "steam"):
+                    continue
+                config.scrapers.nextmoe_patch_name_source = val
+                data[key] = val
+                changed.append(key)
+                continue
             if key in {"scraper_order", "enabled_scrapers"}:
                 if not isinstance(val, list):
                     continue
