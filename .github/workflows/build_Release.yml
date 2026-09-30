@@ -427,6 +427,7 @@ jobs:
         run: |
           BASE="${{ steps.version.outputs.version }}"
           BASE="${BASE%%+*}"
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           case "$BASE" in
             *-*) PRERELEASE=true ;;
             *) PRERELEASE=false ;;
@@ -434,9 +435,11 @@ jobs:
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           if [ "$PRERELEASE" = "true" ]; then
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
-            echo "Pre-release version detected: $BASE"
+            echo "release_name=v$BASE+$SHORT_SHA" >> "$GITHUB_OUTPUT"
+            echo "Pre-release version detected: $BASE+$SHORT_SHA"
           else
             echo "make_latest=true" >> "$GITHUB_OUTPUT"
+            echo "release_name=v$BASE" >> "$GITHUB_OUTPUT"
           fi
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -514,6 +517,9 @@ jobs:
           fi
 
           cp release_notes_changelog.md release_notes.md
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          printf '\n构建提交: [`%s`](https://github.com/%s/commit/%s)\n' \
+            "$SHORT_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> release_notes.md
 
           cat > release_notes_download.md <<'EOF'
           ## 下载说明
@@ -539,7 +545,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          name: ${{ steps.release_type.outputs.release_name }}
           prerelease: ${{ steps.release_type.outputs.prerelease }}
           body_path: release_notes.md
           files: release/*
