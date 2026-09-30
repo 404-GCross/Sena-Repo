@@ -17,9 +17,9 @@ The **Sena** in the project name comes from the heroine [Himeno Sena](https://ww
 
 ---
 ## Introduction
-**Sena Repo** is a multi-platform private library manager for visual novels, designed for managing games hosted on remote servers (such as a NAS), so you can browse, search, download, and install your game collection with ease.
+**Sena Repo** is a self-hosted, cross-platform, feature-rich visual novel server manager, supporting one-click game installation and Steam patch injection.
 
-Sena-Repo is not a local game manager; it is more like a site that you fully control.
+Sena-Repo is not a local game manager; it is a server-side visual novel management solution.
 
 ## Key Features
 
