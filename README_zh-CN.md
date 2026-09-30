@@ -40,16 +40,16 @@ Sena-Repo并非本地游戏管理器，而是一套服务端视觉小说管理�
       <img src="Documentation/gallery/library.png" width="95%">
     </td>
     <td align="center" width="50%">
-      <b>游戏详情页</b><br>
-      <i>封面、背景、简介、标签、版本列表与下载</i><br>
-      <img src="Documentation/gallery/detail-1.png" width="95%">
+      <b>Steam 补丁管理</b><br>
+      <i>客户端 / 服务端双 Tab，自动匹配与注入</i><br>
+      <img src="Documentation/gallery/steam-patch.png" width="95%">
     </td>
   </tr>
   <tr valign="top">
     <td align="center" width="50%">
-      <b>Steam 补丁管理</b><br>
-      <i>客户端 / 服务端双 Tab，自动匹配与注入</i><br>
-      <img src="Documentation/gallery/steam-patch.png" width="95%">
+      <b>游戏详情页</b><br>
+      <i>封面、背景、简介、标签、版本列表与下载</i><br>
+      <img src="Documentation/gallery/detail-1.png" width="95%">
     </td>
     <td align="center" width="50%">
       <b>元数据编辑</b><br>

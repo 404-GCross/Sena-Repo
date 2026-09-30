@@ -40,16 +40,16 @@ Sena-Repo is not a local game manager; it is a server-side visual novel manageme
       <img src="Documentation/gallery/library.png" width="95%">
     </td>
     <td align="center" width="50%">
-      <b>Game Details</b><br>
-      <i>Cover, background, description, tags, version list, and downloads</i><br>
-      <img src="Documentation/gallery/detail-1.png" width="95%">
+      <b>Steam Patch Management</b><br>
+      <i>Client / server tabs, automatic matching and injection</i><br>
+      <img src="Documentation/gallery/steam-patch.png" width="95%">
     </td>
   </tr>
   <tr valign="top">
     <td align="center" width="50%">
-      <b>Steam Patch Management</b><br>
-      <i>Client / server tabs, automatic matching and injection</i><br>
-      <img src="Documentation/gallery/steam-patch.png" width="95%">
+      <b>Game Details</b><br>
+      <i>Cover, background, description, tags, version list, and downloads</i><br>
+      <img src="Documentation/gallery/detail-1.png" width="95%">
     </td>
     <td align="center" width="50%">
       <b>Metadata Editing</b><br>
