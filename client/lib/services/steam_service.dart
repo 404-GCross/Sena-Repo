@@ -271,9 +271,15 @@ class SteamService {
   }
 
   /// Re-scrape a single patch's app_id from Steam search.
-  static Future<Map<String, dynamic>> rescrapePatch(ApiClient api, String lookupKey) async {
+  static Future<Map<String, dynamic>> rescrapePatch(
+    ApiClient api,
+    String lookupKey, {
+    bool preview = false,
+  }) async {
+    final query = preview ? "?preview=true" : "";
     final resp = await http.post(
-      Uri.parse("${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/rescrape"),
+      Uri.parse(
+          "${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/rescrape$query"),
       headers: api.headers,
     );
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;

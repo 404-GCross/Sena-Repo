@@ -1957,13 +1957,15 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         file: m.patchFilename,
         lookupKey: m.patchLookupKey,
       );
-      final result = await SteamService.rescrapePatch(widget.api, key);
+      final result =
+          await SteamService.rescrapePatch(widget.api, key, preview: true);
       if (!mounted) return;
       _closeLoadingDialog();
       final status = (result["status"] ?? "").toString();
       final oldId = (result["old_app_id"] ?? "").toString();
       final newId = (result["new_app_id"] ?? "").toString();
       final name = (result["game_name"] ?? "").toString();
+      final nameSource = (result["name_source"] ?? "").toString();
       String message;
       bool error = false;
       if (status == "updated") {
@@ -1977,7 +1979,17 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         } else {
           message = "AppID：$oldId → $newId";
         }
-        if (name.isNotEmpty) message = "$message\nSteam 名称：$name";
+        if (name.isNotEmpty) {
+          final label = nameSource == "nextmoe"
+              ? "NextMoe 名称"
+              : nameSource == "steam"
+                  ? "Steam 名称"
+                  : "名称";
+          message = "$message\n$label：$name";
+        }
+        if (newId.isNotEmpty) {
+          message = "$message\n（尚未保存，点「保存元数据」后生效）";
+        }
       } else if (status == "locked") {
         message = "该补丁已锁定，未做修改";
         error = true;
@@ -1989,7 +2001,6 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       }
       if (newId.isNotEmpty && newId != "None") _appIdCtrl.text = newId;
       if (name.isNotEmpty) _gameNameCtrl.text = name;
-      if (status == "updated") _savedAny = true;
       await _showResultDialog(message, error: error);
     } catch (e) {
       if (!mounted) return;
