@@ -32,24 +32,30 @@ class GameList extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final columns = w > 1600
+        const padding = 16.0;
+        const spacing = AppGap.md;
+        final available = (constraints.maxWidth - padding * 2)
+            .clamp(0.0, double.infinity)
+            .toDouble();
+        final columns = available > 1600
             ? 3
-            : w > 1000
+            : available > 1000
                 ? 2
                 : 1;
-        final colWidth = (w - AppGap.lg) / columns;
+        // Floor keeps float rounding from wrapping the last column to a new row.
+        final tileWidth =
+            ((available - spacing * (columns - 1)) / columns).floorToDouble();
 
         return SingleChildScrollView(
           controller: controller,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          padding: const EdgeInsets.fromLTRB(padding, 8, padding, 20),
           child: Wrap(
-            spacing: AppGap.md,
+            spacing: spacing,
             runSpacing: AppGap.sm,
             children: games
                 .map((game) => Stack(children: [
                       SizedBox(
-                        width: colWidth - (columns > 1 ? AppGap.sm : 0),
+                        width: tileWidth,
                         child: _GameListTile(
                             game: game,
                             onTap: () => onTap(game),
