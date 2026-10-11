@@ -10,11 +10,13 @@ import "package:provider/provider.dart";
 import "package:url_launcher/url_launcher.dart";
 
 import "../providers/game_provider.dart";
+import "../providers/settings_provider.dart";
 import "../services/logged_http.dart" as http;
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/obscured.dart";
 
 const _repoUrl = "https://github.com/404-GCross/Sena-Repo";
 const _docsUrl = "https://sena-repo.github.io/";
@@ -486,6 +488,7 @@ class _AboutScreenState extends State<AboutScreen> {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 640;
+    final settings = context.watch<SettingsProvider>();
     return AppScaffold(
       title: "关于",
       maxWidth: 760,
@@ -507,7 +510,12 @@ class _AboutScreenState extends State<AboutScreen> {
             icon: Icons.memory_rounded,
             title: "运行环境",
             children: [
-              _infoRow("服务器", _serverAddress),
+              _infoRow(
+                "服务器",
+                _serverAddress,
+                blurValue: settings.blurServerAddress,
+                inlineAction: _blurToggle(settings.blurServerAddress),
+              ),
               _infoRow(
                 "平台",
                 "${Platform.operatingSystem} ${Platform.operatingSystemVersion}"
@@ -665,7 +673,18 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
-  Widget _infoRow(String label, String value) {
+  Widget _infoRow(
+    String label,
+    String value, {
+    bool blurValue = false,
+    Widget? inlineAction,
+  }) {
+    final valueText = Text(
+      value.isEmpty ? "-" : value,
+      style: AppText.bodyMedium.copyWith(
+        color: sectionTextColor(context),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -678,11 +697,16 @@ class _AboutScreenState extends State<AboutScreen> {
             ),
           ),
           Expanded(
-            child: Text(
-              value.isEmpty ? "-" : value,
-              style: AppText.bodyMedium.copyWith(
-                color: sectionTextColor(context),
-              ),
+            child: Row(
+              children: [
+                Flexible(
+                  child: Obscured(enabled: blurValue, child: valueText),
+                ),
+                if (inlineAction != null) ...[
+                  const SizedBox(width: 2),
+                  inlineAction,
+                ],
+              ],
             ),
           ),
           IconButton(
@@ -696,6 +720,20 @@ class _AboutScreenState extends State<AboutScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _blurToggle(bool blurred) {
+    return IconButton(
+      tooltip: blurred ? "显示服务器地址" : "模糊服务器地址",
+      icon: Icon(
+        blurred ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+        size: 16,
+      ),
+      color: hintColor(context),
+      visualDensity: VisualDensity.compact,
+      onPressed: () =>
+          context.read<SettingsProvider>().setBlurServerAddress(!blurred),
     );
   }
 

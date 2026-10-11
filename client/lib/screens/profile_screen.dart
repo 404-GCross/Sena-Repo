@@ -13,6 +13,7 @@ import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_token_store.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/obscured.dart";
 import "about_screen.dart";
 import "settings_screen.dart";
 import "connect_screen.dart";
@@ -183,9 +184,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         const SizedBox(height: 6),
         Center(
-          child: Text(
-            "服务器: ${settings.serverHost}:${settings.serverPort}",
-            style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+          child: Obscured(
+            enabled: settings.blurServerAddress,
+            child: Text(
+              "服务器: ${settings.serverHost}:${settings.serverPort}",
+              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+            ),
           ),
         ),
         const SizedBox(height: 32),
