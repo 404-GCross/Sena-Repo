@@ -184,12 +184,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         const SizedBox(height: 6),
         Center(
-          child: Obscured(
-            enabled: settings.blurServerAddress,
-            child: Text(
-              "服务器: ${settings.serverHost}:${settings.serverPort}",
-              style: AppText.bodyMedium.copyWith(color: hintColor(context)),
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "服务器: ",
+                style: AppText.bodyMedium.copyWith(color: hintColor(context)),
+              ),
+              Flexible(
+                child: Obscured(
+                  enabled: settings.blurServerAddress,
+                  child: Text(
+                    "${settings.serverHost}:${settings.serverPort}",
+                    style:
+                        AppText.bodyMedium.copyWith(color: hintColor(context)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 32),
