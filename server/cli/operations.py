@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -52,6 +55,17 @@ CHANNEL_REFS = {"dev": "main"}
 
 def _remote_tags(repo_url: str) -> list[str]:
     """Remote v* tags, newest first (version order); [] when unavailable."""
+    tags = _remote_tags_via_git(repo_url)
+    if tags:
+        return tags
+    for candidate in dict.fromkeys([repo_url, *mirror_candidates(repo_url)]):
+        tags = _remote_tags_via_http(candidate)
+        if tags:
+            return tags
+    return []
+
+
+def _remote_tags_via_git(repo_url: str) -> list[str]:
     try:
         proc = subprocess.run(
             [
@@ -80,6 +94,33 @@ def _remote_tags(repo_url: str) -> list[str]:
             continue
         tags.append(parts[1].rsplit("/", 1)[-1])
     return tags
+
+
+def _remote_tags_via_http(repo_url: str) -> list[str]:
+    """Tag list from the smart-HTTP refs advertisement; [] when unavailable."""
+    if not repo_url.startswith(("http://", "https://")):
+        return []
+    url = f"{repo_url.rstrip('/')}/info/refs?service=git-upload-pack"
+    try:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "git/2.43.0", "Accept": "*/*"}
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return []
+    names = set(re.findall(r"refs/tags/(v[^\s^]+)", raw))
+    return sorted(names, key=_version_sort_key, reverse=True)
+
+
+def _version_sort_key(tag: str) -> tuple:
+    parts: list[tuple[int, int, str]] = []
+    for part in re.split(r"[.\-]", tag.lstrip("v")):
+        if part.isdigit():
+            parts.append((0, int(part), ""))
+        else:
+            parts.append((1, 0, part))
+    return tuple(parts)
 
 
 def latest_release_tag(repo_url: str) -> str:

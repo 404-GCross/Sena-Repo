@@ -138,6 +138,9 @@ HIKARINAGI_CLIENT_SECRET="${SENA_HIKARINAGI_CLIENT_SECRET:-}"
 HIKARINAGI_SCOPE="${SENA_HIKARINAGI_SCOPE:-}"
 
 TEMP_DIR=""
+GIT_LAST_ERROR=""
+TAGS_LIST=""
+TAGS_FETCH_ERROR=""
 
 log() {
   printf '[sena-repo] %s\n' "$*" >&2
@@ -250,20 +253,41 @@ installed_source_sha() {
 }
 
 git_ls_remote() {
+  local err_file output
+  err_file="${TMPDIR:-/tmp}/sena-repo-git.$$.err"
   if command -v timeout >/dev/null 2>&1; then
-    timeout 30 git ls-remote "$@"
-  else
-    git ls-remote "$@"
+    if ! output="$(timeout 30 git ls-remote "$@" 2>"$err_file")"; then
+      GIT_LAST_ERROR="$(head -n 1 "$err_file" 2>/dev/null || true)"
+      rm -f "$err_file"
+      return 1
+    fi
+  elif ! output="$(git ls-remote "$@" 2>"$err_file")"; then
+    GIT_LAST_ERROR="$(head -n 1 "$err_file" 2>/dev/null || true)"
+    rm -f "$err_file"
+    return 1
   fi
+  rm -f "$err_file"
+  printf '%s\n' "$output"
 }
 
 remote_source_sha() {
-  command -v git >/dev/null 2>&1 || return 1
-  git_ls_remote "$REPO_URL" "$REPO_REF" 2>/dev/null | awk 'NR == 1 { print $1; exit }'
+  local sha
+  if command -v git >/dev/null 2>&1; then
+    sha="$(git_ls_remote "$REPO_URL" "$REPO_REF" 2>/dev/null \
+      | awk 'NR == 1 { print $1; exit }' || true)"
+    if [ -n "$sha" ]; then
+      printf '%s\n' "$sha"
+      return 0
+    fi
+  fi
+  remote_ref_sha_via_http "$REPO_REF"
 }
 
 repo_url_reachable() {
-  command -v git >/dev/null 2>&1 || return 1
+  if ! command -v git >/dev/null 2>&1; then
+    GIT_LAST_ERROR="git is not installed"
+    return 1
+  fi
   git_ls_remote "$REPO_URL" main >/dev/null 2>&1
 }
 
@@ -288,10 +312,18 @@ ensure_repo_url() {
     if repo_url_reachable; then
       return 0
     fi
-    log "warning: mirror $GH_MIRROR is not reachable either"
+    log "warning: mirror $GH_MIRROR is not reachable either (${GIT_LAST_ERROR:-network error})"
   else
-    log "warning: unable to reach $REPO_URL (set SENA_REPO_URL or SENA_GH_MIRROR to change the source)"
+    log "warning: unable to reach $REPO_URL (${GIT_LAST_ERROR:-network error})"
   fi
+  case "$GIT_LAST_ERROR" in
+    *"git is not installed"*)
+      log "warning: git is not installed; the source will be fetched as an archive instead"
+      ;;
+    *remote-https*|*"not a git command"*)
+      log "warning: this git is missing its HTTPS helper (common with store builds such as fnOS); install a distro git or pass the PATH through sudo: sudo env PATH=\"\$PATH\""
+      ;;
+  esac
   return 1
 }
 
@@ -302,55 +334,85 @@ validate_channel() {
   esac
 }
 
-latest_tag_for_channel() {
-  local channel="$1" line tag
-  while IFS= read -r line; do
-    tag="${line##*refs/tags/}"
-    [ -n "$tag" ] || continue
-    case "$channel" in
-      stable)
-        case "$tag" in *-*) continue ;; esac
-        ;;
-      beta)
-        case "$tag" in *-*) ;; *) continue ;; esac
-        ;;
-    esac
-    printf '%s\n' "$tag"
+remote_tags_via_http() {
+  local refs
+  command -v curl >/dev/null 2>&1 || return 1
+  case "$REPO_URL" in
+    http://*|https://*) ;;
+    *) return 1 ;;
+  esac
+  refs="$(curl -fsSL --retry 2 --max-time 30 \
+    "$REPO_URL/info/refs?service=git-upload-pack" 2>/dev/null \
+    | tr -d '\0' \
+    | tr '\n' '|' || true)"
+  [ -n "$refs" ] || return 1
+  printf '%s' "$refs" \
+    | grep -aoE 'refs/tags/v[^|^]*' \
+    | sed 's#refs/tags/##' \
+    | sort -u \
+    | sort -rV
+}
+
+load_remote_tags() {
+  local tags
+  TAGS_LIST=""
+  TAGS_FETCH_ERROR=""
+  tags="$(git_ls_remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null \
+    | sed -n 's#.*refs/tags/##p' || true)"
+  if [ -n "$tags" ]; then
+    TAGS_LIST="$tags"
     return 0
-  done < <(git_ls_remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null || true)
+  fi
+  if tags="$(remote_tags_via_http)"; then
+    TAGS_LIST="$tags"
+    return 0
+  fi
+  TAGS_FETCH_ERROR="${GIT_LAST_ERROR:-network error}"
   return 1
 }
 
-latest_remote_tag() {
-  local line
-  line="$(git_ls_remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null | head -n 1 || true)"
-  [ -n "$line" ] || return 1
-  printf '%s\n' "${line##*refs/tags/}"
+die_no_tags() {
+  if [ -n "$TAGS_FETCH_ERROR" ]; then
+    die "could not list release tags from $REPO_URL ($TAGS_FETCH_ERROR); retry, set SENA_REPO_URL/SENA_GH_MIRROR, or use --channel dev / --ref <tag>"
+  fi
+  die "no release tags on $REPO_URL yet; use --channel dev or --ref <tag>"
 }
 
 resolve_channel_ref() {
-  local channel="$1" tag
+  local channel="$1" candidate tag
   case "$channel" in
     dev)
       printf 'main\n'
       ;;
     stable)
-      tag="$(latest_tag_for_channel stable || true)"
-      [ -n "$tag" ] || die "no stable release yet (no v* tag without a suffix); use --channel dev or --ref <tag>"
+      load_remote_tags || true
+      tag=""
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        case "$candidate" in *-*) continue ;; esac
+        tag="$candidate"
+        break
+      done <<< "$TAGS_LIST"
+      if [ -z "$tag" ]; then
+        if [ -n "$TAGS_LIST" ]; then
+          die "no stable release yet (no v* tag without a suffix); use --channel dev or --ref <tag>"
+        fi
+        die_no_tags
+      fi
       printf '%s\n' "$tag"
       ;;
     beta)
-      tag="$(latest_remote_tag || true)"
+      load_remote_tags || true
+      tag=""
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        tag="$candidate"
+        break
+      done <<< "$TAGS_LIST"
+      [ -n "$tag" ] || die_no_tags
       case "$tag" in
-        "")
-          die "no release tags on $REPO_URL yet; use --channel dev or --ref <tag>"
-          ;;
-        *-*)
-          printf '%s\n' "$tag"
-          ;;
-        *)
-          die "no test/pre-release available (the newest v* tag is stable: $tag); use --channel stable or --ref <tag>"
-          ;;
+        *-*) printf '%s\n' "$tag" ;;
+        *) die "no test/pre-release available (the newest v* tag is stable: $tag); use --channel stable or --ref <tag>" ;;
       esac
       ;;
     *)
@@ -397,6 +459,9 @@ installed_version_value() {
     v*) printf '%s\n' "$REPO_REF"; return 0 ;;
   esac
   sha="$(git -C "$source_dir" rev-parse --short=7 HEAD 2>/dev/null || true)"
+  if [ -z "$sha" ] && [ -f "$REPO_CACHE_DIR/.sena-source-sha" ]; then
+    sha="$(head -n 1 "$REPO_CACHE_DIR/.sena-source-sha" 2>/dev/null | cut -c1-7 || true)"
+  fi
   if [ -n "$sha" ]; then
     printf 'dev-%s\n' "$sha"
   else
@@ -683,21 +748,76 @@ run_git_source_clone() {
   fi
 }
 
+archive_url_for_ref() {
+  local ref="$1" base="$REPO_URL"
+  case "$base" in
+    *.git) base="${base%.git}" ;;
+  esac
+  case "$base" in
+    *github.com/*) ;;
+    *) return 1 ;;
+  esac
+  printf '%s/archive/%s.tar.gz\n' "$base" "$ref"
+}
+
+remote_ref_sha_via_http() {
+  local ref="$1" refs sha
+  command -v curl >/dev/null 2>&1 || return 1
+  case "$REPO_URL" in
+    http://*|https://*) ;;
+    *) return 1 ;;
+  esac
+  refs="$(curl -fsSL --retry 2 --max-time 30 \
+    "$REPO_URL/info/refs?service=git-upload-pack" 2>/dev/null \
+    | tr '\n' '|' \
+    | grep -aoE '[0-9a-f]{40} refs/(heads|tags)/[^|]*' || true)"
+  [ -n "$refs" ] || return 1
+  sha="$(printf '%s\n' "$refs" | awk -v ref="$ref" '
+    $2 == "refs/tags/" ref "^{}" { peeled = $1 }
+    $2 == "refs/tags/" ref || $2 == "refs/heads/" ref { plain = $1 }
+    END { if (peeled) print peeled; else if (plain) print plain }
+  ')"
+  [ -n "$sha" ] || return 1
+  printf '%s\n' "$sha"
+}
+
+fetch_source_via_archive() {
+  local ref="$1" url tmp sha
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v tar >/dev/null 2>&1 || return 1
+  url="$(archive_url_for_ref "$ref")" || return 1
+  tmp="$(mktemp -d)"
+  if ! curl -fsSL --retry 2 --max-time 600 "$url" -o "$tmp/source.tar.gz"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$REPO_CACHE_DIR"
+  mkdir -p "$REPO_CACHE_DIR"
+  if ! tar -xzf "$tmp/source.tar.gz" -C "$REPO_CACHE_DIR" --strip-components=1; then
+    rm -rf "$tmp" "$REPO_CACHE_DIR"
+    return 1
+  fi
+  rm -rf "$tmp"
+  sha="$(remote_ref_sha_via_http "$ref" || true)"
+  if [ -n "$sha" ]; then
+    printf '%s\n' "$sha" > "$REPO_CACHE_DIR/.sena-source-sha"
+  fi
+  return 0
+}
+
 remote_server_dir() {
   mkdir -p "$INSTALL_ROOT"
-  local attempt
+  local attempt source_ok="false"
   if [ -d "$REPO_CACHE_DIR/.git" ]; then
     log "updating cached source from $REPO_URL ($REPO_REF)"
     for attempt in 1 2 3; do
       git -C "$REPO_CACHE_DIR" remote set-url origin "$REPO_URL"
       if run_git_source_fetch; then
         git -C "$REPO_CACHE_DIR" checkout --force FETCH_HEAD
+        source_ok="true"
         break
       fi
       log "source fetch failed (attempt $attempt/3)"
-      if [ "$attempt" -ge 3 ]; then
-        die "failed to fetch $REPO_REF from $REPO_URL; set SENA_REPO_URL to another mirror or check the network"
-      fi
       switch_to_gh_mirror && log "switched source to mirror $GH_MIRROR" || true
       sleep 3
     done
@@ -706,18 +826,22 @@ remote_server_dir() {
     log "cloning source from $REPO_URL ($REPO_REF)"
     for attempt in 1 2 3; do
       if run_git_source_clone; then
+        source_ok="true"
         break
       fi
       log "source clone failed (attempt $attempt/3)"
-      if [ "$attempt" -ge 3 ]; then
-        die "failed to clone $REPO_REF from $REPO_URL; set SENA_REPO_URL to another mirror or check the network"
-      fi
       switch_to_gh_mirror && log "switched source to mirror $GH_MIRROR" || true
       sleep 3
     done
   fi
 
-  [ -f "$REPO_CACHE_DIR/server/requirements.txt" ] || die "server requirements not found in cloned repository"
+  if [ "$source_ok" != "true" ]; then
+    log "warning: git could not fetch the source; falling back to the archive download"
+    fetch_source_via_archive "$REPO_REF" \
+      || die "failed to fetch $REPO_REF from $REPO_URL; set SENA_REPO_URL to another mirror or check the network"
+  fi
+
+  [ -f "$REPO_CACHE_DIR/server/requirements.txt" ] || die "server requirements not found in the fetched source"
   printf '%s\n' "$REPO_CACHE_DIR/server"
 }
 
@@ -786,6 +910,9 @@ write_version_metadata() {
   local source_dir="$1"
   local source_sha metadata_tmp
   source_sha="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
+  if [ -z "$source_sha" ] && [ -f "$REPO_CACHE_DIR/.sena-source-sha" ]; then
+    source_sha="$(head -n 1 "$REPO_CACHE_DIR/.sena-source-sha" 2>/dev/null || true)"
+  fi
   [ -n "$source_sha" ] || return 0
 
   metadata_tmp="$VERSION_FILE.tmp"
