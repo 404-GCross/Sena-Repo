@@ -27,6 +27,10 @@ class _BackupScreenState extends State<BackupScreen> {
   bool _busy = false;
   bool _uploading = false;
   double _uploadProgress = 0;
+  String? _downloadingName;
+  double _downloadProgress = 0;
+  int _downloadReceived = 0;
+  int _downloadTotal = 0;
   String? _error;
   http.Client? _activeClient;
   bool _cancelled = false;
@@ -170,6 +174,10 @@ class _BackupScreenState extends State<BackupScreen> {
     setState(() {
       _busy = true;
       _cancelled = false;
+      _downloadingName = name;
+      _downloadProgress = 0;
+      _downloadReceived = 0;
+      _downloadTotal = totalBytes;
     });
     File? created;
     final client = http.Client();
@@ -194,8 +202,14 @@ class _BackupScreenState extends State<BackupScreen> {
         _toast("下载失败（HTTP ${response.statusCode}）", error: true);
         return;
       }
+      final total = totalBytes > 0 ? totalBytes : (response.contentLength ?? 0);
       final sink = created.openWrite();
-      await response.stream.pipe(sink).timeout(_transferTimeout(totalBytes));
+      try {
+        await _pipeDownload(response.stream, sink, total)
+            .timeout(_transferTimeout(total));
+      } finally {
+        await sink.close();
+      }
       _toast(isMobile ? "已保存到 ${created.path}" : "备份已保存");
     } catch (e) {
       if (created != null && await created.exists()) {
@@ -211,6 +225,46 @@ class _BackupScreenState extends State<BackupScreen> {
         setState(() {
           _busy = false;
           _cancelled = false;
+          _downloadingName = null;
+          _downloadProgress = 0;
+          _downloadReceived = 0;
+          _downloadTotal = 0;
+        });
+      }
+    }
+  }
+
+  Future<void> _pipeDownload(
+    Stream<List<int>> stream,
+    IOSink sink,
+    int total,
+  ) async {
+    var received = 0;
+    var reported = 0.0;
+    var reportedBytes = 0;
+    var flushed = 0;
+    await for (final chunk in stream) {
+      sink.add(chunk);
+      received += chunk.length;
+      // Keep the write queue bounded on fast links.
+      if (received - flushed >= 8 * 1024 * 1024) {
+        flushed = received;
+        await sink.flush();
+      }
+      if (total <= 0) {
+        if (received - reportedBytes < 1024 * 1024) continue;
+        reportedBytes = received;
+      } else {
+        final progress = received / total;
+        if (progress - reported < 0.02 && progress < 1) continue;
+        reported = progress;
+      }
+      if (mounted) {
+        setState(() {
+          _downloadReceived = received;
+          _downloadTotal = total;
+          _downloadProgress =
+              total > 0 ? (received / total).clamp(0.0, 1.0) : 0;
         });
       }
     }
@@ -475,6 +529,7 @@ class _BackupScreenState extends State<BackupScreen> {
     final shortName = name.split("/").last;
     final size = (entry["size"] as num?)?.toInt() ?? 0;
     final hasMedia = entry["has_media"] == true;
+    final downloading = _downloadingName == name;
     final meta = [
       _sizeText(size),
       _timeText(entry["modified_at"]?.toString()),
@@ -502,21 +557,68 @@ class _BackupScreenState extends State<BackupScreen> {
                     style: AppText.bodySmall
                         .copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text(meta,
-                    style: AppText.caption.copyWith(color: hintColor(context))),
+                Text(
+                  downloading ? _downloadMetaText() : meta,
+                  style: AppText.caption.copyWith(
+                    color: downloading
+                        ? Theme.of(context).colorScheme.primary
+                        : hintColor(context),
+                  ),
+                ),
               ],
             ),
           ),
-          IconButton(
-            tooltip: "下载",
-            icon: const Icon(Icons.download_rounded, size: 20),
-            onPressed: _busy ? null : () => _download(entry),
-          ),
+          if (downloading)
+            _downloadProgressRing()
+          else
+            IconButton(
+              tooltip: "下载",
+              icon: const Icon(Icons.download_rounded, size: 20),
+              onPressed: _busy ? null : () => _download(entry),
+            ),
           IconButton(
             tooltip: "删除",
             icon: Icon(Icons.delete_outline_rounded,
                 size: 20, color: Colors.red[300]),
             onPressed: _busy ? null : () => _delete(entry),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _downloadMetaText() {
+    if (_downloadTotal <= 0) {
+      return "下载中 · ${_sizeText(_downloadReceived)}";
+    }
+    final percent = (_downloadProgress * 100).clamp(0, 100).toStringAsFixed(0);
+    return "下载中 $percent% · ${_sizeText(_downloadReceived)} / "
+        "${_sizeText(_downloadTotal)}";
+  }
+
+  Widget _downloadProgressRing() {
+    final percent = (_downloadProgress * 100).clamp(0, 100).round();
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              value: _downloadTotal > 0 ? _downloadProgress : null,
+              strokeWidth: 2.6,
+            ),
+          ),
+          Text(
+            _downloadTotal > 0 ? "$percent%" : "…",
+            style: AppText.caption.copyWith(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: hintColor(context),
+            ),
           ),
         ],
       ),
