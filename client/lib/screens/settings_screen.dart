@@ -3068,8 +3068,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           onToggleCreds: () =>
               setState(() => _nextmoeCredsOpen = !_nextmoeCredsOpen),
         ),
-        _patchNameSourceCard(),
-        if (_nextmoeCredsOpen) _nextmoeCredentialSettings(),
+        if (_nextmoeCredsOpen) ...[
+          _patchNameSourceCard(),
+          _nextmoeCredentialSettings(),
+        ],
       ],
     );
   }
