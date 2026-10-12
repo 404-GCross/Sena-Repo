@@ -620,6 +620,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _goHome({required GameProvider games}) async {
     if (!mounted) return;
+    final settings = context.read<SettingsProvider>();
+    games.connect(
+      settings.serverHost,
+      settings.serverPort,
+      useHttps: settings.useHttps,
+    );
     try {
       await games.loadGames();
     } catch (_) {}

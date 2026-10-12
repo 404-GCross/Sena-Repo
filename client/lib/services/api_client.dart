@@ -217,6 +217,12 @@ class ApiClient {
     Uri? uri,
     String? label,
   }) async {
+    if (_baseUrl == null) {
+      LoggerService().warn(
+        "ApiClient used before connect; request targets the localhost fallback"
+        " (${label ?? method})",
+      );
+    }
     const maxAttempts = 2;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final started = DateTime.now();
