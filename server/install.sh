@@ -271,14 +271,17 @@ git_ls_remote() {
 }
 
 remote_source_sha() {
-  local sha
+  local sha ref
   if command -v git >/dev/null 2>&1; then
-    sha="$(git_ls_remote "$REPO_URL" "$REPO_REF" 2>/dev/null \
-      | awk 'NR == 1 { print $1; exit }' || true)"
-    if [ -n "$sha" ]; then
-      printf '%s\n' "$sha"
-      return 0
-    fi
+    # Annotated tags need the peeled ref to match the installed commit sha.
+    for ref in "${REPO_REF}^{}" "$REPO_REF"; do
+      sha="$(git_ls_remote "$REPO_URL" "$ref" 2>/dev/null \
+        | awk 'NR == 1 { print $1; exit }' || true)"
+      if [ -n "$sha" ]; then
+        printf '%s\n' "$sha"
+        return 0
+      fi
+    done
   fi
   remote_ref_sha_via_http "$REPO_REF"
 }
