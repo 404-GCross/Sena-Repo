@@ -1011,7 +1011,6 @@ install_or_update() {
   local source_dir
   require_root
   require_systemd
-  load_existing_source_config
   validate_paths
   detect_arch
   install_system_dependencies
