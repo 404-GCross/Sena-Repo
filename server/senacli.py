@@ -13,7 +13,7 @@ SERVER_DIR = Path(__file__).resolve().parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-from cli.common import CliError, echo
+from cli.common import CliError, ROOT_COMMANDS, echo, ensure_root
 
 SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
 CHANNELS = ("dev", "beta", "release")
@@ -141,6 +141,8 @@ def _run_title_easter_egg() -> int:
 async def dispatch(args: argparse.Namespace) -> int:
     if args.command == "run":
         return _run_title_easter_egg()
+    if args.command in ROOT_COMMANDS:
+        ensure_root(args.command)
     if args.command in {"backup", "restore"}:
         from cli import backup
 

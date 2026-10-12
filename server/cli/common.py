@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -19,6 +20,20 @@ if TYPE_CHECKING:
 SERVER_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SERVICE_NAME = "sena-repo"
 DEFAULT_ENV_FILE = Path("/etc/sena-repo/sena-repo.env")
+
+ROOT_COMMANDS = {
+    "update",
+    "uninstall",
+    "scan",
+    "clear",
+    "backup",
+    "restore",
+    "useradd",
+    "username",
+    "passwd",
+    "userdel",
+    "useradmin",
+}
 
 
 class CliError(Exception):
@@ -181,6 +196,20 @@ def in_docker() -> bool:
     except OSError:
         return False
     return any(token in cgroup for token in ("docker", "containerd", "kubepods"))
+
+
+def ensure_root(command: str = "") -> None:
+    """Re-run the current command through sudo when root is required."""
+    if os.geteuid() == 0 or in_docker():
+        return
+    if not sys.stdin.isatty() or shutil.which("sudo") is None:
+        hint = f"sudo senacli {command}".strip()
+        fail(f"需要管理员权限，请使用：{hint}", 2)
+    echo(f"「senacli {command}」需要管理员权限，正在通过 sudo 重新执行…")
+    try:
+        os.execvp("sudo", ["sudo", sys.executable, *sys.argv])
+    except OSError as exc:
+        fail(f"无法通过 sudo 重新执行：{exc}", 2)
 
 
 def install_root() -> Path:
