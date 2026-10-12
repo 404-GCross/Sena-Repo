@@ -890,6 +890,13 @@ install_cli_command() {
   chmod 0755 "$APP_DIR/senacli.py"
   cat > "$CLI_BIN" <<EOF
 #!/usr/bin/env bash
+if [ "\$(id -u)" -ne 0 ]; then
+  if [ -t 0 ] && command -v sudo >/dev/null 2>&1; then
+    exec sudo -- "\$0" "\$@"
+  fi
+  printf '[senacli] 需要管理员权限，请使用：sudo senacli %s\n' "\$*" >&2
+  exit 2
+fi
 exec "$VENV_DIR/bin/python" "$APP_DIR/senacli.py" "\$@"
 EOF
   chmod 0755 "$CLI_BIN"
@@ -935,9 +942,11 @@ update_env_version() {
   current="$(sed -n 's/^SENA_VERSION=//p' "$ENV_FILE" | head -n 1)"
   [ "$current" = "$VERSION_VALUE" ] && return 0
   tmp="$ENV_FILE.tmp"
-  umask 077
-  { grep -v '^SENA_VERSION=' "$ENV_FILE" || true; } > "$tmp"
-  printf 'SENA_VERSION=%s\n' "$VERSION_VALUE" >> "$tmp"
+  (
+    umask 077
+    { grep -v '^SENA_VERSION=' "$ENV_FILE" || true; } > "$tmp"
+    printf 'SENA_VERSION=%s\n' "$VERSION_VALUE" >> "$tmp"
+  )
   mv -f -- "$tmp" "$ENV_FILE"
   log "updated SENA_VERSION=$VERSION_VALUE in $ENV_FILE"
 }
@@ -952,24 +961,26 @@ write_environment_file() {
   fi
 
   log "writing environment file: $ENV_FILE"
-  umask 077
-  {
-    printf 'SENA_HOST=%s\n' "$HOST_VALUE"
-    printf 'SENA_PORT=%s\n' "$PORT_VALUE"
-    printf 'SENA_DATA_PATH=%s\n' "$DATA_PATH"
-    printf 'SENA_GAMES_PATH=%s\n' "$GAMES_PATH"
-    printf 'SENA_PATCH_DIR=%s\n' "$PATCH_DIR"
-    printf 'SENA_VERSION=%s\n' "$VERSION_VALUE"
-    if [ -n "$HIKARINAGI_CLIENT_ID" ]; then
-      printf 'SENA_HIKARINAGI_CLIENT_ID=%s\n' "$HIKARINAGI_CLIENT_ID"
-    fi
-    if [ -n "$HIKARINAGI_CLIENT_SECRET" ]; then
-      printf 'SENA_HIKARINAGI_CLIENT_SECRET=%s\n' "$HIKARINAGI_CLIENT_SECRET"
-    fi
-    if [ -n "$HIKARINAGI_SCOPE" ]; then
-      printf 'SENA_HIKARINAGI_SCOPE=%s\n' "$HIKARINAGI_SCOPE"
-    fi
-  } > "$ENV_FILE"
+  (
+    umask 077
+    {
+      printf 'SENA_HOST=%s\n' "$HOST_VALUE"
+      printf 'SENA_PORT=%s\n' "$PORT_VALUE"
+      printf 'SENA_DATA_PATH=%s\n' "$DATA_PATH"
+      printf 'SENA_GAMES_PATH=%s\n' "$GAMES_PATH"
+      printf 'SENA_PATCH_DIR=%s\n' "$PATCH_DIR"
+      printf 'SENA_VERSION=%s\n' "$VERSION_VALUE"
+      if [ -n "$HIKARINAGI_CLIENT_ID" ]; then
+        printf 'SENA_HIKARINAGI_CLIENT_ID=%s\n' "$HIKARINAGI_CLIENT_ID"
+      fi
+      if [ -n "$HIKARINAGI_CLIENT_SECRET" ]; then
+        printf 'SENA_HIKARINAGI_CLIENT_SECRET=%s\n' "$HIKARINAGI_CLIENT_SECRET"
+      fi
+      if [ -n "$HIKARINAGI_SCOPE" ]; then
+        printf 'SENA_HIKARINAGI_SCOPE=%s\n' "$HIKARINAGI_SCOPE"
+      fi
+    } > "$ENV_FILE"
+  )
 }
 
 install_python_dependencies() {
