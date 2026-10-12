@@ -378,6 +378,20 @@ async def _run_scan(
     return 0
 
 
+def _reported_version(metadata: dict[str, str]) -> str:
+    """Version the server reports to clients; falls back to the source ref when unset."""
+    version = os.environ.get("SENA_VERSION", "").strip()
+    if version:
+        return version
+    ref = metadata.get("SOURCE_REF", "").strip()
+    if ref.startswith("v"):
+        return ref
+    sha = metadata.get("SOURCE_SHA", "").strip()
+    if sha:
+        return f"dev-{sha[:7]}"
+    return ref or "-"
+
+
 async def cmd_status(args) -> int:
     config = await prepare_app()
     metadata = read_version_metadata()
@@ -425,6 +439,7 @@ async def cmd_status(args) -> int:
             ("CPU", cpu),
             ("Memory", memory),
             ("Uptime", uptime),
+            ("Version", _reported_version(metadata)),
             ("Source ref", metadata.get("SOURCE_REF", "-")),
             ("Source SHA", short_sha(metadata.get("SOURCE_SHA", ""))),
             ("Scan state", scan_state),
