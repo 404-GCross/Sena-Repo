@@ -1130,7 +1130,7 @@ async def import_patch_roots(
 
 
 def import_settings(config, settings: dict[str, Any]) -> list[str]:
-    """Write scan/scraper settings back, re-encrypting credentials at rest."""
+    """Write scan/scraper settings back and apply them to the running config."""
     notes: list[str] = []
     if not isinstance(settings, dict) or not settings:
         return notes
@@ -1142,7 +1142,10 @@ def import_settings(config, settings: dict[str, Any]) -> list[str]:
         path.write_text(
             json.dumps(scan, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        notes.append("扫描设置: 已恢复")
+        from api.settings import _load_scan_settings
+
+        _load_scan_settings(config)
+        notes.append("扫描设置: 已恢复并生效")
     scraper = settings.get("scraper")
     if isinstance(scraper, dict) and scraper:
         payload = dict(scraper)
@@ -1159,7 +1162,11 @@ def import_settings(config, settings: dict[str, Any]) -> list[str]:
             path.chmod(0o600)
         except OSError:
             pass
-        notes.append("刮削设置: 已恢复（凭据按本机密钥重新加密，重启服务端后生效）")
+        from config import _apply_persisted_scraper_config, normalize_scraper_config
+
+        _apply_persisted_scraper_config(config)
+        normalize_scraper_config(config.scrapers)
+        notes.append("刮削设置: 已恢复并生效（凭据已按本机密钥重新加密）")
     return notes
 
 
