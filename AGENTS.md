@@ -25,6 +25,9 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
    explicitly asks to commit or publish them; do not stage, commit, or push them by default.
 8. For UI or interaction changes, present the design first (mockup or written design) and wait
    for explicit approval before implementing. Never implement from an unapproved design.
+9. Confirm the permission scope of any new feature before implementing it. Ask which roles
+   (owner / admin / user / anonymous) may use the new endpoint, screen, or command, then
+   enforce that scope on the server, mirror it in the client, and document it.
 
 ## Repository Shape
 
