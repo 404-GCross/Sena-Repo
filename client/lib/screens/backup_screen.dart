@@ -7,6 +7,7 @@ import "dart:io";
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:path_provider/path_provider.dart";
+import "package:shared_preferences/shared_preferences.dart";
 import "../services/logged_http.dart" as http;
 
 import "../services/api_client.dart";
@@ -34,11 +35,37 @@ class _BackupScreenState extends State<BackupScreen> {
   String? _error;
   http.Client? _activeClient;
   bool _cancelled = false;
+  String _currentRole = "user";
 
   @override
   void initState() {
     super.initState();
+    _loadRole();
     _load();
+  }
+
+  Future<void> _loadRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _currentRole = prefs.getString("role") ?? "user");
+  }
+
+  bool get _isOwner => _currentRole == "owner";
+
+  void _showPermissionDenied(String action) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text("权限不足"),
+        content: Text("$action仅限服主使用"),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("确定"),
+          ),
+        ],
+      ),
+    );
   }
 
   void _toast(String message, {bool error = false}) {
@@ -463,13 +490,29 @@ class _BackupScreenState extends State<BackupScreen> {
                             label: "导出备份",
                             filled: true,
                             busy: _busy,
-                            onPressed: _busy ? null : _export,
+                            onPressed: _busy
+                                ? null
+                                : () {
+                                    if (!_isOwner) {
+                                      _showPermissionDenied("导出备份");
+                                      return;
+                                    }
+                                    _export();
+                                  },
                           ),
                           AppActionButton(
                             icon: Icons.upload_file_rounded,
                             label: "导入备份",
                             busy: _uploading,
-                            onPressed: _uploading ? null : _import,
+                            onPressed: _uploading
+                                ? null
+                                : () {
+                                    if (!_isOwner) {
+                                      _showPermissionDenied("恢复备份");
+                                      return;
+                                    }
+                                    _import();
+                                  },
                           ),
                           if (_uploading || _busy)
                             AppActionButton(
@@ -574,7 +617,15 @@ class _BackupScreenState extends State<BackupScreen> {
             IconButton(
               tooltip: "下载",
               icon: const Icon(Icons.download_rounded, size: 20),
-              onPressed: _busy ? null : () => _download(entry),
+              onPressed: _busy
+                  ? null
+                  : () {
+                      if (!_isOwner) {
+                        _showPermissionDenied("下载备份");
+                        return;
+                      }
+                      _download(entry);
+                    },
             ),
           IconButton(
             tooltip: "删除",
