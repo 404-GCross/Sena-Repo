@@ -655,7 +655,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               groupValue: _scope,
               onChanged: (value) => setState(() => _scope = value ?? "library"),
               title: const Text("仅游戏库"),
-              subtitle: const Text("游戏、版本、标签与账号"),
+              subtitle: const Text("游戏、版本、标签、账号与扫描/刮削设置"),
             ),
             RadioListTile<String>(
               contentPadding: EdgeInsets.zero,
@@ -673,7 +673,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               groupValue: _scope,
               onChanged: (value) => setState(() => _scope = value ?? "all"),
               title: const Text("两个都备份"),
-              subtitle: const Text("游戏库 + 补丁规则"),
+              subtitle: const Text("游戏库 + 补丁规则（含扫描/刮削设置）"),
             ),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -730,9 +730,9 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
               initialValue: _scope,
               decoration: const InputDecoration(labelText: "恢复范围"),
               items: const [
-                DropdownMenuItem(value: "all", child: Text("全部（补丁 + 游戏库 + 账号）")),
+                DropdownMenuItem(value: "all", child: Text("全部（补丁 + 游戏库 + 账号 + 设置）")),
                 DropdownMenuItem(value: "patch", child: Text("仅补丁规则")),
-                DropdownMenuItem(value: "library", child: Text("仅游戏库与账号")),
+                DropdownMenuItem(value: "library", child: Text("仅游戏库、账号与设置")),
               ],
               onChanged: (value) => setState(() => _scope = value ?? "all"),
             ),
