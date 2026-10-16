@@ -95,7 +95,7 @@ class _NextmoeUsernameDialogState extends State<_NextmoeUsernameDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              "首次通过 鲲Galgame账号 登录需要在本服务器注册，请设置一个用户名。",
+              "首次通过 NextMoe 账号登录需要在本服务器注册，请设置一个用户名。",
               style: AppText.bodySmall.copyWith(
                 color: subTextColor(context),
                 height: 1.5,
@@ -104,7 +104,7 @@ class _NextmoeUsernameDialogState extends State<_NextmoeUsernameDialog> {
             if (name.isNotEmpty) ...[
               const SizedBox(height: AppGap.sm),
               Text(
-                "你的 鲲Galgame 昵称：$name",
+                "你的 NextMoe 昵称：$name",
                 style: AppText.label.copyWith(color: hintColor(context)),
               ),
             ],

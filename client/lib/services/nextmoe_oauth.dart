@@ -92,7 +92,7 @@ class NextmoeOAuth {
         LoggerService().error("oauth start failed", e, stackTrace);
         return const NextmoeAuthOutcome(
           kind: NextmoeAuthKind.error,
-          error: "无法发起 鲲Galgame 授权",
+          error: "无法发起 NextMoe 授权",
         );
       }
 
@@ -181,7 +181,7 @@ class NextmoeOAuth {
           LoggerService().error("oauth complete failed", e, stackTrace);
           return const NextmoeAuthOutcome(
             kind: NextmoeAuthKind.error,
-            error: "鲲Galgame 授权失败，请重试",
+            error: "NextMoe 授权失败，请重试",
           );
         }
 

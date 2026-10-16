@@ -2893,12 +2893,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
           borderRadius: BorderRadius.circular(16),
         ),
         title: const Text(
-          "请先使用 鲲Galgame 登录",
+          "请先使用 NextMoe 登录",
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         content: const Text(
-          "鲲Galgame 模式下搜索元数据需要你的 鲲Galgame账号 授权。\n\n"
-          "前往「设置 → 个人信息」绑定 鲲Galgame账号 后即可使用。",
+          "NextMoe 模式下搜索元数据需要你的 NextMoe 账号授权。\n\n"
+          "前往「设置 → 个人信息」绑定 NextMoe 账号后即可使用。",
           style: TextStyle(fontSize: 13, height: 1.6),
         ),
         actions: [

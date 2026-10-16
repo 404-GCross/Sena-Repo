@@ -3565,7 +3565,7 @@ class _UserManagePageState extends State<_UserManagePage> {
               controller: nextmoeIdCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: "鲲Galgame 用户 ID",
+                labelText: "NextMoe 用户 ID",
                 helperText: "留空则解除现有绑定；修改后需重新登录完成绑定",
                 isDense: true,
               ),
@@ -3670,7 +3670,7 @@ class _UserManagePageState extends State<_UserManagePage> {
               obscureText: true,
               decoration: const InputDecoration(
                 labelText: "密码（可留空）",
-                helperText: "留空则只能使用 鲲Galgame账号 登录",
+                helperText: "留空则只能使用 NextMoe 账号登录",
                 isDense: true,
               ),
             ),
@@ -3679,8 +3679,8 @@ class _UserManagePageState extends State<_UserManagePage> {
               controller: nextmoeIdCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: "鲲Galgame 用户 ID（可选）",
-                helperText: "填写后该用户首次 鲲Galgame 登录会自动完成绑定",
+                labelText: "NextMoe 用户 ID（可选）",
+                helperText: "填写后该用户首次 NextMoe 登录会自动完成绑定",
                 isDense: true,
               ),
             ),
@@ -3741,8 +3741,8 @@ class _UserManagePageState extends State<_UserManagePage> {
     final displayName = name.length > 12 ? "${name.substring(0, 12)}…" : name;
     final idLabel = userId.isEmpty ? "" : " (#$userId)";
     final label = pending
-        ? "鲲Galgame · 待绑定$idLabel"
-        : "鲲Galgame · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
+        ? "未萌 · 待绑定$idLabel"
+        : "未萌 · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -3756,7 +3756,7 @@ class _UserManagePageState extends State<_UserManagePage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(3),
             child: Image.asset(
-              kungalgameIcon,
+              nextmoeSourceIcon,
               width: 12,
               height: 12,
               fit: BoxFit.cover,
