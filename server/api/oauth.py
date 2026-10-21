@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -13,14 +12,14 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import _issue_session_token, get_current_user
 from config import load_config
 from database import get_session
-from models.user import Notification, User, hash_password
+from models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,6 @@ router = APIRouter(prefix="/api/auth/oauth", tags=["oauth"])
 PROVIDER = "nextmoe"
 PROVIDER_LABEL = "NextMoe·未萌"
 FLOW_TTL_SECONDS = 600
-USERNAME_MAX_LEN = 110
 LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
 
@@ -46,8 +44,6 @@ class OAuthFlow:
     subject: str = ""
     name: str = ""
     oauth_id: int | None = None
-    register_pending: bool = False
-    tokens: dict | None = None
 
 
 _flows: dict[str, OAuthFlow] = {}
@@ -203,62 +199,12 @@ async def _fetch_userinfo(config, access_token: str) -> dict:
     return data
 
 
-def _normalize_username(raw: str) -> str:
-    cleaned = re.sub(r"\s+", "_", (raw or "").strip()).casefold()
-    return cleaned[:USERNAME_MAX_LEN]
-
-
 def _parse_oauth_id(value: object) -> int | None:
     try:
         parsed = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
-
-
-async def _derive_username(
-    session: AsyncSession, name: str, oauth_id: object
-) -> str:
-    base = _normalize_username(name)
-    if len(base) < 2:
-        base = ""
-    suffix = str(oauth_id).strip() if oauth_id is not None else ""
-    candidates: list[str] = []
-    if base:
-        candidates.append(base)
-        if suffix:
-            candidates.append(f"{base}_{suffix}")
-    if suffix:
-        candidates.append(f"nextmoe_{suffix}")
-    candidates.append(f"nextmoe_{secrets.token_hex(4)}")
-    for candidate in candidates:
-        candidate = _normalize_username(candidate)[:128]
-        if len(candidate) < 2:
-            continue
-        # Compare case-insensitively so OAuth names never duplicate existing users.
-        existing = await session.execute(
-            select(User).where(func.lower(User.username) == candidate.lower())
-        )
-        if existing.scalar_one_or_none() is None:
-            return candidate
-    return f"nextmoe_{secrets.token_hex(8)}"
-
-
-async def _notify_admins_new_user(
-    session: AsyncSession, user: User, source: str
-) -> None:
-    admins = await session.execute(
-        select(User).where(User.role.in_(("owner", "admin")))
-    )
-    for admin in admins.scalars():
-        session.add(
-            Notification(
-                type="approval_request",
-                title=f"新用户注册: {user.username}",
-                body=f"用户 {user.username} 通过{source}申请账户，等待审批",
-                target_user_id=user.id,
-            )
-        )
 
 
 class StartRequest(BaseModel):
@@ -270,13 +216,6 @@ class CompleteRequest(BaseModel):
     request_id: str
     code: str
     state: str
-    # Newer clients ask the user for a username before registering an OAuth account.
-    expect_username: bool = False
-
-
-class RegisterRequest(BaseModel):
-    request_id: str
-    username: str = Field(min_length=2, max_length=128)
 
 
 @router.get("/providers")
@@ -436,58 +375,19 @@ async def oauth_complete(
                     "OAuth account auto-bound by user id: user_id=%s", user.id
                 )
     if user is None:
-        oauth_id = _parse_oauth_id(profile.get("id"))
-        if body.expect_username:
-            flow.register_pending = True
-            flow.subject = subject
-            flow.name = name
-            flow.oauth_id = oauth_id
-            flow.tokens = tokens
-            suggested = await _derive_username(session, name, profile.get("id"))
-            return {
-                "register_required": True,
-                "request_id": body.request_id,
-                "name": name,
-                "suggested_username": suggested,
-            }
-        username = await _derive_username(session, name, profile.get("id"))
-        password_hash, salt = hash_password(secrets.token_urlsafe(32))
-        user = User(
-            username=username,
-            password_hash=password_hash,
-            salt=salt,
-            role="user",
-            is_admin=False,
-            status="pending",
-            oauth_provider=PROVIDER,
-            oauth_subject=subject,
-            oauth_name=name,
-            oauth_user_id=_parse_oauth_id(profile.get("id")),
-            password_set=False,
-        )
-        session.add(user)
-        try:
-            await session.flush()
-            await _notify_admins_new_user(session, user, "NextMoe")
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         _flows.pop(body.request_id, None)
-        logger.info(
-            "OAuth registration submitted: user_id=%s username=%s",
-            user.id,
-            user.username,
+        oauth_id = _parse_oauth_id(profile.get("id"))
+        hint = f"（ID {oauth_id}）" if oauth_id is not None else ""
+        logger.info("OAuth login rejected: account not provisioned")
+        raise HTTPException(
+            status_code=403,
+            detail=f"该 NextMoe 账号{hint}尚未被服务器添加，请联系服主",
         )
-        return {"pending": True, "username": user.username, "created": True}
 
     _flows.pop(body.request_id, None)
-    if user.status == "pending":
-        logger.info("OAuth login blocked pending: user_id=%s", user.id)
-        return {"pending": True, "username": user.username}
-    if user.status == "rejected":
-        logger.info("OAuth login blocked rejected: user_id=%s", user.id)
-        return {"rejected": True, "username": user.username}
+    if user.status != "active":
+        logger.info("OAuth login blocked: user_id=%s status=%s", user.id, user.status)
+        raise HTTPException(status_code=403, detail="账户已被停用")
 
     token = await _issue_session_token(user, session, request)
     await session.commit()
@@ -499,62 +399,6 @@ async def oauth_complete(
         "role": user.role,
         "username": user.username,
         **_token_payload(tokens),
-    }
-
-
-@router.post("/register")
-async def oauth_register(
-    body: RegisterRequest,
-    session: AsyncSession = Depends(get_session),
-):
-    """Finish a deferred OAuth registration with the username the user picked."""
-    if not _is_enabled():
-        raise HTTPException(status_code=400, detail="服务器未启用 NextMoe 登录")
-    _prune_flows()
-    flow = _flows.get(body.request_id)
-    if flow is None or flow.purpose != "login" or not flow.register_pending:
-        raise HTTPException(status_code=400, detail="授权请求已失效，请重试")
-    username = body.username.strip()
-    if len(username) < 2:
-        raise HTTPException(status_code=400, detail="用户名至少需要 2 个字符")
-    existing = await session.execute(
-        select(User).where(func.lower(User.username) == username.lower())
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="用户名已被占用，请换一个")
-    _flows.pop(body.request_id, None)
-    password_hash, salt = hash_password(secrets.token_urlsafe(32))
-    user = User(
-        username=username,
-        password_hash=password_hash,
-        salt=salt,
-        role="user",
-        is_admin=False,
-        status="pending",
-        oauth_provider=PROVIDER,
-        oauth_subject=flow.subject,
-        oauth_name=flow.name,
-        oauth_user_id=flow.oauth_id,
-        password_set=False,
-    )
-    session.add(user)
-    try:
-        await session.flush()
-        await _notify_admins_new_user(session, user, "NextMoe")
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
-    logger.info(
-        "OAuth registration submitted with chosen username: user_id=%s username=%s",
-        user.id,
-        username,
-    )
-    return {
-        "pending": True,
-        "username": user.username,
-        "created": True,
-        **_token_payload(flow.tokens or {}),
     }
 
 

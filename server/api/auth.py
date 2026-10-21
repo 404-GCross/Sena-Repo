@@ -1,4 +1,4 @@
-"""Auth API - login, register, user management with owner/admin/user roles."""
+"""Auth API - login and user management with owner/admin/user roles."""
 
 from __future__ import annotations
 import hashlib
@@ -11,13 +11,13 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from config import load_config
 from database import get_session
-from models.user import User, UserSession, Notification, hash_password, verify_password
+from models.user import User, UserSession, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -265,16 +265,6 @@ class LoginResponse(BaseModel):
     username: str
 
 
-class RegisterRequest(BaseModel):
-    username: str = Field(min_length=2, max_length=128)
-    password: str = Field(min_length=4, max_length=128)
-
-
-class ApproveRequest(BaseModel):
-    user_id: int
-    approve: bool
-
-
 class AdminUserUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
@@ -314,12 +304,9 @@ async def login(
             )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     _clear_login_failures(login_key)
-    if user.status == "pending":
-        logger.info("Login blocked: user_id=%s username=%s status=pending", user.id, user.username)
-        raise HTTPException(status_code=403, detail="账户等待管理员审批中")
-    if user.status == "rejected":
-        logger.info("Login blocked: user_id=%s username=%s status=rejected", user.id, user.username)
-        raise HTTPException(status_code=403, detail="账户已被拒绝")
+    if user.status != "active":
+        logger.info("Login blocked: user_id=%s username=%s status=%s", user.id, user.username, user.status)
+        raise HTTPException(status_code=403, detail="账户已被停用")
     if user.salt != "bcrypt":
         user.password_hash, user.salt = hash_password(body.password)
     token = await _issue_session_token(user, session, request)
@@ -356,53 +343,6 @@ async def logout(
     return {"message": "已退出登录"}
 
 
-@router.post("/register")
-async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)):
-    # Case-insensitive so "Name" and "name" cannot coexist.
-    existing = await session.execute(
-        select(User).where(
-            func.lower(User.username) == body.username.strip().lower()
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="用户名已存在")
-    count = await session.execute(select(func.count()).select_from(User))
-    is_first = count.scalar() == 0
-    pw_hash, salt = hash_password(body.password)
-    role = "owner" if is_first else "user"
-    user = User(
-        username=body.username, password_hash=pw_hash, salt=salt,
-        role=role, is_admin=is_first,
-        status="active" if is_first else "pending",
-    )
-    try:
-        session.add(user)
-        await session.flush()
-        if not is_first:
-            admins = await session.execute(
-                select(User).where(User.role.in_(("owner", "admin")))
-            )
-            for admin in admins.scalars():
-                session.add(Notification(
-                    type="approval_request",
-                    title=f"新用户注册: {body.username}",
-                    body=f"用户 {body.username} 申请普通用户账户，等待审批",
-                    target_user_id=user.id,
-                ))
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        detail = _integrity_conflict_detail(exc)
-        if detail:
-            raise HTTPException(status_code=409, detail=detail) from exc
-        raise
-    if is_first:
-        logger.info("First user registered as owner: user_id=%s username=%s", user.id, user.username)
-        return {"message": "注册成功，首个用户已成为服主", "user_id": user.id, "auto_approved": True}
-    logger.info("User registered, pending approval: user_id=%s username=%s", user.id, user.username)
-    return {"message": "注册成功，等待管理员审批", "user_id": user.id, "pending": True}
-
-
 # ── User management ──────────────────────────────────────────────────────────
 
 @router.get("/users")
@@ -435,6 +375,11 @@ async def admin_create_user(body: CreateUserRequest,
         raise HTTPException(status_code=403, detail="只有服主可以创建管理员")
     if body.role == "owner":
         raise HTTPException(status_code=400, detail="不能直接创建服主，请通过转让功能")
+    if not body.password and body.nextmoe_user_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="请至少设置密码或填写 NextMoe 用户 ID，否则该账户无法登录",
+        )
     existing = await session.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="用户名已存在")
@@ -486,42 +431,6 @@ async def admin_create_user(body: CreateUserRequest,
         nextmoe_user_id is not None,
     )
     return {"message": "创建成功", "user_id": user.id}
-
-
-@router.post("/approve")
-async def approve_user(body: ApproveRequest,
-                       current: User = Depends(require_admin),
-                       session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(User).where(User.id == body.user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    if user.status != "pending":
-        raise HTTPException(status_code=400, detail="用户状态不是待审批")
-    user.status = "active" if body.approve else "rejected"
-    if body.approve:
-        session.add(Notification(
-            type="approved", title="账户已通过审批",
-            body="你的账户申请已通过", target_user_id=user.id,
-        ))
-    else:
-        session.add(Notification(
-            type="rejected", title="账户已被拒绝",
-            body="你的账户申请已被拒绝", target_user_id=user.id,
-        ))
-    # mark approval request notification read
-    notifs = await session.execute(
-        select(Notification).where(
-            Notification.type == "approval_request",
-            Notification.target_user_id == user.id,
-        )
-    )
-    for n in notifs.scalars():
-        n.read = True
-    await session.commit()
-    action = "approved" if body.approve else "rejected"
-    logger.info("User %s: actor_id=%s user_id=%s status=%s", action, current.id, user.id, user.status)
-    return {"message": "已通过" if body.approve else "已拒绝"}
 
 
 @router.put("/users/{user_id}")
@@ -648,59 +557,6 @@ async def admin_delete_user(user_id: int, current: User = Depends(require_admin)
     await session.commit()
     logger.info("User deleted: actor_id=%s user_id=%s", current.id, user_id)
     return {"message": "用户已删除"}
-
-
-# ── Notifications ────────────────────────────────────────────────────────────
-
-@router.get("/notifications")
-async def get_notifications(current: User = Depends(get_current_user),
-                             session: AsyncSession = Depends(get_session)):
-    query = select(Notification).order_by(Notification.created_at.desc())
-    if not current.role in ("owner", "admin"):
-        query = query.where(Notification.target_user_id == current.id)
-    result = await session.execute(query)
-    notifs = result.scalars().all()
-    return [{"id": n.id, "type": n.type, "title": n.title, "body": n.body,
-             "read": n.read, "target_user_id": n.target_user_id,
-             "created_at": str(n.created_at)} for n in notifs]
-
-
-@router.get("/notifications/unread-count")
-async def unread_notification_count(current: User = Depends(get_current_user),
-                                     session: AsyncSession = Depends(get_session)):
-    query = select(func.count()).select_from(Notification).where(Notification.read == False)
-    if not current.role in ("owner", "admin"):
-        query = query.where(Notification.target_user_id == current.id)
-    result = await session.execute(query)
-    return {"count": result.scalar()}
-
-
-@router.put("/notifications/{notif_id}/read")
-async def mark_notification_read(notif_id: int, current: User = Depends(get_current_user),
-                                   session: AsyncSession = Depends(get_session)):
-    query = select(Notification).where(Notification.id == notif_id)
-    if current.role not in ("owner", "admin"):
-        query = query.where(Notification.target_user_id == current.id)
-    result = await session.execute(query)
-    notif = result.scalar_one_or_none()
-    if notif is None:
-        raise HTTPException(status_code=404, detail="通知不存在")
-    notif.read = True
-    await session.commit()
-    return {"message": "已标记已读"}
-
-
-@router.put("/notifications/read-all")
-async def mark_all_notifications_read(current: User = Depends(get_current_user),
-                                        session: AsyncSession = Depends(get_session)):
-    query = select(Notification).where(Notification.read == False)
-    if not current.role in ("owner", "admin"):
-        query = query.where(Notification.target_user_id == current.id)
-    result = await session.execute(query)
-    for n in result.scalars():
-        n.read = True
-    await session.commit()
-    return {"message": "全部已读"}
 
 
 # ── Profile management ────────────────────────────────────────────────────────

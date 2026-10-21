@@ -57,15 +57,3 @@ class UserSession(Base):
     last_seen_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
-
-
-class Notification(Base):
-    __tablename__ = "notifications"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(32), nullable=False)
-    title = Column(String(256), nullable=False)
-    body = Column(String(1024), default="")
-    target_user_id = Column(Integer, nullable=True)
-    read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
