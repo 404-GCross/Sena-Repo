@@ -3470,20 +3470,6 @@ class _UserManagePageState extends State<_UserManagePage> {
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _approve(int userId, bool approve) async {
-    try {
-      await http.post(
-        Uri.parse("${widget.api.baseUrl}/api/auth/approve"),
-        headers: await _authHeaders,
-        body: jsonEncode({"user_id": userId, "approve": approve}),
-      );
-      _loadUsers();
-      if (mounted) _toast(context, approve ? "已通过" : "已拒绝");
-    } catch (_) {
-      if (mounted) _toast(context, "操作失败");
-    }
-  }
-
   Future<void> _setRole(Map<String, dynamic> u, String newRole) async {
     String actionLabel;
     String confirmMsg;
@@ -3823,21 +3809,10 @@ class _UserManagePageState extends State<_UserManagePage> {
     );
   }
 
-  Widget _statusChip(String status) {    Color color;
-    String label;
-    switch (status) {
-      case "active":
-        color = Colors.green;
-        label = "正常";
-        break;
-      case "pending":
-        color = Colors.orange;
-        label = "待审批";
-        break;
-      default:
-        color = Colors.red;
-        label = "已拒绝";
-    }
+  Widget _statusChip(String status) {
+    final active = status == "active";
+    final color = active ? Colors.green : Colors.red;
+    final label = active ? "正常" : "已停用";
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -3850,7 +3825,6 @@ class _UserManagePageState extends State<_UserManagePage> {
 
   List<PopupMenuEntry<String>> _buildActions(Map<String, dynamic> u) {
     final role = u["role"]?.toString() ?? "user";
-    final status = u["status"]?.toString() ?? "active";
     final isSelf = u["id"] == _currentUserId;
     final actions = <PopupMenuEntry<String>>[];
 
@@ -3863,26 +3837,6 @@ class _UserManagePageState extends State<_UserManagePage> {
       actions.add(const PopupMenuItem(
           enabled: false, value: "", child: Text("（服主账号）")));
       return actions;
-    }
-
-    // Pending approval
-    if (status == "pending") {
-      actions.add(const PopupMenuItem(
-          value: "approve",
-          child: ListTile(
-            leading: Icon(Icons.check_circle_outline, color: Colors.green),
-            title: Text("通过"),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-          )));
-      actions.add(const PopupMenuItem(
-          value: "reject",
-          child: ListTile(
-            leading: Icon(Icons.cancel_outlined, color: Colors.red),
-            title: Text("拒绝"),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-          )));
     }
 
     // Edit (available to admin/owner for regular users, owner for admins)
@@ -3955,12 +3909,6 @@ class _UserManagePageState extends State<_UserManagePage> {
 
   Future<void> _handleAction(String action, Map<String, dynamic> u) async {
     switch (action) {
-      case "approve":
-        await _approve(u["id"], true);
-        break;
-      case "reject":
-        await _approve(u["id"], false);
-        break;
       case "edit":
         await _editUser(u);
         break;

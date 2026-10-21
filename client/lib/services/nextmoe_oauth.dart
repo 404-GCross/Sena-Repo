@@ -9,36 +9,28 @@ import "api_client.dart";
 import "logger_service.dart";
 import "nextmoe_token_store.dart";
 
-enum NextmoeAuthKind { session, pending, rejected, bound, registerRequired, error }
+enum NextmoeAuthKind { session, bound, error }
 
 class NextmoeAuthOutcome {
   final NextmoeAuthKind kind;
   final Map<String, dynamic>? session;
-  final String username;
   final String boundName;
   final String boundUserId;
   final String requestId;
-  final String nextmoeName;
-  final String suggestedUsername;
   final String error;
   final bool cancelled;
 
   const NextmoeAuthOutcome({
     required this.kind,
     this.session,
-    this.username = "",
     this.boundName = "",
     this.boundUserId = "",
     this.requestId = "",
-    this.nextmoeName = "",
-    this.suggestedUsername = "",
     this.error = "",
     this.cancelled = false,
   });
 
   bool get isSession => kind == NextmoeAuthKind.session;
-  bool get isPending => kind == NextmoeAuthKind.pending;
-  bool get isRejected => kind == NextmoeAuthKind.rejected;
   bool get isBound => kind == NextmoeAuthKind.bound;
 
   static const cancelledOutcome = NextmoeAuthOutcome(
@@ -170,7 +162,6 @@ class NextmoeOAuth {
             code: code,
             state: state,
             withAuth: withAuth,
-            expectUsername: purpose == "login",
           );
         } on AuthException catch (e) {
           return NextmoeAuthOutcome(
@@ -185,26 +176,6 @@ class NextmoeOAuth {
           );
         }
 
-        if (result["register_required"] == true) {
-          return NextmoeAuthOutcome(
-            kind: NextmoeAuthKind.registerRequired,
-            requestId: result["request_id"]?.toString() ?? requestId,
-            nextmoeName: result["name"]?.toString() ?? "",
-            suggestedUsername: result["suggested_username"]?.toString() ?? "",
-          );
-        }
-        if (result["pending"] == true) {
-          return NextmoeAuthOutcome(
-            kind: NextmoeAuthKind.pending,
-            username: result["username"]?.toString() ?? "",
-          );
-        }
-        if (result["rejected"] == true) {
-          return NextmoeAuthOutcome(
-            kind: NextmoeAuthKind.rejected,
-            username: result["username"]?.toString() ?? "",
-          );
-        }
         if (result["bound"] == true) {
           await NextmoeTokenStore.saveFromResponse(api, result);
           return NextmoeAuthOutcome(

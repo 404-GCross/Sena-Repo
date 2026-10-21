@@ -29,7 +29,6 @@ import "settings_screen.dart";
 import "../services/logged_http.dart" as http;
 import "dart:convert";
 import "download_manager_screen.dart";
-import "notification_screen.dart";
 
 /// Library filter sheet geometry and gesture thresholds.
 const double _filterSheetMinSize = 0.5;
@@ -62,7 +61,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentTab = 0;
   bool _isGridView = true;
-  int _unreadCount = 0;
   int _scrapeProgress = -1; // -1 = none, 0-100 = %
   bool _multiSelect = false;
   bool _isAdmin = false;
@@ -121,7 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
       await Future.delayed(const Duration(seconds: 30));
       if (!mounted) return false;
       try {
-        await _refreshUnreadCount();
         // Poll scrape jobs
         final api = context.read<GameProvider>().api;
         final base = api.baseUrl;
@@ -145,19 +142,6 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (_) {}
       return mounted;
     });
-  }
-
-  Future<void> _refreshUnreadCount() async {
-    try {
-      final api = context.read<GameProvider>().api;
-      final r = await http.get(
-          Uri.parse("${api.baseUrl}/api/auth/notifications/unread-count"),
-          headers: api.headers);
-      if (r.statusCode == 200 && mounted) {
-        setState(
-            () => _unreadCount = (jsonDecode(r.body) as Map)["count"] ?? 0);
-      }
-    } catch (_) {}
   }
 
   Widget _buildGameLibrary(GameProvider gameProvider) {
@@ -880,14 +864,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _sideBtn(IconData icon, String tooltip, VoidCallback onTap) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: IconButton.filledTonal(
-          icon: Icon(icon, size: 21), onPressed: onTap, tooltip: tooltip),
-    );
-  }
-
   Widget _navTab(
     IconData icon,
     IconData outlined,
@@ -1493,23 +1469,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   title:
                       const Text("Sena Repo", style: TextStyle(fontSize: 18)),
                   centerTitle: true,
-                  leading: IconButton(
-                    icon: Badge(
-                      isLabelVisible: _unreadCount > 0,
-                      label: Text("$_unreadCount",
-                          style: const TextStyle(fontSize: 10)),
-                      child: const Icon(Icons.notifications_outlined, size: 22),
-                    ),
-                    onPressed: () async {
-                      await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => NotificationScreen(
-                                  api: gameProvider.api,
-                                  onChanged: _refreshUnreadCount)));
-                      await _refreshUnreadCount();
-                    },
-                  ),
                   actions: [
                     IconButton(
                       icon: Badge(
@@ -1559,15 +1518,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  _sideBtn(Icons.notifications_outlined, "通知", () async {
-                    await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => NotificationScreen(
-                                api: gameProvider.api,
-                                onChanged: _refreshUnreadCount)));
-                    await _refreshUnreadCount();
-                  }),
                   IconButton(
                     icon: Badge(
                       isLabelVisible: _downloadCount > 0,

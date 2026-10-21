@@ -22,7 +22,6 @@ import "../services/notification_service.dart";
 import "../widgets/app_shell.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
-import "../widgets/nextmoe_username_dialog.dart";
 
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
@@ -1047,32 +1046,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
-  Future<void> _showOauthNotice({
-    required String title,
-    required String message,
-  }) {
-    return showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          title,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(fontSize: 13, height: 1.6),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text("知道了"),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _nextmoeLoginButton({
     required bool busy,
     required VoidCallback? onPressed,
@@ -1137,7 +1110,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
     return nextmoe is Map && nextmoe["enabled"] == true;
   }
 
-  /// Runs a NextMoe login flow, surfacing pending/rejected notices itself.
+  /// Runs a NextMoe login flow.
   Future<NextmoeAuthOutcome> _runNextmoeAuth(
     ApiClient api, {
     required void Function(bool busy) setBusy,
@@ -1147,36 +1120,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final outcome = await NextmoeOAuth.authorize(api, purpose: "login");
     setBusy(false);
     switch (outcome.kind) {
-      case NextmoeAuthKind.registerRequired:
-        final registered = await showNextmoeUsernameDialog(
-          context,
-          api: api,
-          requestId: outcome.requestId,
-          nextmoeName: outcome.nextmoeName,
-          suggestedUsername: outcome.suggestedUsername,
-        );
-        if (registered == null) break;
-        await _showOauthNotice(
-          title: "等待管理员审批",
-          message: "已提交注册申请，用户名 ${registered["username"]}。\n\n"
-              "管理员审批通过后即可用 NextMoe 账号登录本服务器；"
-              "用户名之后可在「设置 → 个人信息」修改。",
-        );
-        break;
-      case NextmoeAuthKind.pending:
-        await _showOauthNotice(
-          title: "等待管理员审批",
-          message: "已提交注册申请，用户名 ${outcome.username}。\n\n"
-              "管理员审批通过后即可用 NextMoe 账号登录本服务器；"
-              "用户名之后可在「设置 → 个人信息」修改。",
-        );
-        break;
-      case NextmoeAuthKind.rejected:
-        await _showOauthNotice(
-          title: "注册申请未通过",
-          message: "管理员拒绝了本次注册申请；如有疑问请联系服务器管理员。",
-        );
-        break;
       case NextmoeAuthKind.error:
         if (!outcome.cancelled) onError?.call(outcome.error);
         break;
@@ -1192,10 +1135,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final portCtrl = TextEditingController(text: "11451");
     final userCtrl = TextEditingController();
     final passCtrl = TextEditingController();
-    final passConfirmCtrl = TextEditingController();
     var useHttps = false;
     var step = 0; // 0 = connect, 1 = login
-    var showRegister = false;
     var loading = false;
     var error = "";
     var loginError = "";
@@ -1235,7 +1176,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
             borderRadius: BorderRadius.circular(16),
           ),
           title: Text(
-            step == 0 ? "新增登录配置" : (showRegister ? "注册账户" : "登录到服务器"),
+            step == 0 ? "新增登录配置" : "登录到服务器",
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
           ),
           content: SizedBox(
@@ -1294,14 +1235,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       decoration: const InputDecoration(labelText: "密码"),
                       obscureText: true,
                     ),
-                    if (showRegister) ...[
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: passConfirmCtrl,
-                        decoration: const InputDecoration(labelText: "确认密码"),
-                        obscureText: true,
-                      ),
-                    ],
                   ],
                   if (error.isNotEmpty)
                     Padding(
@@ -1324,35 +1257,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         ),
                       ),
                     ),
-                  if (step == 1)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: TextButton(
-                        onPressed: oauthBusy
-                            ? null
-                            : () => setD(() {
-                                  showRegister = !showRegister;
-                                  loginError = "";
-                                }),
-                        child: Text(
-                          showRegister ? "已有账户？登录" : "没有账户？注册",
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ),
                   if (step == 1 && oauthEnabled) ...[
                     const SizedBox(height: 4),
                     _nextmoeDivider(),
                     const SizedBox(height: 12),
                     _nextmoeLoginButton(
                       busy: oauthBusy,
-                      label: "使用 NextMoe·未萌 账号登录 / 注册",
+                      label: "使用 NextMoe·未萌 账号登录",
                       onPressed:
                           oauthBusy ? null : () => startNextmoe(ctx, setD),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "首次使用会自动创建账号（需管理员审批），已绑定账号可直接登录",
+                      "需先在「设置 → 用户管理」中添加你的 NextMoe 用户 ID",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 11.5,
@@ -1461,81 +1378,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                                 nextmoe is Map && nextmoe["enabled"] == true;
                           });
                         }
-                      } else if (showRegister) {
-                        // Register
-                        if (userCtrl.text.trim().isEmpty) {
-                          setD(() => loginError = "请输入用户名");
-                          return;
-                        }
-                        if (passCtrl.text.length < 4) {
-                          setD(() => loginError = "密码至少4位");
-                          return;
-                        }
-                        if (passCtrl.text != passConfirmCtrl.text) {
-                          setD(() => loginError = "两次密码不一致");
-                          return;
-                        }
-                        setD(() {
-                          loading = true;
-                          loginError = "";
-                        });
-                        try {
-                          final resp = await http.post(
-                            Uri.parse("${api!.baseUrl}/api/auth/register"),
-                            headers: {"Content-Type": "application/json"},
-                            body: jsonEncode({
-                              "username": userCtrl.text.trim(),
-                              "password": passCtrl.text,
-                              "is_admin": false,
-                            }),
-                          );
-                          final body = tryDecodeJsonMap(resp.body);
-                          if (body == null) {
-                            setD(() {
-                              loading = false;
-                              loginError = describeUnexpectedApiResponse(
-                                resp,
-                                expected: "注册",
-                                endpointPath: "/api/auth/register",
-                              );
-                            });
-                            return;
-                          }
-                          if (resp.statusCode == 200) {
-                            if (body["auto_approved"] == true) {
-                              final data = await api!.login(
-                                userCtrl.text.trim(),
-                                passCtrl.text,
-                              );
-                              if (data != null) {
-                                Navigator.pop(ctx);
-                                await ProfileService().saveCurrentAsProfile(
-                                  userCtrl.text.trim(),
-                                );
-                                await _goHome(
-                                  games: context.read<GameProvider>(),
-                                );
-                                return;
-                              }
-                            }
-                            setD(() {
-                              showRegister = false;
-                              loading = false;
-                              loginError =
-                                  "注册成功！${body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录"}";
-                            });
-                          } else {
-                            setD(() {
-                              loading = false;
-                              loginError = body["detail"]?.toString() ?? "注册失败";
-                            });
-                          }
-                        } catch (e) {
-                          setD(() {
-                            loading = false;
-                            loginError = "连接失败: $e";
-                          });
-                        }
                       } else {
                         // Login
                         if (userCtrl.text.trim().isEmpty ||
@@ -1578,7 +1420,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(step == 0 ? "连接" : (showRegister ? "注册" : "登录")),
+                  : Text(step == 0 ? "连接" : "登录"),
             ),
           ],
         ),

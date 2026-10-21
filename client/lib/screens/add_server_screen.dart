@@ -1,9 +1,7 @@
 /// Full-screen flow for adding a new server and logging in.
 
-import "dart:convert";
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-import "../services/logged_http.dart" as http;
 
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
@@ -25,10 +23,8 @@ class _AddServerScreenState extends State<AddServerScreen> {
   final _portCtrl = TextEditingController(text: "11451");
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
-  final _passConfirmCtrl = TextEditingController();
 
   bool _useHttps = false;
-  bool _showRegister = false;
   bool _connecting = false;
   bool _isLoggingIn = false;
   String? _error;
@@ -42,7 +38,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
     _portCtrl.dispose();
     _userCtrl.dispose();
     _passCtrl.dispose();
-    _passConfirmCtrl.dispose();
     super.dispose();
   }
 
@@ -145,58 +140,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
     if (mounted) setState(() => _isLoggingIn = false);
   }
 
-  Future<void> _register() async {
-    if (_userCtrl.text.trim().isEmpty) {
-      setState(() => _loginError = "请输入用户名");
-      return;
-    }
-    if (_passCtrl.text.length < 4) {
-      setState(() => _loginError = "密码至少4位");
-      return;
-    }
-    if (_passCtrl.text != _passConfirmCtrl.text) {
-      setState(() => _loginError = "两次密码不一致");
-      return;
-    }
-    setState(() {
-      _isLoggingIn = true;
-      _loginError = null;
-    });
-
-    try {
-      final resp = await http.post(
-        Uri.parse("${_api!.baseUrl}/api/auth/register"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "username": _userCtrl.text.trim(),
-          "password": _passCtrl.text,
-          "is_admin": false,
-        }),
-      );
-      final body = jsonDecode(resp.body);
-      if (resp.statusCode == 200) {
-        if (body["auto_approved"] == true) {
-          final data = await _api!.login(_userCtrl.text.trim(), _passCtrl.text);
-          if (data != null) {
-            await ProfileService().saveCurrentAsProfile(_userCtrl.text.trim());
-            if (mounted) await _goHome();
-            return;
-          }
-        }
-        setState(() {
-          _showRegister = false;
-          _loginError =
-              "注册成功！${body["auto_approved"] == true ? "已自动激活，请登录" : "请等待管理员审批后登录"}";
-        });
-      } else {
-        setState(() => _loginError = body["detail"] ?? "注册失败");
-      }
-    } catch (e) {
-      setState(() => _loginError = "连接失败: $e");
-    }
-    setState(() => _isLoggingIn = false);
-  }
-
   Future<void> _goHome() async {
     if (!mounted) return;
     final games = context.read<GameProvider>();
@@ -225,7 +168,7 @@ class _AddServerScreenState extends State<AddServerScreen> {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-      title: _step == 0 ? "添加服务器" : (_showRegister ? "注册账户" : "登录"),
+      title: _step == 0 ? "添加服务器" : "登录",
       subtitle: _step == 0 ? "连接到已有 Sena Repo 服务端" : "完成账号认证后进入客户端",
       leading: const Icon(Icons.dns_outlined, size: 24),
       scrollable: false,
@@ -349,17 +292,6 @@ class _AddServerScreenState extends State<AddServerScreen> {
                       ),
                       obscureText: true,
                     ),
-                    if (_showRegister) ...[
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _passConfirmCtrl,
-                        decoration: const InputDecoration(
-                          labelText: "确认密码",
-                          prefixIcon: Icon(Icons.lock),
-                        ),
-                        obscureText: true,
-                      ),
-                    ],
                     if (_loginError != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
@@ -377,9 +309,7 @@ class _AddServerScreenState extends State<AddServerScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: _isLoggingIn
-                            ? null
-                            : (_showRegister ? _register : _login),
+                        onPressed: _isLoggingIn ? null : _login,
                         child: _isLoggingIn
                             ? const SizedBox(
                                 width: 20,
@@ -387,16 +317,8 @@ class _AddServerScreenState extends State<AddServerScreen> {
                                 child:
                                     CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : Text(_showRegister ? "注册" : "登录"),
+                            : const Text("登录"),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () => setState(() {
-                        _showRegister = !_showRegister;
-                        _loginError = null;
-                      }),
-                      child: Text(_showRegister ? "已有账户？登录" : "没有账户？注册"),
                     ),
                   ],
                 ],

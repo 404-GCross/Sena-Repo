@@ -156,10 +156,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         if (outcome.cancelled) return;
         setState(() => _error = outcome.error);
         return;
-      case NextmoeAuthKind.pending:
-      case NextmoeAuthKind.rejected:
       case NextmoeAuthKind.session:
-      case NextmoeAuthKind.registerRequired:
         return;
     }
   }
