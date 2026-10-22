@@ -7,12 +7,16 @@ import "dart:io";
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:path_provider/path_provider.dart";
+import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "../services/logged_http.dart" as http;
 
+import "../providers/game_provider.dart";
 import "../services/api_client.dart";
+import "../services/nextmoe_token_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "connect_screen.dart";
 
 class BackupScreen extends StatefulWidget {
   final ApiClient api;
@@ -216,7 +220,11 @@ class _BackupScreenState extends State<BackupScreen> {
         await dir.create(recursive: true);
         target = "${dir.path}/$fileName";
       }
-      created = File(target!);
+      final destination = File(target!);
+      // Write beside the target and only replace it once the transfer is complete.
+      final partial = File("${destination.path}.part");
+      created = partial;
+      if (await partial.exists()) await partial.delete();
       final request = http.Request(
         "GET",
         Uri.parse("${widget.api.baseUrl}/api/backup/download"
@@ -230,18 +238,22 @@ class _BackupScreenState extends State<BackupScreen> {
         return;
       }
       final total = totalBytes > 0 ? totalBytes : (response.contentLength ?? 0);
-      final sink = created.openWrite();
+      final sink = partial.openWrite();
       try {
         await _pipeDownload(response.stream, sink, total)
             .timeout(_transferTimeout(total));
       } finally {
         await sink.close();
       }
-      _toast(isMobile ? "已保存到 ${created.path}" : "备份已保存");
+      if (await destination.exists()) await destination.delete();
+      await partial.rename(destination.path);
+      created = null;
+      _toast(isMobile ? "已保存到 ${destination.path}" : "备份已保存");
     } catch (e) {
-      if (created != null && await created.exists()) {
+      final pending = created;
+      if (pending != null && await pending.exists()) {
         try {
-          await created.delete();
+          await pending.delete();
         } catch (_) {}
       }
       _toast(_cancelled ? "已取消" : "下载失败: $e", error: !_cancelled);
@@ -409,6 +421,7 @@ class _BackupScreenState extends State<BackupScreen> {
       final lines = ((data["detail"] as List?) ?? const [])
           .map((line) => line.toString())
           .toList();
+      final relogin = data["relogin_required"] == true;
       await _load();
       if (!mounted) return;
       await showDialog<void>(
@@ -425,6 +438,16 @@ class _BackupScreenState extends State<BackupScreen> {
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(line, style: AppText.caption),
                   ),
+                if (relogin)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      "账号数据已恢复，当前登录态失效，需要重新登录。",
+                      style: AppText.caption.copyWith(
+                        color: Theme.of(dialogContext).colorScheme.error,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -435,6 +458,40 @@ class _BackupScreenState extends State<BackupScreen> {
             ),
           ],
         ),
+      );
+      if (!mounted) return;
+      try {
+        await context.read<GameProvider>().refreshGames();
+      } catch (_) {
+        // A replaced account set invalidates the token; the relogin prompt handles it.
+      }
+      if (!mounted || !relogin) return;
+      final reloginNow = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text("重新登录"),
+          content: const Text("服务器账号已按备份恢复，是否现在重新登录？"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("稍后"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("去登录"),
+            ),
+          ],
+        ),
+      );
+      if (reloginNow != true || !mounted) return;
+      await NextmoeTokenStore.clear(widget.api);
+      await widget.api.logout();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove("active_profile_index");
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const ConnectScreen()),
+        (_) => false,
       );
     } catch (e) {
       _toast(_cancelled ? "已取消" : "导入失败: $e", error: !_cancelled);
@@ -800,10 +857,10 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
               initialValue: _mediaPolicy,
-              decoration: const InputDecoration(labelText: "同名图片"),
+              decoration: const InputDecoration(labelText: "已有图片"),
               items: const [
-                DropdownMenuItem(value: "skip", child: Text("跳过已有文件")),
-                DropdownMenuItem(value: "overwrite", child: Text("全部覆盖")),
+                DropdownMenuItem(value: "skip", child: Text("保留本机已有图片")),
+                DropdownMenuItem(value: "overwrite", child: Text("换成备份里的图片")),
               ],
               onChanged: (value) =>
                   setState(() => _mediaPolicy = value ?? "skip"),
