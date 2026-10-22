@@ -51,6 +51,25 @@ from utils.process_lock import process_lock, scan_lock_path
 DEFAULT_REPO_URL = "https://github.com/404-GCross/Sena-Repo.git"
 # The repository only has main; dev builds are the rolling dev-release tag.
 CHANNEL_REFS = {"dev": "main"}
+CHANNELS = ("dev", "beta", "release")
+CHANNEL_ALIASES = {"stable": "release"}
+
+
+def normalize_channel(value: str) -> str:
+    text = (value or "").strip().lower()
+    text = CHANNEL_ALIASES.get(text, text)
+    return text if text in CHANNELS else ""
+
+
+def channel_from_ref(ref: str) -> str:
+    text = (ref or "").strip()
+    if text in ("main", "master"):
+        return "dev"
+    if text.startswith("v") and "-" in text:
+        return "beta"
+    if text.startswith("v"):
+        return "release"
+    return ""
 
 
 def _remote_tags(repo_url: str) -> list[str]:
@@ -141,6 +160,7 @@ def latest_prerelease_tag(repo_url: str) -> str:
 
 def channel_ref(channel: str, repo_url: str) -> str:
     """Git ref for a release channel; exits when the channel has no usable ref."""
+    channel = normalize_channel(channel) or channel
     if channel in CHANNEL_REFS:
         return CHANNEL_REFS[channel]
     if channel == "release":
@@ -551,6 +571,13 @@ def resolve_remote_source(
 
 def docker_channel_tag() -> str:
     """Moving Docker tag that matches the running server version."""
+    channel = normalize_channel(read_version_metadata().get("SOURCE_CHANNEL", ""))
+    if channel == "dev":
+        return "dev"
+    if channel == "beta":
+        return "beta"
+    if channel == "release":
+        return "latest"
     version = os.environ.get("SENA_VERSION", "").strip()
     if not version:
         ref = read_version_metadata().get("SOURCE_REF", "").strip()
@@ -568,22 +595,46 @@ def docker_channel_tag() -> str:
 def cmd_update(args) -> int:
     if in_docker():
         tag = docker_channel_tag()
-        echo("Docker 部署不能在容器内自更新。")
-        echo("请在宿主机 pull 新镜像并重建容器，例如：")
+        echo("Docker 部署不能在容器内自更新。请在宿主机执行：")
+        echo("")
+        echo("  # docker compose 部署")
+        echo("  docker compose pull && docker compose up -d")
+        echo("")
+        echo("  # docker run 部署（挂载路径按实际情况替换）")
         echo(f"  docker pull 404gcross/sena-repo:{tag}")
         echo("  docker stop sena-repo && docker rm sena-repo")
-        echo(f"  docker run ... 404gcross/sena-repo:{tag}")
+        echo("  docker run -d --name sena-repo --restart unless-stopped \\")
+        echo("    -p 11451:11451 \\")
+        echo("    -v /path/to/games:/games \\")
+        echo("    -v /path/to/data:/data \\")
+        echo("    -v /path/to/steam_patches:/steam_patch \\")
+        echo(f"    404gcross/sena-repo:{tag}")
+        echo("")
         echo("标签：latest 正式版 / beta 测试版 / dev 开发版")
         return 2
 
     metadata = read_version_metadata()
     repo_url = args.repo_url or metadata.get("SOURCE_URL") or DEFAULT_REPO_URL
+    stored_ref = metadata.get("SOURCE_REF", "").strip()
+    stored_channel = (
+        normalize_channel(metadata.get("SOURCE_CHANNEL", ""))
+        or channel_from_ref(stored_ref)
+    )
+
+    channel = ""
     if args.ref:
         repo_ref = args.ref
     elif args.channel:
-        repo_ref = channel_ref(args.channel, repo_url)
+        channel = normalize_channel(args.channel)
+        repo_ref = channel_ref(channel, repo_url)
+    elif stored_channel:
+        # Follow the channel the install chose, so release/beta users keep
+        # receiving updates instead of staying pinned to the stored tag.
+        channel = stored_channel
+        repo_ref = channel_ref(channel, repo_url)
     else:
-        repo_ref = metadata.get("SOURCE_REF") or channel_ref("dev", repo_url)
+        repo_ref = stored_ref or channel_ref("dev", repo_url)
+
     current_sha = metadata.get("SOURCE_SHA", "")
     remote_sha, active_url, tried = resolve_remote_source(repo_url, repo_ref)
     if not remote_sha:
@@ -592,7 +643,7 @@ def cmd_update(args) -> int:
             "无法检查远程版本（"
             f"{repo_ref}）；已重试 {REMOTE_CHECK_ATTEMPTS} 次，尝试过的源：\n"
             f"{detail}\n"
-            "可以：① 稍后重试 senacli update；"
+            "可以：① 稍后重试 senacli update --check；"
             "② 用 sudo bash /opt/sena-repo/install.sh --update 跳过检查直接更新；"
             "③ 用 --repo-url 换镜像源、--ref 指定 ref",
             2,
@@ -602,6 +653,14 @@ def cmd_update(args) -> int:
         repo_url = active_url
     echo(f"当前版本: {short_sha(current_sha)}")
     echo(f"远程版本: {short_sha(remote_sha)} ({repo_ref})")
+
+    if getattr(args, "check", False):
+        if current_sha and current_sha == remote_sha:
+            echo("已经是最新版本")
+            return 0
+        echo(f"有新版本可用: {short_sha(current_sha) or '未知'} -> {short_sha(remote_sha)}")
+        return 1
+
     if current_sha == remote_sha and not args.force:
         echo("已经是最新版本")
         return 0
@@ -612,6 +671,10 @@ def cmd_update(args) -> int:
         "SENA_REPO_URL": repo_url,
         "SENA_REPO_REF": repo_ref,
     }
+    if channel and not args.ref:
+        # Persist the channel so the next `senacli update` resolves the newest
+        # tag of this channel instead of reusing today's tag.
+        env["SENA_CHANNEL"] = channel
     return run_command(["bash", str(installer_path()), "--update"], env=env)
 
 

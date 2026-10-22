@@ -76,13 +76,18 @@ def build_parser() -> argparse.ArgumentParser:
     update = sub.add_parser("update", help="检查并更新裸机部署的服务端")
     update.add_argument(
         "--channel",
-        choices=CHANNELS,
+        choices=CHANNELS + ("stable",),
         default=None,
-        help="版本通道：dev=main（默认）、beta=最新预发布 tag、release=最新正式版 tag；"
-        "不指定时沿用安装时记录的 ref",
+        help="版本通道：dev=main（默认）、beta=最新预发布 tag、release=最新正式版 tag"
+        "（stable 为 release 的别名）；不指定时沿用安装时记录的通道",
     )
     update.add_argument("--ref", help="直接指定 Git ref，优先于 --channel")
     update.add_argument("--repo-url", help="直接指定 Git 仓库地址")
+    update.add_argument(
+        "--check",
+        action="store_true",
+        help="只检查是否有新版本：0=已最新，1=有更新，2=检查失败",
+    )
     update.add_argument("--force", action="store_true", help="即使版本相同也强制执行更新")
     update.add_argument("-y", "--yes", action="store_true", help="跳过确认")
 
