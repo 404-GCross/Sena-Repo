@@ -71,11 +71,11 @@ async def setup_status(session: AsyncSession = Depends(get_session)):
     """Check if server needs initial setup."""
     # Check for any admin user
     users = await session.execute(select(User).where(User.role == "owner"))
-    has_admin = users.scalar_one_or_none() is not None
+    has_admin = users.scalars().first() is not None
 
     # Check for any root directories
     roots = await session.execute(select(RootDirectory))
-    has_roots = roots.scalar_one_or_none() is not None
+    has_roots = roots.scalars().first() is not None
 
     return SetupStatus(
         needs_setup=not has_admin,
@@ -172,6 +172,8 @@ async def import_setup_backup(
         "games": len(library.get("games") or []),
         "versions": len(library.get("versions") or []),
         "users": len(users),
+        "stats": result.get("stats") or {},
+        "relogin_required": bool(result.get("relogin_required")),
         "detail": result["lines"],
     }
 

@@ -58,7 +58,12 @@ def load_environment_file() -> None:
     env_path = Path(os.environ.get("SENA_ENV_FILE", str(DEFAULT_ENV_FILE)))
     if not env_path.is_file():
         return
-    for raw_line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+    try:
+        raw_text = env_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        # The service env file is often root-only; senacli re-runs through sudo anyway.
+        return
+    for raw_line in raw_text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue

@@ -188,6 +188,10 @@ def _decrypt_persisted_secret(value: str, key: str) -> str | None:
 
 def _apply_persisted_scraper_config(config: Config) -> None:
     path = Path(config.data_path) / "scraper_config.json"
+    try:
+        config._scraper_config_stamp = path.stat().st_mtime_ns
+    except OSError:
+        config._scraper_config_stamp = None
     if not path.is_file():
         return
     try:
@@ -223,6 +227,20 @@ def _apply_persisted_scraper_config(config: Config) -> None:
         config.scrapers.enabled_scrapers = data["enabled_scrapers"]
     if data.get("nextmoe_patch_name_source") in ("nextmoe", "steam"):
         config.scrapers.nextmoe_patch_name_source = data["nextmoe_patch_name_source"]
+
+
+def reload_persisted_scraper_config(config: Config) -> bool:
+    """Re-apply scraper settings when another process (senacli) rewrote the file."""
+    path = Path(config.data_path) / "scraper_config.json"
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return False
+    if getattr(config, "_scraper_config_stamp", None) == stamp:
+        return False
+    _apply_persisted_scraper_config(config)
+    normalize_scraper_config(config.scrapers)
+    return True
 
 
 def load_config(config_path: str | None = None) -> Config:

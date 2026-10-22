@@ -168,6 +168,9 @@ async def _is_public_http_url(url: str) -> bool:
 
 def _build_scrapers(config: Config) -> list[BaseScraper]:
     """Build enabled scrapers in the configured priority order."""
+    from config import reload_persisted_scraper_config
+
+    reload_persisted_scraper_config(config)
     s = config.scrapers
     normalize_scraper_config(s)
     builders = {

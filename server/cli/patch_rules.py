@@ -20,6 +20,7 @@ RULE_FIELDS = (
     "target_dir",
     "manifest_status",
     "manifest_updated_at",
+    "locked",
 )
 
 RULE_DEFAULTS = {
@@ -31,6 +32,7 @@ RULE_DEFAULTS = {
     "target_dir": "",
     "manifest_status": "pending",
     "manifest_updated_at": None,
+    "locked": None,
 }
 
 def utc_timestamp() -> str:
@@ -175,24 +177,31 @@ def _valid_app_id(value: Any) -> bool:
 def _has_rule(patch: dict[str, Any]) -> bool:
     if _valid_app_id(patch.get("app_id")):
         return True
-    if _norm_text(patch.get("label")):
+    if _norm_text(patch.get("label")) or _norm_text(patch.get("game_name")):
         return True
     if _norm_text(patch.get("patch_dir")) or _norm_text(patch.get("target_dir")):
         return True
     if _norm_text(patch.get("manifest_status")).lower() == "confirmed":
         return True
+    if patch.get("locked"):
+        return True
     patch_type = _norm_text(patch.get("type")).lower()
     return bool(patch_type and patch_type != "misc")
 
 
-def rule_entries(patches: list[Any]) -> list[dict[str, Any]]:
+def rule_entries(
+    patches: list[Any], source_keys: dict[int, str] | None = None
+) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for patch in patches:
         if not isinstance(patch, dict) or not _has_rule(patch):
             continue
+        identity = _identity_from_patch(patch)
+        if source_keys is not None:
+            identity["source_key"] = source_keys.get(patch.get("source_id"))
         entries.append(
             {
-                "patch_identity": _identity_from_patch(patch),
+                "identity": identity,
                 "rule": _rule_from_patch(patch),
             }
         )
@@ -243,7 +252,7 @@ def _build_match_index(patches: list[Any]) -> dict[tuple[str, ...], list[int]]:
 def _normalise_backup_rule(item: Any) -> tuple[dict[str, Any], dict[str, Any]] | None:
     if not isinstance(item, dict):
         return None
-    identity = item.get("patch_identity")
+    identity = item.get("identity")
     rule = item.get("rule")
     if not isinstance(identity, dict) or not isinstance(rule, dict):
         return None
@@ -264,6 +273,27 @@ def _apply_rule(patch: dict[str, Any], rule: dict[str, Any]) -> bool:
     return before != after
 
 
+def _entry_from_identity(identity: dict[str, Any], rule: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a new patch index record from a backup entry."""
+    file_path = _norm_path(
+        identity.get("file") or identity.get("display_file") or identity.get("source_path")
+    )
+    if not file_path:
+        return None
+    entry: dict[str, Any] = {
+        "patch_id": _norm_text(identity.get("patch_id")),
+        "file": file_path,
+        "display_file": _norm_path(identity.get("display_file") or file_path),
+        "source_type": _norm_text(identity.get("source_type") or "local"),
+        "source_id": identity.get("source_id"),
+        "source_name": _norm_text(identity.get("source_name")),
+        "source_path": _norm_path(identity.get("source_path")),
+        "size": _int_or_zero(identity.get("size")),
+    }
+    entry.update({field: rule.get(field, RULE_DEFAULTS[field]) for field in RULE_FIELDS})
+    return entry
+
+
 def materialise_rules(backup_rules: list[Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Rebuild patch entries from a backup when the target has no index yet.
 
@@ -277,27 +307,16 @@ def materialise_rules(backup_rules: list[Any]) -> tuple[list[dict[str, Any]], di
         if normalised is None:
             skipped += 1
             continue
-        identity, rule = normalised
-        file_path = _norm_path(identity.get("file") or identity.get("display_file") or identity.get("source_path"))
-        if not file_path:
+        entry = _entry_from_identity(*normalised)
+        if entry is None:
             skipped += 1
             continue
-        entry: dict[str, Any] = {
-            "patch_id": _norm_text(identity.get("patch_id")),
-            "file": file_path,
-            "display_file": _norm_path(identity.get("display_file") or file_path),
-            "source_type": _norm_text(identity.get("source_type") or "local"),
-            "source_id": identity.get("source_id"),
-            "source_name": _norm_text(identity.get("source_name")),
-            "source_path": _norm_path(identity.get("source_path")),
-            "size": _int_or_zero(identity.get("size")),
-        }
-        entry.update({field: rule.get(field, RULE_DEFAULTS[field]) for field in RULE_FIELDS})
         patches.append(entry)
     imported = len(patches)
     return patches, {
         "imported": imported,
         "changed": imported,
+        "added": imported,
         "skipped": skipped,
         "conflicts": [],
         "unmatched": [],
@@ -320,6 +339,7 @@ def preview_restore(
                 _clear_rule_fields(patch)
 
     imported = 0
+    added = 0
     changed = 0
     skipped = 0
     conflicts: list[str] = []
@@ -349,8 +369,16 @@ def preview_restore(
         if not matched_indexes:
             if conflict_key is not None:
                 conflicts.append(label)
-            else:
-                unmatched.append(label)
+                continue
+            # The index no longer lists this file, so the rule would be lost on
+            # the next scan. Materialise it; the scan fills in the rest.
+            entry = _entry_from_identity(identity, rule)
+            if entry is None:
+                skipped += 1
+                continue
+            patches.append(entry)
+            added += 1
+            imported += 1
             continue
 
         target = patches[matched_indexes[0]]
@@ -364,6 +392,7 @@ def preview_restore(
     return patches, {
         "imported": imported,
         "changed": changed,
+        "added": added,
         "skipped": skipped,
         "conflicts": conflicts,
         "unmatched": unmatched,

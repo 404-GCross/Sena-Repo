@@ -174,8 +174,9 @@ class SecretKeyStatusOut(BaseModel):
 @router.get("/scraper", response_model=ScraperConfigOut)
 async def get_scraper_config(user: User = Depends(get_current_user)):
     """Get current scraper configuration (API keys masked)."""
-    from config import load_config
+    from config import load_config, reload_persisted_scraper_config
     config = load_config()
+    reload_persisted_scraper_config(config)
     normalize_scraper_config(config.scrapers)
     s = config.scrapers
 

@@ -235,5 +235,7 @@ async def import_backup(
         "games": len(library.get("games") or []),
         "versions": len(library.get("versions") or []),
         "users": len(payload["accounts"].get("users") or []),
+        "stats": result.get("stats") or {},
+        "relogin_required": bool(result.get("relogin_required")),
         "detail": result["lines"],
     }

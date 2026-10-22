@@ -3,27 +3,34 @@
 A backup is a single zip archive:
 
     backup.json            structured data (patch rules, library, accounts)
-    media/covers/...       cover images referenced by the library
-    media/backgrounds/...  background images
-    media/avatars/...      user avatars
+    media/covers/<key>     cover images referenced by the library
+    media/backgrounds/<key> background images
+    media/avatars/<key>    user avatars
+
+Entries reference each other by backup-local keys (``src-1``, ``root-2``,
+``game-3``) and media by content hash, so a restore never has to guess which
+local row or file a backup entry meant. Only the current schema is accepted;
+older archives must be re-exported with this version.
 
 `senacli backup` writes a zip by default; `--json-only` falls back to a plain
 JSON file without media. `senacli restore` asks for the few decisions that
-matter and `-y` accepts the defaults (everything, merge, keep existing files).
+matter and `-y` accepts the defaults (everything, merge, keep existing images).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import secrets
 import shutil
+import sqlite3
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 import database as db
@@ -44,6 +51,7 @@ from models.tag import Tag
 from models.user import User, UserSession
 from services.file_source import canonical_source_path
 from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
+from utils.process_lock import process_lock
 from utils.secrets import (
     SCRAPER_SECRET_KEYS,
     decrypt_secret,
@@ -52,9 +60,7 @@ from utils.secrets import (
 )
 
 KIND = "sena_backup"
-LEGACY_KIND = "steam_patch_rules"
-SCHEMA_VERSION = 4
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4)
+SCHEMA_VERSION = 5
 JSON_NAME = "backup.json"
 MEDIA_KINDS = ("covers", "backgrounds", "avatars")
 SCOPE_ALL = "all"
@@ -65,6 +71,23 @@ MODE_MERGE = "merge"
 MODE_REPLACE = "replace"
 MEDIA_SKIP = "skip"
 MEDIA_OVERWRITE = "overwrite"
+
+ENTRY_SOURCES = ("library", "manual", "metadata")
+LIBRARY_SECTIONS = (
+    "roots",
+    "games",
+    "versions",
+    "tags",
+    "game_tags",
+    "platform_categories",
+    "companies",
+    "ignore_list",
+)
+
+
+def _has_library_section(library: dict[str, Any]) -> bool:
+    """Patch-only archives carry file sources but no library sections."""
+    return any(key in library for key in LIBRARY_SECTIONS)
 
 
 def utc_timestamp() -> str:
@@ -145,39 +168,70 @@ def resolve_output(args, config, suffix: str, scope: str = SCOPE_ALL) -> Path:
 # ── export ──
 
 
+async def _export_file_sources(session) -> list[dict[str, Any]]:
+    rows = list(
+        (await session.execute(select(FileSource).order_by(FileSource.id))).scalars()
+    )
+    return [
+        {
+            "key": f"src-{index}",
+            "name": source.name,
+            "type": source.type,
+            "base_url": source.base_url,
+            "username": source.username,
+            "password": _safe_decrypt(source.password),
+            "enabled": bool(source.enabled),
+        }
+        for index, source in enumerate(rows, 1)
+    ]
+
+
 async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
     company_rows = list((await session.execute(select(Company))).scalars())
     companies = {c.id: c.name for c in company_rows}
-    roots = list((await session.execute(select(RootDirectory))).scalars())
-    games = list((await session.execute(select(Game))).scalars())
-    versions = list((await session.execute(select(GameVersion))).scalars())
+    source_rows = list(
+        (await session.execute(select(FileSource).order_by(FileSource.id))).scalars()
+    )
+    source_keys = {source.id: f"src-{index}" for index, source in enumerate(source_rows, 1)}
+    root_rows = list(
+        (await session.execute(select(RootDirectory).order_by(RootDirectory.id))).scalars()
+    )
+    root_keys = {root.id: f"root-{index}" for index, root in enumerate(root_rows, 1)}
+    games = list((await session.execute(select(Game).order_by(Game.id))).scalars())
+    game_keys = {game.id: f"game-{index}" for index, game in enumerate(games, 1)}
+    versions = list(
+        (await session.execute(select(GameVersion).order_by(GameVersion.id))).scalars()
+    )
     tags = list((await session.execute(select(Tag))).scalars())
     game_tags = list((await session.execute(select(GameTag))).scalars())
     ignored = list((await session.execute(select(IgnoreList))).scalars())
 
-    game_paths = {g.id: g.folder_path for g in games}
     tag_names = {t.id: t.name for t in tags}
-    root_paths = {r.id: r.path for r in roots}
+    root_paths = {r.id: r.path for r in root_rows}
 
     return {
+        "file_sources": await _export_file_sources(session),
         "roots": [
             {
+                "key": root_keys[root.id],
                 "path": root.path,
                 "source_type": root.source_type,
-                "source_id": root.source_id,
+                "source_key": source_keys.get(root.source_id),
                 "source_name": root.source_name,
                 "source_path": root.source_path,
                 "enable_batch_scrape": bool(root.enable_batch_scrape),
             }
-            for root in roots
+            for root in root_rows
         ],
         "companies": [
             {"name": c.name, "created_at": _iso(c.created_at)} for c in company_rows
         ],
         "games": [
             {
+                "key": game_keys[game.id],
                 "name": game.name,
                 "company": companies.get(game.company_id),
+                "root_key": root_keys.get(game.root_id),
                 "root": root_paths.get(game.root_id),
                 "folder_path": game.folder_path,
                 "entry_source": game.entry_source,
@@ -185,6 +239,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
                 "background": _basename(game.bg_path),
                 "is_nsfw": bool(game.is_nsfw),
                 "developer": game.developer,
+                "alias": game.alias,
                 "description": game.description,
                 "release_date": game.release_date,
                 "vndb_id": game.vndb_id,
@@ -203,12 +258,13 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
         ],
         "versions": [
             {
-                "game": game_paths.get(version.game_id),
+                "game_key": game_keys.get(version.game_id),
+                "game": None,
                 "platform": version.platform or SYSTEM_CATEGORY_NAME,
                 "filename": version.filename,
                 "file_path": version.file_path,
                 "source_type": version.source_type,
-                "source_id": version.source_id,
+                "source_key": source_keys.get(version.source_id),
                 "source_path": version.source_path,
                 "file_size": version.file_size or 0,
                 "extract_password": version.extract_password,
@@ -221,7 +277,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
         "tags": [{"name": tag.name, "color": tag.color} for tag in tags],
         "game_tags": [
             {
-                "game": game_paths.get(row.game_id),
+                "game_key": game_keys.get(row.game_id),
                 "tag": tag_names.get(row.tag_id),
                 "source": row.source,
                 "weight": row.weight or 0.0,
@@ -265,6 +321,39 @@ async def _export_platform_categories(session) -> list[dict[str, Any]]:
     ]
 
 
+async def _export_steam_patch(session, config) -> dict[str, Any]:
+    steam_patch: dict[str, Any] = {"rules": [], "roots": []}
+    source_rows = list((await session.execute(select(FileSource))).scalars())
+    source_keys = {source.id: f"src-{index}" for index, source in enumerate(
+        sorted(source_rows, key=lambda item: item.id), 1
+    )}
+
+    index_path = patch_rules.patch_index_path(config)
+    if index_path.is_file():
+        index_data = patch_rules.load_patch_index(index_path)
+        steam_patch["rules"] = patch_rules.rule_entries(
+            index_data["patches"], source_keys=source_keys
+        )
+    keywords, _ = patch_rules.read_keywords(patch_rules.keywords_path(config))
+    if keywords:
+        steam_patch["keywords"] = keywords
+
+    roots = list(
+        (await session.execute(select(SteamPatchRoot).order_by(SteamPatchRoot.id))).scalars()
+    )
+    steam_patch["roots"] = [
+        {
+            "path": root.path,
+            "source_type": root.source_type,
+            "source_key": source_keys.get(root.source_id),
+            "source_name": root.source_name,
+            "analysis_mode": root.analysis_mode,
+        }
+        for root in roots
+    ]
+    return steam_patch
+
+
 async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
     users = list((await session.execute(select(User).order_by(User.id))).scalars())
     return {
@@ -285,25 +374,6 @@ async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
                 "password_set": bool(user.password_set),
             }
             for user in users
-        ]
-    }
-
-
-async def _export_file_sources(session) -> dict[str, list[dict[str, Any]]]:
-    sources = list(
-        (await session.execute(select(FileSource).order_by(FileSource.id))).scalars()
-    )
-    return {
-        "sources": [
-            {
-                "name": source.name,
-                "type": source.type,
-                "base_url": source.base_url,
-                "username": source.username,
-                "password": _safe_decrypt(source.password),
-                "enabled": bool(source.enabled),
-            }
-            for source in sources
         ]
     }
 
@@ -339,6 +409,16 @@ def _export_settings(config) -> dict[str, Any]:
                 if isinstance(value, str) and value:
                     data[key] = _safe_decrypt(value)
             settings["scraper"] = data
+    custom_regex = getattr(config, "custom_regex", None) or []
+    if custom_regex:
+        settings["custom_regex"] = [
+            {
+                "pattern": item.pattern,
+                "platform": item.platform,
+                "description": item.description,
+            }
+            for item in custom_regex
+        ]
     return settings
 
 
@@ -347,8 +427,6 @@ async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
     if scope not in EXPORT_SCOPES:
         raise ValueError(f"unknown backup scope: {scope}")
 
-    index_path = patch_rules.patch_index_path(config)
-    keywords_path = patch_rules.keywords_path(config)
     payload: dict[str, Any] = {
         "kind": KIND,
         "schema_version": SCHEMA_VERSION,
@@ -356,80 +434,81 @@ async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
         "exported_at": utc_iso(),
         "source": {
             "data_path": str(config.data_path),
-            "patch_index": str(index_path),
-            "keywords": str(keywords_path),
+            "patch_index": str(patch_rules.patch_index_path(config)),
+            "keywords": str(patch_rules.keywords_path(config)),
         },
         "scope": scope,
         "steam_patch": {},
         "library": {},
         "accounts": {},
+        "settings": {},
         "media": {kind: [] for kind in MEDIA_KINDS},
     }
 
-    if scope in (SCOPE_ALL, SCOPE_LIBRARY):
-        async with db._session_factory() as session:
-            payload["library"] = await _export_library(session)
-            payload["library"]["file_sources"] = await _export_file_sources(session)
-            payload["library"]["platform_categories"] = await _export_platform_categories(session)
+    async with db._session_factory() as session:
+        if scope in (SCOPE_ALL, SCOPE_LIBRARY):
+            library = await _export_library(session)
+            library["platform_categories"] = await _export_platform_categories(session)
             payload["accounts"] = await _export_accounts(session)
+        else:
+            # Patch-only archives still need the file sources their roots point at.
+            library = {"file_sources": await _export_file_sources(session)}
+        payload["library"] = library
+        if scope in (SCOPE_ALL, SCOPE_PATCH):
+            payload["steam_patch"] = await _export_steam_patch(session, config)
+    if scope in (SCOPE_ALL, SCOPE_LIBRARY):
         payload["settings"] = _export_settings(config)
-
-    if scope in (SCOPE_ALL, SCOPE_PATCH):
-        steam_patch: dict[str, Any] = {}
-        if index_path.is_file():
-            index_data = patch_rules.load_patch_index(index_path)
-            steam_patch["rules"] = patch_rules.rule_entries(index_data["patches"])
-        keywords, _ = patch_rules.read_keywords(keywords_path)
-        if keywords:
-            steam_patch["keywords"] = keywords
-        async with db._session_factory() as session:
-            roots = list(
-                (
-                    await session.execute(
-                        select(SteamPatchRoot).order_by(SteamPatchRoot.id)
-                    )
-                ).scalars()
-            )
-        steam_patch["roots"] = [
-            {
-                "path": root.path,
-                "source_type": root.source_type,
-                "source_id": root.source_id,
-                "source_name": root.source_name,
-                "analysis_mode": root.analysis_mode,
-            }
-            for root in roots
-        ]
-        payload["steam_patch"] = steam_patch
 
     return payload
 
 
-def collect_media(config, payload: dict[str, Any]) -> dict[str, list[Path]]:
+def _media_key(path: Path) -> str:
+    """Content-addressed name: identical images dedupe, different ones never clash."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"{digest.hexdigest()[:24]}{path.suffix.lower()}"
+
+
+def collect_media(config, payload: dict[str, Any]) -> dict[str, dict[str, Path]]:
+    """Map media references to content keys and record which files to archive."""
     directories = media_dirs(config)
-    wanted: dict[str, set[str]] = {kind: set() for kind in MEDIA_KINDS}
-    for game in payload["library"].get("games") or []:
-        for field, kind in (("cover", "covers"), ("background", "backgrounds")):
-            name = _basename(game.get(field))
-            if name:
-                wanted[kind].add(name)
-    for user in payload["accounts"].get("users") or []:
-        name = _basename(user.get("avatar"))
-        if name:
-            wanted["avatars"].add(name)
+    libraries: dict[str, dict[str, Path]] = {kind: {} for kind in MEDIA_KINDS}
+    cache: dict[str, dict[str, str | None]] = {kind: {} for kind in MEDIA_KINDS}
 
-    found: dict[str, list[Path]] = {}
-    for kind in MEDIA_KINDS:
-        files = []
-        for name in sorted(wanted[kind]):
-            path = directories[kind] / name
-            if path.is_file():
-                files.append(path)
-        found[kind] = files
-    return found
+    def resolve(kind: str, value: Any) -> str | None:
+        name = _basename(value)
+        if not name:
+            return None
+        if name in cache[kind]:
+            return cache[kind][name]
+        path = directories[kind] / name
+        if not path.is_file():
+            cache[kind][name] = None
+            return None
+        key = _media_key(path)
+        cache[kind][name] = key
+        libraries[kind][key] = path
+        return key
+
+    for game in (payload.get("library") or {}).get("games") or []:
+        game["cover"] = resolve("covers", game.get("cover"))
+        game["background"] = resolve("backgrounds", game.get("background"))
+    for user in (payload.get("accounts") or {}).get("users") or []:
+        user["avatar"] = resolve("avatars", user.get("avatar"))
+
+    payload["media"] = {
+        kind: [
+            {"key": key, "name": path.name, "size": path.stat().st_size}
+            for key, path in sorted(libraries[kind].items())
+        ]
+        for kind in MEDIA_KINDS
+    }
+    return libraries
 
 
-def write_backup(output: Path, payload: dict[str, Any], media: dict[str, list[Path]],
+def write_backup(output: Path, payload: dict[str, Any], media: dict[str, dict[str, Path]],
                  *, include_media: bool) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     if not include_media:
@@ -439,12 +518,8 @@ def write_backup(output: Path, payload: dict[str, Any], media: dict[str, list[Pa
     with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(JSON_NAME, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         for kind, files in media.items():
-            for path in files:
-                archive.write(
-                    path,
-                    f"media/{kind}/{path.name}",
-                    compress_type=zipfile.ZIP_STORED,
-                )
+            for key, path in files.items():
+                archive.write(path, f"media/{kind}/{key}", compress_type=zipfile.ZIP_STORED)
     tmp_path.replace(output)
 
 
@@ -459,7 +534,6 @@ async def cmd_backup(args) -> int:
 
     payload = await build_payload(config, scope=scope)
     media = collect_media(config, payload)
-    payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
     await asyncio.to_thread(
         write_backup, output, payload, media, include_media=include_media
     )
@@ -502,35 +576,144 @@ def read_backup_payload(path: Path) -> dict[str, Any]:
         fail(f"备份文件格式错误: {exc}", 3)
     if not isinstance(data, dict):
         fail("备份文件顶层必须是对象", 3)
-    if data.get("kind") not in {KIND, LEGACY_KIND}:
+    if data.get("kind") != KIND:
         fail("备份文件类型不正确，不是 Sena-Repo 备份", 3)
-    if data.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
-        fail(f"不支持的备份版本: {data.get('schema_version')}", 3)
+    if data.get("schema_version") != SCHEMA_VERSION:
+        fail(
+            f"备份格式版本 {data.get('schema_version')} 已不再支持，"
+            "请用当前版本的 senacli backup 重新导出",
+            3,
+        )
     return data
 
 
+def _expect_list(value: Any, label: str) -> list[Any]:
+    if not isinstance(value, list):
+        fail(f"备份结构不正确: {label} 必须是数组", 3)
+    return value
+
+
+def _expect_dict(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        fail(f"备份结构不正确: {label} 必须是对象", 3)
+    return value
+
+
+def _require(entry: dict[str, Any], key: str, label: str) -> Any:
+    value = entry.get(key)
+    if value in (None, ""):
+        fail(f"备份结构不正确: {label} 缺少 {key}", 3)
+    return value
+
+
 def normalise_payload(data: dict[str, Any]) -> dict[str, Any]:
-    if data.get("kind") == LEGACY_KIND:
-        raw_patch: dict[str, Any] = {"rules": data.get("rules"), "keywords": data.get("keywords")}
-    else:
-        raw_patch = data.get("steam_patch") or {}
-    rules = raw_patch.get("rules")
+    """Validate the archive structure and cross-references before touching data."""
+    library = _expect_dict(data.get("library") or {}, "library")
+    accounts = _expect_dict(data.get("accounts") or {}, "accounts")
+    settings = _expect_dict(data.get("settings") or {}, "settings")
+    steam_patch = _expect_dict(data.get("steam_patch") or {}, "steam_patch")
+    media_raw = _expect_dict(data.get("media") or {}, "media")
+
+    sources = _expect_list(library.get("file_sources") or [], "library.file_sources")
+    source_keys: set[str] = set()
+    for entry in sources:
+        entry = _expect_dict(entry, "library.file_sources[]")
+        key = _require(entry, "key", "文件源")
+        if key in source_keys:
+            fail(f"备份结构不正确: 文件源标识 {key} 重复", 3)
+        source_keys.add(key)
+
+    roots = _expect_list(library.get("roots") or [], "library.roots")
+    root_keys: set[str] = set()
+    for entry in roots:
+        entry = _expect_dict(entry, "library.roots[]")
+        key = _require(entry, "key", "目录库")
+        if key in root_keys:
+            fail(f"备份结构不正确: 目录库标识 {key} 重复", 3)
+        root_keys.add(key)
+        if str(entry.get("source_type") or "local") == "openlist":
+            source_key = entry.get("source_key")
+            if not source_key or source_key not in source_keys:
+                fail(
+                    f"备份结构不正确: 目录库 {entry.get('path')} 引用了缺失的文件源",
+                    3,
+                )
+
+    media: dict[str, dict[str, dict[str, Any]]] = {}
+    for kind in MEDIA_KINDS:
+        entries = _expect_list(media_raw.get(kind) or [], f"media.{kind}")
+        known: dict[str, dict[str, Any]] = {}
+        for entry in entries:
+            entry = _expect_dict(entry, f"media.{kind}[]")
+            key = _require(entry, "key", f"媒体 {kind}")
+            known[key] = entry
+        media[kind] = known
+
+    games = _expect_list(library.get("games") or [], "library.games")
+    game_keys: set[str] = set()
+    for entry in games:
+        entry = _expect_dict(entry, "library.games[]")
+        key = _require(entry, "key", "游戏")
+        if key in game_keys:
+            fail(f"备份结构不正确: 游戏标识 {key} 重复", 3)
+        game_keys.add(key)
+        entry_source = str(entry.get("entry_source") or "library")
+        if entry_source not in ENTRY_SOURCES:
+            fail(f"备份结构不正确: 未知的条目标识 {entry_source}", 3)
+        if entry_source == "library" and entry.get("root_key") not in root_keys:
+            fail(f"备份结构不正确: 游戏 {entry.get('name')} 引用了缺失的目录库", 3)
+        for field, kind in (("cover", "covers"), ("background", "backgrounds")):
+            value = entry.get(field)
+            if value and value not in media[kind]:
+                fail(f"备份结构不正确: 游戏 {entry.get('name')} 的图片不在媒体清单中", 3)
+
+    versions = _expect_list(library.get("versions") or [], "library.versions")
+    for entry in versions:
+        entry = _expect_dict(entry, "library.versions[]")
+        if entry.get("game_key") not in game_keys:
+            fail("备份结构不正确: 版本引用了缺失的游戏", 3)
+        if entry.get("source_key") and entry["source_key"] not in source_keys:
+            fail("备份结构不正确: 版本引用了缺失的文件源", 3)
+
+    for entry in _expect_list(library.get("game_tags") or [], "library.game_tags"):
+        entry = _expect_dict(entry, "library.game_tags[]")
+        if entry.get("game_key") not in game_keys:
+            fail("备份结构不正确: 标签关联引用了缺失的游戏", 3)
+
+    for entry in _expect_list(accounts.get("users") or [], "accounts.users"):
+        entry = _expect_dict(entry, "accounts.users[]")
+        _require(entry, "username", "账号")
+        avatar = entry.get("avatar")
+        if avatar and avatar not in media["avatars"]:
+            fail(f"备份结构不正确: 账号 {entry.get('username')} 的头像不在媒体清单中", 3)
+
+    rules = _expect_list(steam_patch.get("rules") or [], "steam_patch.rules")
+    for entry in rules:
+        entry = _expect_dict(entry, "steam_patch.rules[]")
+        if not isinstance(entry.get("identity"), dict) or not isinstance(entry.get("rule"), dict):
+            fail("备份结构不正确: 补丁规则缺少 identity 或 rule", 3)
+
+    patch_roots = _expect_list(steam_patch.get("roots") or [], "steam_patch.roots")
+    for entry in patch_roots:
+        entry = _expect_dict(entry, "steam_patch.roots[]")
+        _require(entry, "path", "补丁库目录")
+        source_key = entry.get("source_key")
+        if str(entry.get("source_type") or "local") == "openlist":
+            if not source_key or source_key not in source_keys:
+                fail(f"备份结构不正确: 补丁库目录 {entry.get('path')} 引用了缺失的文件源", 3)
+
     return {
-        "rules": rules if isinstance(rules, list) else [],
-        "keywords": patch_rules.normalise_keywords(raw_patch.get("keywords")),
-        "patch_roots": raw_patch.get("roots")
-        if isinstance(raw_patch.get("roots"), list)
-        else [],
-        "library": data.get("library") if isinstance(data.get("library"), dict) else {},
-        "settings": data.get("settings")
-        if isinstance(data.get("settings"), dict)
-        else {},
-        "accounts": data.get("accounts") if isinstance(data.get("accounts"), dict) else {},
-        "media": data.get("media") if isinstance(data.get("media"), dict) else {},
+        "rules": rules,
+        "keywords": patch_rules.normalise_keywords(steam_patch.get("keywords")),
+        "patch_roots": patch_roots,
+        "library": library,
+        "settings": settings,
+        "accounts": accounts,
+        "media": media,
     }
 
 
-# ── import ──
+# ── import helpers ──
 
 
 def _platform_name(value: Any) -> str:
@@ -539,21 +722,25 @@ def _platform_name(value: Any) -> str:
 
 
 async def import_file_sources(
-    session, section: dict[str, Any], *, replace: bool
-) -> tuple[dict[str, int], list[str]]:
+    session,
+    entries: list[dict[str, Any]],
+    *,
+    replace: bool,
+) -> tuple[dict[str, int], dict[str, int], list[str]]:
+    """Restore file sources and return a backup-key → local-id map."""
     stats = {"sources_new": 0, "sources_updated": 0}
     notes: list[str] = []
-    entries = section.get("sources") or []
-    if not entries:
-        return stats, notes
     existing = {
         source.name: source
         for source in (await session.execute(select(FileSource))).scalars()
         if source.name
     }
+    by_key: dict[str, int] = {}
+
     for entry in entries:
         name = str(entry.get("name") or "").strip()
-        if not name:
+        key = str(entry.get("key") or "").strip()
+        if not name or not key:
             continue
         fields: dict[str, Any] = {
             "type": str(entry.get("type") or "local"),
@@ -572,43 +759,71 @@ async def import_file_sources(
             existing[name] = source
             stats["sources_new"] += 1
             notes.append(f"已创建文件源「{name}」")
-            continue
-        if replace:
-            for key, value in fields.items():
-                setattr(source, key, value)
+        elif replace:
+            for field_name, value in fields.items():
+                setattr(source, field_name, value)
             stats["sources_updated"] += 1
-            notes.append(f"已更新文件源「{name}」")
         else:
-            notes.append(f"文件源「{name}」已存在，保留本机配置")
-    return stats, notes
+            if (source.base_url or "") != (fields.get("base_url") or ""):
+                notes.append(
+                    f"文件源「{name}」与本机地址不同，已保留本机配置"
+                )
+            else:
+                notes.append(f"文件源「{name}」已存在，保留本机配置")
+        by_key[key] = source.id
+
+    return stats, by_key, notes
 
 
 async def import_platform_categories(
-    session, entries: list[dict[str, Any]]
+    session, entries: list[dict[str, Any]], *, replace: bool
 ) -> tuple[dict[str, int], list[str]]:
-    stats = {"categories_new": 0, "rules_new": 0}
+    stats = {"categories_new": 0, "categories_updated": 0, "rules_new": 0}
     notes: list[str] = []
-    if not isinstance(entries, list) or not entries:
+    if not entries:
         return stats, notes
+
+    if replace:
+        await session.execute(
+            delete(PlatformCategoryRule).where(
+                PlatformCategoryRule.category_id.in_(
+                    select(PlatformCategory.id).where(PlatformCategory.is_system == False)  # noqa: E712
+                )
+            )
+        )
+        await session.execute(
+            delete(PlatformCategory).where(PlatformCategory.is_system == False)  # noqa: E712
+        )
+        await session.flush()
+
     existing = {
         category.name: category
         for category in (await session.execute(select(PlatformCategory))).scalars()
     }
+
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("name") or "").strip()
-        if not name:
+        if not name or name == SYSTEM_CATEGORY_NAME:
             continue
         category = existing.get(name)
-        if category is None:
+        sort_order = int(entry.get("sort_order") or 0)
+        created = category is None
+        previous_order = None if created else category.sort_order
+        if created:
             category = await ensure_category(session, name)
             existing[name] = category
             stats["categories_new"] += 1
+        category.sort_order = sort_order
+        rules_added = 0
+
         rules = entry.get("rules")
         if not isinstance(rules, list) or not rules or category.is_system:
+            if not created and previous_order != sort_order:
+                stats["categories_updated"] += 1
             continue
-        known_rules = {
+        known = {
             (rule.kind, rule.pattern)
             for rule in (
                 await session.execute(
@@ -618,14 +833,6 @@ async def import_platform_categories(
                 )
             ).scalars()
         }
-        next_order = (
-            await session.execute(
-                select(func.max(PlatformCategoryRule.sort_order)).where(
-                    PlatformCategoryRule.category_id == category.id
-                )
-            )
-        ).scalar()
-        next_order = (next_order if next_order is not None else -1) + 1
         for rule_entry in rules:
             if not isinstance(rule_entry, dict):
                 continue
@@ -633,99 +840,89 @@ async def import_platform_categories(
             pattern = str(rule_entry.get("pattern") or "").strip()
             if kind not in ("keyword", "regex") or not pattern:
                 continue
-            if (kind, pattern) in known_rules:
+            if (kind, pattern) in known:
                 continue
             session.add(
                 PlatformCategoryRule(
                     category_id=category.id,
                     kind=kind,
                     pattern=pattern,
-                    sort_order=next_order,
+                    sort_order=int(rule_entry.get("sort_order") or len(known)),
                 )
             )
-            known_rules.add((kind, pattern))
-            next_order += 1
+            known.add((kind, pattern))
             stats["rules_new"] += 1
-    if stats["categories_new"] or stats["rules_new"]:
-        notes.append(
-            f"分类: 新增 {stats['categories_new']} 个分类、{stats['rules_new']} 条匹配规则"
-        )
+            rules_added += 1
+        if not created and (previous_order != sort_order or rules_added):
+            stats["categories_updated"] += 1
     await session.flush()
+    if stats["categories_new"] or stats["categories_updated"] or stats["rules_new"]:
+        notes.append(
+            "分类: 新增 {categories_new} / 更新 {categories_updated} 个分类、"
+            "{rules_new} 条匹配规则".format(**stats)
+        )
     return stats, notes
 
 
-async def import_library(config, session, library: dict[str, Any], *,
-                         replace: bool) -> tuple[dict[str, int], list[str]]:
+async def import_library(
+    config,
+    session,
+    library: dict[str, Any],
+    *,
+    replace: bool,
+    source_map: dict[str, int],
+    available_media: dict[str, set[str]],
+    overwrite_media: bool,
+) -> tuple[dict[str, int], list[str]]:
     stats = {
         "roots_new": 0, "roots_matched": 0, "roots_skipped": 0,
         "games_new": 0, "games_updated": 0, "games_skipped": 0,
         "versions_new": 0, "versions_updated": 0,
         "tags_new": 0, "tags_updated": 0, "game_tags": 0,
         "companies_new": 0, "ignored_new": 0,
-        "sources_new": 0, "sources_updated": 0,
+        "categories_new": 0, "categories_updated": 0, "rules_new": 0,
+        "media_skipped": 0,
     }
     notes: list[str] = []
 
-    if replace:
-        await session.execute(delete(GameTag))
-        await session.execute(delete(GameVersion))
-        await session.execute(delete(Game))
-        await session.execute(delete(Company))
-        await session.execute(delete(IgnoreList))
-        await session.flush()
-
-    source_stats, source_notes = await import_file_sources(
-        session, library.get("file_sources") or {}, replace=replace
+    category_stats, category_notes = await import_platform_categories(
+        session, library.get("platform_categories") or [], replace=replace
     )
-    stats["sources_new"] = source_stats["sources_new"]
-    stats["sources_updated"] = source_stats["sources_updated"]
-    notes.extend(source_notes)
-
-    _, category_notes = await import_platform_categories(
-        session, library.get("platform_categories") or []
-    )
+    stats.update(category_stats)
     notes.extend(category_notes)
     known_categories = {
         category.name
         for category in (await session.execute(select(PlatformCategory))).scalars()
     }
 
-    sources = list((await session.execute(select(FileSource))).scalars())
-    sources_by_id = {source.id: source for source in sources}
-    sources_by_name = {source.name: source for source in sources if source.name}
     existing_roots = {
         root.path: root for root in (await session.execute(select(RootDirectory))).scalars()
     }
-    root_by_backup_path: dict[str, RootDirectory] = {}
+    root_by_key: dict[str, RootDirectory] = {}
     prefix_map: list[tuple[str, str]] = []
-    source_id_map: dict[int, int] = {}
 
     for entry in library.get("roots") or []:
+        key = str(entry.get("key") or "").strip()
         old_path = str(entry.get("path") or "").strip()
-        if not old_path:
+        if not key or not old_path:
             continue
         source_type = str(entry.get("source_type") or "local")
-        source_id = entry.get("source_id")
+        source_id = None
         source_name = entry.get("source_name")
         if source_type == "openlist":
-            # Match by name first: ids only line up on the machine that made the backup.
-            source = sources_by_name.get(source_name) if source_name else None
-            if source is None and source_id is not None:
-                candidate = sources_by_id.get(source_id)
-                if candidate is not None and (not source_name or candidate.name == source_name):
-                    source = candidate
-            if source is None:
+            source_key = entry.get("source_key")
+            source_id = source_map.get(str(source_key)) if source_key else None
+            if source_id is None:
                 stats["roots_skipped"] += 1
                 notes.append(
-                    f"缺少 OpenList 文件源「{source_name or source_id}」，"
-                    f"请先在服务端配置同名源；已跳过目录库 {old_path}"
+                    f"缺少 OpenList 文件源「{source_name or source_key}」，"
+                    f"已跳过目录库 {old_path}"
                 )
                 continue
-            if source_id is not None and source_id != source.id:
-                source_id_map[int(source_id)] = source.id
-            source_id = source.id
-            source_name = source.name
-        new_path = canonical_source_path(source_type, source_id, entry.get("source_path") or old_path)
+            source_name = entry.get("source_name") or source_name
+        new_path = canonical_source_path(
+            source_type, source_id, entry.get("source_path") or old_path
+        )
         root = existing_roots.get(new_path)
         if root is None:
             root = RootDirectory(
@@ -741,8 +938,13 @@ async def import_library(config, session, library: dict[str, Any], *,
             existing_roots[new_path] = root
             stats["roots_new"] += 1
         else:
+            root.source_type = source_type
+            root.source_id = source_id
+            root.source_name = source_name
+            root.source_path = entry.get("source_path")
+            root.enable_batch_scrape = bool(entry.get("enable_batch_scrape", True))
             stats["roots_matched"] += 1
-        root_by_backup_path[old_path] = root
+        root_by_key[key] = root
         if new_path != old_path:
             prefix_map.append((old_path, new_path))
 
@@ -759,19 +961,27 @@ async def import_library(config, session, library: dict[str, Any], *,
     games_by_path = {
         game.folder_path: game for game in (await session.execute(select(Game))).scalars()
     }
+    directories = media_dirs(config)
     game_ids: dict[str, int] = {}
     locked_game_ids: set[int] = set()
-    directories = media_dirs(config)
 
     for entry in library.get("games") or []:
+        key = str(entry.get("key") or "").strip()
         old_folder = str(entry.get("folder_path") or "").strip()
-        if not old_folder:
+        if not key or not old_folder:
             continue
-        root = root_by_backup_path.get(str(entry.get("root") or ""))
+        entry_source = str(entry.get("entry_source") or "library")
+        root = root_by_key.get(str(entry.get("root_key") or ""))
         if root is None:
-            stats["games_skipped"] += 1
-            notes.append(f"缺少目录库，已跳过游戏 {entry.get('name') or old_folder}")
-            continue
+            if entry_source in ("manual", "metadata"):
+                # Virtual entries carry no directory library; the API stores root_id 0.
+                root_id = 0
+            else:
+                stats["games_skipped"] += 1
+                notes.append(f"缺少目录库，已跳过游戏 {entry.get('name') or old_folder}")
+                continue
+        else:
+            root_id = root.id
 
         company = None
         company_name = entry.get("company")
@@ -785,18 +995,21 @@ async def import_library(config, session, library: dict[str, Any], *,
                 stats["companies_new"] += 1
 
         folder_path = remap(old_folder)
-        cover_name = _basename(entry.get("cover"))
-        background_name = _basename(entry.get("background"))
+        cover_key = entry.get("cover")
+        background_key = entry.get("background")
         fields = {
             "name": entry.get("name") or _basename(folder_path) or folder_path,
             "company_id": company.id if company else None,
-            "root_id": root.id,
+            "root_id": root_id,
             "folder_path": folder_path,
-            "entry_source": entry.get("entry_source") or "library",
-            "cover_path": str(directories["covers"] / cover_name) if cover_name else None,
-            "bg_path": str(directories["backgrounds"] / background_name) if background_name else None,
+            "entry_source": entry_source,
+            "cover_path": str(directories["covers"] / cover_key)
+            if cover_key in available_media["covers"] else None,
+            "bg_path": str(directories["backgrounds"] / background_key)
+            if background_key in available_media["backgrounds"] else None,
             "is_nsfw": bool(entry.get("is_nsfw", False)),
             "developer": entry.get("developer"),
+            "alias": entry.get("alias"),
             "description": entry.get("description"),
             "release_date": entry.get("release_date"),
             "vndb_id": entry.get("vndb_id"),
@@ -825,28 +1038,34 @@ async def import_library(config, session, library: dict[str, Any], *,
             stats["games_skipped"] += 1
             notes.append(f"游戏「{game.name}」已锁定，已保留本机元数据")
         else:
-            for key, value in fields.items():
-                setattr(game, key, value)
+            if not overwrite_media:
+                if game.cover_path:
+                    fields.pop("cover_path", None)
+                if game.bg_path:
+                    fields.pop("bg_path", None)
+                if game.cover_path or game.bg_path:
+                    stats["media_skipped"] += 1
+            for field_name, value in fields.items():
+                setattr(game, field_name, value)
             stats["games_updated"] += 1
         updated_at = _parse_dt(entry.get("updated_at"))
         if updated_at is not None:
             game.updated_at = updated_at
-        game_ids[old_folder] = game.id
+        game_ids[key] = game.id
 
     versions = {
         (version.game_id, version.file_path): version
         for version in (await session.execute(select(GameVersion))).scalars()
     }
     for entry in library.get("versions") or []:
-        game_id = game_ids.get(str(entry.get("game") or ""))
+        game_id = game_ids.get(str(entry.get("game_key") or ""))
         if game_id is None:
             continue
         file_path = remap(entry.get("file_path"))
         if not file_path:
             continue
-        source_id = entry.get("source_id")
-        if source_id is not None:
-            source_id = source_id_map.get(int(source_id), source_id)
+        source_key = entry.get("source_key")
+        source_id = source_map.get(str(source_key)) if source_key else None
         platform = _platform_name(entry.get("platform"))
         if platform not in known_categories:
             await ensure_category(session, platform)
@@ -870,8 +1089,8 @@ async def import_library(config, session, library: dict[str, Any], *,
             session.add(GameVersion(**data))
             stats["versions_new"] += 1
         else:
-            for key, value in data.items():
-                setattr(version, key, value)
+            for field_name, value in data.items():
+                setattr(version, field_name, value)
             stats["versions_updated"] += 1
 
     tags = {tag.name: tag for tag in (await session.execute(select(Tag))).scalars()}
@@ -895,7 +1114,7 @@ async def import_library(config, session, library: dict[str, Any], *,
         for row in (await session.execute(select(GameTag))).scalars()
     }
     for entry in library.get("game_tags") or []:
-        game_id = game_ids.get(str(entry.get("game") or ""))
+        game_id = game_ids.get(str(entry.get("game_key") or ""))
         tag = tags.get(str(entry.get("tag") or ""))
         if game_id is None or tag is None or game_id in locked_game_ids:
             continue
@@ -930,24 +1149,78 @@ async def import_library(config, session, library: dict[str, Any], *,
     return stats, notes
 
 
-async def import_accounts(config, session, accounts: dict[str, Any], *,
-                          replace: bool) -> tuple[dict[str, int], list[str]]:
+async def import_patch_roots(
+    session,
+    entries: list[dict[str, Any]],
+    source_map: dict[str, int],
+) -> tuple[dict[str, int], list[str]]:
+    stats = {"patch_roots_new": 0, "patch_roots_matched": 0, "patch_roots_skipped": 0}
+    notes: list[str] = []
+    if not entries:
+        return stats, notes
+
+    existing = {
+        (root.source_type, root.source_id, root.path): root
+        for root in (await session.execute(select(SteamPatchRoot))).scalars()
+    }
+    for entry in entries:
+        path = str(entry.get("path") or "").strip()
+        if not path:
+            stats["patch_roots_skipped"] += 1
+            continue
+        source_type = str(entry.get("source_type") or "local")
+        source_id = None
+        source_name = entry.get("source_name")
+        if source_type == "openlist":
+            source_key = entry.get("source_key")
+            source_id = source_map.get(str(source_key)) if source_key else None
+            if source_id is None:
+                stats["patch_roots_skipped"] += 1
+                notes.append(
+                    f"缺少 OpenList 文件源「{source_name or source_key}」，"
+                    f"已跳过补丁库目录 {path}"
+                )
+                continue
+        analysis_mode = str(entry.get("analysis_mode") or "auto")
+        key = (source_type, source_id, path)
+        root = existing.get(key)
+        if root is None:
+            root = SteamPatchRoot(
+                path=path,
+                source_type=source_type,
+                source_id=source_id,
+                source_name=str(source_name) if source_name else None,
+                analysis_mode=analysis_mode,
+            )
+            session.add(root)
+            existing[key] = root
+            stats["patch_roots_new"] += 1
+            continue
+        root.source_name = str(source_name) if source_name else None
+        root.analysis_mode = analysis_mode
+        stats["patch_roots_matched"] += 1
+    return stats, notes
+
+
+async def import_accounts(
+    config,
+    session,
+    accounts: dict[str, Any],
+    *,
+    available_media: dict[str, set[str]],
+) -> tuple[dict[str, int], list[str]]:
     stats = {"users_new": 0, "users_updated": 0, "users_skipped": 0, "sessions_revoked": 0}
     notes: list[str] = []
     entries = accounts.get("users") or []
     if not entries:
         return stats, notes
 
-    if replace:
-        await session.execute(delete(UserSession))
-        await session.execute(delete(User))
-        await session.flush()
-
     avatars_dir = media_dirs(config)["avatars"]
     existing = {
         user.username: user for user in (await session.execute(select(User))).scalars()
     }
-    owner_taken = next((u.username for u in existing.values() if u.role == "owner"), None)
+    current_owner = next((u for u in existing.values() if u.role == "owner"), None)
+    owner_assigned = False
 
     for entry in entries:
         username = str(entry.get("username") or "").strip()
@@ -955,25 +1228,30 @@ async def import_accounts(config, session, accounts: dict[str, Any], *,
             stats["users_skipped"] += 1
             continue
         role = str(entry.get("role") or "user")
-        if role == "owner" and owner_taken and owner_taken != username:
-            stats["users_skipped"] += 1
-            notes.append(f"服务端已有服主「{owner_taken}」，已跳过备份中的服主「{username}」")
-            continue
-        avatar_name = _basename(entry.get("avatar"))
-        fields = {
+        if role == "owner":
+            if owner_assigned or (current_owner is not None and current_owner.username != username):
+                role = "admin"
+                notes.append(
+                    f"备份中的服主「{username}」已作为管理员恢复，"
+                    f"保留当前服主「{current_owner.username if current_owner else '—'}」"
+                )
+            else:
+                owner_assigned = True
+        avatar_key = entry.get("avatar")
+        fields: dict[str, Any] = {
             "password_hash": entry.get("password_hash") or "",
             "salt": entry.get("salt") or "",
             "role": role,
-            "is_admin": role in {"owner", "admin"} or bool(entry.get("is_admin")),
+            "is_admin": role in {"owner", "admin"},
             "status": str(entry.get("status") or "active"),
-            "avatar_path": str(avatars_dir / avatar_name) if avatar_name else None,
+            "avatar_path": str(avatars_dir / avatar_key)
+            if avatar_key in available_media["avatars"] else None,
         }
-        # Older backups have no OAuth fields; keep the target's bindings instead of clearing them.
         for key in ("oauth_provider", "oauth_subject", "oauth_name", "oauth_user_id"):
-            if key in entry:
-                fields[key] = entry.get(key)
+            fields[key] = entry.get(key)
         if "password_set" in entry:
             fields["password_set"] = bool(entry.get("password_set"))
+
         user = existing.get(username)
         if user is None:
             user = User(username=username, **fields)
@@ -984,12 +1262,16 @@ async def import_accounts(config, session, accounts: dict[str, Any], *,
             await session.flush()
             existing[username] = user
             stats["users_new"] += 1
-            if role == "owner":
-                owner_taken = username
             continue
+
+        if user.role == "owner" and user is current_owner:
+            # Never downgrade or disable the account that currently manages this server.
+            fields["role"] = "owner"
+            fields["is_admin"] = True
+            fields["status"] = "active"
         password_changed = user.password_hash != fields["password_hash"]
-        for key, value in fields.items():
-            setattr(user, key, value)
+        for field_name, value in fields.items():
+            setattr(user, field_name, value)
         stats["users_updated"] += 1
         if password_changed:
             revoked = await session.execute(
@@ -1000,38 +1282,195 @@ async def import_accounts(config, session, accounts: dict[str, Any], *,
     return stats, notes
 
 
-def apply_media(config, archive: Path, manifest: dict[str, Any], *, policy: str) -> dict[str, int]:
-    stats = {"written": 0, "skipped": 0}
+async def _ensure_owner(session) -> None:
+    """Refuse to finish a restore that would leave the server without a usable owner."""
+    owners = list(
+        (await session.execute(select(User).where(User.role == "owner"))).scalars()
+    )
+    if not owners:
+        fail("恢复后没有任何服主账号，已取消本次恢复", 4)
+    if len(owners) > 1:
+        fail("恢复后出现多个服主账号，已取消本次恢复", 4)
+    owner = owners[0]
+    owner.status = "active"
+    if not (owner.password_hash or "").strip() and not owner.oauth_subject:
+        fail(f"服主「{owner.username}」没有可用的登录方式，已取消本次恢复", 4)
+
+
+def apply_media(
+    config,
+    archive: Path,
+    manifest: dict[str, dict[str, Any]],
+    journal: "_RestoreJournal",
+) -> dict[str, set[str]]:
+    """Copy archived media into place; names are content keys, so nothing is clobbered."""
+    available: dict[str, set[str]] = {kind: set() for kind in MEDIA_KINDS}
     if not archive.is_file() or not zipfile.is_zipfile(archive):
-        return stats
+        return available
     directories = media_dirs(config)
     with zipfile.ZipFile(archive) as source:
         names = set(source.namelist())
         for kind in MEDIA_KINDS:
             target_dir = directories[kind]
-            for name in manifest.get(kind) or []:
-                base = _basename(name)
-                if not base:
-                    continue
-                entry = f"media/{kind}/{base}"
+            for key in (manifest.get(kind) or {}):
+                entry = f"media/{kind}/{key}"
                 if entry not in names:
                     continue
+                available[kind].add(key)
                 target_dir.mkdir(parents=True, exist_ok=True)
-                destination = target_dir / base
-                if destination.exists() and policy == MEDIA_SKIP:
-                    stats["skipped"] += 1
+                destination = target_dir / key
+                if destination.is_file():
                     continue
                 with source.open(entry) as src, open(destination, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-                stats["written"] += 1
-    return stats
+                journal.record_media(destination)
+    return available
 
 
 # ── restore ──
 
 
+def _database_path(config) -> Path:
+    url = config.database_url
+    marker = "sqlite+aiosqlite:///"
+    if not url.startswith(marker):
+        fail("当前数据库不是 SQLite，无法创建恢复快照", 4)
+    return Path(url[len(marker):])
+
+
+def _snapshot_database(config, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source = sqlite3.connect(str(_database_path(config)))
+    try:
+        destination = sqlite3.connect(str(target))
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+    finally:
+        source.close()
+
+
+def _restore_database(config, snapshot: Path) -> None:
+    """Write the snapshot back through SQLite so live connections see the old data."""
+    source = sqlite3.connect(str(snapshot))
+    try:
+        destination = sqlite3.connect(str(_database_path(config)))
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+    finally:
+        source.close()
+
+
+def _write_text_atomic(path: Path, text: str, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{secrets.token_hex(3)}.tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    if mode is not None:
+        try:
+            tmp_path.chmod(mode)
+        except OSError:
+            pass
+    tmp_path.replace(path)
+
+
+class _RestoreJournal:
+    """Tracks everything a restore touches so a failure can be undone."""
+
+    def __init__(self, config, snapshot: Path, journal_path: Path):
+        self.config = config
+        self.snapshot = snapshot
+        self.journal_path = journal_path
+        self.backups: dict[str, Path] = {}
+        self.missing: list[Path] = []
+        self.created_media: list[Path] = []
+
+    @classmethod
+    def begin(cls, config) -> "_RestoreJournal":
+        safety = backup_dir(config)
+        safety.mkdir(parents=True, exist_ok=True)
+        stamp = f"{utc_timestamp()}-{secrets.token_hex(3)}"
+        snapshot = safety / f"db-before-restore-{stamp}.sqlite3"
+        journal_path = safety / "restore-in-progress.json"
+        if journal_path.is_file():
+            echo(
+                "警告: 上一次恢复没有正常结束，安全快照保留在 "
+                f"{safety}；如需回退请手动处理"
+            )
+        _snapshot_database(config, snapshot)
+        journal = cls(config, snapshot, journal_path)
+        journal.write()
+        return journal
+
+    def record_file(self, path: Path) -> None:
+        if path in self.created_media:
+            return
+        if path.is_file():
+            copy = self.snapshot.with_name(f"{self.snapshot.stem}-{path.name}")
+            shutil.copy2(path, copy)
+            self.backups[str(path)] = copy
+        else:
+            self.missing.append(path)
+        self.write()
+
+    def record_media(self, path: Path) -> None:
+        self.created_media.append(path)
+        self.write()
+
+    def write(self) -> None:
+        payload = {
+            "started_at": utc_iso(),
+            "snapshot": str(self.snapshot),
+            "files": {key: str(value) for key, value in self.backups.items()},
+            "missing": [str(path) for path in self.missing],
+            "created_media": [str(path) for path in self.created_media],
+        }
+        try:
+            _write_text_atomic(
+                self.journal_path,
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            )
+        except OSError:
+            pass
+
+    def rollback(self) -> list[str]:
+        lines: list[str] = []
+        for path in self.created_media:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                lines.append(f"无法删除恢复时写入的图片: {path}")
+        for key, copy in self.backups.items():
+            try:
+                shutil.copy2(copy, key)
+            except OSError:
+                lines.append(f"无法还原文件: {key}")
+        for path in self.missing:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                lines.append(f"无法移除恢复时新建的文件: {path}")
+        try:
+            _restore_database(self.config, self.snapshot)
+            lines.append("数据库已回滚到恢复前状态")
+        except Exception as exc:  # noqa: BLE001 - report the snapshot instead of masking
+            lines.append(
+                f"数据库自动回滚失败（{type(exc).__name__}），"
+                f"请用 {self.snapshot} 恢复"
+            )
+        return lines
+
+    def finish(self) -> None:
+        try:
+            self.journal_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _ask_scope(payload: dict[str, Any], *, yes: bool) -> str:
-    has_library = bool(payload["library"] or payload["accounts"])
+    has_library = _has_library_section(payload["library"]) or bool(payload["accounts"])
     has_patch = bool(
         payload["rules"] or payload["keywords"] or payload.get("patch_roots")
     )
@@ -1065,71 +1504,13 @@ def _ask_media_policy(*, yes: bool) -> str:
     if yes:
         return MEDIA_SKIP
     return choose(
-        "目标目录已有同名图片/头像时：",
-        [(MEDIA_SKIP, "跳过已有文件"), (MEDIA_OVERWRITE, "全部覆盖")],
+        "游戏已有封面/背景时：",
+        [(MEDIA_SKIP, "保留本机已有的图片"), (MEDIA_OVERWRITE, "换成备份里的图片")],
         default=MEDIA_SKIP,
     )
 
 
-async def import_patch_roots(
-    session, entries: list[dict[str, Any]], *, replace: bool
-) -> tuple[dict[str, int], list[str]]:
-    stats = {"patch_roots_new": 0, "patch_roots_matched": 0, "patch_roots_skipped": 0}
-    notes: list[str] = []
-    if not entries:
-        return stats, notes
-    sources_by_name = {
-        source.name: source
-        for source in (await session.execute(select(FileSource))).scalars()
-        if source.name
-    }
-    if replace:
-        await session.execute(delete(SteamPatchRoot))
-        await session.flush()
-    existing = {
-        root.path: root
-        for root in (await session.execute(select(SteamPatchRoot))).scalars()
-    }
-    for entry in entries:
-        path = str(entry.get("path") or "").strip()
-        if not path:
-            stats["patch_roots_skipped"] += 1
-            continue
-        source_type = str(entry.get("source_type") or "local")
-        source_name = entry.get("source_name")
-        source_id = None
-        if source_type == "openlist" and source_name:
-            source = sources_by_name.get(str(source_name))
-            if source is None:
-                stats["patch_roots_skipped"] += 1
-                notes.append(
-                    f"缺少 OpenList 文件源「{source_name}」，已跳过补丁库目录 {path}"
-                )
-                continue
-            source_id = source.id
-        analysis_mode = str(entry.get("analysis_mode") or "auto")
-        root = existing.get(path)
-        if root is None:
-            root = SteamPatchRoot(
-                path=path,
-                source_type=source_type,
-                source_id=source_id,
-                source_name=str(source_name) if source_name else None,
-                analysis_mode=analysis_mode,
-            )
-            session.add(root)
-            existing[path] = root
-            stats["patch_roots_new"] += 1
-            continue
-        root.source_type = source_type
-        root.source_id = source_id
-        root.source_name = str(source_name) if source_name else None
-        root.analysis_mode = analysis_mode
-        stats["patch_roots_matched"] += 1
-    return stats, notes
-
-
-def import_settings(config, settings: dict[str, Any]) -> list[str]:
+def import_settings(config, settings: dict[str, Any], journal: "_RestoreJournal") -> list[str]:
     """Write scan/scraper settings back and apply them to the running config."""
     notes: list[str] = []
     if not isinstance(settings, dict) or not settings:
@@ -1138,10 +1519,8 @@ def import_settings(config, settings: dict[str, Any]) -> list[str]:
     scan = settings.get("scan")
     if isinstance(scan, dict) and scan:
         path = data_dir / "scan_settings.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(scan, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        journal.record_file(path)
+        _write_text_atomic(path, json.dumps(scan, ensure_ascii=False, indent=2))
         from api.settings import _load_scan_settings
 
         _load_scan_settings(config)
@@ -1154,127 +1533,315 @@ def import_settings(config, settings: dict[str, Any]) -> list[str]:
             if isinstance(value, str) and value and not is_encrypted(value):
                 payload[key] = encrypt_secret(value)
         path = data_dir / "scraper_config.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        try:
-            path.chmod(0o600)
-        except OSError:
-            pass
-        from config import _apply_persisted_scraper_config, normalize_scraper_config
+        journal.record_file(path)
+        _write_text_atomic(path, json.dumps(payload, indent=2, ensure_ascii=False), mode=0o600)
+        from config import reload_persisted_scraper_config
 
-        _apply_persisted_scraper_config(config)
-        normalize_scraper_config(config.scrapers)
+        reload_persisted_scraper_config(config)
         notes.append("刮削设置: 已恢复并生效（凭据已按本机密钥重新加密）")
+    custom_regex = settings.get("custom_regex")
+    if isinstance(custom_regex, list):
+        if _apply_custom_regex(config, custom_regex, journal):
+            notes.append("自定义分类正则: 已写入 config.yaml")
     return notes
+
+
+def _config_yaml_path() -> Path:
+    from cli.common import SERVER_DIR
+    from config import _parse_args
+
+    configured = Path(_parse_args().config)
+    if configured.is_absolute():
+        return configured
+    candidate = SERVER_DIR / configured
+    return candidate if candidate.is_file() else configured
+
+
+def _apply_custom_regex(config, entries: list[Any], journal: "_RestoreJournal") -> bool:
+    import yaml
+
+    from config import CustomRegex
+
+    cleaned = [
+        {
+            "pattern": str(item.get("pattern") or "").strip(),
+            "platform": str(item.get("platform") or "").strip(),
+            "description": str(item.get("description") or ""),
+        }
+        for item in entries
+        if isinstance(item, dict) and str(item.get("pattern") or "").strip()
+    ]
+    path = _config_yaml_path()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data["custom_regex"] = cleaned
+    journal.record_file(path)
+    _write_text_atomic(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
+    config.custom_regex = [
+        CustomRegex(
+            pattern=item["pattern"],
+            platform=item["platform"],
+            description=item["description"],
+        )
+        for item in cleaned
+        if item["platform"].strip()
+    ]
+    return bool(cleaned)
+
+
+async def _clear_selected(
+    session, *, wants_patch: bool, wants_library: bool, wipe_accounts: bool
+) -> None:
+    if wants_patch:
+        await session.execute(delete(SteamPatchRoot))
+    if wants_library:
+        await session.execute(delete(GameTag))
+        await session.execute(delete(GameVersion))
+        await session.execute(delete(Game))
+        await session.execute(delete(Company))
+        await session.execute(delete(IgnoreList))
+        await session.execute(delete(RootDirectory))
+        if wipe_accounts:
+            await session.execute(delete(UserSession))
+            await session.execute(delete(User))
+    await session.flush()
 
 
 async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                         scope: str, mode: str, media_policy: str) -> dict[str, Any]:
     lines: list[str] = []
-    safety_dir = backup_dir(config)
+    stats: dict[str, int] = {}
     wants_patch = scope in {SCOPE_ALL, SCOPE_PATCH}
-    wants_library = scope in {SCOPE_ALL, SCOPE_LIBRARY}
+    wants_library = scope in {SCOPE_ALL, SCOPE_LIBRARY} and _has_library_section(
+        payload["library"]
+    )
+    replace = mode == MODE_REPLACE
 
-    if wants_patch and (
-        payload["rules"] or payload["keywords"] or payload.get("patch_roots")
-    ):
-        index_path = patch_rules.patch_index_path(config)
-        if payload["rules"]:
-            if index_path.is_file():
-                index_data = patch_rules.load_patch_index(index_path)
-                patches, stats = patch_rules.preview_restore(
-                    index_data["patches"], payload["rules"], replace=(mode == MODE_REPLACE)
+    lock_path = Path(config.data_path or "/data") / ".restore.lock"
+    with process_lock(lock_path, blocking=False) as acquired:
+        if not acquired:
+            fail("另一个恢复或扫描任务正在进行，请稍后再试", 4)
+        journal = _RestoreJournal.begin(config)
+        try:
+            available_media = {kind: set() for kind in MEDIA_KINDS}
+            if wants_library:
+                available_media = await asyncio.to_thread(
+                    apply_media, config, archive, payload["media"], journal
                 )
-                safety = safety_dir / (
-                    f"patches-before-restore-{utc_timestamp()}-{secrets.token_hex(2)}.json"
-                )
-                safety.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(index_path, safety)
-                lines.append(f"恢复前索引备份: {safety}")
-            else:
-                index_data = {"patches": []}
-                patches, stats = patch_rules.materialise_rules(payload["rules"])
-                lines.append("补丁索引不存在，已按备份内容重建；下次扫描补丁库会自动补全文件信息")
-            index_data["patches"] = patches
-            patch_rules.write_json(index_path, index_data)
-            lines.append(
-                f"补丁规则: 写入 {stats['imported']} 条（变更 {stats['changed']}，"
-                f"冲突 {len(stats['conflicts'])}，未匹配 {len(stats['unmatched'])}）"
-            )
-        if payload["keywords"]:
-            keywords_path = patch_rules.keywords_path(config)
-            if keywords_path.is_file():
-                safety = safety_dir / (
-                    f"keywords-before-restore-{utc_timestamp()}-{secrets.token_hex(2)}.json"
-                )
-                safety.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(keywords_path, safety)
-                lines.append(f"恢复前关键词备份: {safety}")
-            patch_rules.write_json(keywords_path, payload["keywords"])
-            lines.append(f"补丁类型关键词: 已写入 {len(payload['keywords'])} 组")
 
-        patch_roots = payload.get("patch_roots") or []
-        if patch_roots:
+            account_entries = payload["accounts"].get("users") or []
+            wiped_accounts = replace and wants_library and bool(account_entries)
+            source_stats: dict[str, int] = {}
             async with db._session_factory() as session:
-                root_stats, root_notes = await import_patch_roots(
-                    session, patch_roots, replace=(mode == MODE_REPLACE)
-                )
+                had_owner = (
+                    await session.execute(
+                        select(User).where(User.role == "owner")
+                    )
+                ).scalars().first() is not None
+                if replace:
+                    await _clear_selected(
+                        session,
+                        wants_patch=wants_patch,
+                        wants_library=wants_library,
+                        wipe_accounts=wiped_accounts,
+                    )
+
+                if wants_library or wants_patch:
+                    source_stats, source_map, _ = await import_file_sources(
+                        session,
+                        (payload["library"].get("file_sources") or []),
+                        replace=replace,
+                    )
+                else:
+                    source_map = {}
+
+                library_stats: dict[str, int] = {}
+                if wants_library:
+                    library_stats, library_notes = await import_library(
+                        config,
+                        session,
+                        payload["library"],
+                        replace=replace,
+                        source_map=source_map,
+                        available_media=available_media,
+                        overwrite_media=media_policy == MEDIA_OVERWRITE,
+                    )
+                else:
+                    library_notes = []
+
+                patch_root_stats: dict[str, int] = {}
+                if wants_patch:
+                    patch_root_stats, patch_notes = await import_patch_roots(
+                        session, payload["patch_roots"], source_map
+                    )
+                else:
+                    patch_notes = []
+
+                account_stats: dict[str, int] = {}
+                if wants_library:
+                    account_stats, account_notes = await import_accounts(
+                        config, session, payload["accounts"],
+                        available_media=available_media,
+                    )
+                else:
+                    account_notes = []
+
+                if wants_library and (account_entries or had_owner):
+                    await _ensure_owner(session)
                 await session.commit()
-            lines.append(
-                "补丁库目录: "
-                f"{root_stats['patch_roots_new']} 新建/"
-                f"{root_stats['patch_roots_matched']} 匹配"
-                + (
-                    f"，跳过 {root_stats['patch_roots_skipped']}"
-                    if root_stats["patch_roots_skipped"]
-                    else ""
+
+            stats.update(source_stats)
+            stats.update(library_stats)
+            stats.update(patch_root_stats)
+            stats.update(account_stats)
+            stats["media_written"] = sum(len(items) for items in available_media.values())
+
+            if wants_patch and (
+                payload["rules"] or payload["keywords"] or payload["patch_roots"]
+            ):
+                patch_lines, patch_stats = await asyncio.to_thread(
+                    _apply_patch_files,
+                    config,
+                    payload,
+                    mode,
+                    journal,
+                    source_map,
                 )
-            )
-            for note in root_notes[:5]:
+                stats.update(patch_stats)
+                lines.extend(patch_lines)
+
+            if wants_library:
+                lines.append(
+                    "文件源: "
+                    f"{stats.get('sources_new', 0)} 新建/"
+                    f"{stats.get('sources_updated', 0)} 更新"
+                )
+                lines.append(
+                    "游戏库: "
+                    f"目录库 {stats.get('roots_new', 0)} 新建/"
+                    f"{stats.get('roots_matched', 0)} 匹配，"
+                    f"游戏 {stats.get('games_new', 0)} 新增/"
+                    f"{stats.get('games_updated', 0)} 更新/"
+                    f"{stats.get('games_skipped', 0)} 跳过，"
+                    f"版本 {stats.get('versions_new', 0)} 新增/"
+                    f"{stats.get('versions_updated', 0)} 更新，"
+                    f"标签 {stats.get('tags_new', 0)} 新增（关联 {stats.get('game_tags', 0)}）"
+                )
+                lines.append(
+                    f"账号: {stats.get('users_new', 0)} 新增/"
+                    f"{stats.get('users_updated', 0)} 更新，"
+                    f"失效登录态 {stats.get('sessions_revoked', 0)} 个"
+                )
+                for note in (library_notes + account_notes)[:10]:
+                    lines.append(f"注意: {note}")
+                lines.extend(import_settings(config, payload.get("settings") or {}, journal))
+
+            if wants_patch and patch_root_stats:
+                lines.append(
+                    "补丁库目录: "
+                    f"{patch_root_stats.get('patch_roots_new', 0)} 新建/"
+                    f"{patch_root_stats.get('patch_roots_matched', 0)} 匹配"
+                    + (
+                        f"，跳过 {patch_root_stats['patch_roots_skipped']}"
+                        if patch_root_stats.get("patch_roots_skipped")
+                        else ""
+                    )
+                )
+            for note in patch_notes[:5]:
                 lines.append(f"注意: {note}")
 
-    if wants_library and (payload["library"] or payload["accounts"]):
-        async with db._session_factory() as session:
-            library_stats, library_notes = await import_library(
-                config, session, payload["library"], replace=(mode == MODE_REPLACE)
-            )
-            account_stats, account_notes = await import_accounts(
-                config, session, payload["accounts"], replace=(mode == MODE_REPLACE)
-            )
-            await session.commit()
-        lines.append(
-            "文件源: "
-            f"{library_stats['sources_new']} 新建/"
-            f"{library_stats['sources_updated']} 更新"
-        )
-        lines.append(
-            "游戏库: "
-            f"目录库 {library_stats['roots_new']} 新建/{library_stats['roots_matched']} 匹配，"
-            f"游戏 {library_stats['games_new']} 新增/{library_stats['games_updated']} 更新，"
-            f"版本 {library_stats['versions_new']} 新增/{library_stats['versions_updated']} 更新，"
-            f"标签 {library_stats['tags_new']} 新增（关联 {library_stats['game_tags']}）"
-        )
-        lines.append(
-            f"账号: {account_stats['users_new']} 新增/{account_stats['users_updated']} 更新，"
-            f"失效登录态 {account_stats['sessions_revoked']} 个"
-        )
-        for note in (library_notes + account_notes)[:10]:
-            lines.append(f"注意: {note}")
-        for note in import_settings(config, payload.get("settings") or {}):
-            lines.append(note)
+            journal.finish()
+        except Exception:
+            rollback_lines = journal.rollback()
+            for line in rollback_lines:
+                echo(line)
+            journal.finish()
+            # Put the in-memory settings back in sync with the restored files.
+            try:
+                from api.settings import _load_scan_settings
+                from config import reload_persisted_scraper_config
 
-    if wants_library:
-        media_stats = await asyncio.to_thread(
-            apply_media, config, archive, payload["media"], policy=media_policy
-        )
-        if media_stats["written"] or media_stats["skipped"]:
-            lines.append(
-                f"媒体: 写入 {media_stats['written']} 个，跳过 {media_stats['skipped']} 个"
-            )
+                _load_scan_settings(config)
+                reload_persisted_scraper_config(config)
+            except Exception:
+                pass
+            raise
 
-    return {"lines": lines}
+    return {
+        "lines": lines,
+        "stats": stats,
+        "relogin_required": bool(stats.get("sessions_revoked") or wiped_accounts),
+    }
+
+
+def _resolve_rules(
+    rules: list[dict[str, Any]], source_map: dict[str, int]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Point backup rules at the restored file sources and rebuild their paths."""
+    resolved: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for item in rules:
+        identity = dict(item.get("identity") or {})
+        rule = dict(item.get("rule") or {})
+        source_key = identity.pop("source_key", None)
+        if str(identity.get("source_type") or "local") == "openlist":
+            source_id = source_map.get(str(source_key)) if source_key else None
+            if source_id is None:
+                notes.append(
+                    f"缺少 OpenList 文件源「{identity.get('source_name') or source_key}」，"
+                    f"已跳过补丁规则 {identity.get('display_file') or identity.get('file')}"
+                )
+                continue
+            remote = identity.get("source_path") or identity.get("file")
+            identity["source_id"] = source_id
+            identity["file"] = canonical_source_path("openlist", source_id, remote)
+            identity["patch_id"] = f"openlist|{source_id}|{remote}"
+        else:
+            identity["source_id"] = None
+        resolved.append({"identity": identity, "rule": rule})
+    return resolved, notes
+
+
+def _apply_patch_files(config, payload: dict[str, Any], mode: str,
+                       journal: "_RestoreJournal",
+                       source_map: dict[str, int]) -> tuple[list[str], dict[str, int]]:
+    lines: list[str] = []
+    stats: dict[str, int] = {"rules_imported": 0, "rules_added": 0}
+    rules, rule_notes = _resolve_rules(payload["rules"], source_map)
+    for note in rule_notes[:5]:
+        lines.append(f"注意: {note}")
+    if rules:
+        index_path = patch_rules.patch_index_path(config)
+        journal.record_file(index_path)
+        if index_path.is_file():
+            index_data = patch_rules.load_patch_index(index_path)
+            patches, rule_stats = patch_rules.preview_restore(
+                index_data["patches"], rules, replace=(mode == MODE_REPLACE)
+            )
+        else:
+            index_data = {"patches": []}
+            patches, rule_stats = patch_rules.materialise_rules(rules)
+            lines.append("补丁索引不存在，已按备份内容重建；下次扫描补丁库会自动补全文件信息")
+        index_data["patches"] = patches
+        patch_rules.write_json(index_path, index_data)
+        stats["rules_imported"] = rule_stats["imported"]
+        stats["rules_added"] = rule_stats.get("added", 0)
+        lines.append(
+            f"补丁规则: 写入 {rule_stats['imported']} 条"
+            f"（补全 {rule_stats.get('added', 0)}，变更 {rule_stats['changed']}，"
+            f"冲突 {len(rule_stats['conflicts'])}，未匹配 {len(rule_stats['unmatched'])}）"
+        )
+    keywords = payload["keywords"]
+    if keywords:
+        keywords_path = patch_rules.keywords_path(config)
+        journal.record_file(keywords_path)
+        patch_rules.write_json(keywords_path, keywords)
+        lines.append(f"补丁类型关键词: 已写入 {len(keywords)} 组")
+    return lines, stats
 
 
 async def cmd_restore(args) -> int:
@@ -1285,7 +1852,7 @@ async def cmd_restore(args) -> int:
 
     library = payload["library"]
     accounts = payload["accounts"]
-    media_total = sum(len(payload["media"].get(kind) or []) for kind in MEDIA_KINDS)
+    media_total = sum(len(payload["media"].get(kind) or {}) for kind in MEDIA_KINDS)
 
     echo("备份内容")
     echo(f"  补丁规则: {len(payload['rules'])} 条"
@@ -1307,6 +1874,6 @@ async def cmd_restore(args) -> int:
     )
     for line in result["lines"]:
         echo(line)
-    if media_total and media_policy == MEDIA_OVERWRITE:
-        echo("同名文件按「全部覆盖」处理")
+    if result["relogin_required"]:
+        echo("注意: 登录态已失效，请重新登录客户端")
     return 0
