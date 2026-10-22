@@ -41,17 +41,79 @@ class _BackupScreenState extends State<BackupScreen> {
   bool _cancelled = false;
   String _currentRole = "user";
 
+  bool _autoExpanded = false;
+  bool _autoLoaded = false;
+  bool _autoLoading = false;
+  bool _autoSaving = false;
+  bool _autoDirty = false;
+  String? _autoError;
+  bool _autoEnabled = false;
+  String _autoMode = "day";
+  String _autoScope = "all";
+  bool _autoMedia = true;
+  bool _autoSkipUnchanged = true;
+  bool _windowEnabled = false;
+  String _windowStart = "02:00";
+  String _windowEnd = "06:00";
+  final Set<int> _autoWeekdays = {0};
+  List<String> _autoTimes = ["03:00"];
+  String _autoNextRun = "";
+  String _autoLastRun = "";
+  String _autoLastResult = "";
+  String _autoLastError = "";
+  int _autoCount = 0;
+  int _autoBytes = 0;
+  final _intervalCtrl = TextEditingController();
+  final _minFreeCtrl = TextEditingController();
+  final _keepLastCtrl = TextEditingController();
+  final _keepDailyCtrl = TextEditingController();
+  final _keepWeeklyCtrl = TextEditingController();
+  final _keepMonthlyCtrl = TextEditingController();
+  final _monthDaysCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
+    _loadAutoPref();
     _loadRole();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _intervalCtrl.dispose();
+    _minFreeCtrl.dispose();
+    _keepLastCtrl.dispose();
+    _keepDailyCtrl.dispose();
+    _keepWeeklyCtrl.dispose();
+    _keepMonthlyCtrl.dispose();
+    _monthDaysCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAutoPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _autoExpanded = prefs.getBool("backup_auto_expanded") ?? false);
+  }
+
+  Future<void> _toggleAuto() async {
+    await _setAutoExpanded(!_autoExpanded);
+    if (_autoExpanded && !_autoLoaded && _isOwner) _loadAutoSettings();
+  }
+
+  Future<void> _setAutoExpanded(bool value) async {
+    if (_autoExpanded == value) return;
+    setState(() => _autoExpanded = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool("backup_auto_expanded", value);
   }
 
   Future<void> _loadRole() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() => _currentRole = prefs.getString("role") ?? "user");
+    if (_isOwner) _loadAutoSettings();
   }
 
   bool get _isOwner => _currentRole == "owner";
@@ -78,6 +140,767 @@ class _BackupScreenState extends State<BackupScreen> {
       content: Text(message),
       backgroundColor: error ? Colors.red[700] : null,
     ));
+  }
+
+  // ── automatic backup ──
+
+  Future<void> _loadAutoSettings() async {
+    if (!_isOwner) return;
+    setState(() {
+      _autoLoading = true;
+      _autoError = null;
+    });
+    try {
+      final resp = await http.get(
+        Uri.parse("${widget.api.baseUrl}/api/settings/backup"),
+        headers: widget.api.headers,
+      );
+      if (!mounted) return;
+      if (resp.statusCode != 200) {
+        setState(() {
+          _autoLoading = false;
+          _autoError = "读取自动备份设置失败（HTTP ${resp.statusCode}）";
+        });
+        return;
+      }
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      _applyAutoPayload(data);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _autoLoading = false;
+        _autoError = "读取自动备份设置失败: $e";
+      });
+    }
+  }
+
+  void _applyAutoPayload(Map<String, dynamic> data) {
+    final settings = Map<String, dynamic>.from(data["settings"] as Map? ?? {});
+    final retention = Map<String, dynamic>.from(settings["retention"] as Map? ?? {});
+    final window = settings["window"];
+    final weekdays = ((settings["weekdays"] as List?) ?? const [0])
+        .map((item) => (item as num).toInt())
+        .toSet();
+    final times = ((settings["times"] as List?) ?? const ["03:00"])
+        .map((item) => item.toString())
+        .toList();
+    final minFree = (settings["min_free_gb"] as num?)?.toDouble() ?? 0;
+    setState(() {
+      _autoLoaded = true;
+      _autoLoading = false;
+      _autoError = null;
+      _autoEnabled = settings["enabled"] == true;
+      _autoMode = (settings["mode"] ?? "day").toString();
+      _autoScope = (settings["scope"] ?? "all").toString();
+      _autoMedia = settings["include_media"] != false;
+      _autoSkipUnchanged = settings["skip_if_unchanged"] != false;
+      _autoTimes = times.isEmpty ? ["03:00"] : times;
+      _autoWeekdays
+        ..clear()
+        ..addAll(weekdays.isEmpty ? {0} : weekdays);
+      _monthDaysCtrl.text =
+          ((settings["monthdays"] as List?) ?? const [1]).join(", ");
+      _intervalCtrl.text = (settings["interval_hours"] ?? 24).toString();
+      _keepLastCtrl.text = (retention["last"] ?? 7).toString();
+      _keepDailyCtrl.text = (retention["daily"] ?? 14).toString();
+      _keepWeeklyCtrl.text = (retention["weekly"] ?? 8).toString();
+      _keepMonthlyCtrl.text = (retention["monthly"] ?? 12).toString();
+      _minFreeCtrl.text = minFree == 0 ? "0" : minFree.toString();
+      _windowEnabled = window is Map;
+      _windowStart = window is Map ? (window["start"] ?? "02:00").toString() : "02:00";
+      _windowEnd = window is Map ? (window["end"] ?? "06:00").toString() : "06:00";
+      _autoNextRun = data["next_run"]?.toString() ?? "";
+      _autoLastRun = data["last_run"]?.toString() ?? "";
+      _autoLastResult = (settings["last_result"] ?? "").toString();
+      _autoLastError = (settings["last_error"] ?? "").toString();
+      _autoCount = (data["auto_count"] as num?)?.toInt() ?? 0;
+      _autoBytes = (data["auto_bytes"] as num?)?.toInt() ?? 0;
+      _autoDirty = false;
+    });
+  }
+
+  void _applyAutoStatus(Map<String, dynamic> data) {
+    final settings = Map<String, dynamic>.from(data["settings"] as Map? ?? {});
+    setState(() {
+      _autoNextRun = data["next_run"]?.toString() ?? "";
+      _autoLastRun = data["last_run"]?.toString() ?? "";
+      _autoLastResult = (settings["last_result"] ?? "").toString();
+      _autoLastError = (settings["last_error"] ?? "").toString();
+      _autoCount = (data["auto_count"] as num?)?.toInt() ?? _autoCount;
+      _autoBytes = (data["auto_bytes"] as num?)?.toInt() ?? _autoBytes;
+    });
+  }
+
+  Future<void> _saveAutoEnabled(bool value) async {
+    setState(() {
+      _autoEnabled = value;
+      _autoSaving = true;
+    });
+    try {
+      final resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/backup"),
+        headers: _jsonHeaders(),
+        body: jsonEncode({"enabled": value}),
+      );
+      if (!mounted) return;
+      if (resp.statusCode != 200) {
+        setState(() => _autoEnabled = !value);
+        _toast("保存失败（HTTP ${resp.statusCode}）", error: true);
+        return;
+      }
+      _applyAutoStatus(jsonDecode(resp.body) as Map<String, dynamic>);
+      // Enabling opens the form, disabling folds it back to the summary.
+      await _setAutoExpanded(value);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _autoEnabled = !value);
+      _toast("保存失败: $e", error: true);
+    } finally {
+      if (mounted) setState(() => _autoSaving = false);
+    }
+  }
+
+  Future<void> _saveAuto() async {
+    if (_autoSaving) return;
+    setState(() {
+      _autoSaving = true;
+      _autoError = null;
+    });
+    final payload = <String, dynamic>{
+      "enabled": _autoEnabled,
+      "mode": _autoMode,
+      "interval_hours": int.tryParse(_intervalCtrl.text.trim()) ?? 24,
+      "times": _autoTimes,
+      "weekdays": _autoWeekdays.toList()..sort(),
+      "monthdays": _parseMonthDays(),
+      "window": _windowEnabled
+          ? {"start": _windowStart, "end": _windowEnd}
+          : null,
+      "scope": _autoScope,
+      "include_media": _autoMedia,
+      "retention": {
+        "last": int.tryParse(_keepLastCtrl.text.trim()) ?? 7,
+        "daily": int.tryParse(_keepDailyCtrl.text.trim()) ?? 14,
+        "weekly": int.tryParse(_keepWeeklyCtrl.text.trim()) ?? 8,
+        "monthly": int.tryParse(_keepMonthlyCtrl.text.trim()) ?? 12,
+      },
+      "skip_if_unchanged": _autoSkipUnchanged,
+      "min_free_gb": double.tryParse(_minFreeCtrl.text.trim()) ?? 0,
+    };
+    try {
+      final resp = await http.put(
+        Uri.parse("${widget.api.baseUrl}/api/settings/backup"),
+        headers: _jsonHeaders(),
+        body: jsonEncode(payload),
+      );
+      if (!mounted) return;
+      if (resp.statusCode != 200) {
+        setState(() => _autoError = "保存失败（HTTP ${resp.statusCode}）");
+        return;
+      }
+      _applyAutoPayload(jsonDecode(resp.body) as Map<String, dynamic>);
+      _toast("自动备份设置已保存");
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _autoError = "保存失败: $e");
+    } finally {
+      if (mounted) setState(() => _autoSaving = false);
+    }
+  }
+
+  List<int> _parseMonthDays() {
+    final days = <int>{};
+    for (final part in _monthDaysCtrl.text.split(RegExp(r"[,，\s]+"))) {
+      final value = int.tryParse(part.trim());
+      if (value != null && value >= 1 && value <= 31) days.add(value);
+    }
+    final sorted = days.toList()..sort();
+    return sorted.isEmpty ? [1] : sorted;
+  }
+
+  Future<String?> _pickAutoTime(String initial) async {
+    final parts = initial.split(":");
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.tryParse(parts.first) ?? 3,
+        minute: parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0,
+      ),
+    );
+    if (picked == null) return null;
+    return "${picked.hour.toString().padLeft(2, "0")}:"
+        "${picked.minute.toString().padLeft(2, "0")}";
+  }
+
+  void _markAutoDirty() {
+    if (!_autoDirty) setState(() => _autoDirty = true);
+  }
+
+  String _autoFreqLabel() {
+    switch (_autoMode) {
+      case "hour":
+        return "每 ${_intervalCtrl.text.trim().isEmpty ? "24" : _intervalCtrl.text.trim()} 小时";
+      case "week":
+        const names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+        final days = _autoWeekdays.toList()..sort();
+        return "${days.map((d) => names[d]).join("、")} ${_autoTimes.join("、")}";
+      case "month":
+        return "每月 ${_monthDaysCtrl.text.trim().isEmpty ? "1" : _monthDaysCtrl.text.trim()} 号 ${_autoTimes.join("、")}";
+      default:
+        return "每天 ${_autoTimes.join("、")}";
+    }
+  }
+
+  String _autoSummary() {
+    if (!_autoLoaded) {
+      return _autoLoading ? "正在读取…" : "展开后可设置定时备份";
+    }
+    final parts = <String>[
+      _autoFreqLabel(),
+      "保留 ${_keepLastCtrl.text}/${_keepDailyCtrl.text}/"
+          "${_keepWeeklyCtrl.text}/${_keepMonthlyCtrl.text}",
+      _autoMedia ? "含图片" : "仅数据",
+    ];
+    if (_autoNextRun.isNotEmpty && _autoEnabled) {
+      parts.add("下次 ${_timeText(_autoNextRun)}");
+    }
+    return parts.join(" · ");
+  }
+
+  Widget _autoTimeChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final time in _autoTimes)
+          InputChip(
+            label: Text(time, style: AppText.label),
+            onPressed: () async {
+              final picked = await _pickAutoTime(time);
+              if (picked == null || !mounted) return;
+              setState(() {
+                final next = <String>{
+                  ..._autoTimes.where((item) => item != time),
+                  picked,
+                }.toList()
+                  ..sort();
+                _autoTimes = next;
+                _autoDirty = true;
+              });
+            },
+            onDeleted: _autoTimes.length > 1
+                ? () => setState(() {
+                      _autoTimes.remove(time);
+                      _autoDirty = true;
+                    })
+                : null,
+            deleteIcon: const Icon(Icons.close_rounded, size: 14),
+          ),
+        ActionChip(
+          avatar: const Icon(Icons.add_rounded, size: 16),
+          label: const Text("添加时间"),
+          onPressed: () async {
+            final picked = await _pickAutoTime("03:00");
+            if (picked == null || !mounted) return;
+            setState(() {
+              if (!_autoTimes.contains(picked)) {
+                _autoTimes = [..._autoTimes, picked]..sort();
+              }
+              _autoDirty = true;
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _autoWeekdayChips() {
+    const labels = ["一", "二", "三", "四", "五", "六", "日"];
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (var index = 0; index < 7; index++)
+          FilterChip(
+            label: Text(labels[index]),
+            selected: _autoWeekdays.contains(index),
+            onSelected: (selected) => setState(() {
+              if (selected) {
+                _autoWeekdays.add(index);
+              } else if (_autoWeekdays.length > 1) {
+                _autoWeekdays.remove(index);
+              }
+              _autoDirty = true;
+            }),
+          ),
+      ],
+    );
+  }
+
+  Widget _autoField({required String label, required Widget child}) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 56,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(label,
+                  style: AppText.label.copyWith(color: hintColor(context))),
+            ),
+          ),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+
+  Widget _autoSwitchRow({
+    required String title,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    String? subtitle,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppText.bodySmall),
+                if (subtitle != null)
+                  Text(subtitle,
+                      style: AppText.caption.copyWith(color: hintColor(context))),
+              ],
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+
+  Widget _retentionCell(
+      String label, TextEditingController controller, String unit) {
+    return SizedBox(
+      width: 112,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: AppText.caption.copyWith(
+                  color: hintColor(context), fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              SizedBox(
+                width: 54,
+                child: TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  style: AppText.bodySmall,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                  ),
+                  onChanged: (_) => _markAutoDirty(),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(unit,
+                  style: AppText.caption.copyWith(color: hintColor(context))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _autoFreqDetail() {
+    switch (_autoMode) {
+      case "hour":
+        return Row(
+          children: [
+            SizedBox(
+              width: 76,
+              child: TextField(
+                controller: _intervalCtrl,
+                keyboardType: TextInputType.number,
+                style: AppText.bodySmall,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+                onChanged: (_) => _markAutoDirty(),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text("小时一次",
+                style: AppText.label.copyWith(color: hintColor(context))),
+          ],
+        );
+      case "week":
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _autoWeekdayChips(),
+            const SizedBox(height: 10),
+            _autoTimeChips(),
+          ],
+        );
+      case "month":
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 160,
+              child: TextField(
+                controller: _monthDaysCtrl,
+                style: AppText.bodySmall,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  labelText: "每月几号",
+                  hintText: "1, 15",
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                ),
+                onChanged: (_) => _markAutoDirty(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _autoTimeChips(),
+          ],
+        );
+      default:
+        return _autoTimeChips();
+    }
+  }
+
+  Widget _autoBody() {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 4),
+        _autoField(
+          label: "频率",
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final item in const [
+                    ["hour", "每 N 小时"],
+                    ["day", "每天"],
+                    ["week", "每周"],
+                    ["month", "每月"],
+                  ])
+                    ChoiceChip(
+                      label: Text(item[1]),
+                      selected: _autoMode == item[0],
+                      onSelected: (_) => setState(() {
+                        _autoMode = item[0];
+                        _autoDirty = true;
+                      }),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _autoFreqDetail(),
+            ],
+          ),
+        ),
+        _autoField(
+          label: "执行窗口",
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _autoSwitchRow(
+                title: "只在指定时段执行",
+                subtitle: "算出的时间不在窗口内时顺延到窗口开始",
+                value: _windowEnabled,
+                onChanged: (value) => setState(() {
+                  _windowEnabled = value;
+                  _autoDirty = true;
+                }),
+              ),
+              if (_windowEnabled)
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: () async {
+                        final picked = await _pickAutoTime(_windowStart);
+                        if (picked == null || !mounted) return;
+                        setState(() {
+                          _windowStart = picked;
+                          _autoDirty = true;
+                        });
+                      },
+                      child: Text(_windowStart),
+                    ),
+                    Text(" – ",
+                        style: AppText.label.copyWith(color: hintColor(context))),
+                    OutlinedButton(
+                      onPressed: () async {
+                        final picked = await _pickAutoTime(_windowEnd);
+                        if (picked == null || !mounted) return;
+                        setState(() {
+                          _windowEnd = picked;
+                          _autoDirty = true;
+                        });
+                      },
+                      child: Text(_windowEnd),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        _autoField(
+          label: "保留",
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _retentionCell("最近", _keepLastCtrl, "份"),
+                  _retentionCell("每天", _keepDailyCtrl, "天"),
+                  _retentionCell("每周", _keepWeeklyCtrl, "周"),
+                  _retentionCell("每月", _keepMonthlyCtrl, "月"),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text("同一时间段只留最新一份，0 表示不启用该档；只清理自动备份",
+                  style: AppText.caption.copyWith(color: hintColor(context))),
+            ],
+          ),
+        ),
+        _autoField(
+          label: "条件",
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _autoSwitchRow(
+                title: "数据没有变化时跳过",
+                subtitle: "游戏、账号、补丁索引都没变就不生成新包",
+                value: _autoSkipUnchanged,
+                onChanged: (value) => setState(() {
+                  _autoSkipUnchanged = value;
+                  _autoDirty = true;
+                }),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("磁盘余量不足时跳过", style: AppText.bodySmall),
+                        Text("小于该值时本轮不执行并提示",
+                            style: AppText.caption
+                                .copyWith(color: hintColor(context))),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    width: 64,
+                    child: TextField(
+                      controller: _minFreeCtrl,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      style: AppText.bodySmall,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                      ),
+                      onChanged: (_) => _markAutoDirty(),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text("GB",
+                      style: AppText.caption.copyWith(color: hintColor(context))),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (_autoError != null) ...[
+          const SizedBox(height: 10),
+          Text(_autoError!, style: AppText.caption.copyWith(color: cs.error)),
+        ],
+        const SizedBox(height: 14),
+        Container(height: 1, color: cardBorder(context).withValues(alpha: 0.7)),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _autoNextRun.isEmpty
+                        ? "下次运行：未安排"
+                        : "下次运行：${_timeText(_autoNextRun)}（服务器本地时间）",
+                    style: AppText.caption.copyWith(color: hintColor(context)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _autoStatusLine(),
+                    style: AppText.caption.copyWith(
+                      color: _autoLastResult == "error"
+                          ? cs.error
+                          : hintColor(context),
+                    ),
+                  ),
+                  if (_autoDirty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text("有未保存的修改",
+                          style: AppText.caption
+                              .copyWith(color: Theme.of(context).colorScheme.primary)),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _autoSaving ? null : _saveAuto,
+              child: _autoSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text("保存"),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _autoStatusLine() {
+    if (_autoLastResult == "error" && _autoLastError.isNotEmpty) {
+      return "上次失败：$_autoLastError";
+    }
+    final parts = <String>[];
+    if (_autoLastRun.isNotEmpty) {
+      final label = switch (_autoLastResult) {
+        "ok" => "上次成功",
+        "unchanged" => "上次跳过（无变化）",
+        "busy" => "上次跳过（任务进行中）",
+        _ => "上次运行",
+      };
+      parts.add("$label ${_timeText(_autoLastRun)}");
+    } else {
+      parts.add("还没有运行过");
+    }
+    parts.add("自动备份 $_autoCount 份");
+    if (_autoBytes > 0) parts.add("占用 ${_sizeText(_autoBytes)}");
+    return parts.join(" · ");
+  }
+
+  Widget _autoBackupCard() {
+    final cs = Theme.of(context).colorScheme;
+    return AppSurface(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: _toggleAuto,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: cs.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Icon(Icons.schedule_rounded,
+                              size: 18, color: cs.primary),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("自动备份",
+                                  style: AppText.subtitle
+                                      .copyWith(fontWeight: FontWeight.w700)),
+                              Text("按日历定时打包到 backups/sena-backup",
+                                  style: AppText.caption
+                                      .copyWith(color: hintColor(context))),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Switch(
+                value: _autoEnabled,
+                onChanged: _autoSaving ? null : _saveAutoEnabled,
+              ),
+              InkWell(
+                onTap: _toggleAuto,
+                borderRadius: BorderRadius.circular(20),
+                child: AnimatedRotation(
+                  turns: _autoExpanded ? 0 : -0.25,
+                  duration: const Duration(milliseconds: 200),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child:
+                        Icon(Icons.expand_more_rounded, color: hintColor(context)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (!_autoExpanded)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 44),
+              child: Text(
+                _autoSummary(),
+                style: AppText.caption.copyWith(color: hintColor(context)),
+              ),
+            ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            alignment: Alignment.topCenter,
+            child: _autoExpanded
+                ? (_autoLoading
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : _autoBody())
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Transfer budget: at least a minute, plus room for a slow 256 KB/s link.
@@ -596,7 +1419,10 @@ class _BackupScreenState extends State<BackupScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                if (_isOwner) ...[
+                  _autoBackupCard(),
+                  const SizedBox(height: 20),
+                ],
                 Text("服务端上的备份",
                     style:
                         AppText.subtitle.copyWith(fontWeight: FontWeight.w700)),
@@ -624,11 +1450,28 @@ class _BackupScreenState extends State<BackupScreen> {
     );
   }
 
+  Widget _sourceBadge(String source) {
+    final cs = Theme.of(context).colorScheme;
+    final isAuto = source == "auto";
+    final color = isAuto ? cs.primary : hintColor(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(isAuto ? "自动" : "上传",
+          style: AppText.badge
+              .copyWith(color: color, fontWeight: FontWeight.w700)),
+    );
+  }
+
   Widget _backupRow(Map<String, dynamic> entry) {
     final name = entry["name"]?.toString() ?? "";
     final shortName = name.split("/").last;
     final size = (entry["size"] as num?)?.toInt() ?? 0;
     final hasMedia = entry["has_media"] == true;
+    final source = entry["source"]?.toString() ?? "manual";
     final downloading = _downloadingName == name;
     final meta = [
       _sizeText(size),
@@ -657,13 +1500,23 @@ class _BackupScreenState extends State<BackupScreen> {
                     style: AppText.bodySmall
                         .copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text(
-                  downloading ? _downloadMetaText() : meta,
-                  style: AppText.caption.copyWith(
-                    color: downloading
-                        ? Theme.of(context).colorScheme.primary
-                        : hintColor(context),
-                  ),
+                Row(
+                  children: [
+                    if (source != "manual") ...[
+                      _sourceBadge(source),
+                      const SizedBox(width: 6),
+                    ],
+                    Expanded(
+                      child: Text(
+                        downloading ? _downloadMetaText() : meta,
+                        style: AppText.caption.copyWith(
+                          color: downloading
+                              ? Theme.of(context).colorScheme.primary
+                              : hintColor(context),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
