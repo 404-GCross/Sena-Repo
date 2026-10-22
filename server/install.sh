@@ -27,7 +27,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --channel)
       [ "$#" -gt 0 ] || {
-        printf '[sena-repo] ERROR: --channel requires a value (dev|stable|beta)\n' >&2
+        printf '[sena-repo] ERROR: --channel requires a value (dev|beta|release)\n' >&2
         exit 2
       }
       REQUESTED_CHANNEL="$1"
@@ -58,21 +58,24 @@ while [ "$#" -gt 0 ]; do
 Sena Repo server bare-metal installer.
 
 Usage:
-  sudo bash server/install.sh [--channel dev|stable|beta]
+  sudo bash server/install.sh [--channel dev|beta|release]
   sudo bash server/install.sh --update
   sudo bash server/install.sh --check
   sudo bash server/install.sh --uninstall [--keep-data|--purge-data]
 
 Version channels:
   --channel dev      Latest main branch (default, rolling)
-  --channel stable   Latest v* tag without a suffix
+  --channel release  Latest v* tag without a suffix (alias: stable)
   --channel beta     Latest v* tag with a suffix (beta/rc)
   Every interactive run (install or update) asks which channel to use; pressing
-  Enter keeps the current channel. The choice is stored in the install root.
+  Enter keeps the current channel. The choice is stored in the install root, so
+  later `senacli update` keeps following that channel.
 
 Update behavior:
   --update      Fetch the latest source from SENA_REPO_URL/SENA_REPO_REF,
-                keep existing data and configuration, then restart the service.
+                prepare the new code and Python environment first, then stop the
+                service, switch, and run a health check. A failed update restores
+                the previous release and restarts it.
   --check       Check the remote source revision without installing or updating.
 
 Supported Linux package managers:
@@ -90,7 +93,7 @@ Environment overrides:
                  (mirrors and self-hosted git URLs work too, for example
                   https://gh-proxy.com/https://github.com/404-GCross/Sena-Repo.git)
   SENA_REPO_REF=main
-  SENA_CHANNEL=dev|stable|beta
+  SENA_CHANNEL=dev|beta|release
   SENA_GH_MIRROR=https://gh-proxy.com/
                  (prefix used when the GitHub URL is unreachable; set it to an
                   empty value to disable the fallback)
@@ -141,6 +144,12 @@ TEMP_DIR=""
 GIT_LAST_ERROR=""
 TAGS_LIST=""
 TAGS_FETCH_ERROR=""
+NEXT_SERVER=""
+NEXT_VENV=""
+PREV_SERVER=""
+PREV_VENV=""
+ENV_BACKUP=""
+PERSIST_CHANNEL=""
 
 log() {
   printf '[sena-repo] %s\n' "$*" >&2
@@ -154,6 +163,13 @@ die() {
 cleanup() {
   if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
     rm -rf "$TEMP_DIR"
+  fi
+  # Staged files only exist when the update aborted before the switch-over.
+  if [ -n "${NEXT_SERVER:-}" ]; then
+    rm -rf "$NEXT_SERVER"
+  fi
+  if [ -n "${NEXT_VENV:-}" ]; then
+    rm -rf "$NEXT_VENV"
   fi
 }
 trap cleanup EXIT
@@ -202,6 +218,11 @@ validate_paths() {
   CONTROL_UNINSTALLER="$INSTALL_ROOT/uninstall.sh"
   CLI_BIN="/usr/local/bin/senacli"
   VERSION_FILE="$INSTALL_ROOT/.version"
+  NEXT_SERVER="$INSTALL_ROOT/server.next"
+  NEXT_VENV="$INSTALL_ROOT/venv.next"
+  PREV_SERVER="$INSTALL_ROOT/server.prev"
+  PREV_VENV="$INSTALL_ROOT/venv.prev"
+  ENV_BACKUP="$INSTALL_ROOT/sena-repo.env.prev"
 }
 
 data_exists() {
@@ -330,10 +351,25 @@ ensure_repo_url() {
   return 1
 }
 
+normalize_channel() {
+  case "${1:-}" in
+    stable) printf 'release\n' ;;
+    dev|beta|release) printf '%s\n' "$1" ;;
+    *) return 1 ;;
+  esac
+}
+
 validate_channel() {
-  case "$1" in
-    dev|stable|beta) ;;
-    *) die "unknown channel: $1 (expected dev, stable, or beta)" ;;
+  normalize_channel "$1" >/dev/null \
+    || die "unknown channel: $1 (expected dev, beta, or release)"
+}
+
+channel_from_ref() {
+  case "${REPO_REF:-}" in
+    main|master) printf 'dev\n' ;;
+    v*-*) printf 'beta\n' ;;
+    v*) printf 'release\n' ;;
+    *) printf '\n' ;;
   esac
 }
 
@@ -382,12 +418,14 @@ die_no_tags() {
 }
 
 resolve_channel_ref() {
-  local channel="$1" candidate tag
+  local channel candidate tag
+  channel="$(normalize_channel "${1:-}")" \
+    || die "unknown channel: ${1:-} (expected dev, beta, or release)"
   case "$channel" in
     dev)
       printf 'main\n'
       ;;
-    stable)
+    release)
       load_remote_tags || true
       tag=""
       while IFS= read -r candidate; do
@@ -398,7 +436,7 @@ resolve_channel_ref() {
       done <<< "$TAGS_LIST"
       if [ -z "$tag" ]; then
         if [ -n "$TAGS_LIST" ]; then
-          die "no stable release yet (no v* tag without a suffix); use --channel dev or --ref <tag>"
+          die "no release tag yet (no v* tag without a suffix); use --channel dev or --ref <tag>"
         fi
         die_no_tags
       fi
@@ -415,11 +453,8 @@ resolve_channel_ref() {
       [ -n "$tag" ] || die_no_tags
       case "$tag" in
         *-*) printf '%s\n' "$tag" ;;
-        *) die "no test/pre-release available (the newest v* tag is stable: $tag); use --channel stable or --ref <tag>" ;;
+        *) die "no pre-release available (the newest v* tag is a release: $tag); use --channel release or --ref <tag>" ;;
       esac
-      ;;
-    *)
-      die "unknown channel: $channel (expected dev, stable, or beta)"
       ;;
   esac
 }
@@ -449,7 +484,7 @@ prompt_for_channel() {
     return 1
   fi
   case "$answer" in
-    1|stable) printf 'stable\n' ;;
+    1|stable|release) printf 'release\n' ;;
     2|beta) printf 'beta\n' ;;
     3|dev) printf 'dev\n' ;;
     *) printf '\n' ;;
@@ -537,6 +572,7 @@ check_remote_update() {
 
 check_installation() {
   require_root
+  load_existing_data_path
   load_existing_source_config
   validate_paths
   if ! deployment_exists; then
@@ -545,14 +581,28 @@ check_installation() {
     return 1
   fi
 
+  local saved_channel resolved_channel
+  saved_channel="$(sed -n 's/^SOURCE_CHANNEL=//p' "$VERSION_FILE" 2>/dev/null | head -n 1)"
+  if [ -z "$REQUESTED_REPO_REF" ] && [ -n "$saved_channel" ]; then
+    # Follow the recorded channel so a release install is compared with the
+    # newest release tag instead of the tag it was installed from.
+    resolved_channel="$(resolve_channel_ref "$saved_channel" 2>/dev/null || true)"
+    if [ -n "$resolved_channel" ]; then
+      REPO_REF="$resolved_channel"
+    fi
+  fi
+
   local check_status=0
   check_remote_update || check_status=$?
   case "$check_status" in
-    0|1)
+    0)
       return 0
       ;;
-    *)
+    1)
       return 1
+      ;;
+    *)
+      return 2
       ;;
   esac
 }
@@ -865,17 +915,109 @@ stop_service_if_exists() {
   fi
 }
 
-copy_server_files() {
+prepare_next_tree() {
   local source_dir="$1"
-  local next_dir="$INSTALL_ROOT/server.next"
 
-  log "installing server files to $APP_DIR"
-  mkdir -p "$INSTALL_ROOT"
-  rm -rf "$next_dir"
-  mkdir -p "$next_dir"
-  cp -a "$source_dir/." "$next_dir/"
-  rm -rf "$APP_DIR"
-  mv "$next_dir" "$APP_DIR"
+  log "staging the next release in $NEXT_SERVER"
+  rm -rf "$NEXT_SERVER" "$NEXT_VENV"
+  mkdir -p "$NEXT_SERVER"
+  cp -a "$source_dir/." "$NEXT_SERVER/"
+
+  log "installing Python dependencies into the new environment (service keeps running)"
+  "$PYTHON_BIN" -m venv "$NEXT_VENV"
+  "$NEXT_VENV/bin/python" -m pip install --upgrade pip setuptools wheel >/dev/null
+  "$NEXT_VENV/bin/python" -m pip install -r "$NEXT_SERVER/requirements.txt"
+}
+
+activate_next_tree() {
+  log "switching to the staged release"
+  rm -rf "$PREV_SERVER" "$PREV_VENV"
+  if [ -e "$APP_DIR" ]; then
+    mv "$APP_DIR" "$PREV_SERVER"
+  fi
+  if [ -e "$VENV_DIR" ]; then
+    mv "$VENV_DIR" "$PREV_VENV"
+  fi
+  mv "$NEXT_SERVER" "$APP_DIR"
+  mv "$NEXT_VENV" "$VENV_DIR"
+}
+
+backup_environment_file() {
+  if [ -f "$ENV_FILE" ]; then
+    cp -a "$ENV_FILE" "$ENV_BACKUP"
+  else
+    rm -f "$ENV_BACKUP"
+  fi
+}
+
+restore_environment_file() {
+  if [ -f "$ENV_BACKUP" ]; then
+    mv -f "$ENV_BACKUP" "$ENV_FILE"
+  fi
+}
+
+cleanup_previous_release() {
+  rm -rf "$PREV_VENV"
+  rm -f "$ENV_BACKUP"
+  if [ -e "$PREV_SERVER" ]; then
+    log "previous release kept at $PREV_SERVER"
+  fi
+}
+
+rollback_update() {
+  [ -e "$PREV_SERVER" ] || return 1
+  log "restoring the previous release"
+  systemctl stop "$SERVICE_NAME.service" >/dev/null 2>&1 || true
+  rm -rf "$APP_DIR" "$VENV_DIR"
+  mv "$PREV_SERVER" "$APP_DIR"
+  if [ -e "$PREV_VENV" ]; then
+    mv "$PREV_VENV" "$VENV_DIR"
+  fi
+  restore_environment_file
+  write_systemd_service
+  install_cli_command
+  start_service
+  return 0
+}
+
+wait_for_health() {
+  local deadline url
+  url="http://127.0.0.1:$PORT_VALUE/api/health"
+  if ! command -v curl >/dev/null 2>&1; then
+    deadline=$((SECONDS + 30))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      if systemctl is-active --quiet "$SERVICE_NAME.service"; then
+        return 0
+      fi
+      sleep 1
+    done
+    return 1
+  fi
+  deadline=$((SECONDS + 120))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+service_log_tail() {
+  if command -v journalctl >/dev/null 2>&1; then
+    journalctl -u "$SERVICE_NAME.service" -n 40 --no-pager 2>&1 || true
+    return 0
+  fi
+  systemctl --no-pager -n 40 -l status "$SERVICE_NAME.service" 2>&1 || true
+}
+
+check_update_locks() {
+  local lock="$DATA_PATH/.restore.lock"
+  [ -e "$lock" ] || return 0
+  command -v flock >/dev/null 2>&1 || return 0
+  if ! ( exec 9>>"$lock"; flock -n 9 ) 2>/dev/null; then
+    die "a restore is running ($lock); wait for it to finish, then run the update again"
+  fi
 }
 
 install_control_scripts() {
@@ -918,12 +1060,17 @@ remove_cli_command() {
 
 write_version_metadata() {
   local source_dir="$1"
-  local source_sha metadata_tmp
+  local source_sha metadata_tmp channel
   source_sha="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
   if [ -z "$source_sha" ] && [ -f "$REPO_CACHE_DIR/.sena-source-sha" ]; then
     source_sha="$(head -n 1 "$REPO_CACHE_DIR/.sena-source-sha" 2>/dev/null || true)"
   fi
   [ -n "$source_sha" ] || return 0
+
+  channel="${PERSIST_CHANNEL:-}"
+  if [ -z "$channel" ]; then
+    channel="$(channel_from_ref)"
+  fi
 
   metadata_tmp="$VERSION_FILE.tmp"
   umask 022
@@ -931,6 +1078,7 @@ write_version_metadata() {
     printf 'SOURCE_SHA=%s\n' "$source_sha"
     printf 'SOURCE_URL=%s\n' "$REPO_URL"
     printf 'SOURCE_REF=%s\n' "$REPO_REF"
+    printf 'SOURCE_CHANNEL=%s\n' "$channel"
   } > "$metadata_tmp"
   mv -f -- "$metadata_tmp" "$VERSION_FILE"
 }
@@ -983,13 +1131,6 @@ write_environment_file() {
   )
 }
 
-install_python_dependencies() {
-  log "installing Python dependencies"
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
-  "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
-}
-
 write_systemd_service() {
   log "writing systemd service: $SERVICE_FILE"
   cat > "$SERVICE_FILE" <<EOF
@@ -1032,20 +1173,37 @@ install_or_update() {
   else
     log "installing Sena Repo server"
   fi
+
+  check_update_locks
+  # Everything that can fail on the network or on disk happens while the old
+  # release is still running and untouched.
+  prepare_next_tree "$source_dir" \
+    || die "failed to prepare the new release; the running server was not touched"
+
   stop_service_if_exists
-  copy_server_files "$source_dir"
-  install_control_scripts
+  activate_next_tree
+  backup_environment_file
   write_environment_file
-  install_python_dependencies
+  install_control_scripts
   install_cli_command
   write_systemd_service
   start_service
-  ensure_firewall_port
-  write_version_metadata "$source_dir"
 
-  log "done"
-  log "server URL: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT_VALUE"
-  log "config file: $ENV_FILE"
+  if wait_for_health; then
+    ensure_firewall_port
+    write_version_metadata "$source_dir"
+    cleanup_previous_release
+    log "done"
+    log "server URL: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT_VALUE"
+    log "config file: $ENV_FILE"
+    return 0
+  fi
+
+  service_log_tail >&2 || true
+  if rollback_update; then
+    die "health check failed; the previous release was restored and restarted. See: journalctl -u $SERVICE_NAME -n 100"
+  fi
+  die "health check failed and there is no previous release to restore. See: journalctl -u $SERVICE_NAME -n 100"
 }
 
 uninstall_service() {
@@ -1128,10 +1286,12 @@ case "$ACTION" in
       die "--keep-data and --purge-data can only be used with --uninstall"
     fi
     require_root
+    load_existing_data_path
     load_existing_source_config
     validate_paths
     if [ -n "$REQUESTED_CHANNEL" ]; then
       validate_channel "$REQUESTED_CHANNEL"
+      REQUESTED_CHANNEL="$(normalize_channel "$REQUESTED_CHANNEL")"
     fi
     ensure_repo_url || true
     selected_channel=""
@@ -1143,6 +1303,9 @@ case "$ACTION" in
     if [ -n "$selected_channel" ] && [ -z "$REQUESTED_REPO_REF" ]; then
       REPO_REF="$(resolve_channel_ref "$selected_channel")"
       log "selected channel: $selected_channel ($REPO_REF)"
+    fi
+    if [ -n "$selected_channel" ]; then
+      PERSIST_CHANNEL="$selected_channel"
     fi
     if [ "$ACTION" = "install" ] && deployment_exists; then
       local_check_status=0
