@@ -28,7 +28,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
 BACKUP_SUFFIXES = {".zip", ".json"}
-BACKUP_PREFIXES = ("sena-backup-", "uploaded-")
+BACKUP_PREFIXES = ("sena-backup-", "uploaded-", "auto-sena-backup-")
+
+
+def _backup_source(name: str) -> str:
+    if name.startswith("auto-sena-backup-"):
+        return "auto"
+    if name.startswith("uploaded-"):
+        return "upload"
+    return "manual"
 
 
 def _backups_root() -> Path:
@@ -70,6 +78,7 @@ def _entry(path: Path, root: Path) -> dict:
             has_media = False
     return {
         "name": path.relative_to(root).as_posix(),
+        "source": _backup_source(path.name),
         "size": stat.st_size,
         "modified_at": datetime.fromtimestamp(
             stat.st_mtime, tz=timezone.utc

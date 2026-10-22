@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 import database as db
@@ -552,6 +552,210 @@ async def cmd_backup(args) -> int:
         echo(f"媒体: {sum(len(files) for files in media.values())} 个文件")
     echo("提示: 备份包含账号密码哈希与解压密码，请妥善保管。")
     return 0
+
+
+# ── automatic backups ──
+
+_auto_running = False
+
+
+def auto_backup_running() -> bool:
+    return _auto_running
+
+
+def auto_backup_name(suffix: str, scope: str) -> str:
+    return f"auto-sena-backup-{utc_timestamp()}-{scope}-{secrets.token_hex(3)}{suffix}"
+
+
+def is_auto_backup(path: Path) -> bool:
+    return (
+        path.is_file()
+        and path.name.startswith("auto-sena-backup-")
+        and path.suffix.lower() in {".zip", ".json"}
+    )
+
+
+def list_auto_backups(config) -> list[Path]:
+    root = backup_dir(config)
+    if not root.is_dir():
+        return []
+    files = [path for path in root.iterdir() if is_auto_backup(path)]
+    return sorted(files, key=lambda item: item.stat().st_mtime, reverse=True)
+
+
+def prune_auto_backups(config, retention: dict[str, int]) -> list[str]:
+    """Grandfather-father-son cleanup; only files this feature created."""
+    files = list_auto_backups(config)
+    if not files:
+        return []
+    keep: set[Path] = set()
+    last = int(retention.get("last") or 0)
+    if last > 0:
+        keep.update(files[:last])
+
+    now = datetime.now()
+    buckets = (
+        (
+            int(retention.get("daily") or 0),
+            lambda stamp: stamp.strftime("%Y-%m-%d"),
+            lambda stamp: (now.date() - stamp.date()).days,
+        ),
+        (
+            int(retention.get("weekly") or 0),
+            lambda stamp: stamp.strftime("%G-%V"),
+            lambda stamp: max(0, (now.date() - stamp.date()).days) // 7,
+        ),
+        (
+            int(retention.get("monthly") or 0),
+            lambda stamp: stamp.strftime("%Y-%m"),
+            lambda stamp: (now.year - stamp.year) * 12 + (now.month - stamp.month),
+        ),
+    )
+    for limit, bucket_key, bucket_age in buckets:
+        if limit <= 0:
+            continue
+        seen: set[str] = set()
+        for path in files:
+            stamp = datetime.fromtimestamp(path.stat().st_mtime)
+            if bucket_age(stamp) >= limit:
+                continue
+            key = bucket_key(stamp)
+            if key in seen:
+                continue
+            seen.add(key)
+            keep.add(path)
+
+    removed: list[str] = []
+    for path in files:
+        if path in keep:
+            continue
+        try:
+            path.unlink()
+            removed.append(path.name)
+        except OSError:
+            continue
+    return removed
+
+
+async def backup_fingerprint(config) -> str:
+    """Cheap change stamp: row counts, newest timestamps and data-file mtimes."""
+    async with db._session_factory() as session:
+        counts: dict[str, int] = {}
+        for key, model in (
+            ("games", Game),
+            ("versions", GameVersion),
+            ("users", User),
+            ("tags", Tag),
+            ("game_tags", GameTag),
+            ("roots", RootDirectory),
+            ("sources", FileSource),
+            ("ignored", IgnoreList),
+            ("categories", PlatformCategory),
+        ):
+            total = (
+                await session.execute(select(func.count()).select_from(model))
+            ).scalar()
+            counts[key] = int(total or 0)
+        latest_game = (await session.execute(select(func.max(Game.updated_at)))).scalar()
+        latest_version = (
+            await session.execute(select(func.max(GameVersion.checksum_updated_at)))
+        ).scalar()
+
+    data_dir = Path(config.data_path or "/data")
+    stamps: list[int] = []
+    for path in (
+        patch_rules.patch_index_path(config),
+        patch_rules.keywords_path(config),
+        data_dir / "scan_settings.json",
+        data_dir / "scraper_config.json",
+        Path(config.covers_path),
+        Path(config.backgrounds_path),
+        data_dir / "avatars",
+    ):
+        try:
+            stamps.append(int(path.stat().st_mtime_ns))
+        except OSError:
+            stamps.append(0)
+    payload = [sorted(counts.items()), str(latest_game), str(latest_version), stamps]
+    return hashlib.sha256(json.dumps(payload).encode("utf-8")).hexdigest()
+
+
+async def run_auto_backup(config) -> dict[str, Any]:
+    """Create one automatic backup, honouring the guards and retention policy."""
+    global _auto_running
+    from services import backup_schedule as sched
+
+    settings = sched.load_backup_settings(config)
+    started = datetime.now()
+    lock_path = Path(config.data_path or "/data") / ".restore.lock"
+
+    _auto_running = True
+    try:
+        with process_lock(lock_path, blocking=False) as acquired:
+            if not acquired:
+                sched.save_backup_settings(
+                    config,
+                    sched.record_skip(
+                        settings, now=started, reason="busy", delay_minutes=5
+                    ),
+                )
+                return {"skipped": "busy"}
+
+            min_free = float(settings.get("min_free_gb") or 0)
+            if min_free > 0:
+                free = shutil.disk_usage(Path(config.data_path or "/data")).free
+                if free < min_free * 1024 ** 3:
+                    message = f"磁盘余量不足：{free / 1024 ** 3:.1f} GB"
+                    sched.save_backup_settings(
+                        config,
+                        sched.record_failure(settings, now=started, message=message),
+                    )
+                    return {"skipped": "low-space", "error": message}
+
+            fingerprint = await backup_fingerprint(config)
+            if settings.get("skip_if_unchanged") and fingerprint == settings.get(
+                "last_fingerprint"
+            ):
+                sched.save_backup_settings(
+                    config,
+                    sched.record_skip(
+                        settings,
+                        now=started,
+                        reason="unchanged",
+                        fingerprint=fingerprint,
+                    ),
+                )
+                return {"skipped": "unchanged"}
+
+            scope = str(settings.get("scope") or SCOPE_ALL)
+            include_media = bool(settings.get("include_media")) and scope != SCOPE_PATCH
+            suffix = ".zip" if include_media else ".json"
+            output = backup_dir(config) / auto_backup_name(suffix, scope)
+            payload = await build_payload(config, scope=scope)
+            media = collect_media(config, payload)
+            await asyncio.to_thread(
+                write_backup, output, payload, media, include_media=include_media
+            )
+            removed = await asyncio.to_thread(
+                prune_auto_backups, config, settings.get("retention") or {}
+            )
+            sched.save_backup_settings(
+                config,
+                sched.record_success(
+                    settings,
+                    now=started,
+                    file_name=output.name,
+                    fingerprint=fingerprint,
+                ),
+            )
+            return {
+                "file": output.name,
+                "bytes": output.stat().st_size,
+                "removed": removed,
+                "games": len(payload["library"].get("games") or []),
+            }
+    finally:
+        _auto_running = False
 
 
 # ── payload loading ──

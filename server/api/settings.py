@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user, require_admin
+from api.auth import get_current_user, require_admin, require_owner
 from config import (
     DEFAULT_ENABLED_SCRAPERS,
     SCRAPER_SOURCE_ORDER,
@@ -18,6 +18,7 @@ from config import (
     normalize_scraper_config,
 )
 from models.user import User
+from services import backup_schedule
 
 from database import get_session
 from models.game import Game
@@ -121,6 +122,64 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
         config._scan_depth,
     )
     return {"message": "保存成功"}
+
+
+# --- Automatic backup ---
+
+class BackupScheduleUpdate(BaseModel):
+    enabled: bool | None = None
+    mode: str | None = None
+    interval_hours: int | None = None
+    times: list[str] | None = None
+    weekdays: list[int] | None = None
+    monthdays: list[int] | None = None
+    window: dict | None = None
+    scope: str | None = None
+    include_media: bool | None = None
+    retention: dict | None = None
+    skip_if_unchanged: bool | None = None
+    min_free_gb: float | None = None
+
+
+def _backup_schedule_payload(config, settings: dict) -> dict:
+    from cli import backup as backup_cli
+
+    files = backup_cli.list_auto_backups(config)
+    public = {key: value for key, value in settings.items() if key != "last_fingerprint"}
+    return {
+        "settings": public,
+        "next_run": backup_schedule.iso_from_ts(settings.get("next_run_at")),
+        "last_run": backup_schedule.iso_from_ts(settings.get("last_run")),
+        "auto_count": len(files),
+        "auto_bytes": sum(int(path.stat().st_size) for path in files),
+        "running": backup_cli.auto_backup_running(),
+    }
+
+
+@router.get("/backup")
+async def get_backup_schedule(user: User = Depends(require_owner)):
+    """Automatic backup schedule (owner only; the archive holds credentials)."""
+    del user
+    config = load_config()
+    return _backup_schedule_payload(config, backup_schedule.load_backup_settings(config))
+
+
+@router.put("/backup")
+async def update_backup_schedule(
+    body: BackupScheduleUpdate, user: User = Depends(require_owner)
+):
+    config = load_config()
+    changes = body.model_dump(exclude_unset=True)
+    settings = backup_schedule.update_backup_settings(config, changes)
+    logger.info(
+        "Backup schedule updated: actor_id=%s enabled=%s mode=%s scope=%s keep=%s",
+        user.id,
+        settings["enabled"],
+        settings["mode"],
+        settings["scope"],
+        settings["retention"],
+    )
+    return _backup_schedule_payload(config, settings)
 
 
 class ScraperConfigOut(BaseModel):

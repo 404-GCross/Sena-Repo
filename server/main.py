@@ -72,6 +72,55 @@ async def _auto_scan_task(config, logger):
             logger.error(f"Auto-scan error: {e}")
 
 
+async def _auto_backup_task(config, logger):
+    """Background task: run the calendar schedule configured for automatic backups."""
+    from services import backup_schedule as sched
+
+    # Give the initial library scan a head start before touching the disk.
+    await asyncio.sleep(300)
+    while True:
+        try:
+            settings = sched.load_backup_settings(config)
+            if settings.get("enabled"):
+                now = datetime.now()
+                if not float(settings.get("next_run_at") or 0):
+                    settings["next_run_at"] = sched.compute_next_run(
+                        settings, now
+                    ).timestamp()
+                    sched.save_backup_settings(config, settings)
+                elif sched.is_due(settings, now):
+                    from cli.backup import run_auto_backup
+
+                    result = await run_auto_backup(config)
+                    if result.get("skipped"):
+                        logger.info("Auto backup skipped: %s", result.get("skipped"))
+                    else:
+                        logger.info(
+                            "Auto backup created: file=%s bytes=%s removed=%s games=%s",
+                            result.get("file"),
+                            result.get("bytes"),
+                            len(result.get("removed") or []),
+                            result.get("games"),
+                        )
+        except Exception as exc:
+            logger.error(
+                "Auto backup failed: %s", type(exc).__name__, exc_info=True
+            )
+            try:
+                settings = sched.load_backup_settings(config)
+                sched.save_backup_settings(
+                    config,
+                    sched.record_failure(
+                        settings,
+                        now=datetime.now(),
+                        message=f"{type(exc).__name__}: {exc}",
+                    ),
+                )
+            except Exception:
+                pass
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: initialize DB on startup."""
@@ -127,12 +176,18 @@ async def lifespan(app: FastAPI):
 
     # Start auto-scan background task
     task = asyncio.create_task(_auto_scan_task(config, logger))
+    backup_task = asyncio.create_task(_auto_backup_task(config, logger))
 
     yield
 
     task.cancel()
+    backup_task.cancel()
     try:
         await task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await backup_task
     except asyncio.CancelledError:
         pass
 
