@@ -730,18 +730,25 @@ async def import_file_sources(
     """Restore file sources and return a backup-key → local-id map."""
     stats = {"sources_new": 0, "sources_updated": 0}
     notes: list[str] = []
-    existing = {
-        source.name: source
-        for source in (await session.execute(select(FileSource))).scalars()
-        if source.name
-    }
+    entries = [
+        entry
+        for entry in entries
+        if str(entry.get("name") or "").strip() and str(entry.get("key") or "").strip()
+    ]
+    backup_name_counts: dict[str, int] = {}
+    for entry in entries:
+        name = str(entry["name"]).strip()
+        backup_name_counts[name] = backup_name_counts.get(name, 0) + 1
+
+    existing: dict[str, list[FileSource]] = {}
+    for source in (await session.execute(select(FileSource))).scalars():
+        if source.name:
+            existing.setdefault(source.name, []).append(source)
     by_key: dict[str, int] = {}
 
     for entry in entries:
-        name = str(entry.get("name") or "").strip()
-        key = str(entry.get("key") or "").strip()
-        if not name or not key:
-            continue
+        name = str(entry.get("name")).strip()
+        key = str(entry.get("key")).strip()
         fields: dict[str, Any] = {
             "type": str(entry.get("type") or "local"),
             "base_url": entry.get("base_url"),
@@ -751,14 +758,37 @@ async def import_file_sources(
         password = entry.get("password")
         if isinstance(password, str) and password:
             fields["password"] = encrypt_secret(password)
-        source = existing.get(name)
+
+        candidates = existing.get(name, [])
+        source = None
+        if len(candidates) == 1 and backup_name_counts[name] == 1:
+            source = candidates[0]
+        elif candidates:
+            # Duplicate names exist on one side; pair them by address instead.
+            source = next(
+                (
+                    item
+                    for item in candidates
+                    if (item.base_url or "") == (fields.get("base_url") or "")
+                ),
+                None,
+            )
+            if source is None and backup_name_counts[name] == 1:
+                source = candidates[0]
+
         if source is None:
             source = FileSource(name=name, **fields)
             session.add(source)
             await session.flush()
-            existing[name] = source
+            existing.setdefault(name, []).append(source)
             stats["sources_new"] += 1
-            notes.append(f"已创建文件源「{name}」")
+            if backup_name_counts[name] > 1 or len(existing[name]) > 1:
+                notes.append(
+                    f"文件源「{name}」存在多个同名配置，"
+                    f"已按地址 {fields.get('base_url') or '（空）'} 单独创建"
+                )
+            else:
+                notes.append(f"已创建文件源「{name}」")
         elif replace:
             for field_name, value in fields.items():
                 setattr(source, field_name, value)
@@ -958,6 +988,18 @@ async def import_library(
         return text
 
     companies = {c.name: c for c in (await session.execute(select(Company))).scalars()}
+    for entry in library.get("companies") or []:
+        name = str(entry.get("name") or "").strip()
+        if not name or name in companies:
+            continue
+        company = Company(name=name)
+        created_at = _parse_dt(entry.get("created_at"))
+        if created_at is not None:
+            company.created_at = created_at
+        session.add(company)
+        await session.flush()
+        companies[name] = company
+        stats["companies_new"] += 1
     games_by_path = {
         game.folder_path: game for game in (await session.execute(select(Game))).scalars()
     }
@@ -1244,9 +1286,9 @@ async def import_accounts(
             "role": role,
             "is_admin": role in {"owner", "admin"},
             "status": str(entry.get("status") or "active"),
-            "avatar_path": str(avatars_dir / avatar_key)
-            if avatar_key in available_media["avatars"] else None,
         }
+        if avatar_key and avatar_key in available_media["avatars"]:
+            fields["avatar_path"] = str(avatars_dir / avatar_key)
         for key in ("oauth_provider", "oauth_subject", "oauth_name", "oauth_user_id"):
             fields[key] = entry.get(key)
         if "password_set" in entry:
