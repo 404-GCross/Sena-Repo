@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import secrets
 import shutil
 import sqlite3
@@ -63,6 +64,11 @@ KIND = "sena_backup"
 SCHEMA_VERSION = 5
 JSON_NAME = "backup.json"
 MEDIA_KINDS = ("covers", "backgrounds", "avatars")
+# Media file names are content hashes produced by this module; anything else is
+# rejected so a crafted archive cannot write outside the media directory.
+MEDIA_KEY_RE = re.compile(
+    r"^[A-Za-z0-9_-]{8,64}\.(?:jpg|jpeg|png|gif|webp)$", re.IGNORECASE
+)
 SCOPE_ALL = "all"
 SCOPE_PATCH = "patch"
 SCOPE_LIBRARY = "library"
@@ -850,6 +856,8 @@ def normalise_payload(data: dict[str, Any]) -> dict[str, Any]:
         for entry in entries:
             entry = _expect_dict(entry, f"media.{kind}[]")
             key = _require(entry, "key", f"媒体 {kind}")
+            if not MEDIA_KEY_RE.match(str(key)):
+                fail(f"备份结构不正确: 媒体标识不合法: {key}", 3)
             known[key] = entry
         media[kind] = known
 
@@ -1559,12 +1567,18 @@ def apply_media(
         for kind in MEDIA_KINDS:
             target_dir = directories[kind]
             for key in (manifest.get(kind) or {}):
+                if not MEDIA_KEY_RE.match(str(key)):
+                    continue
                 entry = f"media/{kind}/{key}"
                 if entry not in names:
                     continue
                 available[kind].add(key)
                 target_dir.mkdir(parents=True, exist_ok=True)
-                destination = target_dir / key
+                destination = (target_dir / key).resolve()
+                try:
+                    destination.relative_to(target_dir.resolve())
+                except ValueError:
+                    continue
                 if destination.is_file():
                     continue
                 with source.open(entry) as src, open(destination, "wb") as dst:

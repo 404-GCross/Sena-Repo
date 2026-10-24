@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 MAX_GAME_DEPTH = 8
 
 
+class SourceUnavailable(RuntimeError):
+    """A file source could not be listed; callers must not treat it as empty."""
+
+
 @dataclass
 class ArchiveFile:
     filename: str
@@ -159,7 +163,9 @@ def scan_source(
             return source.list(path)
         except Exception as exc:
             logger.warning("Failed to list source path %s: %s", path, exc)
-            return []
+            # Returning an empty list here would look like "the folder is gone"
+            # and the importer would mark every game under it as deleted.
+            raise SourceUnavailable(f"无法读取 {path}: {exc}") from exc
 
     def archives_recursive(path: str) -> list[ArchiveFile]:
         found: list[ArchiveFile] = []

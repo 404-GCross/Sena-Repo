@@ -438,6 +438,7 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                     finished_at=None,
                     message=None,
                 )
+                failed_roots: list[int] = []
                 for root in roots:
                     _set_scan_state(
                         current_root=root.source_path or root.path,
@@ -448,6 +449,7 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                         total_games += stats.get("total_games", 0)
                     except Exception:
                         logger.exception("Scan root %s failed", root.id)
+                        failed_roots.append(root.id)
                     finally:
                         _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
             if update_last:
@@ -455,6 +457,21 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                     _mark_auto_scan(config, time.time())
                 except Exception:
                     logger.exception("Failed to persist last auto-scan time")
+            if failed_roots:
+                _set_scan_state(
+                    status="failed",
+                    current_root=None,
+                    finished_at=time.time(),
+                    message=(
+                        f"{len(failed_roots)} 个目录扫描失败，已保留原有条目；"
+                        "请检查文件源连接后重试"
+                    ),
+                )
+                return {
+                    "total_games": total_games,
+                    "roots_scanned": len(roots),
+                    "failed_roots": failed_roots,
+                }
             _set_scan_state(
                 status="completed",
                 current_root=None,
