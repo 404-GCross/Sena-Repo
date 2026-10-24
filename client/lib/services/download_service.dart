@@ -3346,42 +3346,67 @@ class DownloadService with WidgetsBindingObserver {
         timeout: Platform.isAndroid ? 600 : 1800,
       ); // Android: 10min timeout
       await _fixLayout(extractTempDir, gameDir);
-      // Move result from temp to final location
+      // Move result from temp to final location without ever losing the
+      // existing install: the old folder is renamed aside and restored if the
+      // new content cannot be put in place.
       final finalDir = "$outDir${Platform.pathSeparator}$gameDir";
       final source = "$extractTempDir${Platform.pathSeparator}$gameDir";
       if (await Directory(source).exists()) {
-        // _fixLayout produced a subfolder named gameDir → move it out
-        // Remove stale empty dir from prior attempt
-        try {
-          if (await Directory(finalDir).exists())
-            await Directory(finalDir).delete(recursive: true);
-        } catch (_) {}
-        try {
-          await Directory(source).rename(finalDir);
-        } catch (_) {
-          // rename failed (may be cross-volume) → copy+delete fallback
-          await _copyMerge(source, finalDir);
-          await Directory(source).delete(recursive: true);
-        }
+        await _replaceDirectory(source, finalDir);
       } else {
-        // _fixLayout case 2 (already named correctly) or no subfolder produced
-        // Move the whole temp dir to final location
-        try {
-          if (await Directory(finalDir).exists())
-            await Directory(finalDir).delete(recursive: true);
-        } catch (_) {}
-        try {
-          await Directory(extractTempDir).rename(finalDir);
-        } catch (_) {
-          await _copyMerge(extractTempDir, finalDir);
-          await Directory(extractTempDir).delete(recursive: true);
-        }
+        await _replaceDirectory(extractTempDir, finalDir);
       }
     } finally {
       // Clean up temp directory
       try {
         await Directory(extractTempDir).delete(recursive: true);
       } catch (_) {}
+    }
+  }
+
+  /// Swap [staging] into [finalDir], keeping the previous directory until the
+  /// new one is fully in place; restore it if anything fails.
+  Future<void> _replaceDirectory(String staging, String finalDir) async {
+    Directory? backup;
+    if (await Directory(finalDir).exists()) {
+      backup =
+          Directory("$finalDir.old-${DateTime.now().millisecondsSinceEpoch}");
+      await Directory(finalDir).rename(backup.path);
+    }
+    try {
+      try {
+        await Directory(staging).rename(finalDir);
+      } catch (_) {
+        // rename failed (may be cross-volume) → copy+delete fallback
+        await _copyMerge(staging, finalDir);
+        await Directory(staging).delete(recursive: true);
+      }
+      if (backup != null) {
+        try {
+          await backup.delete(recursive: true);
+        } catch (_) {
+          LoggerService().warn("旧游戏目录未能删除: ${backup.path}");
+        }
+      }
+    } catch (error) {
+      try {
+        if (await Directory(finalDir).exists()) {
+          await Directory(finalDir).delete(recursive: true);
+        }
+      } catch (_) {}
+      if (backup != null) {
+        try {
+          await backup.rename(finalDir);
+        } catch (_) {
+          LoggerService().error(
+            "替换失败且无法恢复旧目录，旧目录保留在 ${backup.path}",
+            error,
+            StackTrace.current,
+          );
+          rethrow;
+        }
+      }
+      rethrow;
     }
   }
 

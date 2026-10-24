@@ -83,8 +83,76 @@ Map<String, String>? get mediaAuthHeaders {
   return {"Authorization": "Bearer $_accessToken"};
 }
 
-/// Hostname of the configured server — only bypasses TLS for this host.
+/// Hostname/port of the configured server. Only this endpoint may present a
+/// self-signed certificate, and only when it was added over HTTPS.
 String? trustedServerHost;
+int? trustedServerPort;
+bool trustedServerUseHttps = false;
+
+/// Set when the pinned certificate no longer matches the one the server serves.
+bool serverCertificateMismatch = false;
+
+const String _certPinPrefix = "trusted_cert:";
+final Map<String, String> _certificatePins = {};
+
+String _certPinKey(String host, int port) => "$_certPinPrefix$host:$port";
+
+/// Load stored certificate pins at startup so the TLS callback can read them
+/// synchronously (the callback cannot await).
+Future<void> preloadCertificatePins() async {
+  final prefs = await SharedPreferences.getInstance();
+  for (final key in prefs.getKeys()) {
+    if (!key.startsWith(_certPinPrefix)) continue;
+    final value = prefs.getString(key);
+    if (value != null && value.isNotEmpty) _certificatePins[key] = value;
+  }
+}
+
+void trustServer(String host, int port, {required bool useHttps}) {
+  if (trustedServerHost != host || trustedServerPort != port) {
+    serverCertificateMismatch = false;
+  }
+  trustedServerHost = host;
+  trustedServerPort = port;
+  trustedServerUseHttps = useHttps;
+}
+
+void forgetTrustedServer() {
+  trustedServerHost = null;
+  trustedServerPort = null;
+  trustedServerUseHttps = false;
+  serverCertificateMismatch = false;
+}
+
+Future<void> clearTrustedCertificate(String host, int port) async {
+  final key = _certPinKey(host, port);
+  _certificatePins.remove(key);
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove(key);
+}
+
+/// TLS callback: accept a self-signed certificate only for the configured
+/// host and port, and only if it matches the one pinned on first connect.
+bool acceptServerCertificate(X509Certificate cert, String host, int port) {
+  if (!trustedServerUseHttps) return false;
+  if (trustedServerHost == null || host != trustedServerHost) return false;
+  if (trustedServerPort != null && port != trustedServerPort) return false;
+  final key = _certPinKey(host, port);
+  final pinned = _certificatePins[key];
+  if (pinned == null) {
+    _certificatePins[key] = cert.pem;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setString(key, cert.pem))
+        .catchError((_) => false);
+    return true;
+  }
+  if (pinned == cert.pem) return true;
+  serverCertificateMismatch = true;
+  LoggerService().warn(
+    "TLS certificate changed for $host:$port; refused the connection",
+  );
+  return false;
+}
 
 class AuthException implements Exception {
   final String message;
@@ -198,7 +266,7 @@ class ApiClient {
   }) async {
     final scheme = useHttps ? "https" : "http";
     _baseUrl = "$scheme://$host:$port";
-    trustedServerHost = host;
+    trustServer(host, port, useHttps: useHttps);
   }
 
   /// Execute an HTTP request.

@@ -347,6 +347,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final api = context.read<GameProvider>().api;
       await NextmoeTokenStore.clear(api);
       await api.logout();
+      forgetTrustedServer();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
       if (context.mounted) {

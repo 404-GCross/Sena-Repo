@@ -842,8 +842,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _deleteProfile(int index) async {
     final ps = ProfileService();
+    final removed =
+        index >= 0 && index < _profiles.length ? _profiles[index] : null;
     _profiles.removeAt(index);
     await ps.saveProfiles(_profiles);
+    if (removed != null) {
+      // Forget the pinned certificate together with the server entry.
+      await clearTrustedCertificate(removed.host, removed.port);
+    }
     _reloadProfiles();
   }
 
