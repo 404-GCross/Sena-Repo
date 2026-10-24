@@ -16,8 +16,7 @@ import "dart:io"
         X509Certificate,
         exit;
 import "dart:ui" show PlatformDispatcher, PointerDeviceKind;
-import "services/api_client.dart"
-    show acceptServerCertificate, preloadCertificatePins;
+import "services/api_client.dart" show trustedServerHost;
 
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
@@ -94,11 +93,13 @@ void _startInstanceListener() {
   });
 }
 
-class _PinnedCertificateOverrides extends HttpOverrides {
+class _AllowAllCertificates extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
-      ..badCertificateCallback = acceptServerCertificate;
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
+        return host == trustedServerHost;
+      };
   }
 }
 
@@ -118,8 +119,7 @@ void main() {
       return true;
     };
 
-    HttpOverrides.global = _PinnedCertificateOverrides();
-    await preloadCertificatePins();
+    HttpOverrides.global = _AllowAllCertificates();
     // Prevent Android system bars from overlapping the app
     if (Platform.isAndroid) {
       SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(

@@ -6,8 +6,7 @@ import "package:flutter/material.dart";
 import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
-import "../services/api_client.dart"
-    show serverCertificateMismatch, trustServer;
+import "../services/api_client.dart" show trustedServerHost;
 import "../services/api_response_utils.dart";
 import "../services/logger_service.dart";
 
@@ -75,7 +74,7 @@ class SettingsProvider extends ChangeNotifier {
 
     // Trust the endpoint before the health probe, otherwise a self-signed
     // certificate is rejected on the very first connection.
-    trustServer(host, port, useHttps: useHttps);
+    trustedServerHost = host;
 
     LoggerService().info("正在连接 $host:$port (${useHttps ? "HTTPS" : "HTTP"})");
     try {
@@ -107,17 +106,13 @@ class SettingsProvider extends ChangeNotifier {
       LoggerService().info("连接成功 $host:$port");
       return true;
     } on http.ClientException catch (e) {
-      _errorMessage = serverCertificateMismatch
-          ? "服务器证书与首次连接时不一致。如果确实更换了证书，请删除该服务器配置后重新添加。"
-          : "无法连接到服务器，请检查地址和端口";
+      _errorMessage = "无法连接到服务器，请检查地址和端口";
       _isLoading = false;
       notifyListeners();
       LoggerService().error("连接失败 $host:$port", e);
       return false;
     } catch (e) {
-      _errorMessage = serverCertificateMismatch
-          ? "服务器证书与首次连接时不一致。如果确实更换了证书，请删除该服务器配置后重新添加。"
-          : "连接超时，请检查网络";
+      _errorMessage = "连接超时，请检查网络";
       _isLoading = false;
       notifyListeners();
       LoggerService().error("连接超时 $host:$port", e);
