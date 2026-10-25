@@ -3476,10 +3476,6 @@ class _UserManagePageState extends State<_UserManagePage> {
     String actionLabel;
     String confirmMsg;
     switch (newRole) {
-      case "owner":
-        actionLabel = "转让服主";
-        confirmMsg = "确定将服主身份转让给「${u["username"]}」吗？您将降为管理员，此操作会立即生效。";
-        break;
       case "admin":
         actionLabel = "设为管理员";
         confirmMsg = "确定将「${u["username"]}」设为管理员吗？";
@@ -3786,10 +3782,6 @@ class _UserManagePageState extends State<_UserManagePage> {
     Color color;
     String label;
     switch (role) {
-      case "owner":
-        color = Colors.amber;
-        label = "服主";
-        break;
       case "admin":
         color = Colors.blue;
         label = "管理员";
@@ -3835,76 +3827,46 @@ class _UserManagePageState extends State<_UserManagePage> {
           enabled: false, value: "", child: Text("（当前登录账号）")));
       return actions;
     }
-    if (role == "owner") {
-      actions.add(const PopupMenuItem(
-          enabled: false, value: "", child: Text("（服主账号）")));
-      return actions;
-    }
 
-    // Edit (available to admin/owner for regular users, owner for admins)
-    if (_currentRole == "owner" || role == "user") {
+    actions.add(const PopupMenuItem(
+        value: "edit",
+        child: ListTile(
+          leading: Icon(Icons.edit_outlined),
+          title: Text("编辑"),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+        )));
+
+    if (role == "user") {
       actions.add(const PopupMenuItem(
-          value: "edit",
+          value: "set_admin",
           child: ListTile(
-            leading: Icon(Icons.edit_outlined),
-            title: Text("编辑"),
+            leading:
+                Icon(Icons.admin_panel_settings_outlined, color: Colors.blue),
+            title: Text("设为管理员"),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          )));
+    } else if (role == "admin") {
+      actions.add(const PopupMenuItem(
+          value: "remove_admin",
+          child: ListTile(
+            leading: Icon(Icons.person_remove_outlined, color: Colors.orange),
+            title: Text("取消管理员"),
             dense: true,
             contentPadding: EdgeInsets.zero,
           )));
     }
 
-    // Role management (owner only)
-    if (_currentRole == "owner") {
-      if (role == "user") {
-        actions.add(const PopupMenuItem(
-            value: "set_admin",
-            child: ListTile(
-              leading:
-                  Icon(Icons.admin_panel_settings_outlined, color: Colors.blue),
-              title: Text("设为管理员"),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            )));
-        actions.add(const PopupMenuItem(
-            value: "transfer_owner",
-            child: ListTile(
-              leading: Icon(Icons.star_border, color: Colors.amber),
-              title: Text("转让服主"),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            )));
-      } else if (role == "admin") {
-        actions.add(const PopupMenuItem(
-            value: "remove_admin",
-            child: ListTile(
-              leading: Icon(Icons.person_remove_outlined, color: Colors.orange),
-              title: Text("取消管理员"),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            )));
-        actions.add(const PopupMenuItem(
-            value: "transfer_owner",
-            child: ListTile(
-              leading: Icon(Icons.star_border, color: Colors.amber),
-              title: Text("转让服主"),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            )));
-      }
-    }
-
-    // Delete
-    if (_currentRole == "owner" || role == "user") {
-      if (actions.isNotEmpty) actions.add(const PopupMenuDivider());
-      actions.add(const PopupMenuItem(
-          value: "delete",
-          child: ListTile(
-            leading: Icon(Icons.delete_outline, color: Colors.red),
-            title: Text("删除", style: TextStyle(color: Colors.red)),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-          )));
-    }
+    if (actions.isNotEmpty) actions.add(const PopupMenuDivider());
+    actions.add(const PopupMenuItem(
+        value: "delete",
+        child: ListTile(
+          leading: Icon(Icons.delete_outline, color: Colors.red),
+          title: Text("删除", style: TextStyle(color: Colors.red)),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+        )));
 
     return actions;
   }
@@ -3919,9 +3881,6 @@ class _UserManagePageState extends State<_UserManagePage> {
         break;
       case "remove_admin":
         await _setRole(u, "user");
-        break;
-      case "transfer_owner":
-        await _setRole(u, "owner");
         break;
       case "delete":
         await _deleteUser(u["id"], u["username"] ?? "");

@@ -112,7 +112,7 @@ Future<void> activateLogContext({
   _logServerKey = stableLogKey(baseUrl);
   _logAccountScope =
       scope.isNotEmpty ? scope : stableLogKey("user:$userId");
-  _logManagement = role == "owner" || role == "admin";
+  _logManagement = role == "admin";
   _logSessionId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
   LoggerService().setContext(
     LogContext(

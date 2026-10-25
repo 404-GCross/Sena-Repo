@@ -59,7 +59,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   double _importProgress = 0;
   String? _importError;
   String? _importDone;
-  String? _importOwner;
+  String? _importAdmin;
   String _oauthRequestId = "";
   String _oauthName = "";
   String _oauthUserId = "";
@@ -322,7 +322,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         _importing = false;
         _importProgress = 1;
         _importDone = data["message"]?.toString() ?? "备份已导入";
-        _importOwner = data["owner"]?.toString();
+        _importAdmin = data["admin"]?.toString();
       });
     } catch (e) {
       setState(() {
@@ -407,7 +407,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         _modeOption(
           icon: Icons.auto_awesome_rounded,
           title: "新建服务端",
-          description: "创建服主账户，配置游戏库目录、Steam 补丁库与刮削源。",
+          description: "创建管理员账户，配置游戏库目录、Steam 补丁库与刮削源。",
           onTap: () => setState(() {
             _mode = "new";
             _error = null;
@@ -525,9 +525,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                               .copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
                       Text(
-                        _importOwner == null || _importOwner!.isEmpty
+                        _importAdmin == null || _importAdmin!.isEmpty
                             ? "请用备份中的账号登录。"
-                            : "请用备份中的服主账号「$_importOwner」登录。",
+                            : "请用备份中的管理员账号「$_importAdmin」登录。",
                         style: AppText.caption
                             .copyWith(color: hintColor(context)),
                       ),
@@ -554,7 +554,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       label: "去登录",
                       filled: true,
                       onPressed: () => Navigator.pop(context, {
-                        "username": _importOwner ?? "",
+                        "username": _importAdmin ?? "",
                         "password": null,
                         "imported": true,
                       }),
@@ -609,7 +609,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      "首次启动服务器时完成服主、库目录和刮削源配置。",
+                      "首次启动服务器时完成管理员、库目录和刮削源配置。",
                       style: AppText.caption.copyWith(
                         color: hintColor(context),
                         height: 1.35,
@@ -624,8 +624,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           _SetupStepItem(
             index: 0,
             currentStep: _step,
-            title: "创建服主账户",
-            subtitle: "服主用户名、密码和确认密码。",
+            title: "创建管理员账户",
+            subtitle: "管理员用户名、密码和确认密码。",
           ),
           _SetupStepItem(
             index: 1,
@@ -707,7 +707,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   String _stepDescription() {
     if (_step == 0) {
-      return "初始化第一步只创建服务端首个服主账户。密码只用于提交，不在摘要、日志或页面中回显明文。";
+      return "初始化第一步只创建服务端首个管理员账户。密码只用于提交，不在摘要、日志或页面中回显明文。";
     }
     if (_step == 1) {
       return "这一屏只处理库目录、OpenList 来源和扫描设置。添加/编辑目录仍使用统一弹窗。";
@@ -762,14 +762,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _setupCard(
-          title: "服主信息",
+          title: "管理员信息",
           icon: Icons.manage_accounts_outlined,
           child: Column(
             children: [
               TextField(
                 controller: _userCtrl,
                 decoration: const InputDecoration(
-                  labelText: "服主用户名",
+                  labelText: "管理员用户名",
                   prefixIcon: Icon(Icons.person),
                 ),
                 onChanged: (_) => setState(() {}),
@@ -825,7 +825,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               const SizedBox(height: AppGap.sm),
               _setupNotice(
                 icon: Icons.info_outline,
-                title: "首个账号默认服主",
+                title: "首个账号默认管理员",
                 message: "初始化完成后会自动返回登录态。",
                 color: Theme.of(context).colorScheme.primary,
               ),
@@ -841,7 +841,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             "NextMoe": _oauthRequestId.isEmpty
                 ? "未绑定（可选）"
                 : "已绑定${_oauthName.isEmpty ? "" : "：$_oauthName"}",
-            "权限": "服主",
+            "权限": "管理员",
           },
         ),
       ],
@@ -1337,7 +1337,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         ),
         const SizedBox(height: AppGap.md),
         _setupHint(
-          "这是最终提交页。点击完成后一次性提交服主、目录扫描和刮削源配置；不在前两步提前保存半成品。",
+          "这是最终提交页。点击完成后一次性提交管理员、目录扫描和刮削源配置；不在前两步提前保存半成品。",
         ),
       ],
     );

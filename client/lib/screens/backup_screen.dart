@@ -101,7 +101,7 @@ class _BackupScreenState extends State<BackupScreen> {
 
   Future<void> _toggleAuto() async {
     await _setAutoExpanded(!_autoExpanded);
-    if (_autoExpanded && !_autoLoaded && _isOwner) _loadAutoSettings();
+    if (_autoExpanded && !_autoLoaded && _isAdmin) _loadAutoSettings();
   }
 
   Future<void> _setAutoExpanded(bool value) async {
@@ -115,17 +115,17 @@ class _BackupScreenState extends State<BackupScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() => _currentRole = prefs.getString("role") ?? "user");
-    if (_isOwner) _loadAutoSettings();
+    if (_isAdmin) _loadAutoSettings();
   }
 
-  bool get _isOwner => _currentRole == "owner";
+  bool get _isAdmin => _currentRole == "admin";
 
   void _showPermissionDenied(String action) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text("权限不足"),
-        content: Text("$action仅限服主使用"),
+        content: Text("$action仅限管理员使用"),
         actions: [
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -147,7 +147,7 @@ class _BackupScreenState extends State<BackupScreen> {
   // ── automatic backup ──
 
   Future<void> _loadAutoSettings() async {
-    if (!_isOwner) return;
+    if (!_isAdmin) return;
     setState(() {
       _autoLoading = true;
       _autoError = null;
@@ -1426,7 +1426,7 @@ class _BackupScreenState extends State<BackupScreen> {
                             onPressed: _busy
                                 ? null
                                 : () {
-                                    if (!_isOwner) {
+                                    if (!_isAdmin) {
                                       _showPermissionDenied("导出备份");
                                       return;
                                     }
@@ -1440,7 +1440,7 @@ class _BackupScreenState extends State<BackupScreen> {
                             onPressed: _uploading
                                 ? null
                                 : () {
-                                    if (!_isOwner) {
+                                    if (!_isAdmin) {
                                       _showPermissionDenied("恢复备份");
                                       return;
                                     }
@@ -1472,7 +1472,7 @@ class _BackupScreenState extends State<BackupScreen> {
                     ],
                   ),
                 ),
-                if (_isOwner) ...[
+                if (_isAdmin) ...[
                   _autoBackupCard(),
                   const SizedBox(height: 20),
                 ],
@@ -1583,7 +1583,7 @@ class _BackupScreenState extends State<BackupScreen> {
               onPressed: _busy
                   ? null
                   : () {
-                      if (!_isOwner) {
+                      if (!_isAdmin) {
                         _showPermissionDenied("下载备份");
                         return;
                       }
