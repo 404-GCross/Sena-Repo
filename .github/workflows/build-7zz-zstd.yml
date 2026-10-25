@@ -23,7 +23,8 @@ jobs:
 
       - name: Install NDK
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" 2>&1
+          # Match the NDK the app is built with (android/app/build.gradle.kts).
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;28.2.13676358" 2>&1
 
       - name: Clone 7-Zip-zstd source
         run: |
@@ -33,16 +34,24 @@ jobs:
 
       - name: Build 7zz-zstd for aarch64
         run: |
-          NDK="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          NDK="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin"
           cd /tmp/7zsrc/CPP/7zip/Bundles/Alone2
           # Remove -lpthread and -ldl (Bionic has them built-in)
           grep -rl '\-lpthread\|\-ldl' /tmp/7zsrc/CPP/7zip/ | xargs -r sed -i 's/-lpthread//g; s/-ldl//g'
+          # Android 15+ ships 16 KB page devices (Redmi K90 Pro Max, Pixel 8+).
+          # A 4 KB-aligned LOAD segment fails to map or crashes at runtime.
+          # Alignment and STL choice are link-time only, so override LDFLAGS.
           make -j$(nproc) -f makefile.gcc \
             CC="$NDK/aarch64-linux-android29-clang" \
-            CXX="$NDK/aarch64-linux-android29-clang++"
+            CXX="$NDK/aarch64-linux-android29-clang++" \
+            LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
           echo "=== Build output ==="
           file _o/7zz
           ls -la _o/7zz
+          echo "=== Alignment (must be 0x4000) ==="
+          $ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -lW _o/7zz | grep LOAD
+          echo "=== Dynamic deps ==="
+          $ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -dW _o/7zz | grep NEEDED || true
           sha256sum _o/7zz > _o/7zz.sha256
           cp /tmp/7zsrc/DOC/License.txt _o/License.txt || printf 'See https://github.com/mcmilk/7-Zip-zstd for license details.\n' > _o/License.txt
           printf 'Built from mcmilk/7-Zip-zstd ref %s\nSource: https://github.com/mcmilk/7-Zip-zstd\n' "$SEVENZIP_ZSTD_REF" > _o/NOTICE.txt

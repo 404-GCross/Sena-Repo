@@ -2477,6 +2477,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       bgUrl: bgUrl,
       extractPassword: v.extractPassword,
       targetDir: dlDir,
+      expectedBytes: v.fileSize,
     );
     if (mounted) {
       showDialog(

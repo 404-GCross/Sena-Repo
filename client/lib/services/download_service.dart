@@ -22,6 +22,24 @@ import "package:permission_handler/permission_handler.dart";
 import "api_client.dart" show ApiClient, globalToken;
 import "notification_service.dart";
 
+class _ToolRunResult {
+  final int exitCode;
+  final String output;
+  const _ToolRunResult({required this.exitCode, required this.output});
+
+  bool get warned => exitCode != 0;
+}
+
+class _ToolFailure implements Exception {
+  final int exitCode;
+  final String raw;
+  final String message;
+  const _ToolFailure(this.exitCode, this.raw, this.message);
+
+  @override
+  String toString() => message;
+}
+
 class DownloadHttpException implements Exception {
   final int statusCode;
   final String message;
@@ -57,6 +75,8 @@ class DownloadTask {
   final String? patchLookupKey;
   /// Token of the server that created this task; never sent to another origin.
   String? authToken;
+  /// Size declared by the server; 0 when unknown.
+  int expectedBytes;
 
   String
   status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
@@ -95,6 +115,7 @@ class DownloadTask {
     this.targetDir,
     this.patchLookupKey,
     this.authToken,
+    this.expectedBytes = 0,
     this.status = "pending",
     this.progress = 0,
     this.receivedBytes = 0,
@@ -115,6 +136,7 @@ class DownloadTask {
     "sourceType": sourceType,
     "targetDir": targetDir,
     "patchLookupKey": patchLookupKey,
+    "expectedBytes": expectedBytes,
     "status": status,
     "progress": progress,
     "error": error,
@@ -205,6 +227,7 @@ class DownloadService with WidgetsBindingObserver {
                 sourceType: m["sourceType"]?.toString() ?? "local",
                 targetDir: m["targetDir"]?.toString(),
                 patchLookupKey: m["patchLookupKey"]?.toString(),
+                expectedBytes: m["expectedBytes"] ?? 0,
               )
               ..status = m["status"] ?? "failed"
               ..receivedBytes = m["receivedBytes"] ?? 0
@@ -648,6 +671,7 @@ class DownloadService with WidgetsBindingObserver {
     String? coverUrl,
     String? bgUrl,
     String? extractPassword,
+    int expectedBytes = 0,
   }) {
     final task =
         DownloadTask(
@@ -664,6 +688,7 @@ class DownloadService with WidgetsBindingObserver {
             targetDir: targetDir,
           )
           ..authToken = globalToken
+          ..expectedBytes = expectedBytes
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
           ..extractPassword = extractPassword;
@@ -775,9 +800,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _runWithPassword(DownloadTask t, String password) async {
     final dir = await _taskDir(t);
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File(
-      "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
-    );
+    final tmp = File(_tempArchivePath(supportDir, t));
     final outDir = _outDir(t, dir);
     final gameDir = _safePathComponent(
       t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName),
@@ -971,8 +994,41 @@ class DownloadService with WidgetsBindingObserver {
     }
 
     _sevenZipPath = dest.path;
+    await _verifyExtractorRuns(_sevenZipPath!);
     return _sevenZipPath!;
   }
+
+  /// Verify the bundled 7zz can actually run on this device (wrong page size,
+  /// missing libc++, corrupted asset). Cached after the first success.
+  Future<void> _verifyExtractorRuns(String path) async {
+    if (_extractorProbeOk == path) return;
+    try {
+      final result = await Process.run(
+        Platform.isAndroid ? "/system/bin/linker64" : path,
+        Platform.isAndroid ? [path, "i"] : ["i"],
+      ).timeout(const Duration(seconds: 8));
+      final output = "${result.stdout}${result.stderr}";
+      if (result.exitCode != 0 || !output.contains("7-Zip")) {
+        throw Exception(
+          "解压组件与设备不兼容：exit=${result.exitCode} "
+          "${_firstLine(output)}",
+        );
+      }
+      _extractorProbeOk = path;
+    } catch (e) {
+      LoggerService().warn("extractor self-check failed: $path ($e)");
+      if (Platform.isAndroid) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      _sevenZipPath = null;
+      _extractorProbeOk = null;
+      throw Exception("解压组件与设备不兼容，请更新应用后重试");
+    }
+  }
+
+  String? _extractorProbeOk;
 
   Future<String?> _findSystemSevenZip() async {
     for (final name in ["7zz", "7z"]) {
@@ -1046,9 +1102,7 @@ class DownloadService with WidgetsBindingObserver {
     final dir = await _taskDir(t);
     // Temp file in app internal storage — external storage may delete it
     final supportDir = (await getApplicationSupportDirectory()).path;
-    final tmp = File(
-      "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
-    );
+    final tmp = File(_tempArchivePath(supportDir, t));
     final outDir = _outDir(t, dir);
     final gameDir = _safePathComponent(
       t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName),
@@ -1082,6 +1136,22 @@ class DownloadService with WidgetsBindingObserver {
           totalBytes: t.totalBytes,
         );
         await _download(t, tmp);
+        if (t.expectedBytes > 0 && await tmp.exists()) {
+          final actual = await tmp.length();
+          if (actual != t.expectedBytes) {
+            LoggerService().warn(
+              "download size mismatch: expected=${t.expectedBytes} actual=$actual",
+            );
+            try {
+              await tmp.delete();
+            } catch (_) {}
+            t.receivedBytes = 0;
+            t.totalBytes = 0;
+            throw Exception(
+              "下载文件大小不符：服务端声明 ${t.expectedBytes} 字节，实际 $actual 字节",
+            );
+          }
+        }
         if (t._cancelled) {
           try {
             LoggerService().warn("DELETING temp file: $tmp");
@@ -1150,7 +1220,11 @@ class DownloadService with WidgetsBindingObserver {
           final errStr = "$e";
           if (_isEncryptedError(errStr)) rethrow;
           if (_isExtractorMissingError(errStr)) rethrow;
-          if (_isArchiveIntegrityError(errStr) && retry < maxExtractRetries) {
+          // Re-download only for likely-truncated downloads; a bad source or an
+          // incompatible extractor would fail the same way three times.
+          final retryable =
+              _isArchiveIntegrityError(errStr) && _looksTruncatedDownload(errStr);
+          if (retryable && retry < maxExtractRetries) {
             try {
               LoggerService().warn("DELETING temp file: $tmp");
               await tmp.delete();
@@ -1249,7 +1323,20 @@ class DownloadService with WidgetsBindingObserver {
         lower.contains("not executable") ||
         lower.contains("bad elf") ||
         lower.contains("解压组件未就绪") ||
-        lower.contains("解压组件校验失败");
+        lower.contains("解压组件校验失败") ||
+        lower.contains("解压组件与设备不兼容") ||
+        lower.contains("exec format error") ||
+        lower.contains("cannot execute");
+  }
+
+  /// True when the error points at a truncated transfer rather than a bad
+  /// source file or an extractor problem.
+  bool _looksTruncatedDownload(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains("unexpected end") ||
+        lower.contains("headers error") ||
+        lower.contains("文件不完整") ||
+        lower.contains("下载不完整");
   }
 
   bool _isArchiveIntegrityError(String err) {
@@ -1268,10 +1355,12 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   String _extractFailedArchivePath(String err) {
+    // Only real per-file failures name the entry; a generic ERROR/exit line
+    // used to be shown as if it were the failing file.
     final patterns = [
       RegExp(r'CRC Failed\s*:\s*([^\r\n]+)', caseSensitive: false),
       RegExp(r'Data Error\s*:\s*([^\r\n]+)', caseSensitive: false),
-      RegExp(r'ERROR\s*:\s*([^\r\n]+)', caseSensitive: false),
+      RegExp(r'Can ?not open file\s*:\s*([^\r\n]+)', caseSensitive: false),
     ];
     for (final pattern in patterns) {
       final match = pattern.firstMatch(err);
@@ -1281,14 +1370,36 @@ class DownloadService with WidgetsBindingObserver {
     return "";
   }
 
+  String _firstLine(String value) {
+    final line = value.split(RegExp(r"\r?\n")).first.trim();
+    if (line.isEmpty) return "无输出";
+    return line.length > 200 ? line.substring(0, 200) : line;
+  }
+
   String _formatToolError(String err) {
     final raw = err.trim();
     if (raw.isEmpty) return "解压工具执行失败";
     if (_isEncryptedError(raw)) return "压缩包需要密码或密码不正确";
+    final lower = raw.toLowerCase();
+    if (lower.contains("headers error") ||
+        lower.contains("unexpected end") ||
+        lower.contains("is not archive") ||
+        lower.contains("cannot open as archive") ||
+        lower.contains("can not open as archive")) {
+      return "压缩包格式无效或文件不完整（7-Zip: ${_firstLine(raw)}）";
+    }
+    if (lower.contains("no space left") || lower.contains("not enough space")) {
+      return "存储空间不足，无法解压";
+    }
+    if (lower.contains("permission denied") ||
+        lower.contains("access is denied") ||
+        lower.contains("cannot create")) {
+      return "没有写入权限，无法解压到目标目录";
+    }
     if (_isArchiveIntegrityError(raw)) {
       final failedPath = _extractFailedArchivePath(raw);
       final suffix = failedPath.isEmpty ? "" : "\n失败文件: $failedPath";
-      return "压缩包校验失败，文件可能已损坏、下载不完整，或源文件本身有问题。请重新下载补丁；如果仍失败，请检查补丁源文件完整性。$suffix";
+      return "压缩包内容校验失败（7-Zip: ${_firstLine(raw)}）$suffix";
     }
     return raw;
   }
@@ -3374,7 +3485,41 @@ class DownloadService with WidgetsBindingObserver {
       await Directory(extractTempDir).delete(recursive: true);
     } catch (_) {}
     try {
-      final args = ["x", "-y", "-p-", "-o$extractTempDir", filePath];
+      // Cheap read-only check first: a failure here means the archive or the
+      // download is bad, so the caller should not blindly re-download.
+      try {
+        final listing = await _runTool(
+          exe,
+          [
+            "l",
+            "-slt",
+            "-sccUTF-8",
+            if (password != null) "-p$password" else "-p-",
+            filePath,
+          ],
+          timeout: Platform.isAndroid ? 120 : 300,
+        );
+        if (listing.output.isEmpty) {
+          LoggerService().warn("archive listing returned no output");
+        }
+      } on _ToolFailure catch (e) {
+        LoggerService().warn(
+          "archive listing failed: exit=${e.exitCode} ${e.message}",
+        );
+        // Header-encrypted archives cannot be listed without the password;
+        // let the extraction step ask for it instead of reporting corruption.
+        if (_isEncryptedError(e.raw)) {
+          LoggerService().info("archive listing needs a password; continuing");
+        } else {
+          throw Exception(
+            _isArchiveIntegrityError(e.raw)
+                ? "压缩包无法读取，可能下载不完整或源文件已损坏"
+                : "压缩包无法读取（${_firstLine(e.raw)}）",
+          );
+        }
+      }
+
+      final args = ["x", "-y", "-p-", "-sccUTF-8", "-o$extractTempDir", filePath];
       if (password != null) {
         args.remove("-p-");
         args.insert(1, "-p$password");
@@ -3384,7 +3529,7 @@ class DownloadService with WidgetsBindingObserver {
         try {
           await _runTool(
             exe,
-            ["t", "-y", "-p-", filePath],
+            ["t", "-y", "-p-", "-sccUTF-8", filePath],
             onProgress: onProgress,
             timeout: 300,
           );
@@ -3393,12 +3538,51 @@ class DownloadService with WidgetsBindingObserver {
       LoggerService().info(
         "extract command: exe=$exe args=${_redactToolArgs(args)}",
       );
-      await _runTool(
-        exe,
-        args,
-        onProgress: onProgress,
-        timeout: Platform.isAndroid ? 600 : 1800,
-      ); // Android: 10min timeout
+      late _ToolRunResult run;
+      try {
+        run = await _runTool(
+          exe,
+          args,
+          onProgress: onProgress,
+          timeout: 1800,
+        );
+      } on _ToolFailure catch (e) {
+        // A 4 KB/16 KB page mismatch or an arm64 multithreading bug can corrupt
+        // decompression. Retrying the same file single-threaded is cheap next
+        // to re-downloading several GB.
+        if (!Platform.isAndroid ||
+            !_isArchiveIntegrityError(e.raw) ||
+            password != null) {
+          rethrow;
+        }
+        LoggerService().warn(
+          "extract failed with integrity error; retrying single-threaded: "
+          "${_firstLine(e.raw)}",
+        );
+        try {
+          await Directory(extractTempDir).delete(recursive: true);
+        } catch (_) {}
+        await Directory(extractTempDir).create(recursive: true);
+        final singleThreaded = [
+          ...args.sublist(0, args.length - 1),
+          "-mmt=1",
+          args.last,
+        ];
+        run = await _runTool(
+          exe,
+          singleThreaded,
+          onProgress: onProgress,
+          timeout: 1800,
+        );
+      }
+      final produced = await Directory(extractTempDir).list().isEmpty;
+      if (produced) {
+        throw Exception(
+          run.warned
+              ? "解压没有产生文件（7-Zip 退出码 ${run.exitCode}）：${_firstLine(run.output)}"
+              : "解压没有产生任何文件，压缩包可能是空的",
+        );
+      }
       await _fixLayout(extractTempDir, gameDir);
       // Move result from temp to final location without ever losing the
       // existing install: the old folder is renamed aside and restored if the
@@ -3629,12 +3813,23 @@ class DownloadService with WidgetsBindingObserver {
         .toList();
   }
 
-  Future<void> _runTool(
+  /// 7-Zip writes UTF-8; `String.fromCharCodes` turned Chinese paths into mojibake.
+  String _decodeToolOutput(List<int> bytes) {
+    if (bytes.isEmpty) return "";
+    try {
+      return utf8.decode(bytes, allowMalformed: true).trim();
+    } catch (_) {
+      return String.fromCharCodes(bytes).trim();
+    }
+  }
+
+  Future<_ToolRunResult> _runTool(
     String exe,
     List<String> args, {
     void Function(double)? onProgress,
     int timeout = 1800,
     String? injectionAppId,
+    bool tolerateWarnings = true,
   }) async {
     // Android: bypass noexec by using dynamic linker to load the ELF
     if (Platform.isAndroid) {
@@ -3657,7 +3852,7 @@ class DownloadService with WidgetsBindingObserver {
     void handleOutput(List<int> d, List<int> chunks) {
       if (chunks.length < 8192) chunks.addAll(d.take(8192 - chunks.length));
       if (onProgress != null) {
-        final s = String.fromCharCodes(d);
+        final s = _decodeToolOutput(d);
         final m = RegExp(r'\s+(\d+)%').firstMatch(s);
         if (m != null) {
           onProgress(int.parse(m.group(1)!) / 100.0);
@@ -3700,15 +3895,48 @@ class DownloadService with WidgetsBindingObserver {
     if (injectionAppId != null)
       _patchInjections[injectionAppId]?.extractProcess = null;
 
-    if (exitCode != 0) {
-      final err = [
-        String.fromCharCodes(stderrChunks).trim(),
-        String.fromCharCodes(stdoutChunks).trim(),
-      ].where((s) => s.isNotEmpty).join("\n");
+    final err = [
+      _decodeToolOutput(stderrChunks),
+      _decodeToolOutput(stdoutChunks),
+    ].where((s) => s.isNotEmpty).join("\n");
+    if (exitCode != 0 && !(tolerateWarnings && _isWarningExit(exitCode, err))) {
       final rawErr = err.isNotEmpty ? err : "exit code $exitCode";
-      LoggerService().warn("extract tool failed: ${_formatToolError(rawErr)}");
-      throw Exception(_formatToolError(rawErr));
+      LoggerService().warn(
+        "extract tool failed: exit=$exitCode args=${_redactToolArgs(args)} "
+        "output=${rawErr.length > 2000 ? rawErr.substring(0, 2000) : rawErr}",
+      );
+      throw _ToolFailure(exitCode, rawErr, _formatToolError(rawErr));
     }
+    if (exitCode == 1) {
+      LoggerService().info(
+        "extract tool finished with warnings: exit=1 "
+        "output=${err.length > 2000 ? err.substring(0, 2000) : err}",
+      );
+    }
+    return _ToolRunResult(exitCode: exitCode, output: err);
+  }
+
+  /// 7-Zip exit 1 means warnings (timestamps, permissions, extra data) while
+  /// the archive still extracted. Only a genuine archive/tool error is fatal.
+  bool _isWarningExit(int code, String output) {
+    if (code != 1) return false;
+    final lower = output.toLowerCase();
+    const fatal = [
+      "data error",
+      "crc failed",
+      "crc error",
+      "headers error",
+      "cannot open",
+      "can not open",
+      "unexpected end",
+      "is not archive",
+      "no space left",
+      "cannot allocate",
+      "out of memory",
+      "access is denied",
+      "cannot create",
+    ];
+    return !fatal.any(lower.contains);
   }
 
   // ── helpers ──
@@ -3729,6 +3957,17 @@ class DownloadService with WidgetsBindingObserver {
       value = "_$value";
     }
     return value;
+  }
+
+  /// ASCII-only temp name: Android 7zz mishandles some non-ASCII paths and the
+  /// old name also leaked the display name into logs.
+  String _tempArchivePath(String supportDir, DownloadTask t) {
+    final dot = t.fileName.lastIndexOf(".");
+    final ext = dot > 0 && dot < t.fileName.length - 1
+        ? t.fileName.substring(dot + 1).toLowerCase()
+        : "bin";
+    final safeExt = ext.replaceAll(RegExp(r"[^a-z0-9]"), "");
+    return "$supportDir/.tmp_${t.gameId}_${t.versionId}.${safeExt.isEmpty ? "bin" : safeExt}";
   }
 
   Future<String> _taskDir(DownloadTask t) async {
@@ -3794,9 +4033,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<void> _cleanupTemp(DownloadTask t) async {
     try {
       final supportDir = (await getApplicationSupportDirectory()).path;
-      final tmp = File(
-        "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
-      );
+      final tmp = File(_tempArchivePath(supportDir, t));
       try {
         await tmp.delete();
       } catch (_) {}
