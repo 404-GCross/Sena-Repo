@@ -169,6 +169,10 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN metadata_locked BOOLEAN NOT NULL DEFAULT 0"
             )
+        if "name_locked" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN name_locked BOOLEAN NOT NULL DEFAULT 0"
+            )
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
         if "extract_password" not in version_columns:

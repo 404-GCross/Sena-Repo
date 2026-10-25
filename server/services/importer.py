@@ -23,6 +23,20 @@ from services.scanner import scan_root, scan_source, get_ignore_paths, normalize
 logger = logging.getLogger(__name__)
 
 
+def scanner_ignore_paths(
+    source_type: str, source_id: int | None, paths: set[str]
+) -> set[str]:
+    """Translate stored canonical paths into what the scanner reports.
+
+    OpenList game rows store ``openlist://<source>/<remote>`` while the source
+    adapter lists bare ``/<remote>`` paths.
+    """
+    if source_type != "openlist":
+        return set(paths)
+    prefix = f"openlist://{source_id or 0}"
+    return {path[len(prefix):] for path in paths if path.startswith(prefix)}
+
+
 async def import_from_root(
     root_id: int,
     config: Config,
@@ -45,6 +59,7 @@ async def import_from_root(
 
     source_type = root.source_type or "local"
     source_path = root.source_path or root.path
+    ignore_paths = scanner_ignore_paths(source_type, root.source_id, ignore_paths)
     source_model = None
     if source_type == "openlist" and root.source_id:
         source_result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
@@ -242,7 +257,7 @@ async def _upsert_game(
         await session.flush()
     else:
         # Update fields if changed, restore if previously deleted
-        if not game.metadata_locked:
+        if not game.metadata_locked and not game.name_locked:
             game.name = clean_name
             game.company_id = company_id
             if game.developer is None and developer:

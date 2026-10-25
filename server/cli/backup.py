@@ -28,6 +28,7 @@ import secrets
 import shutil
 import sqlite3
 import zipfile
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -53,7 +54,7 @@ from models.tag import Tag
 from models.user import User, UserSession
 from services.file_source import canonical_source_path
 from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
-from utils.process_lock import process_lock
+from utils.process_lock import process_lock, scan_lock_path
 from utils.log_redaction import redact_exception
 from utils.secrets import (
     SCRAPER_SECRET_KEYS,
@@ -260,6 +261,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
                 "length": game.length or 0,
                 "length_minutes": game.length_minutes or 0,
                 "metadata_locked": bool(game.metadata_locked),
+                "name_locked": bool(game.name_locked),
                 "is_deleted": bool(game.is_deleted),
                 "imported_at": _iso(game.imported_at),
                 "updated_at": _iso(game.updated_at),
@@ -706,8 +708,12 @@ async def run_auto_backup(config) -> dict[str, Any]:
 
     _auto_running = True
     try:
-        with process_lock(lock_path, blocking=False) as acquired:
-            if not acquired:
+        with ExitStack() as stack:
+            acquired = stack.enter_context(process_lock(lock_path, blocking=False))
+            scan_idle = stack.enter_context(
+                process_lock(scan_lock_path(config.data_path), blocking=False)
+            )
+            if not acquired or not scan_idle:
                 sched.save_backup_settings(
                     config,
                     sched.record_skip(
@@ -1283,6 +1289,7 @@ async def import_library(
             "length": entry.get("length") or 0,
             "length_minutes": entry.get("length_minutes") or 0,
             "metadata_locked": bool(entry.get("metadata_locked", False)),
+            "name_locked": bool(entry.get("name_locked", False)),
             "is_deleted": bool(entry.get("is_deleted", False)),
         }
         game = games_by_path.get(folder_path)
@@ -1301,6 +1308,10 @@ async def import_library(
             stats["games_skipped"] += 1
             notes.append(f"游戏「{game.name}」已锁定，已保留本机元数据")
         else:
+            if game.name_locked:
+                fields.pop("name", None)
+                fields.pop("company_id", None)
+                fields["name_locked"] = True
             if not overwrite_media:
                 if game.cover_path:
                     fields.pop("cover_path", None)
@@ -1886,9 +1897,15 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
     replace = mode == MODE_REPLACE
 
     lock_path = Path(config.data_path or "/data") / ".restore.lock"
-    with process_lock(lock_path, blocking=False) as acquired:
+    with ExitStack() as stack:
+        acquired = stack.enter_context(process_lock(lock_path, blocking=False))
         if not acquired:
-            fail("另一个恢复或扫描任务正在进行，请稍后再试", 4)
+            fail("另一个恢复任务正在进行，请稍后再试", 4)
+        scan_idle = stack.enter_context(
+            process_lock(scan_lock_path(config.data_path), blocking=False)
+        )
+        if not scan_idle:
+            fail("扫描任务正在进行，请稍后再试", 4)
         journal = _RestoreJournal.begin(config)
         logger.info(
             "Restore started: scope=%s mode=%s media=%s", scope, mode, media_policy

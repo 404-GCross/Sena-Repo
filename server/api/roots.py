@@ -8,7 +8,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
@@ -275,12 +275,6 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
             result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
             if result.get("skipped"):
                 logger.info("Background scan skipped: scan already running")
-                _set_scan_state(
-                    status="idle",
-                    current_root=None,
-                    finished_at=time.time(),
-                    message="已有扫描任务正在运行",
-                )
         except Exception:
             logger.exception("Background scan failed")
             _set_scan_state(
@@ -332,7 +326,7 @@ async def clear_and_refresh_roots(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Clear imported game library records, then re-scan all root directories."""
+    """Re-scan the library while keeping manual entries and locked metadata."""
     if _scan_active():
         raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
 
@@ -341,27 +335,42 @@ async def clear_and_refresh_roots(
         if not locked:
             raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
 
-    count_result = await session.execute(select(func.count()).select_from(Game))
-    cleared_games = int(count_result.scalar_one() or 0)
-    await session.execute(delete(GameTag))
-    await session.execute(delete(GameVersion))
-    await session.execute(delete(Game))
-    await cleanup_empty_companies(session)
-    await session.commit()
+        removable_ids = list(
+            (
+                await session.execute(
+                    select(Game.id).where(
+                        Game.entry_source == "library",
+                        Game.metadata_locked == False,  # noqa: E712
+                        Game.name_locked == False,  # noqa: E712
+                    )
+                )
+            ).scalars()
+        )
+        cleared_games = len(removable_ids)
+        if removable_ids:
+            await session.execute(
+                delete(GameTag).where(GameTag.game_id.in_(removable_ids))
+            )
+            await session.execute(
+                delete(GameVersion).where(GameVersion.game_id.in_(removable_ids))
+            )
+            await session.execute(delete(Game).where(Game.id.in_(removable_ids)))
+        await cleanup_empty_companies(session)
+        await session.commit()
 
-    result = await session.execute(select(RootDirectory))
-    roots = result.scalars().all()
-    from api.settings import _load_scan_settings
-    _load_scan_settings(config)
-    _set_scan_state(
-        status="pending",
-        roots_total=len(roots),
-        roots_completed=0,
-        current_root=None,
-        started_at=time.time(),
-        finished_at=None,
-        message="扫描任务正在排队",
-    )
+        result = await session.execute(select(RootDirectory))
+        roots = result.scalars().all()
+        from api.settings import _load_scan_settings
+        _load_scan_settings(config)
+        _set_scan_state(
+            status="pending",
+            roots_total=len(roots),
+            roots_completed=0,
+            current_root=None,
+            started_at=time.time(),
+            finished_at=None,
+            message="扫描任务正在排队",
+        )
     _bg_scan(config, [r.id for r in roots], update_last=True)
     logger.warning(
         "Library cleared and re-scanned: actor_id=%s cleared_games=%s roots=%s",
@@ -370,7 +379,7 @@ async def clear_and_refresh_roots(
         len(roots),
     )
     return {
-        "message": "游戏库已清空，重新扫描已在后台启动",
+        "message": "已清理可重建的游戏记录，重新扫描已在后台启动；手动与锁定条目已保留",
         "cleared_games": cleared_games,
         "roots": len(roots),
     }

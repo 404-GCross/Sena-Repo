@@ -678,6 +678,8 @@ async def update_game(
     ensure_game_unlocked(game)
 
     data = body.model_dump(exclude_unset=True)
+    name_changed = "name" in data and data["name"] != game.name
+    company_changed = "company_id" in data and data["company_id"] != game.company_id
     tag_names = data.pop("tag_names", None)
     tag_source = data.pop("tag_source", None)
     if "alias" in data:
@@ -685,6 +687,9 @@ async def update_game(
         game.alias = alias or None
     for field, value in data.items():
         setattr(game, field, value)
+    if name_changed or company_changed:
+        # A manual rename must survive later scans without locking all metadata.
+        game.name_locked = True
     if tag_names is not None:
         await _replace_game_tags(session, game, tag_names, tag_source)
     game.updated_at = datetime.utcnow()
@@ -957,6 +962,8 @@ async def merge_games(
     to_g = (await session.execute(select(Game).where(Game.id == to_id))).scalar_one_or_none()
     if from_g is None or to_g is None:
         raise HTTPException(status_code=404, detail="游戏未找到")
+    if from_g.id == to_g.id:
+        raise HTTPException(status_code=400, detail="不能合并到自身")
     ensure_game_unlocked(from_g)
     ensure_game_unlocked(to_g)
 
