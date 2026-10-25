@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -252,6 +252,11 @@ async def _ensure_not_last_admin(session: AsyncSession, user: User) -> None:
                 User.role == "admin",
                 User.id != user.id,
                 User.status == "active",
+                or_(
+                    User.password_set.is_(True),
+                    User.oauth_subject.isnot(None),
+                    User.oauth_user_id.isnot(None),
+                ),
             )
         )
     ).scalars().first()
@@ -502,6 +507,11 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
             user.oauth_subject = None
             user.oauth_name = None
     elif body.clear_nextmoe:
+        if user.role == "admin" and not user.password_set and not body.password:
+            raise HTTPException(
+                status_code=400,
+                detail="该管理员没有密码，清除 NextMoe 绑定后将无法登录",
+            )
         user.oauth_provider = None
         user.oauth_user_id = None
         user.oauth_subject = None

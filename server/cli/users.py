@@ -20,7 +20,7 @@ from cli.common import (
     prompt_text,
 )
 from models.user import User, UserSession, hash_password
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,6 +82,11 @@ async def _ensure_not_last_admin(session: AsyncSession, user: User) -> None:
                 User.role == "admin",
                 User.id != user.id,
                 User.status == "active",
+                or_(
+                    User.password_set.is_(True),
+                    User.oauth_subject.isnot(None),
+                    User.oauth_user_id.isnot(None),
+                ),
             )
         )
     ).scalars().first()
@@ -178,6 +183,7 @@ async def cmd_passwd(args) -> int:
         user = await _select_user(session, args.user)
         password = _read_password(args)
         user.password_hash, user.salt = hash_password(password)
+        user.password_set = True
         revoked = await _revoke_sessions(session, user.id)
         await session.commit()
         echo(f"已修改密码: {user.username}；已踢出 {revoked} 个会话")
