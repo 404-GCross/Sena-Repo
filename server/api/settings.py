@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
@@ -589,19 +589,37 @@ class IgnoreItemOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.get("/ignore-list", response_model=list[IgnoreItemOut])
-async def list_ignored(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
-    """List all ignored/deleted game paths."""
-    result = await session.execute(select(IgnoreList).order_by(IgnoreList.deleted_at.desc()))
-    items = result.scalars().all()
-    return [
-        IgnoreItemOut(
-            id=item.id,
-            path=item.path,
-            deleted_at=item.deleted_at.isoformat(),
-        )
-        for item in items
-    ]
+@router.get("/ignore-list")
+async def list_ignored(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_admin),
+):
+    """List ignored/deleted game paths (administrators only)."""
+    total = int(
+        (await session.execute(select(func.count()).select_from(IgnoreList))).scalar_one()
+        or 0
+    )
+    result = await session.execute(
+        select(IgnoreList)
+        .order_by(IgnoreList.deleted_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "items": [
+            IgnoreItemOut(
+                id=item.id,
+                path=item.path,
+                deleted_at=item.deleted_at.isoformat(),
+            ).model_dump()
+            for item in result.scalars().all()
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.post("/ignore-list/{ignore_id}/restore", response_model=MessageResponse)
