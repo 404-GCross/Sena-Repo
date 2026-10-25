@@ -151,6 +151,8 @@ def _nextmoe_mode() -> bool:
 def _patch_name_source() -> str:
     """Patch game name source in NextMoe mode: "nextmoe" or "steam"."""
     try:
+        from config import load_config
+
         value = str(
             load_config().scrapers.nextmoe_patch_name_source or ""
         ).strip().lower()
