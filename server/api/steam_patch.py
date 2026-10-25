@@ -1292,7 +1292,7 @@ async def patch_scan_status(user: User = Depends(get_current_user)):
     """Return the current patch scan progress."""
     with _patch_scan_state_lock:
         state = dict(_patch_scan_state)
-    if user.role not in ("owner", "admin"):
+    if user.role != "admin":
         # File names, stage text and upstream errors are management detail.
         for key in ("current", "stage", "error"):
             state.pop(key, None)

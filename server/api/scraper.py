@@ -149,7 +149,7 @@ class ScrapeJobSummaryOut(BaseModel):
 
 
 class ScrapeJobDetailOut(ScrapeJobSummaryOut):
-    """Management view; only owner/admin may read it."""
+    """Management view; administrators only."""
 
     current_game_id: int | None = None
     current_game: str | None = None

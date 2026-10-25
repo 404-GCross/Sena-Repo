@@ -1482,30 +1482,21 @@ async def import_accounts(
     existing = {
         user.username: user for user in (await session.execute(select(User))).scalars()
     }
-    current_owner = next((u for u in existing.values() if u.role == "owner"), None)
-    owner_assigned = False
-
     for entry in entries:
         username = str(entry.get("username") or "").strip()
         if not username:
             stats["users_skipped"] += 1
             continue
         role = str(entry.get("role") or "user")
-        if role == "owner":
-            if owner_assigned or (current_owner is not None and current_owner.username != username):
-                role = "admin"
-                notes.append(
-                    f"备份中的服主「{username}」已作为管理员恢复，"
-                    f"保留当前服主「{current_owner.username if current_owner else '—'}」"
-                )
-            else:
-                owner_assigned = True
+        if role not in ("admin", "user"):
+            # Older archives may still say "owner"; there is only one admin role now.
+            role = "admin"
         avatar_key = entry.get("avatar")
         fields: dict[str, Any] = {
             "password_hash": entry.get("password_hash") or "",
             "salt": entry.get("salt") or "",
             "role": role,
-            "is_admin": role in {"owner", "admin"},
+            "is_admin": role == "admin",
             "status": str(entry.get("status") or "active"),
         }
         if avatar_key and avatar_key in available_media["avatars"]:
@@ -1527,11 +1518,6 @@ async def import_accounts(
             stats["users_new"] += 1
             continue
 
-        if user.role == "owner" and user is current_owner:
-            # Never downgrade or disable the account that currently manages this server.
-            fields["role"] = "owner"
-            fields["is_admin"] = True
-            fields["status"] = "active"
         password_changed = user.password_hash != fields["password_hash"]
         for field_name, value in fields.items():
             setattr(user, field_name, value)
@@ -1545,19 +1531,24 @@ async def import_accounts(
     return stats, notes
 
 
-async def _ensure_owner(session) -> None:
-    """Refuse to finish a restore that would leave the server without a usable owner."""
-    owners = list(
-        (await session.execute(select(User).where(User.role == "owner"))).scalars()
+async def _ensure_admin(session) -> None:
+    """Refuse to finish a restore that would leave no usable administrator."""
+    admins = list(
+        (await session.execute(select(User).where(User.role == "admin"))).scalars()
     )
-    if not owners:
-        fail("恢复后没有任何服主账号，已取消本次恢复", 4)
-    if len(owners) > 1:
-        fail("恢复后出现多个服主账号，已取消本次恢复", 4)
-    owner = owners[0]
-    owner.status = "active"
-    if not (owner.password_hash or "").strip() and not owner.oauth_subject:
-        fail(f"服主「{owner.username}」没有可用的登录方式，已取消本次恢复", 4)
+    if not admins:
+        fail("恢复后没有任何管理员账号，已取消本次恢复", 4)
+    usable = any(
+        admin.status == "active"
+        and ((admin.password_hash or "").strip() or admin.oauth_subject)
+        for admin in admins
+    )
+    if not usable:
+        fail(
+            "恢复后没有可用的管理员账号（需要启用状态，并设置密码或绑定 NextMoe），"
+            "已取消本次恢复",
+            4,
+        )
 
 
 def apply_media(
@@ -1913,9 +1904,9 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
             wiped_accounts = replace and wants_library and bool(account_entries)
             source_stats: dict[str, int] = {}
             async with db._session_factory() as session:
-                had_owner = (
+                had_admin = (
                     await session.execute(
-                        select(User).where(User.role == "owner")
+                        select(User).where(User.role == "admin")
                     )
                 ).scalars().first() is not None
                 if replace:
@@ -1966,8 +1957,8 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                 else:
                     account_notes = []
 
-                if wants_library and (account_entries or had_owner):
-                    await _ensure_owner(session)
+                if wants_library and (account_entries or had_admin):
+                    await _ensure_admin(session)
                 await session.commit()
 
             stats.update(source_stats)

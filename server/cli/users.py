@@ -72,6 +72,23 @@ async def _find_user(session: AsyncSession, identifier: str) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def _ensure_not_last_admin(session: AsyncSession, user: User) -> None:
+    """Keep at least one active administrator so the server stays manageable."""
+    if user.role != "admin":
+        return
+    remaining = (
+        await session.execute(
+            select(User.id).where(
+                User.role == "admin",
+                User.id != user.id,
+                User.status == "active",
+            )
+        )
+    ).scalars().first()
+    if remaining is None:
+        fail("必须保留至少一个可用的管理员", 4)
+
+
 async def _select_user(session: AsyncSession, identifier: str | None) -> User:
     if identifier:
         user = await _find_user(session, identifier)
@@ -110,7 +127,7 @@ async def cmd_useradd(args) -> int:
         count = int(
             (await session.execute(select(func.count()).select_from(User))).scalar_one() or 0
         )
-        role = "owner" if count == 0 else ("admin" if args.admin else "user")
+        role = "admin" if count == 0 or args.admin else "user"
         existing = await session.execute(select(User).where(User.username == username))
         if existing.scalar_one_or_none():
             fail(f"用户名已存在: {username}", 4)
@@ -120,7 +137,7 @@ async def cmd_useradd(args) -> int:
             password_hash=pw_hash,
             salt=salt,
             role=role,
-            is_admin=role in ("owner", "admin"),
+            is_admin=role == "admin",
             status="active",
         )
         session.add(user)
@@ -128,7 +145,7 @@ async def cmd_useradd(args) -> int:
             await session.commit()
         except IntegrityError as exc:
             await session.rollback()
-            raise CliError("创建用户失败：用户名重复或服主已存在", 4) from exc
+            raise CliError("创建用户失败：用户名重复", 4) from exc
         await session.refresh(user)
         echo(f"已创建用户: {user.username} (id={user.id}, role={user.role})")
     return 0
@@ -171,8 +188,7 @@ async def cmd_userdel(args) -> int:
     await prepare_app()
     async with db._session_factory() as session:
         user = await _select_user(session, args.user)
-        if user.role == "owner":
-            fail("不能删除服主账户；如需更换服主请先转让或使用 set_owner.py", 4)
+        await _ensure_not_last_admin(session, user)
         if not args.force:
             if not confirm(f"确认删除用户 {user.username}？"):
                 echo("已取消")
@@ -196,8 +212,6 @@ async def cmd_useradmin(args) -> int:
     await prepare_app()
     async with db._session_factory() as session:
         user = await _select_user(session, args.user)
-        if user.role == "owner":
-            fail("不能通过 useradmin 修改服主角色", 4)
 
         if args.admin:
             desired_role = "admin"
@@ -209,6 +223,8 @@ async def cmd_useradmin(args) -> int:
         if user.role == desired_role:
             echo(f"用户 {user.username} 已经是 {desired_role}")
             return 0
+        if user.role == "admin" and desired_role == "user":
+            await _ensure_not_last_admin(session, user)
         if not args.force and not confirm(
             f"确认将 {user.username} 从 {_display_role(user.role)} 改为 {desired_role}？"
         ):

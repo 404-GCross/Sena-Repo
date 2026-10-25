@@ -46,7 +46,7 @@ def _set_scan_state(**updates):
 
 def _scan_state_response(user: User | None = None):
     state = dict(_scan_state)
-    if user is None or user.role not in ("owner", "admin"):
+    if user is None or user.role != "admin":
         # Library paths and per-root detail are management information.
         state.pop("current_root", None)
     return state

@@ -278,28 +278,11 @@ async def create_tables():
             )
             # promote existing admins
             await conn.exec_driver_sql("UPDATE users SET role = 'admin' WHERE is_admin = 1")
-            # first admin becomes owner
-            await conn.exec_driver_sql(
-                "UPDATE users SET role = 'owner' WHERE id = "
-                "(SELECT MIN(id) FROM users WHERE is_admin = 1)"
-            )
-        # Keep the oldest owner when upgrading databases created before the
-        # owner uniqueness guard was added.
+        # The owner role no longer exists: keep existing installations manageable.
         await conn.exec_driver_sql(
-            """
-            UPDATE users
-            SET role = 'admin', is_admin = 1
-            WHERE role = 'owner'
-              AND id != (SELECT MIN(id) FROM users WHERE role = 'owner')
-            """
+            "UPDATE users SET role = 'admin', is_admin = 1 WHERE role = 'owner'"
         )
-        await conn.exec_driver_sql(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_users_owner_role
-            ON users (role)
-            WHERE role = 'owner'
-            """
-        )
+        await conn.exec_driver_sql("DROP INDEX IF EXISTS uq_users_owner_role")
         if "oauth_provider" not in user_cols:
             await conn.exec_driver_sql(
                 "ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(32)"

@@ -1,4 +1,4 @@
-"""User model - owner/admin/user roles."""
+"""User model - admin/user roles."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class User(Base):
     username = Column(String(128), nullable=False, unique=True)
     password_hash = Column(String(256), nullable=False)
     salt = Column(String(64), nullable=False)
-    role = Column(String(16), default="user")   # owner | admin | user
+    role = Column(String(16), default="user")   # admin | user
     is_admin = Column(Boolean, default=False)   # synced with role for compat
     status = Column(String(16), default="active")   # active, pending, rejected
     avatar_path = Column(String(1024), nullable=True)

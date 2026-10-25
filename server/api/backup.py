@@ -1,8 +1,7 @@
 """Server backup management API.
 
-Listing and deleting backups needs an admin; exporting, downloading and
-restoring a backup needs the owner, because those archives carry account
-credentials."""
+Every endpoint requires an administrator; the archives carry account
+credentials, so access stays limited to the management role."""
 
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from api.auth import require_admin, require_owner
+from api.auth import require_admin
 from cli import backup as backup_cli
 from cli.common import CliError
 from config import load_config
@@ -107,7 +106,7 @@ class ExportRequest(BaseModel):
 
 
 @router.post("/export")
-async def export_backup(body: ExportRequest, user: User = Depends(require_owner)):
+async def export_backup(body: ExportRequest, user: User = Depends(require_admin)):
     """Create a backup archive on the server; the client downloads it afterwards."""
     config = load_config()
     scope = (body.scope or backup_cli.SCOPE_ALL).strip().lower()
@@ -155,7 +154,7 @@ async def export_backup(body: ExportRequest, user: User = Depends(require_owner)
 
 
 @router.get("/download")
-async def download_backup(name: str, user: User = Depends(require_owner)):
+async def download_backup(name: str, user: User = Depends(require_admin)):
     """Download a stored backup archive."""
     path = _resolve(name)
     return FileResponse(
@@ -180,7 +179,7 @@ async def import_backup(
     scope: str = Form(backup_cli.SCOPE_ALL),
     mode: str = Form(backup_cli.MODE_MERGE),
     media_policy: str = Form(backup_cli.MEDIA_SKIP),
-    user: User = Depends(require_owner),
+    user: User = Depends(require_admin),
 ):
     """Restore a backup archive uploaded from the client."""
     if scope not in {backup_cli.SCOPE_ALL, backup_cli.SCOPE_PATCH, backup_cli.SCOPE_LIBRARY}:

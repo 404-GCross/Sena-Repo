@@ -70,7 +70,7 @@ class InitRequest(BaseModel):
 async def setup_status(session: AsyncSession = Depends(get_session)):
     """Check if server needs initial setup."""
     # Check for any admin user
-    users = await session.execute(select(User).where(User.role == "owner"))
+    users = await session.execute(select(User).where(User.role == "admin"))
     has_admin = users.scalars().first() is not None
 
     # Check for any root directories
@@ -89,7 +89,7 @@ async def import_setup_backup(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
 ):
-    """Restore a senacli backup archive on a server that has no owner yet."""
+    """Restore a senacli backup archive on a server with no administrator yet."""
     from cli import backup as backup_cli
     from cli.common import CliError
 
@@ -153,8 +153,8 @@ async def import_setup_backup(
 
     users = payload["accounts"].get("users") or []
     library = payload["library"]
-    owner = next(
-        (str(u.get("username")) for u in users if u.get("role") == "owner" and u.get("username")),
+    admin = next(
+        (str(u.get("username")) for u in users if u.get("role") == "admin" and u.get("username")),
         None,
     )
     logger.info(
@@ -167,7 +167,7 @@ async def import_setup_backup(
     )
     return {
         "message": "备份已导入",
-        "owner": owner,
+        "admin": admin,
         "stored": str(stored),
         "games": len(library.get("games") or []),
         "versions": len(library.get("versions") or []),
@@ -198,7 +198,7 @@ async def initialize_setup(
     if existing_user.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="用户名已被占用，请换一个")
     pw_hash, salt = hash_password(body.admin_password)
-    user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="owner", is_admin=True)
+    user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="admin", is_admin=True)
     session.add(user)
 
     if body.oauth_request_id:
@@ -370,8 +370,6 @@ async def initialize_setup(
     except IntegrityError as exc:
         await session.rollback()
         message = str(exc).lower()
-        if "users.role" in message or "uq_users_owner_role" in message:
-            raise HTTPException(status_code=409, detail="服务器已完成初始化，请重新登录") from exc
         if "users.username" in message:
             raise HTTPException(status_code=409, detail="用户名已存在") from exc
         raise

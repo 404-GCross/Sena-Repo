@@ -125,8 +125,8 @@ def _authorize_url(
     return f"{config.issuer.rstrip('/')}/oauth/authorize?{query}"
 
 
-async def _has_owner(session: AsyncSession) -> bool:
-    result = await session.execute(select(User).where(User.role == "owner"))
+async def _has_admin(session: AsyncSession) -> bool:
+    result = await session.execute(select(User).where(User.role == "admin"))
     return result.scalar_one_or_none() is not None
 
 
@@ -252,9 +252,9 @@ async def oauth_start(
             user = None
     if purpose == "bind" and user is None:
         raise HTTPException(status_code=401, detail="未登录")
-    if purpose == "setup" and await _has_owner(session):
+    if purpose == "setup" and await _has_admin(session):
         raise HTTPException(status_code=400, detail="服务器已完成初始化")
-    if purpose == "login" and not await _has_owner(session):
+    if purpose == "login" and not await _has_admin(session):
         raise HTTPException(status_code=400, detail="服务器尚未初始化")
 
     redirect_uri = _validate_loopback_redirect(body.redirect_uri)
@@ -381,7 +381,7 @@ async def oauth_complete(
         logger.info("OAuth login rejected: account not provisioned")
         raise HTTPException(
             status_code=403,
-            detail=f"该 NextMoe 账号{hint}尚未被服务器添加，请联系服主",
+            detail=f"该 NextMoe 账号{hint}尚未被服务器添加，请联系管理员",
         )
 
     _flows.pop(body.request_id, None)
@@ -395,7 +395,7 @@ async def oauth_complete(
     return {
         "token": token,
         "id": user.id,
-        "is_admin": user.role in ("owner", "admin"),
+        "is_admin": user.role == "admin",
         "role": user.role,
         "username": user.username,
         **_token_payload(tokens),

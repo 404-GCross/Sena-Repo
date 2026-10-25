@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     useradd = sub.add_parser("useradd", help="本地创建用户")
     useradd.add_argument("username", nargs="?")
-    useradd.add_argument("--admin", action="store_true", help="创建管理员；首个用户始终为服主")
+    useradd.add_argument("--admin", action="store_true", help="创建管理员；首个用户始终为管理员")
     _add_password_options(useradd)
 
     username = sub.add_parser("username", help="修改用户名并踢出登录态")

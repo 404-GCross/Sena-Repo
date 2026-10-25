@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user, require_admin, require_owner
+from api.auth import get_current_user, require_admin
 from config import (
     DEFAULT_ENABLED_SCRAPERS,
     SCRAPER_SOURCE_ORDER,
@@ -157,8 +157,8 @@ def _backup_schedule_payload(config, settings: dict) -> dict:
 
 
 @router.get("/backup")
-async def get_backup_schedule(user: User = Depends(require_owner)):
-    """Automatic backup schedule (owner only; the archive holds credentials)."""
+async def get_backup_schedule(user: User = Depends(require_admin)):
+    """Automatic backup schedule (administrators only; the archive holds credentials)."""
     del user
     config = load_config()
     return _backup_schedule_payload(config, backup_schedule.load_backup_settings(config))
@@ -166,7 +166,7 @@ async def get_backup_schedule(user: User = Depends(require_owner)):
 
 @router.put("/backup")
 async def update_backup_schedule(
-    body: BackupScheduleUpdate, user: User = Depends(require_owner)
+    body: BackupScheduleUpdate, user: User = Depends(require_admin)
 ):
     config = load_config()
     changes = body.model_dump(exclude_unset=True)

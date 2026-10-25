@@ -1,4 +1,4 @@
-"""Auth API - login and user management with owner/admin/user roles."""
+"""Auth API - login and user management with admin/user roles."""
 
 from __future__ import annotations
 import hashlib
@@ -95,8 +95,6 @@ def _clear_login_failures(key: tuple[str, str]) -> None:
 
 def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
     message = str(exc).lower()
-    if "users.role" in message or "uq_users_owner_role" in message:
-        return "服务器已完成初始化，请重试注册"
     if "users.username" in message:
         return "用户名已存在"
     if "ix_users_oauth_user_id" in message or "users.oauth_user_id" in message:
@@ -106,8 +104,6 @@ def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
 
 def _ensure_profile_edit_access(current: User, target: User) -> None:
     if current.id == target.id:
-        return
-    if current.role == "owner":
         return
     if current.role == "admin" and target.role == "user":
         return
@@ -237,17 +233,27 @@ async def get_current_user(
 
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Require admin or owner privileges."""
-    if user.role not in ("owner", "admin"):
+    """Require administrator privileges."""
+    if user.role != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
 
 
-async def require_owner(user: User = Depends(get_current_user)) -> User:
-    """Require owner privilege."""
-    if user.role != "owner":
-        raise HTTPException(status_code=403, detail="需要服主权限")
-    return user
+async def _ensure_not_last_admin(session: AsyncSession, user: User) -> None:
+    """Keep at least one active administrator so the server stays manageable."""
+    if user.role != "admin":
+        return
+    remaining = (
+        await session.execute(
+            select(User.id).where(
+                User.role == "admin",
+                User.id != user.id,
+                User.status == "active",
+            )
+        )
+    ).scalars().first()
+    if remaining is None:
+        raise HTTPException(status_code=400, detail="必须保留至少一个可用的管理员")
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -269,7 +275,7 @@ class AdminUserUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     is_admin: bool | None = None   # legacy; ignored if role is set
-    role: str | None = None        # owner | admin | user (owner-only for admin/owner targets)
+    role: str | None = None        # admin | user
     nextmoe_user_id: int | None = None
     clear_nextmoe: bool = False
 
@@ -318,7 +324,7 @@ async def login(
         user.role,
         _device_name(request),
     )
-    return LoginResponse(token=token, id=user.id, is_admin=user.role in ("owner", "admin"),
+    return LoginResponse(token=token, id=user.id, is_admin=user.role == "admin",
                          role=user.role, username=user.username)
 
 
@@ -351,7 +357,7 @@ async def list_users(current: User = Depends(require_admin),
     result = await session.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
     return [{"id": u.id, "username": u.username, "role": u.role,
-             "is_admin": u.role in ("owner", "admin"),
+             "is_admin": u.role == "admin",
              "status": u.status, "created_at": str(u.created_at),
              "oauth_bound": bool(u.oauth_subject),
              "oauth_name": u.oauth_name or "",
@@ -370,11 +376,8 @@ class CreateUserRequest(BaseModel):
 async def admin_create_user(body: CreateUserRequest,
                              current: User = Depends(require_admin),
                              session: AsyncSession = Depends(get_session)):
-    # Only owner can create admins directly
-    if body.role in ("owner", "admin") and current.role != "owner":
-        raise HTTPException(status_code=403, detail="只有服主可以创建管理员")
-    if body.role == "owner":
-        raise HTTPException(status_code=400, detail="不能直接创建服主，请通过转让功能")
+    if body.role not in ("admin", "user"):
+        raise HTTPException(status_code=400, detail="无效的角色")
     if not body.password and body.nextmoe_user_id is None:
         raise HTTPException(
             status_code=400,
@@ -447,36 +450,14 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
     if desired_role is None and body.is_admin is not None:
         desired_role = "admin" if body.is_admin else "user"
 
-    # Admin can only manage regular users; cannot change roles
-    if current.role == "admin":
-        if user.role != "user":
-            raise HTTPException(status_code=403, detail="管理员只能管理普通用户")
-        if desired_role is not None and desired_role != "user":
-            raise HTTPException(status_code=403, detail="管理员无权修改用户角色")
-
-    # Role change (owner only)
+    # Role change (all administrators are peers)
     if desired_role is not None and desired_role != user.role:
-        if desired_role not in ("owner", "admin", "user"):
+        if desired_role not in ("admin", "user"):
             raise HTTPException(status_code=400, detail="无效的角色")
-        if desired_role == "owner":
-            if user.id == current.id:
-                raise HTTPException(status_code=400, detail="您已是服主")
-            # Transfer ownership: current owner steps down to admin
-            current.role = "admin"
-            current.is_admin = True
-            await session.flush()
-            user.role = "owner"
-            user.is_admin = True
-        elif desired_role == "admin":
-            if user.role == "owner":
-                raise HTTPException(status_code=400, detail="不能直接修改服主角色，请通过转让功能")
-            user.role = "admin"
-            user.is_admin = True
-        elif desired_role == "user":
-            if user.role == "owner":
-                raise HTTPException(status_code=400, detail="不能直接降级服主，请先转让服主身份")
-            user.role = "user"
-            user.is_admin = False
+        if desired_role == "user":
+            await _ensure_not_last_admin(session, user)
+        user.role = desired_role
+        user.is_admin = desired_role == "admin"
 
     # Username/password
     if body.username and body.username != user.username:
@@ -548,10 +529,7 @@ async def admin_delete_user(user_id: int, current: User = Depends(require_admin)
         raise HTTPException(status_code=404, detail="用户不存在")
     if user.id == current.id:
         raise HTTPException(status_code=400, detail="不能删除自己的账户")
-    if user.role == "owner":
-        raise HTTPException(status_code=403, detail="不能删除服主账户")
-    if current.role == "admin" and user.role != "user":
-        raise HTTPException(status_code=403, detail="管理员只能删除普通用户")
+    await _ensure_not_last_admin(session, user)
     await _revoke_user_sessions(user.id, session)
     await session.delete(user)
     await session.commit()
@@ -573,7 +551,7 @@ async def get_my_profile(current: User = Depends(get_current_user),
     from utils.log_identity import account_log_scope
 
     return {"id": current.id, "username": current.username,
-            "role": current.role, "is_admin": current.role in ("owner", "admin"),
+            "role": current.role, "is_admin": current.role == "admin",
             "avatar_path": current.avatar_path,
             "password_set": bool(current.password_set),
             "oauth_bound": bool(current.oauth_subject),
@@ -589,7 +567,7 @@ async def get_profile(user_id: int, user: User = Depends(get_current_user),
         raise HTTPException(status_code=404, detail="User not found")
     return {"id": profile_user.id, "username": profile_user.username,
             "role": profile_user.role,
-            "is_admin": profile_user.role in ("owner", "admin"),
+            "is_admin": profile_user.role == "admin",
             "avatar_path": profile_user.avatar_path,
             "password_set": bool(profile_user.password_set),
             "oauth_bound": bool(profile_user.oauth_subject)}
