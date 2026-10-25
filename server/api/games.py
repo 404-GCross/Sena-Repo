@@ -258,7 +258,6 @@ async def get_game(
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    platforms = list({v.platform for v in game.versions})
     return GameDetail(
         id=game.id,
         name=game.name,

@@ -1014,7 +1014,6 @@ async def scan_steam_games(
 async def list_patches(session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
     """List indexed patches. Scanning is explicit via /scan-patches."""
     config = load_config()
-    patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
     json_path = index_dir / "patches.json"
@@ -1428,7 +1427,6 @@ async def scan_patches_endpoint(
 async def get_type_keywords(user: User = Depends(get_current_user)):
     """Return patch_type_keywords.json content."""
     config = load_config()
-    patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     return _load_type_keywords(index_dir)
 
@@ -1441,7 +1439,6 @@ class TypeKeywordsUpdate(BaseModel):
 async def update_type_keywords(body: TypeKeywordsUpdate, user: User = Depends(require_admin)):
     """Overwrite patch_type_keywords.json (admin only)."""
     config = load_config()
-    patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     _save_type_keywords(index_dir, body.keywords)
     logger.info("Patch type keywords saved: groups=%d", len(body.keywords))
@@ -1487,7 +1484,6 @@ async def rescrape_patch(
     """Re-search a patch's app_id; preview mode returns the result without saving."""
     import asyncio as _asyncio
     config = load_config()
-    patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     json_path = index_dir / "patches.json"
 
@@ -1608,7 +1604,6 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
     """Re-search Steam for all patches' app_ids (batch)."""
     import asyncio as _asyncio
     config = load_config()
-    patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     json_path = index_dir / "patches.json"
 
