@@ -905,7 +905,9 @@ class _BackupScreenState extends State<BackupScreen> {
     );
   }
 
-  /// Transfer budget: at least a minute, plus room for a slow 256 KB/s link.
+  static const Duration _downloadIdleTimeout = Duration(seconds: 60);
+
+  /// Transfer budget for uploads/imports, which cannot report progress.
   Duration _transferTimeout(int bytes) {
     final seconds = 60 + (bytes / (256 * 1024)).ceil();
     return Duration(seconds: seconds.clamp(60, 3600));
@@ -1063,7 +1065,7 @@ class _BackupScreenState extends State<BackupScreen> {
             label: "backup download",
             visibility: LogVisibility.management,
           )
-          .timeout(_transferTimeout(totalBytes));
+          .timeout(const Duration(minutes: 2));
       if (response.statusCode != 200) {
         _toast("下载失败（HTTP ${response.statusCode}）", error: true);
         return;
@@ -1071,8 +1073,7 @@ class _BackupScreenState extends State<BackupScreen> {
       final total = totalBytes > 0 ? totalBytes : (response.contentLength ?? 0);
       final sink = partial.openWrite();
       try {
-        await _pipeDownload(response.stream, sink, total)
-            .timeout(_transferTimeout(total));
+        await _pipeDownload(response.stream, sink, total);
       } finally {
         await sink.close();
       }
@@ -1130,7 +1131,7 @@ class _BackupScreenState extends State<BackupScreen> {
     var reported = 0.0;
     var reportedBytes = 0;
     var flushed = 0;
-    await for (final chunk in stream) {
+    await for (final chunk in stream.timeout(_downloadIdleTimeout)) {
       sink.add(chunk);
       received += chunk.length;
       // Keep the write queue bounded on fast links.

@@ -153,11 +153,22 @@ class _HomeScreenState extends State<HomeScreen> {
               ? const Center(child: CircularProgressIndicator())
               : gameProvider.games.isEmpty
                   ? Center(
-                      child: EmptyState(
-                        icon: Icons.gamepad,
-                        title: "游戏库为空",
-                        subtitle: "请在服务端添加根目录并刷新",
-                      ),
+                      child: gameProvider.error != null
+                          ? EmptyState(
+                              icon: Icons.cloud_off_outlined,
+                              title: "游戏库加载失败",
+                              subtitle: gameProvider.error,
+                              action: OutlinedButton.icon(
+                                onPressed: gameProvider.loadGames,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text("重试"),
+                              ),
+                            )
+                          : EmptyState(
+                              icon: Icons.gamepad,
+                              title: "游戏库为空",
+                              subtitle: "请在服务端添加根目录并刷新",
+                            ),
                     )
                   : RefreshIndicator(
                       onRefresh: gameProvider.loadGames,

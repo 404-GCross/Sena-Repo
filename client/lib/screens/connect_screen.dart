@@ -842,9 +842,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _deleteProfile(int index) async {
     final ps = ProfileService();
+    final active = await ps.getActiveIndex();
     _profiles.removeAt(index);
     await ps.saveProfiles(_profiles);
-    _reloadProfiles();
+    if (active == index) {
+      await ps.setActiveIndex(-1);
+    } else if (active > index) {
+      await ps.setActiveIndex(active - 1);
+    }
+    await _reloadProfiles();
   }
 
   Future<void> _reloadProfiles() async {

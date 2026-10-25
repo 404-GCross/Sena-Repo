@@ -11,6 +11,8 @@ class NotificationService {
 
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  bool _permissionChecked = false;
+  bool _permissionGranted = true;
   final Set<int> _progressUpdatesInFlight = <int>{};
 
   Future<void> init() async {
@@ -39,6 +41,18 @@ class NotificationService {
     return granted ?? false;
   }
 
+  Future<bool> ensurePermission() async {
+    if (!Platform.isAndroid) return true;
+    if (_permissionChecked) return _permissionGranted;
+    _permissionChecked = true;
+    try {
+      _permissionGranted = await requestPermission();
+    } catch (_) {
+      _permissionGranted = false;
+    }
+    return _permissionGranted;
+  }
+
   /// Show a download progress notification. Call with progress 0-1.
   /// Returns the notification ID so you can update/cancel it.
   Future<int> showDownloadProgress({
@@ -49,6 +63,7 @@ class NotificationService {
     required int totalBytes,
   }) async {
     if (!Platform.isAndroid || !_initialized) return id;
+    if (!await ensurePermission()) return id;
     if (_progressUpdatesInFlight.contains(id)) return id;
 
     final indeterminate = totalBytes <= 0;
@@ -97,6 +112,7 @@ class NotificationService {
     required String gameName,
   }) async {
     if (!Platform.isAndroid || !_initialized) return;
+    if (!await ensurePermission()) return;
 
     // Cancel the progress notification
     await _plugin.cancel(id);

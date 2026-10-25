@@ -311,6 +311,8 @@ class ApiClient {
   }
 
   /// Execute an HTTP request.
+  static const Duration _requestTimeout = Duration(seconds: 120);
+
   bool _isRetryableStatus(int statusCode) =>
       statusCode == 408 || statusCode == 429 || statusCode >= 500;
 
@@ -333,12 +335,17 @@ class ApiClient {
       );
     }
     const maxAttempts = 2;
+    final retryEnabled = allowRetry &&
+        (method == "GET" ||
+            method == "HEAD" ||
+            method == "PUT" ||
+            method == "OPTIONS");
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final started = DateTime.now();
       try {
-        final response = await request();
+        final response = await request().timeout(_requestTimeout);
         final durationMs = DateTime.now().difference(started).inMilliseconds;
-        final retrying = allowRetry &&
+        final retrying = retryEnabled &&
             attempt < maxAttempts - 1 &&
             _isRetryableStatus(response.statusCode);
         _logHttpResponse(
@@ -350,14 +357,14 @@ class ApiClient {
           retrying: retrying,
           label: label,
         );
-        if (!allowRetry ||
+        if (!retryEnabled ||
             attempt == maxAttempts - 1 ||
             !_isRetryableStatus(response.statusCode)) {
           return response;
         }
       } catch (error, stackTrace) {
         final durationMs = DateTime.now().difference(started).inMilliseconds;
-        final retrying = allowRetry &&
+        final retrying = retryEnabled &&
             attempt < maxAttempts - 1 &&
             _isRetryableError(error);
         _logHttpError(
@@ -370,7 +377,7 @@ class ApiClient {
           retrying: retrying,
           label: label,
         );
-        if (!allowRetry ||
+        if (!retryEnabled ||
             attempt == maxAttempts - 1 ||
             !_isRetryableError(error)) {
           rethrow;

@@ -55,6 +55,8 @@ class DownloadTask {
   final String? targetDir;
   /// Set for Steam patch injections so an expired signed link can be renewed.
   final String? patchLookupKey;
+  /// Token of the server that created this task; never sent to another origin.
+  String? authToken;
 
   String
   status; // pending, downloading, retrying, extracting, done, failed, paused, cancelled
@@ -92,6 +94,7 @@ class DownloadTask {
     this.sourceType = "local",
     this.targetDir,
     this.patchLookupKey,
+    this.authToken,
     this.status = "pending",
     this.progress = 0,
     this.receivedBytes = 0,
@@ -462,6 +465,7 @@ class DownloadService with WidgetsBindingObserver {
       patchLookupKey: patchLookupKey,
       expiresAt: expiresAt,
       serverBaseUrl: serverBaseUrl,
+      authToken: globalToken,
     );
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
@@ -652,16 +656,19 @@ class DownloadService with WidgetsBindingObserver {
             fileName: fileName,
             downloadUrl: downloadUrl,
             expiresAt: expiresAt,
-            serverBaseUrl: _serverOrigin(downloadUrl),
+            serverBaseUrl: _serverOrigin(ApiClient().baseUrl) ??
+                _serverOrigin(downloadUrl),
             gameName: gameName,
             companyName: companyName,
             sourceType: sourceType,
             targetDir: targetDir,
           )
+          ..authToken = globalToken
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
           ..extractPassword = extractPassword;
     task.headersReceived = false;
+    unawaited(NotificationService().ensurePermission());
     _tasks.insert(0, task);
     _emit();
     _scheduleDownloads();
@@ -733,7 +740,7 @@ class DownloadService with WidgetsBindingObserver {
     try {
       final resp = await http.get(
         Uri.parse("$base/api/games/${task.gameId}"),
-        headers: _downloadAuthHeaders(),
+        headers: _downloadAuthHeaders(task),
       );
       if (resp.statusCode != 200) return;
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -772,7 +779,10 @@ class DownloadService with WidgetsBindingObserver {
       "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
     );
     final outDir = _outDir(t, dir);
-    final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
+    final gameDir = _safePathComponent(
+      t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName),
+      fallback: "_game",
+    );
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
@@ -1040,7 +1050,10 @@ class DownloadService with WidgetsBindingObserver {
       "$supportDir/.tmp_${t.versionId}_${_safeName(t.fileName)}",
     );
     final outDir = _outDir(t, dir);
-    final gameDir = t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName);
+    final gameDir = _safePathComponent(
+      t.gameName.isNotEmpty ? t.gameName : _safeName(t.fileName),
+      fallback: "_game",
+    );
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
@@ -1317,7 +1330,7 @@ class DownloadService with WidgetsBindingObserver {
           ? "$origin/api/download/${task.gameId}/${task.versionId}/link"
           : "$origin/api/steam/patches/${Uri.encodeComponent(patchKey)}/link");
       final response = await client
-          .post(uri, headers: _downloadAuthHeaders())
+          .post(uri, headers: _downloadAuthHeaders(task))
           .timeout(_downloadConnectTimeout);
       if (response.statusCode != 200) {
         throw DownloadHttpException(
@@ -1342,8 +1355,12 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  Map<String, String> _downloadAuthHeaders() {
-    final token = globalToken;
+  Map<String, String> _downloadAuthHeaders(DownloadTask task) {
+    final taskOrigin = task.serverBaseUrl;
+    final activeOrigin = _serverOrigin(ApiClient().baseUrl);
+    final token = (taskOrigin != null && taskOrigin == activeOrigin)
+        ? globalToken
+        : task.authToken;
     return token == null || token.isEmpty
         ? {}
         : {"Authorization": "Bearer $token"};
@@ -3697,7 +3714,22 @@ class DownloadService with WidgetsBindingObserver {
   // ── helpers ──
 
   /// Strip path traversal sequences from a filename, keeping only the basename.
-  String _safeName(String name) => name.split(RegExp(r"[/\\]")).last;
+  String _safeName(String name) =>
+      _safePathComponent(name.split(RegExp(r"[/\\]")).last, fallback: "_");
+
+  String _safePathComponent(String name, {String fallback = "_"}) {
+    var value = name.trim();
+    value = value.replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), "_");
+    value = value.replaceAll(RegExp(r"[. ]+$"), "");
+    if (value.isEmpty || value == "." || value == "..") return fallback;
+    if (RegExp(
+      r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$",
+      caseSensitive: false,
+    ).hasMatch(value)) {
+      value = "_$value";
+    }
+    return value;
+  }
 
   Future<String> _taskDir(DownloadTask t) async {
     final target = t.targetDir?.trim() ?? "";
@@ -3706,7 +3738,10 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   String _outDir(DownloadTask t, String dir) {
-    final sub = t.companyName.isNotEmpty ? t.companyName : "_unknown";
+    final sub = _safePathComponent(
+      t.companyName.isNotEmpty ? t.companyName : "_unknown",
+      fallback: "_unknown",
+    );
     // Extract directly to 会社/, letting archive folder name be the game folder
     return "${dir}${Platform.pathSeparator}$sub";
   }
