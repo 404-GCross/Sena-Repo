@@ -27,6 +27,7 @@ _LOGIN_FAILURE_LIMIT = 5
 _LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
 _LOGIN_BLOCK_SECONDS = 5 * 60
 _LOGIN_FAILURE_MAX_ENTRIES = 10_000
+_LOGIN_HOST_FAILURE_LIMIT = 50
 _login_failure_lock = threading.Lock()
 _login_failures: dict[tuple[str, str], tuple[int, float, float]] = {}
 
@@ -72,7 +73,9 @@ def _login_retry_after(key: tuple[str, str]) -> int:
         return 0
 
 
-def _record_login_failure(key: tuple[str, str]) -> int:
+def _record_login_failure(
+    key: tuple[str, str], *, limit: int = _LOGIN_FAILURE_LIMIT
+) -> int:
     now = time.monotonic()
     with _login_failure_lock:
         _prune_login_failures(now)
@@ -82,7 +85,7 @@ def _record_login_failure(key: tuple[str, str]) -> int:
         if now - window_started >= _LOGIN_FAILURE_WINDOW_SECONDS:
             failures, window_started, blocked_until = 0, now, 0.0
         failures += 1
-        if failures >= _LOGIN_FAILURE_LIMIT:
+        if failures >= limit:
             blocked_until = max(blocked_until, now + _LOGIN_BLOCK_SECONDS)
         _login_failures[key] = (failures, window_started, blocked_until)
         return max(0, ceil(blocked_until - now))
@@ -289,7 +292,10 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ):
     login_key = _login_key(body, request)
-    retry_after = _login_retry_after(login_key)
+    host_key = ("", login_key[1])
+    retry_after = max(
+        _login_retry_after(login_key), _login_retry_after(host_key)
+    )
     if retry_after:
         logger.warning("Login rate limited: username=%s retry_after=%ss", body.username, retry_after)
         raise HTTPException(
@@ -302,6 +308,10 @@ async def login(
     if user is None or not verify_password(body.password, user.salt, user.password_hash):
         logger.warning("Login failed: username=%s reason=bad_credentials", body.username)
         retry_after = _record_login_failure(login_key)
+        retry_after = max(
+            retry_after,
+            _record_login_failure(host_key, limit=_LOGIN_HOST_FAILURE_LIMIT),
+        )
         if retry_after:
             raise HTTPException(
                 status_code=429,
@@ -627,9 +637,9 @@ async def upload_avatar(user_id: int, file: UploadFile = File(...),
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     _ensure_profile_edit_access(current, user)
-    contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="文件过大，最大5MB")
+    from utils.uploads import read_upload
+
+    contents = await read_upload(file, limit=5 * 1024 * 1024, label="头像")
     ext = Path(file.filename or "avatar.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
         raise HTTPException(status_code=400, detail="File type not allowed")

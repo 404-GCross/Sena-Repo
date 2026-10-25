@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/auth/oauth", tags=["oauth"])
 PROVIDER = "nextmoe"
 PROVIDER_LABEL = "NextMoe·未萌"
 FLOW_TTL_SECONDS = 600
+_MAX_FLOWS = 200
 LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
 
@@ -58,6 +59,12 @@ def _prune_flows() -> None:
     ]
     for key in stale:
         _flows.pop(key, None)
+    if len(_flows) > _MAX_FLOWS:
+        oldest = sorted(
+            _flows.items(), key=lambda item: item[1].created_at
+        )[: len(_flows) - _MAX_FLOWS]
+        for key, _ in oldest:
+            _flows.pop(key, None)
 
 
 def consume_setup_binding(request_id: str) -> tuple[str, str, int | None] | None:

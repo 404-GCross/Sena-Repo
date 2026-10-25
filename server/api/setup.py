@@ -120,6 +120,11 @@ async def import_setup_backup(
                     break
                 handle.write(chunk)
                 size += len(chunk)
+                if size > 16 * 1024 ** 3:
+                    stored.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413, detail="备份文件过大，最大 16 GB"
+                    )
     except OSError as exc:
         stored.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="备份文件写入失败") from exc

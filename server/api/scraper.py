@@ -23,6 +23,7 @@ from models.game import Game
 from models.user import User
 from api.auth import get_current_user, require_admin
 from api.games import ensure_game_unlocked
+from utils.uploads import read_upload
 from models.scrape_job import JobStatus, ScrapeJob
 from schemas.common import MessageResponse
 from services.scraper.orchestrator import (
@@ -723,7 +724,9 @@ async def upload_game_cover(
                 except Exception: pass
 
     cover_path = covers_dir / f"{game_id}_upload{ext}"
-    cover_path.write_bytes(await file.read())
+    cover_path.write_bytes(
+        await read_upload(file, limit=20 * 1024 * 1024, label="封面")
+    )
     game.cover_path = str(cover_path)
     await session.commit()
     logger.info("Game cover uploaded: actor_id=%s game_id=%s", user.id, game_id)
@@ -841,7 +844,9 @@ async def upload_game_background(
                 except Exception: pass
 
     bg_path = bg_dir / f"{game_id}_hero{ext}"
-    bg_path.write_bytes(await file.read())
+    bg_path.write_bytes(
+        await read_upload(file, limit=20 * 1024 * 1024, label="背景图")
+    )
     game.bg_path = str(bg_path)
     await session.commit()
     logger.info(

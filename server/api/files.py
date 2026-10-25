@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 
 from api.auth import get_current_user, require_admin
+from utils.uploads import read_upload
 from config import load_config
 from models.user import User
 
@@ -31,7 +32,7 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(require
     dest = config.covers_path / name
     config.covers_path.mkdir(parents=True, exist_ok=True)
 
-    content = await file.read()
+    content = await read_upload(file, limit=20 * 1024 * 1024, label="图片")
     dest.write_bytes(content)
     logger.info(
         "Image uploaded: actor_id=%s filename=%s bytes=%s",
