@@ -160,6 +160,9 @@ class ApiClient {
   bool? get cachedIsAdmin => _cachedIsAdmin;
   String? get cachedRole => _cachedRole;
 
+  /// Scope the log viewer may read for the current verified account.
+  LogViewerAccess? get logViewerAccess => currentLogViewerAccess;
+
   Map<String, String> get headers {
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       return {"Authorization": "Bearer $_accessToken"};
