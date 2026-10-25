@@ -55,7 +55,7 @@ class _LogScreenState extends State<LogScreen> {
     super.didChangeDependencies();
     if (_started) return;
     _started = true;
-    _access = context.read<GameProvider>().api.logViewerAccess;
+    _access = context.read<GameProvider>().api.currentLogViewerAccess;
     _load();
     _startLiveRefresh();
   }

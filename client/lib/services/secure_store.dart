@@ -83,5 +83,5 @@ class SecureStore {
   }
 
   /// Key names are constant strings today, but never log a value.
-  static String _safeKey(String key) => key.replaceAll(RegExp(r"[^a-z0-9_]", ""), "_");
+  static String _safeKey(String key) => key.replaceAll(RegExp(r"[^a-z0-9_]"), "_");
 }
