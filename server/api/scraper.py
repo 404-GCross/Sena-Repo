@@ -133,25 +133,41 @@ def _validate_scrape_sources(sources: list[str] | None) -> None:
             detail="NextMoe 是独立刮削模式，不能与其他刮削源同时使用",
         )
 
-class JobStatusOut(BaseModel):
+class ScrapeJobSummaryOut(BaseModel):
+    """Safe progress fields; every authenticated user may read these."""
+
     id: int
     status: str
     total_games: int
     processed_games: int
     successful_games: int
-    completed_games: int
+    completed_games: int = 0
     failed_games: int
-    current_game_id: int | None
-    current_game: str | None
-    current_source: str | None
-    current_query: str | None
-    current_stage: str | None
-    last_error: str | None
-    log: str
-    started_at: str | None
-    updated_at: str | None
-    heartbeat_at: str | None
+    started_at: str | None = None
+    updated_at: str | None = None
+    message: str = ""
+
+
+class ScrapeJobDetailOut(ScrapeJobSummaryOut):
+    """Management view; only owner/admin may read it."""
+
+    current_game_id: int | None = None
+    current_game: str | None = None
+    current_source: str | None = None
+    current_query: str | None = None
+    current_stage: str | None = None
+    last_error: str | None = None
+    log: str = ""
+    heartbeat_at: str | None = None
     is_stale: bool = False
+
+
+_JOB_STATUS_MESSAGES = {
+    "pending": "排队中",
+    "running": "正在刮削",
+    "completed": "已完成",
+    "failed": "已停止，详情请查看服务端日志",
+}
 
 
 def _dt_iso(value: datetime | None) -> str | None:
@@ -168,28 +184,39 @@ def _job_progress_at(job: ScrapeJob) -> datetime:
     )
 
 
-def _job_to_response(job: ScrapeJob, *, is_stale: bool = False) -> dict:
+def _job_summary(job: ScrapeJob) -> dict:
     processed = job.processed_games or job.completed_games or 0
+    status = job.status.value
     return {
         "id": job.id,
-        "status": job.status.value,
+        "status": status,
         "total_games": job.total_games or 0,
         "processed_games": processed,
         "successful_games": job.successful_games or 0,
         "completed_games": processed,
         "failed_games": job.failed_games or 0,
-        "current_game_id": job.current_game_id,
-        "current_game": job.current_game,
-        "current_source": job.current_source,
-        "current_query": job.current_query,
-        "current_stage": job.current_stage,
-        "last_error": job.last_error,
-        "log": job.log or "",
         "started_at": _dt_iso(job.started_at),
         "updated_at": _dt_iso(job.updated_at),
-        "heartbeat_at": _dt_iso(job.heartbeat_at),
-        "is_stale": is_stale,
+        "message": _JOB_STATUS_MESSAGES.get(status, "未知状态"),
     }
+
+
+def _job_detail(job: ScrapeJob, *, is_stale: bool = False) -> dict:
+    detail = _job_summary(job)
+    detail.update(
+        {
+            "current_game_id": job.current_game_id,
+            "current_game": job.current_game,
+            "current_source": job.current_source,
+            "current_query": job.current_query,
+            "current_stage": job.current_stage,
+            "last_error": job.last_error,
+            "log": job.log or "",
+            "heartbeat_at": _dt_iso(job.heartbeat_at),
+            "is_stale": is_stale,
+        }
+    )
+    return detail
 
 
 async def _fail_stale_scrape_jobs(
@@ -579,30 +606,31 @@ async def cancel_scrape_job(
     job.updated_at = now
     job.log = (job.log or "") + " [已取消]"
     await session.commit()
+    logger.info("Scrape job cancelled: actor_id=%s job_id=%s", user.id, job_id)
     return {"message": "Job cancelled"}
 
 
-@router.get("/scrape/jobs", response_model=list[JobStatusOut])
+@router.get("/scrape/jobs", response_model=list[ScrapeJobSummaryOut])
 async def list_scrape_jobs(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """List all scrape jobs."""
+    """List recent scrape jobs with safe progress fields for every user."""
     result = await session.execute(
         select(ScrapeJob).order_by(ScrapeJob.created_at.desc()).limit(20)
     )
     jobs = result.scalars().all()
-    stale_ids = await _fail_stale_scrape_jobs(session, jobs)
-    return [_job_to_response(j, is_stale=j.id in stale_ids) for j in jobs]
+    await _fail_stale_scrape_jobs(session, jobs)
+    return [_job_summary(job) for job in jobs]
 
 
-@router.get("/scrape/jobs/{job_id}", response_model=JobStatusOut)
+@router.get("/scrape/jobs/{job_id}", response_model=ScrapeJobDetailOut)
 async def get_scrape_job(
     job_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
-    """Get a specific scrape job's status."""
+    """Detailed job log; management only because it carries server paths."""
     result = await session.execute(
         select(ScrapeJob).where(ScrapeJob.id == job_id)
     )
@@ -611,7 +639,7 @@ async def get_scrape_job(
         raise HTTPException(status_code=404, detail="Job not found")
 
     stale_ids = await _fail_stale_scrape_jobs(session, [job])
-    return _job_to_response(job, is_stale=job.id in stale_ids)
+    return _job_detail(job, is_stale=job.id in stale_ids)
 
 
 # --- Cover management ---
@@ -698,6 +726,7 @@ async def upload_game_cover(
     cover_path.write_bytes(await file.read())
     game.cover_path = str(cover_path)
     await session.commit()
+    logger.info("Game cover uploaded: actor_id=%s game_id=%s", user.id, game_id)
     return {"message": "Cover uploaded", "cover_path": game.cover_path}
 
 
@@ -727,6 +756,7 @@ async def delete_game_cover(
                 os.remove(str(cover_path))
         game.cover_path = None
         await session.commit()
+        logger.info("Game cover removed: actor_id=%s game_id=%s", user.id, game_id)
 
     return MessageResponse(message="Cover removed")
 
@@ -814,6 +844,9 @@ async def upload_game_background(
     bg_path.write_bytes(await file.read())
     game.bg_path = str(bg_path)
     await session.commit()
+    logger.info(
+        "Game background uploaded: actor_id=%s game_id=%s", user.id, game_id
+    )
     return {"message": "Background uploaded", "bg_path": game.bg_path}
 
 
@@ -843,5 +876,8 @@ async def delete_game_background(
                 os.remove(str(bg_path))
         game.bg_path = None
         await session.commit()
+        logger.info(
+            "Game background removed: actor_id=%s game_id=%s", user.id, game_id
+        )
 
     return MessageResponse(message="Background removed")

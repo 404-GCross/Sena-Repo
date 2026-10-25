@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import secrets
 import shutil
@@ -53,12 +54,15 @@ from models.user import User, UserSession
 from services.file_source import canonical_source_path
 from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
 from utils.process_lock import process_lock
+from utils.log_redaction import redact_exception
 from utils.secrets import (
     SCRAPER_SECRET_KEYS,
     decrypt_secret,
     encrypt_secret,
     is_encrypted,
 )
+
+logger = logging.getLogger(__name__)
 
 KIND = "sena_backup"
 SCHEMA_VERSION = 5
@@ -638,7 +642,12 @@ def prune_auto_backups(config, retention: dict[str, int]) -> list[str]:
         try:
             path.unlink()
             removed.append(path.name)
-        except OSError:
+        except OSError as exc:
+            logger.warning(
+                "Auto backup cleanup failed: file=%s error=%s",
+                path.name,
+                type(exc).__name__,
+            )
             continue
     return removed
 
@@ -1692,8 +1701,12 @@ class _RestoreJournal:
                 self.journal_path,
                 json.dumps(payload, ensure_ascii=False, indent=2),
             )
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning(
+                "Restore journal write failed: file=%s error=%s",
+                self.journal_path.name,
+                type(exc).__name__,
+            )
 
     def rollback(self) -> list[str]:
         lines: list[str] = []
@@ -1886,6 +1899,9 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
         if not acquired:
             fail("另一个恢复或扫描任务正在进行，请稍后再试", 4)
         journal = _RestoreJournal.begin(config)
+        logger.info(
+            "Restore started: scope=%s mode=%s media=%s", scope, mode, media_policy
+        )
         try:
             available_media = {kind: set() for kind in MEDIA_KINDS}
             if wants_library:
@@ -2015,11 +2031,17 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                 lines.append(f"注意: {note}")
 
             journal.finish()
-        except Exception:
+        except Exception as exc:
             rollback_lines = journal.rollback()
             for line in rollback_lines:
                 echo(line)
             journal.finish()
+            logger.error(
+                "Restore failed: error=%s rollback=%s",
+                redact_exception(exc),
+                "clean" if not rollback_lines else "partial",
+                exc_info=True,
+            )
             # Put the in-memory settings back in sync with the restored files.
             try:
                 from api.settings import _load_scan_settings

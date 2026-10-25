@@ -570,11 +570,14 @@ class ProfileUpdate(BaseModel):
 @router.get("/profile/me")
 async def get_my_profile(current: User = Depends(get_current_user),
                           session: AsyncSession = Depends(get_session)):
+    from utils.log_identity import account_log_scope
+
     return {"id": current.id, "username": current.username,
             "role": current.role, "is_admin": current.role in ("owner", "admin"),
             "avatar_path": current.avatar_path,
             "password_set": bool(current.password_set),
-            "oauth_bound": bool(current.oauth_subject)}
+            "oauth_bound": bool(current.oauth_subject),
+            "log_scope": account_log_scope(current)}
 
 
 @router.get("/profile/{user_id}")

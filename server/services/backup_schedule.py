@@ -7,10 +7,13 @@ modes, then the days and times that apply. Times are server-local.
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 SETTINGS_NAME = "backup_settings.json"
 MODES = ("hour", "day", "week", "month")
@@ -179,7 +182,12 @@ def load_backup_settings(config) -> dict[str, Any]:
         return default_settings()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Backup schedule unreadable; automatic backups stay disabled: file=%s error=%s",
+            path.name,
+            type(exc).__name__,
+        )
         return default_settings()
     return normalise_settings(data)
 

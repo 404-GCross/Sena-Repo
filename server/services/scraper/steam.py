@@ -103,7 +103,12 @@ class SteamScraper(BaseScraper):
             data = resp.json()
             items = data.get("items", [])
             return items if items else None
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Steam store search failed: lang=%s error=%s",
+                lang,
+                type(exc).__name__,
+            )
             return None
 
     async def _community_search(self, client: httpx.AsyncClient, title: str) -> list[dict] | None:
@@ -116,7 +121,10 @@ class SteamScraper(BaseScraper):
             if not isinstance(apps, list) or not apps:
                 return None
             return apps
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Steam community search failed: error=%s", type(exc).__name__
+            )
             return None
 
     @staticmethod

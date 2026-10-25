@@ -406,6 +406,12 @@ async def reorder_rules(
         if rule is not None:
             rule.sort_order = index
     await session.commit()
+    logger.info(
+        "Platform rules reordered: actor_id=%s category_id=%s count=%s",
+        user.id,
+        category_id,
+        len(body.ids),
+    )
     return MessageResponse(message="规则顺序已更新")
 
 
@@ -433,6 +439,13 @@ async def update_rule(
     rule.kind = kind
     rule.pattern = pattern
     await session.commit()
+    logger.info(
+        "Platform rule updated: actor_id=%s category_id=%s rule_id=%s kind=%s",
+        user.id,
+        category_id,
+        rule_id,
+        kind,
+    )
     return _rule_out(rule)
 
 
@@ -451,4 +464,10 @@ async def delete_rule(
         raise HTTPException(status_code=404, detail="规则不存在")
     await session.delete(rule)
     await session.commit()
+    logger.info(
+        "Platform rule deleted: actor_id=%s category_id=%s rule_id=%s",
+        user.id,
+        category_id,
+        rule_id,
+    )
     return MessageResponse(message="规则已删除")

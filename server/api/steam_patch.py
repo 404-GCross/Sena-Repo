@@ -1291,7 +1291,12 @@ def _set_patch_scan_state(**values) -> None:
 async def patch_scan_status(user: User = Depends(get_current_user)):
     """Return the current patch scan progress."""
     with _patch_scan_state_lock:
-        return dict(_patch_scan_state)
+        state = dict(_patch_scan_state)
+    if user.role not in ("owner", "admin"):
+        # File names, stage text and upstream errors are management detail.
+        for key in ("current", "stage", "error"):
+            state.pop(key, None)
+    return state
 
 
 @router.post("/scan-patches")

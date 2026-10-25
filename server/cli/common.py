@@ -84,6 +84,9 @@ async def prepare_app() -> "Config":
     from database import create_tables, init_database
 
     config = load_config()
+    from utils.logging_config import configure_logging
+
+    configure_logging("cli", config.data_path)
     init_database(config)
     await create_tables()
     return config

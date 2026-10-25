@@ -124,11 +124,12 @@ async def _auto_backup_task(config, logger):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: initialize DB on startup."""
-    logging.basicConfig(level=logging.INFO)
+    config = load_config()
+    from utils.logging_config import configure_logging
+
+    configure_logging("server", config.data_path)
     logger = logging.getLogger("sena-repo")
     logger.info("Starting Sena Repo server...")
-
-    config = load_config()
     from api.settings import migrate_scraper_config_secrets
 
     migrate_scraper_config_secrets(config)

@@ -181,14 +181,31 @@ class BaseScraper(ABC):
             except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries:
-                    await asyncio.sleep(self._backoff_delay(attempt))
+                    delay = self._backoff_delay(attempt)
+                    logger.warning(
+                        "%s request timed out; retrying in %.1fs (attempt %s/%s)",
+                        self.source_name,
+                        delay,
+                        attempt + 1,
+                        self.max_retries,
+                    )
+                    await asyncio.sleep(delay)
                     continue
                 raise
             except Exception:
                 raise
             if self._should_retry(resp):
                 if attempt < self.max_retries:
-                    await asyncio.sleep(self._backoff_delay(attempt, resp))
+                    delay = self._backoff_delay(attempt, resp)
+                    logger.warning(
+                        "%s request retry: status=%s attempt=%s/%s delay=%.1fs",
+                        self.source_name,
+                        resp.status_code,
+                        attempt + 1,
+                        self.max_retries,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
                     continue
             resp.raise_for_status()
             return resp

@@ -44,8 +44,12 @@ def _set_scan_state(**updates):
     _scan_state.update(updates)
 
 
-def _scan_state_response():
-    return dict(_scan_state)
+def _scan_state_response(user: User | None = None):
+    state = dict(_scan_state)
+    if user is None or user.role not in ("owner", "admin"):
+        # Library paths and per-root detail are management information.
+        state.pop("current_root", None)
+    return state
 
 
 def _scan_active() -> bool:
@@ -320,7 +324,7 @@ async def refresh_all_roots(
 @router.get("/scan-status")
 async def get_scan_status(user: User = Depends(get_current_user)):
     """Return the current background game-library scan state."""
-    return _scan_state_response()
+    return _scan_state_response(user)
 
 
 @router.post("/clear-and-refresh")

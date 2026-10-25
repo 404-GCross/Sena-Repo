@@ -22,6 +22,7 @@ from cli import backup as backup_cli
 from cli.common import CliError
 from config import load_config
 from models.user import User
+from utils.log_redaction import redact_exception
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,12 @@ async def export_backup(body: ExportRequest, user: User = Depends(require_owner)
     payload = await backup_cli.build_payload(config, scope=scope)
     media = backup_cli.collect_media(config, payload)
     payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
+    logger.info(
+        "Backup export started: actor_id=%s scope=%s media=%s",
+        user.id,
+        scope,
+        include_media,
+    )
     await asyncio.to_thread(
         backup_cli.write_backup,
         output,
@@ -213,7 +220,9 @@ async def import_backup(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         stored.unlink(missing_ok=True)
-        logger.warning("Backup import failed to read archive: %s", type(exc).__name__)
+        logger.warning(
+            "Backup import failed: stage=read error=%s", redact_exception(exc)
+        )
         raise HTTPException(status_code=400, detail="备份文件无法解析") from exc
 
     try:
@@ -224,7 +233,11 @@ async def import_backup(
     except CliError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("Backup import failed: %s", type(exc).__name__)
+        logger.error(
+            "Backup import failed: stage=apply error=%s",
+            redact_exception(exc),
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail="导入失败，请查看服务端日志") from exc
 
     library = payload["library"]
