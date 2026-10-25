@@ -51,6 +51,15 @@ jobs:
           cp assets/binaries/aria2/android-aarch64/aria2c assets/binaries/aria2c
           chmod +x assets/binaries/7zz
           chmod +x assets/binaries/aria2c
+      - name: Verify bundled 7zz targets 16 KB pages
+        run: |
+          LOAD_ALIGN=$(readelf -lW assets/binaries/7zz | awk '/LOAD/{print $NF}' | sort -u)
+          echo "LOAD alignments: $LOAD_ALIGN"
+          if ! echo "$LOAD_ALIGN" | grep -qx "0x4000"; then
+            echo "::error::7zz must be built with -Wl,-z,max-page-size=16384 (Android 15+ devices)"
+            exit 1
+          fi
+          sha256sum assets/binaries/7zz
       - name: Enable Android
         run: |
           flutter config --enable-android
