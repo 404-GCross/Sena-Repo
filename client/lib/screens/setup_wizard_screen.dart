@@ -9,6 +9,7 @@ import "package:flutter/material.dart";
 import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
+import "../models/log_models.dart";
 import "../services/api_client.dart";
 import "../services/nextmoe_oauth.dart";
 import "../utils/source_icons.dart";
@@ -299,7 +300,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         ..files.add(
           http.MultipartFile("file", stream, total, filename: fileName),
         );
-      final response = await request.send();
+      final response = await http.sendMultipart(
+        request,
+        label: "setup backup import",
+        visibility: LogVisibility.management,
+      );
       final body = await response.stream.bytesToString();
       if (response.statusCode != 200) {
         String detail = "导入失败";

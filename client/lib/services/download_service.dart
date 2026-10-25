@@ -12,6 +12,7 @@ import "dart:typed_data";
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:flutter/widgets.dart"
     show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
+import "../models/log_models.dart";
 import "../services/logger_service.dart";
 import "logged_http.dart" as http;
 import "package:path_provider/path_provider.dart";
@@ -221,7 +222,16 @@ class DownloadService with WidgetsBindingObserver {
       }
       if (_tasks.isNotEmpty) _emit();
       _scheduleDownloads();
-    } catch (_) {}
+    } catch (e, stackTrace) {
+      LoggerService().record(
+        LogLevel.warning,
+        "download.tasks_restore_failed",
+        "恢复下载任务失败",
+        module: "download",
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<void> _saveTasks() async {
@@ -253,7 +263,16 @@ class DownloadService with WidgetsBindingObserver {
           )
           .toList();
       await prefs.setStringList("saved_tasks", data);
-    } catch (_) {}
+    } catch (e, stackTrace) {
+      LoggerService().record(
+        LogLevel.warning,
+        "download.tasks_save_failed",
+        "保存下载任务失败",
+        module: "download",
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   final List<DownloadTask> _tasks = [];
@@ -1139,6 +1158,14 @@ class DownloadService with WidgetsBindingObserver {
       t.status = "done";
       t.outputPath = "${outDir}${Platform.pathSeparator}$gameDir";
       _emit();
+      LoggerService().record(
+        LogLevel.info,
+        "download.completed",
+        "下载与解压完成",
+        module: "download",
+        taskId: "${t.gameId}-${t.versionId}",
+        fields: {"game": t.gameName, "bytes": t.receivedBytes},
+      );
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
       if (t._cancelled) {
@@ -1152,6 +1179,16 @@ class DownloadService with WidgetsBindingObserver {
       if (t.status == "paused") return;
       NotificationService().cancel(t.gameId);
       final errStr = "$e";
+      LoggerService().record(
+        LogLevel.error,
+        "download.failed",
+        "下载或解压失败",
+        module: "download",
+        taskId: "${t.gameId}-${t.versionId}",
+        fields: {"game": t.gameName, "status": t.status},
+        error: e,
+        stackTrace: StackTrace.current,
+      );
       // Check if archive is password-protected
       if (_isEncryptedError(errStr)) {
         final presetPassword = t.extractPassword?.trim() ?? "";

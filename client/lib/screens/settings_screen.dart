@@ -78,7 +78,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           username: username,
           isAdmin: isAdmin,
           role: data["role"]?.toString(),
+          logScope: data["log_scope"]?.toString(),
         );
+        await activateLogContext(baseUrl: _api.baseUrl, profile: data);
         final ps = ProfileService();
         final profiles = await ps.loadProfiles();
         final index = await ps.getActiveIndex();

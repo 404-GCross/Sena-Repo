@@ -462,7 +462,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       request.files.add(
         await http.MultipartFile.fromPath("file", result.files.single.path!),
       );
-      final resp = await request.send();
+      final resp = await http.sendMultipart(
+        request,
+        label: "avatar upload",
+      );
       if (resp.statusCode == 200) {
         final data = jsonDecode(await resp.stream.bytesToString())
             as Map<String, dynamic>;

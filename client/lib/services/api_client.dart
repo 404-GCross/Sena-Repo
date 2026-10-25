@@ -8,6 +8,7 @@ import "logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
+import "../models/log_models.dart";
 import "api_response_utils.dart";
 import "logger_service.dart";
 import "secure_store.dart";
@@ -86,6 +87,59 @@ Map<String, String>? get mediaAuthHeaders {
 /// Hostname of the configured server — only bypasses TLS for this host.
 String? trustedServerHost;
 
+/// Verified log ownership. Set only from an authenticated profile response.
+String _logServerKey = "";
+String _logAccountScope = "";
+String _logSessionId = "";
+bool _logManagement = false;
+
+String stableLogKey(String value) {
+  var hash = 0x811c9dc5;
+  for (final unit in utf8.encode(value)) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash.toRadixString(16).padLeft(8, "0");
+}
+
+Future<void> activateLogContext({
+  required String baseUrl,
+  required Map<String, dynamic> profile,
+}) async {
+  final scope = profile["log_scope"]?.toString() ?? "";
+  final userId = _parseUserId(profile["id"]) ?? 0;
+  final role = profile["role"]?.toString() ?? "user";
+  _logServerKey = stableLogKey(baseUrl);
+  _logAccountScope =
+      scope.isNotEmpty ? scope : stableLogKey("user:$userId");
+  _logManagement = role == "owner" || role == "admin";
+  _logSessionId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+  LoggerService().setContext(
+    LogContext(
+      serverKey: _logServerKey,
+      accountScope: _logAccountScope,
+      sessionId: _logSessionId,
+    ),
+  );
+}
+
+void clearLogContext() {
+  _logServerKey = "";
+  _logAccountScope = "";
+  _logSessionId = "";
+  _logManagement = false;
+  LoggerService().setContext(null);
+}
+
+LogViewerAccess? get currentLogViewerAccess => _logAccountScope.isEmpty
+    ? null
+    : LogViewerAccess(
+        serverKey: _logServerKey,
+        accountScope: _logAccountScope,
+        sessionId: _logSessionId,
+        management: _logManagement,
+      );
+
 class AuthException implements Exception {
   final String message;
   AuthException(this.message);
@@ -135,6 +189,7 @@ class ApiClient {
     String? username,
     bool? isAdmin,
     String? role,
+    String? logScope,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     if (accessToken != null && accessToken.isNotEmpty) {
@@ -156,6 +211,9 @@ class ApiClient {
       await prefs.setString("role", role);
       _cachedRole = role;
     }
+    if (logScope != null && logScope.isNotEmpty) {
+      await prefs.setString("log_scope", logScope);
+    }
   }
 
   static Future<void> persistSessionInfo({
@@ -164,6 +222,7 @@ class ApiClient {
     String? username,
     bool? isAdmin,
     String? role,
+    String? logScope,
   }) async {
     if (accessToken != null && accessToken.isNotEmpty) {
       _accessToken = accessToken;
@@ -174,6 +233,7 @@ class ApiClient {
       username: username,
       isAdmin: isAdmin,
       role: role,
+      logScope: logScope,
     );
   }
 
@@ -199,6 +259,52 @@ class ApiClient {
     final scheme = useHttps ? "https" : "http";
     _baseUrl = "$scheme://$host:$port";
     trustedServerHost = host;
+    await _restoreLogContextFromPrefs();
+  }
+
+  Future<void> _restoreLogContextFromPrefs() async {
+    final base = _baseUrl;
+    if (base == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final scope = prefs.getString("log_scope") ?? "";
+    if (scope.isEmpty) return;
+    _logServerKey = stableLogKey(base);
+    _logAccountScope = scope;
+    _logManagement = (prefs.getString("role") ?? "user") != "user";
+    _logSessionId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    LoggerService().setContext(
+      LogContext(
+        serverKey: _logServerKey,
+        accountScope: _logAccountScope,
+        sessionId: _logSessionId,
+      ),
+    );
+  }
+
+  /// Re-read the verified profile so log ownership follows role changes.
+  Future<void> refreshLogContext() async {
+    if (_accessToken == null || _baseUrl == null) return;
+    try {
+      final resp = await _client
+          .get(
+            Uri.parse("$baseUrl/api/auth/profile/me"),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) return;
+      final data = tryDecodeJsonMap(resp.body);
+      if (data == null) return;
+      await _persistTokens(
+        userId: _parseUserId(data["id"]),
+        username: data["username"]?.toString(),
+        isAdmin: data["is_admin"] == true,
+        role: data["role"]?.toString(),
+        logScope: data["log_scope"]?.toString(),
+      );
+      await activateLogContext(baseUrl: baseUrl, profile: data);
+    } catch (e, stackTrace) {
+      LoggerService().warn("log context refresh failed", e, stackTrace);
+    }
   }
 
   /// Execute an HTTP request.
@@ -884,6 +990,7 @@ class ApiClient {
             data["username"] = username;
             data["is_admin"] = isAdmin;
             data["role"] = role;
+            data["log_scope"] = me["log_scope"]?.toString() ?? "";
           }
         } on AuthException {
           rethrow;
@@ -896,7 +1003,9 @@ class ApiClient {
           username: username,
           isAdmin: isAdmin,
           role: role,
+          logScope: data["log_scope"]?.toString(),
         );
+        await activateLogContext(baseUrl: baseUrl, profile: data);
         LoggerService().info("auth login succeeded: role=$role isAdmin=$isAdmin");
         return data;
       }
@@ -1070,6 +1179,7 @@ class ApiClient {
       isAdmin: isAdmin,
       role: role,
     );
+    await refreshLogContext();
     LoggerService().info("oauth login succeeded: role=$role isAdmin=$isAdmin");
     return data;
   }
@@ -1093,6 +1203,7 @@ class ApiClient {
       LoggerService().warn("auth logout request failed", e, stackTrace);
     } finally {
       await clearTokens();
+      clearLogContext();
     }
     return success;
   }

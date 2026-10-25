@@ -8,7 +8,10 @@ import "dart:typed_data";
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
+import "package:provider/provider.dart";
 
+import "../models/log_models.dart";
+import "../providers/game_provider.dart";
 import "../services/logger_service.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
@@ -27,9 +30,12 @@ class _LogScreenState extends State<LogScreen> {
   final _searchController = TextEditingController();
   final _logger = LoggerService();
 
-  List<File> _files = const [];
+  List<LogFileInfo> _files = const [];
   List<LogRecord> _entries = const [];
-  File? _selectedFile;
+  LogFileInfo? _selectedFile;
+  LogViewerAccess? _access;
+  bool _started = false;
+  String? _error;
   String _level = "全部";
   String _module = "全部模块";
   bool _loading = true;
@@ -42,6 +48,14 @@ class _LogScreenState extends State<LogScreen> {
   void initState() {
     super.initState();
     _searchController.addListener(_onFilterChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    _access = context.read<GameProvider>().api.logViewerAccess;
     _load();
     _startLiveRefresh();
   }
@@ -69,10 +83,22 @@ class _LogScreenState extends State<LogScreen> {
 
   Future<void> _load({bool quiet = false}) async {
     if (!quiet && mounted) setState(() => _loading = true);
-    final files = await _logger.getLogFiles();
+    final access = _access;
+    if (access == null || !access.isUsable) {
+      if (!mounted) return;
+      setState(() {
+        _files = const [];
+        _entries = const [];
+        _selectedFile = null;
+        _loading = false;
+        _error = "当前账号还没有可查看的日志";
+      });
+      return;
+    }
+    final files = await _logger.listFiles(access);
     if (!mounted) return;
 
-    File? selected;
+    LogFileInfo? selected;
     if (_selectedFile != null) {
       for (final file in files) {
         if (file.path == _selectedFile!.path) selected = file;
@@ -81,23 +107,26 @@ class _LogScreenState extends State<LogScreen> {
     selected ??= files.isEmpty ? null : files.first;
     final entries = selected == null
         ? <LogRecord>[]
-        : await _logger.readLogEntries(selected);
+        : await _logger.readEntries(access, selected);
     if (!mounted) return;
     setState(() {
       _files = files;
       _selectedFile = selected;
       _entries = entries;
       _loading = false;
+      _error = null;
     });
   }
 
-  Future<void> _selectFile(File file) async {
+  Future<void> _selectFile(LogFileInfo file) async {
+    final access = _access;
+    if (access == null) return;
     setState(() {
       _selectedFile = file;
       _entries = const [];
       _loading = true;
     });
-    final entries = await _logger.readLogEntries(file);
+    final entries = await _logger.readEntries(access, file);
     if (!mounted) return;
     setState(() {
       _entries = entries;
@@ -112,7 +141,7 @@ class _LogScreenState extends State<LogScreen> {
   List<LogRecord> get _filteredEntries {
     final query = _searchController.text.trim().toLowerCase();
     return _entries.where((entry) {
-      final levelMatch = _level == "全部" || entry.level == _level;
+      final levelMatch = _level == "全部" || entry.levelLabel == _level;
       final moduleMatch = _module == "全部模块" || entry.module == _module;
       final queryMatch =
           query.isEmpty || entry.raw.toLowerCase().contains(query);
@@ -121,7 +150,7 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   int _count(String level) =>
-      _entries.where((entry) => entry.level == level).length;
+      _entries.where((entry) => entry.levelLabel == level).length;
 
   List<String> get _modules {
     final values = _entries.map((entry) => entry.module).toSet().toList()
@@ -145,7 +174,7 @@ class _LogScreenState extends State<LogScreen> {
       _message("当前没有可导出的日志");
       return;
     }
-    final original = _selectedFile?.uri.pathSegments.last ?? "sena.log";
+    final original = _selectedFile?.name ?? "sena.log";
     final name = original.endsWith(".log")
         ? original.substring(0, original.length - 4)
         : original;
@@ -248,7 +277,7 @@ class _LogScreenState extends State<LogScreen> {
               ? AppStateView(
                   icon: Icons.article_outlined,
                   title: "暂无日志",
-                  message: "当前设备还没有生成可查看的客户端日志",
+                  message: _error ?? "当前账号还没有生成可查看的日志",
                   action: AppActionButton(
                     icon: Icons.refresh_rounded,
                     label: "重新读取",
@@ -293,7 +322,7 @@ class _LogScreenState extends State<LogScreen> {
   Widget _buildMobileHeader() {
     final cs = Theme.of(context).colorScheme;
     final summary =
-        "${_entries.length} 条 · INFO ${_count("INFO")} · WARN ${_count("WARN")} · ERROR ${_count("ERROR")}";
+        "$_viewLabel · ${_entries.length} 条 · INFO ${_count("INFO")} · WARN ${_count("WARN")} · ERROR ${_count("ERROR")}";
     return Row(
       children: [
         Container(
@@ -396,6 +425,19 @@ class _LogScreenState extends State<LogScreen> {
     );
   }
 
+  String get _viewLabel =>
+      _access?.management == true ? "管理员视图" : "个人视图";
+
+  Widget _storageWarning() {
+    final message = _logger.storageStatus.value;
+    if (message == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(message,
+          style: AppText.caption.copyWith(color: Colors.orange[700])),
+    );
+  }
+
   Widget _buildHeading() {
     final cs = Theme.of(context).colorScheme;
     return Row(
@@ -414,7 +456,7 @@ class _LogScreenState extends State<LogScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("日志", style: AppText.title.copyWith(fontSize: 21)),
-            Text("查看客户端运行记录和错误信息",
+            Text("$_viewLabel · 查看客户端运行记录和错误信息",
                 style: AppText.caption.copyWith(color: hintColor(context))),
           ],
         ),
@@ -602,6 +644,7 @@ class _LogScreenState extends State<LogScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _panelHeader("日志文件", "7 天保留"),
+          _storageWarning(),
           const Divider(height: 1),
           Expanded(
             child: ListView.separated(
@@ -640,7 +683,7 @@ class _LogScreenState extends State<LogScreen> {
     return AppSurface(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: DropdownButtonHideUnderline(
-        child: DropdownButton<File>(
+        child: DropdownButton<LogFileInfo>(
           value: _selectedFile,
           isExpanded: true,
           icon: const Icon(Icons.more_vert_rounded),
@@ -722,7 +765,7 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Widget _buildConsoleHeader(int visibleCount) {
-    final name = _selectedFile?.path.split(Platform.pathSeparator).last ?? "日志";
+    final name = _selectedFile?.name ?? "日志";
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
@@ -804,8 +847,8 @@ class _LogScreenState extends State<LogScreen> {
               const Text("日志详情", style: AppText.title),
               const SizedBox(height: 12),
               _detailRow(
-                  "时间", record.timestamp?.toString() ?? record.timestampLabel),
-              _detailRow("级别", record.level),
+                  "时间", record.timestamp.toString()),
+              _detailRow("级别", record.levelLabel),
               _detailRow("模块", record.module),
               const SizedBox(height: 8),
               SelectableText(record.raw,
@@ -857,7 +900,7 @@ class _MetricData {
 }
 
 class _LogFileTile extends StatelessWidget {
-  final File file;
+  final LogFileInfo file;
   final bool selected;
   final int? entryCount;
   final VoidCallback onTap;
@@ -871,7 +914,7 @@ class _LogFileTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = file.path.split(Platform.pathSeparator).last;
+    final name = file.name;
     final base = Theme.of(context).colorScheme.primary;
     return Material(
       color: selected ? base.withValues(alpha: 0.10) : Colors.transparent,
@@ -967,7 +1010,7 @@ class _LogRecordTileState extends State<_LogRecordTile> {
                     width: 52,
                     child: Align(
                         alignment: Alignment.topLeft,
-                        child: _LevelBadge(level: record.level, color: color))),
+                        child: _LevelBadge(level: record.levelLabel, color: color))),
                 SizedBox(
                     width: 48,
                     child: Text(record.module, style: AppText.caption)),

@@ -11,8 +11,10 @@ import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "../services/logged_http.dart" as http;
 
+import "../models/log_models.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
+import "../services/logger_service.dart";
 import "../services/nextmoe_token_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
@@ -1054,8 +1056,14 @@ class _BackupScreenState extends State<BackupScreen> {
             "?name=${Uri.encodeQueryComponent(name)}"),
       );
       request.headers.addAll(widget.api.headers);
-      final response =
-          await client.send(request).timeout(_transferTimeout(totalBytes));
+      final response = await http
+          .sendLogged(
+            client,
+            request,
+            label: "backup download",
+            visibility: LogVisibility.management,
+          )
+          .timeout(_transferTimeout(totalBytes));
       if (response.statusCode != 200) {
         _toast("下载失败（HTTP ${response.statusCode}）", error: true);
         return;
@@ -1071,6 +1079,14 @@ class _BackupScreenState extends State<BackupScreen> {
       if (await destination.exists()) await destination.delete();
       await partial.rename(destination.path);
       created = null;
+      LoggerService().record(
+        LogLevel.info,
+        "backup.download_completed",
+        "备份下载完成",
+        module: "backup",
+        visibility: LogVisibility.management,
+        fields: {"bytes": total},
+      );
       _toast(isMobile ? "已保存到 ${destination.path}" : "备份已保存");
     } catch (e) {
       final pending = created;
@@ -1079,6 +1095,15 @@ class _BackupScreenState extends State<BackupScreen> {
           await pending.delete();
         } catch (_) {}
       }
+      LoggerService().record(
+        _cancelled ? LogLevel.warning : LogLevel.error,
+        _cancelled ? "backup.download_cancelled" : "backup.download_failed",
+        "备份下载未完成",
+        module: "backup",
+        visibility: LogVisibility.management,
+        error: _cancelled ? null : e,
+        stackTrace: _cancelled ? null : StackTrace.current,
+      );
       _toast(_cancelled ? "已取消" : "下载失败: $e", error: !_cancelled);
     } finally {
       client.close();
@@ -1227,8 +1252,14 @@ class _BackupScreenState extends State<BackupScreen> {
         http.MultipartFile("file", _uploadStream(localFile, total), total,
             filename: fileName),
       );
-      final response =
-          await client.send(request).timeout(_transferTimeout(total));
+      final response = await http
+          .sendLogged(
+            client,
+            request,
+            label: "backup import",
+            visibility: LogVisibility.management,
+          )
+          .timeout(_transferTimeout(total));
       final body = await response.stream
           .bytesToString()
           .timeout(_transferTimeout(total));
@@ -1245,6 +1276,19 @@ class _BackupScreenState extends State<BackupScreen> {
           .map((line) => line.toString())
           .toList();
       final relogin = data["relogin_required"] == true;
+      LoggerService().record(
+        LogLevel.info,
+        "backup.import_completed",
+        "备份导入完成",
+        module: "backup",
+        visibility: LogVisibility.management,
+        fields: {
+          "games": data["games"],
+          "versions": data["versions"],
+          "users": data["users"],
+          "relogin": relogin,
+        },
+      );
       await _load();
       if (!mounted) return;
       await showDialog<void>(
@@ -1317,6 +1361,15 @@ class _BackupScreenState extends State<BackupScreen> {
         (_) => false,
       );
     } catch (e) {
+      LoggerService().record(
+        _cancelled ? LogLevel.warning : LogLevel.error,
+        _cancelled ? "backup.import_cancelled" : "backup.import_failed",
+        "备份导入未完成",
+        module: "backup",
+        visibility: LogVisibility.management,
+        error: _cancelled ? null : e,
+        stackTrace: _cancelled ? null : StackTrace.current,
+      );
       _toast(_cancelled ? "已取消" : "导入失败: $e", error: !_cancelled);
     } finally {
       client.close();

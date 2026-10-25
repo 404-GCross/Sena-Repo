@@ -2806,7 +2806,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     _authHeaders.forEach((k, v) => request.headers[k] = v);
     request.files.add(await http.MultipartFile.fromPath("file", path));
-    final streamed = await request.send();
+    final streamed = await http.sendMultipart(
+      request,
+      label: "image upload",
+    );
     final text = await streamed.stream.bytesToString();
     if (streamed.statusCode != 200) {
       throw Exception("图片上传失败 (${streamed.statusCode}): $text");
@@ -2832,7 +2835,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
       request.files.add(
         await http.MultipartFile.fromPath("file", result.files.first.path!),
       );
-      final streamed = await request.send();
+      final streamed = await http.sendMultipart(
+        request,
+        label: "background upload",
+      );
       if (streamed.statusCode == 200) {
         final data = jsonDecode(await streamed.stream.bytesToString())
             as Map<String, dynamic>;
@@ -2868,7 +2874,10 @@ class _GameEditScreenState extends State<GameEditScreen> {
       request.files.add(
         await http.MultipartFile.fromPath("file", result.files.first.path!),
       );
-      final streamed = await request.send();
+      final streamed = await http.sendMultipart(
+        request,
+        label: "cover upload",
+      );
       if (streamed.statusCode == 200) {
         final data = jsonDecode(await streamed.stream.bytesToString())
             as Map<String, dynamic>;
