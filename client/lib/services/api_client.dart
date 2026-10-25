@@ -343,7 +343,10 @@ class ApiClient {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final started = DateTime.now();
       try {
-        final response = await request().timeout(_requestTimeout);
+        final pending = request();
+        final response = (method == "GET" || method == "HEAD")
+            ? await pending.timeout(_requestTimeout)
+            : await pending;
         final durationMs = DateTime.now().difference(started).inMilliseconds;
         final retrying = retryEnabled &&
             attempt < maxAttempts - 1 &&
