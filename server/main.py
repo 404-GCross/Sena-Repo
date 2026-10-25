@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import load_config
 from database import create_tables, init_database
 
+_initial_scan_tasks: set[asyncio.Task] = set()
+
 
 async def _fail_interrupted_scrape_jobs(logger):
     from sqlalchemy import select
@@ -166,8 +168,20 @@ async def lifespan(app: FastAPI):
             if root_count > 0 and game_count == 0:
                 logger.info(f"Found {root_count} roots, 0 games — triggering initial scan")
                 from api.roots import _run_scan
-                stats = await _run_scan(config)
-                logger.info(f"Initial scan complete: {stats.get('total_games', 0)} games")
+
+                async def _initial_scan():
+                    try:
+                        stats = await _run_scan(config)
+                        logger.info(
+                            "Initial scan complete: %s games",
+                            stats.get("total_games", 0),
+                        )
+                    except Exception:
+                        logger.exception("Initial auto-scan failed")
+
+                task = asyncio.create_task(_initial_scan())
+                _initial_scan_tasks.add(task)
+                task.add_done_callback(_initial_scan_tasks.discard)
     except Exception as e:
         logger.error(f"Initial auto-scan failed: {e}", exc_info=True)
 

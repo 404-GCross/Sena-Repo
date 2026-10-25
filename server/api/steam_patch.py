@@ -1411,6 +1411,15 @@ async def scan_patches_endpoint(
             finished_at=time.time(),
         )
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}
+    except asyncio.CancelledError:
+        logger.warning("Patch scan cancelled")
+        _set_patch_scan_state(
+            status="failed",
+            stage="已取消",
+            error="任务被取消",
+            finished_at=time.time(),
+        )
+        raise
     except Exception as e:
         logger.error(f"Patch scan failed: {e}")
         _set_patch_scan_state(
@@ -1700,7 +1709,13 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
 
         return r
 
-    tasks = [rescrape_one(p) for p in patches]
+    semaphore = _asyncio.Semaphore(8)
+
+    async def rescrape_limited(patch):
+        async with semaphore:
+            return await rescrape_one(patch)
+
+    tasks = [rescrape_limited(p) for p in patches]
     results = await _asyncio.gather(*tasks)
     updated = sum(1 for r in results if r.status == "updated")
     locked = sum(1 for r in results if r.status == "locked")
