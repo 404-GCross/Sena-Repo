@@ -27,7 +27,7 @@ _LOGIN_FAILURE_LIMIT = 5
 _LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
 _LOGIN_BLOCK_SECONDS = 5 * 60
 _LOGIN_FAILURE_MAX_ENTRIES = 10_000
-_LOGIN_HOST_FAILURE_LIMIT = 50
+_LOGIN_HOST_FAILURE_LIMIT = 120
 _login_failure_lock = threading.Lock()
 _login_failures: dict[tuple[str, str], tuple[int, float, float]] = {}
 
