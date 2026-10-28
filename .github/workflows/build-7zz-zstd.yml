@@ -44,7 +44,7 @@ jobs:
           make -j$(nproc) -f makefile.gcc \
             CC="$NDK/aarch64-linux-android29-clang" \
             CXX="$NDK/aarch64-linux-android29-clang++" \
-            LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
+            LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 -static-libstdc++"
           echo "=== Build output ==="
           file _o/7zz
           ls -la _o/7zz
@@ -52,6 +52,10 @@ jobs:
           $ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -lW _o/7zz | grep LOAD
           echo "=== Dynamic deps ==="
           $ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -dW _o/7zz | grep NEEDED || true
+          if $ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -dW _o/7zz | grep -q libc++_shared; then
+            echo "::error::7zz still depends on libc++_shared.so; static linking failed"
+            exit 1
+          fi
           sha256sum _o/7zz > _o/7zz.sha256
           cp /tmp/7zsrc/DOC/License.txt _o/License.txt || printf 'See https://github.com/mcmilk/7-Zip-zstd for license details.\n' > _o/License.txt
           printf 'Built from mcmilk/7-Zip-zstd ref %s\nSource: https://github.com/mcmilk/7-Zip-zstd\n' "$SEVENZIP_ZSTD_REF" > _o/NOTICE.txt
