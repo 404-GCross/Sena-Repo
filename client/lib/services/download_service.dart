@@ -745,6 +745,20 @@ class DownloadService with WidgetsBindingObserver {
 
   Future<void> retryTask(DownloadTask task) async {
     if (task.status == "failed") {
+      if (_isContentCorruptError(task.error ?? "")) {
+        // Keeping a corrupt archive would make "retry" extract the same bad
+        // bytes forever. Force a fresh download for content errors only.
+        LoggerService().info(
+          "retry: discarding corrupt archive for game=${task.gameId} "
+          "version=${task.versionId}",
+        );
+        await _cleanupTemp(task);
+        task.receivedBytes = 0;
+        task.totalBytes = 0;
+        task.progress = 0;
+        task.outputPath = null;
+        task.isApk = false;
+      }
       await refreshPasswordFromServer(task);
       task.status = "pending";
       task.error = null;
@@ -1376,6 +1390,15 @@ class DownloadService with WidgetsBindingObserver {
     return line.length > 200 ? line.substring(0, 200) : line;
   }
 
+  bool _isContentCorruptError(String error) {
+    return error.contains("内容校验失败") ||
+        error.contains("压缩包格式无效") ||
+        error.contains("压缩包无法读取") ||
+        error.contains("文件不完整") ||
+        error.contains("下载不完整") ||
+        error.contains("下载文件大小不符");
+  }
+
   String _formatToolError(String err) {
     final raw = err.trim();
     if (raw.isEmpty) return "解压工具执行失败";
@@ -1386,7 +1409,7 @@ class DownloadService with WidgetsBindingObserver {
         lower.contains("is not archive") ||
         lower.contains("cannot open as archive") ||
         lower.contains("can not open as archive")) {
-      return "压缩包格式无效或文件不完整（7-Zip: ${_firstLine(raw)}）";
+      return "压缩包格式无效或文件不完整（7-Zip: ${_firstLine(raw)}）。点击重试将重新下载。";
     }
     if (lower.contains("no space left") || lower.contains("not enough space")) {
       return "存储空间不足，无法解压";
@@ -1399,7 +1422,7 @@ class DownloadService with WidgetsBindingObserver {
     if (_isArchiveIntegrityError(raw)) {
       final failedPath = _extractFailedArchivePath(raw);
       final suffix = failedPath.isEmpty ? "" : "\n失败文件: $failedPath";
-      return "压缩包内容校验失败（7-Zip: ${_firstLine(raw)}）$suffix";
+      return "压缩包内容校验失败（7-Zip: ${_firstLine(raw)}）$suffix。点击重试将重新下载。";
     }
     return raw;
   }
@@ -3513,8 +3536,8 @@ class DownloadService with WidgetsBindingObserver {
         } else {
           throw Exception(
             _isArchiveIntegrityError(e.raw)
-                ? "压缩包无法读取，可能下载不完整或源文件已损坏"
-                : "压缩包无法读取（${_firstLine(e.raw)}）",
+                ? "压缩包无法读取，可能下载不完整或源文件已损坏。点击重试将重新下载。"
+                : "压缩包无法读取（${_firstLine(e.raw)}）。点击重试将重新下载。",
           );
         }
       }
