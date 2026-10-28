@@ -951,6 +951,8 @@ prepare_next_tree() {
   log "installing Python dependencies into the new environment (service keeps running)"
   "$PYTHON_BIN" -m venv "$NEXT_VENV"
   local pip_log="$INSTALL_ROOT/pip-install.log"
+  : >"$pip_log"
+  chmod 600 "$pip_log" 2>/dev/null || true
   if ! "$NEXT_VENV/bin/python" -m pip install --upgrade pip setuptools wheel \
       --disable-pip-version-check >"$pip_log" 2>&1; then
     log "Python bootstrap failed; last 40 lines of $pip_log:"
