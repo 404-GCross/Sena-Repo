@@ -123,6 +123,10 @@ jobs:
             echo "::error::7zz must be built with -Wl,-z,max-page-size=16384 (Android 15+ devices)"
             exit 1
           fi
+          if readelf -dW assets/binaries/7zz | grep -q libc++_shared; then
+            echo "::error::7zz must be statically linked against libc++ (no libc++_shared dependency)"
+            exit 1
+          fi
           sha256sum assets/binaries/7zz
       - name: Enable Android + generate platform files
         run: |
