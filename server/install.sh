@@ -312,7 +312,14 @@ repo_url_reachable() {
     GIT_LAST_ERROR="git is not installed"
     return 1
   fi
-  git_ls_remote "$REPO_URL" main >/dev/null 2>&1
+  git_ls_remote "$REPO_URL" "${REPO_REF:-main}" >/dev/null 2>&1
+}
+
+git_https_helper_ok() {
+  command -v git >/dev/null 2>&1 || return 1
+  local exec_path
+  exec_path="$(git --exec-path 2>/dev/null)" || return 1
+  [ -n "$exec_path" ] && [ -x "$exec_path/git-remote-https" ]
 }
 
 switch_to_gh_mirror() {
@@ -325,13 +332,10 @@ switch_to_gh_mirror() {
 }
 
 ensure_repo_url() {
-  if [ -n "$REQUESTED_REPO_URL" ]; then
-    return 0
-  fi
   if repo_url_reachable; then
     return 0
   fi
-  if switch_to_gh_mirror; then
+  if [ -z "$REQUESTED_REPO_URL" ] && switch_to_gh_mirror; then
     log "unable to reach $DEFAULT_REPO_URL directly; using mirror $GH_MIRROR"
     if repo_url_reachable; then
       return 0
@@ -345,7 +349,7 @@ ensure_repo_url() {
       log "warning: git is not installed; the source will be fetched as an archive instead"
       ;;
     *remote-https*|*"not a git command"*)
-      log "warning: this git is missing its HTTPS helper (common with store builds such as fnOS); install a distro git or pass the PATH through sudo: sudo env PATH=\"\$PATH\""
+      log "warning: this git cannot use HTTPS (exec-path=$(git --exec-path 2>/dev/null || echo '?'), GIT_EXEC_PATH=${GIT_EXEC_PATH:-unset}); install a distro git or fix GIT_EXEC_PATH; the update will use the archive"
       ;;
   esac
   return 1
@@ -631,25 +635,35 @@ detect_arch() {
 
 install_system_dependencies() {
   if command -v apt-get >/dev/null 2>&1; then
-    log "installing system dependencies with apt-get"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y --no-install-recommends \
-      ca-certificates \
-      curl \
-      git \
-      python3 \
-      python3-venv \
-      python3-pip \
-      python3-dev \
-      build-essential \
-      pkg-config \
-      libffi-dev \
-      libssl-dev \
-      libxml2-dev \
-      libxslt1-dev \
-      zlib1g-dev
-    apt-get install -y --no-install-recommends p7zip-full || true
+    local missing=0 pkg
+    for pkg in ca-certificates curl git python3 python3-venv python3-pip \
+      python3-dev build-essential pkg-config libffi-dev libssl-dev \
+      libxml2-dev libxslt1-dev zlib1g-dev; do
+      dpkg -s "$pkg" >/dev/null 2>&1 || missing=1
+    done
+    if [ "$missing" = "0" ]; then
+      log "system dependencies already installed"
+    else
+      log "installing system dependencies with apt-get"
+      apt-get -qq update
+      apt-get -qq install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        python3 \
+        python3-venv \
+        python3-pip \
+        python3-dev \
+        build-essential \
+        pkg-config \
+        libffi-dev \
+        libssl-dev \
+        libxml2-dev \
+        libxslt1-dev \
+        zlib1g-dev
+    fi
+    apt-get -qq install -y --no-install-recommends p7zip-full || true
   elif command -v dnf >/dev/null 2>&1; then
     log "installing system dependencies with dnf"
     dnf install -y \
@@ -787,17 +801,17 @@ local_server_dir() {
 
 run_git_source_fetch() {
   if command -v timeout >/dev/null 2>&1; then
-    timeout 300 git -C "$REPO_CACHE_DIR" fetch --depth 1 origin "$REPO_REF"
+    timeout 300 git -C "$REPO_CACHE_DIR" fetch --quiet --depth 1 origin "$REPO_REF"
   else
-    git -C "$REPO_CACHE_DIR" fetch --depth 1 origin "$REPO_REF"
+    git -C "$REPO_CACHE_DIR" fetch --quiet --depth 1 origin "$REPO_REF"
   fi
 }
 
 run_git_source_clone() {
   if command -v timeout >/dev/null 2>&1; then
-    timeout 300 git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
+    timeout 300 git clone --quiet --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
   else
-    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
+    git clone --quiet --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_CACHE_DIR"
   fi
 }
 
@@ -861,6 +875,16 @@ fetch_source_via_archive() {
 remote_server_dir() {
   mkdir -p "$INSTALL_ROOT"
   local attempt source_ok="false"
+  if ! git_https_helper_ok; then
+    log "warning: git cannot use HTTPS (exec-path=$(git --exec-path 2>/dev/null || echo '?'), GIT_EXEC_PATH=${GIT_EXEC_PATH:-unset}); using the archive download"
+    if [ -z "$REQUESTED_REPO_URL" ]; then
+      # Keep the archive fallback on the same mirror the git path would use.
+      switch_to_gh_mirror >/dev/null 2>&1 || true
+    fi
+  elif ! ensure_repo_url; then
+    log "warning: git cannot reach $REPO_URL; using the archive download"
+  else
+  # git transport is usable; fetch or clone the source.
   if [ -d "$REPO_CACHE_DIR/.git" ]; then
     log "updating cached source from $REPO_URL ($REPO_REF)"
     for attempt in 1 2 3; do
@@ -875,9 +899,9 @@ remote_server_dir() {
       sleep 3
     done
   else
-    rm -rf "$REPO_CACHE_DIR"
     log "cloning source from $REPO_URL ($REPO_REF)"
     for attempt in 1 2 3; do
+      rm -rf "$REPO_CACHE_DIR"
       if run_git_source_clone; then
         source_ok="true"
         break
@@ -886,6 +910,7 @@ remote_server_dir() {
       switch_to_gh_mirror && log "switched source to mirror $GH_MIRROR" || true
       sleep 3
     done
+  fi
   fi
 
   if [ "$source_ok" != "true" ]; then
@@ -925,8 +950,20 @@ prepare_next_tree() {
 
   log "installing Python dependencies into the new environment (service keeps running)"
   "$PYTHON_BIN" -m venv "$NEXT_VENV"
-  "$NEXT_VENV/bin/python" -m pip install --upgrade pip setuptools wheel >/dev/null
-  "$NEXT_VENV/bin/python" -m pip install -r "$NEXT_SERVER/requirements.txt"
+  local pip_log="$INSTALL_ROOT/pip-install.log"
+  if ! "$NEXT_VENV/bin/python" -m pip install --upgrade pip setuptools wheel \
+      --disable-pip-version-check >"$pip_log" 2>&1; then
+    log "Python bootstrap failed; last 40 lines of $pip_log:"
+    tail -n 40 "$pip_log" >&2
+    return 1
+  fi
+  if ! "$NEXT_VENV/bin/python" -m pip install --no-input --disable-pip-version-check \
+      --progress-bar off -r "$NEXT_SERVER/requirements.txt" >>"$pip_log" 2>&1; then
+    log "Python dependency installation failed; last 40 lines of $pip_log:"
+    tail -n 40 "$pip_log" >&2
+    return 1
+  fi
+  log "Python dependencies installed (log: $pip_log)"
 }
 
 activate_next_tree() {
