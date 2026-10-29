@@ -67,6 +67,7 @@ class GameDetail(BaseModel):
     length: int = 0
     length_minutes: int = 0
     metadata_locked: bool = False
+    name_locked: bool = False
     is_deleted: bool
     imported_at: datetime
     updated_at: datetime

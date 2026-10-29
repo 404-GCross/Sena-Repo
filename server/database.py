@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine as create_sync_engine
@@ -9,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from config import Config
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -173,6 +177,39 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN name_locked BOOLEAN NOT NULL DEFAULT 0"
             )
+        # One-time backfill: library rows whose display name differs from the
+        # cleaned folder name were renamed or scraped, so preserve them.
+        schema_version = int(
+            (await conn.exec_driver_sql("PRAGMA user_version")).scalar() or 0
+        )
+        if schema_version < 1:
+            from services.cleaner import _clean_name
+
+            rows = (
+                await conn.exec_driver_sql(
+                    "SELECT id, name, folder_path FROM games "
+                    "WHERE entry_source = 'library'"
+                )
+            ).fetchall()
+            locked = 0
+            for game_id, name, folder_path in rows:
+                base = str(folder_path or "").replace("\\", "/").rstrip("/")
+                base = base.rsplit("/", 1)[-1]
+                base = re.sub(
+                    r"\.(7z|zip|rar|tar|gz|bz2|xz|zst)$",
+                    "",
+                    base,
+                    flags=re.IGNORECASE,
+                )
+                cleaned = _clean_name(base)
+                if name and cleaned and name != cleaned:
+                    await conn.exec_driver_sql(
+                        "UPDATE games SET name_locked = 1 WHERE id = ?", (game_id,)
+                    )
+                    locked += 1
+            await conn.exec_driver_sql("PRAGMA user_version = 1")
+            if locked:
+                logger.info("Backfilled name_locked for %s games", locked)
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
         if "extract_password" not in version_columns:

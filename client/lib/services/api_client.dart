@@ -653,6 +653,23 @@ class ApiClient {
     return data["metadata_locked"] == true;
   }
 
+  Future<bool> setGameNameLock(int id, bool locked) async {
+    final uri = Uri.parse("$baseUrl/api/games/$id/name-lock");
+    final resp = await _execute(
+      () => _client.put(
+        uri,
+        headers: {...headers, "Content-Type": "application/json"},
+        body: jsonEncode({"locked": locked}),
+      ),
+      method: "PUT",
+      uri: uri,
+      label: "set game name lock id=$id locked=$locked",
+    );
+    checkResponse(resp, fallbackMessage: locked ? "锁定名称失败" : "解锁名称失败");
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return data["name_locked"] == true;
+  }
+
   Future<String> batchSetGameMetadataLock(List<int> ids, bool locked) async {
     final uri = Uri.parse("$baseUrl/api/games/batch-metadata-lock");
     final resp = await _execute(

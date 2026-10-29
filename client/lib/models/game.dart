@@ -161,6 +161,7 @@ class GameDetail {
   final int length;
   final int lengthMinutes;
   final bool metadataLocked;
+  final bool nameLocked;
   final bool isDeleted;
   final String importedAt;
   final String updatedAt;
@@ -189,6 +190,7 @@ class GameDetail {
     this.length = 0,
     this.lengthMinutes = 0,
     this.metadataLocked = false,
+    this.nameLocked = false,
     required this.isDeleted,
     required this.importedAt,
     required this.updatedAt,
@@ -219,6 +221,7 @@ class GameDetail {
       length: json["length"] ?? 0,
       lengthMinutes: json["length_minutes"] ?? 0,
       metadataLocked: json["metadata_locked"] == true,
+      nameLocked: json["name_locked"] == true,
       isDeleted: json["is_deleted"] ?? false,
       importedAt: json["imported_at"] ?? "",
       updatedAt: json["updated_at"] ?? "",

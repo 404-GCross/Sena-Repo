@@ -280,6 +280,7 @@ async def get_game(
         length=game.length or 0,
         length_minutes=game.length_minutes or 0,
         metadata_locked=bool(game.metadata_locked),
+        name_locked=bool(game.name_locked),
         is_deleted=game.is_deleted,
         imported_at=game.imported_at,
         updated_at=game.updated_at,
@@ -707,6 +708,38 @@ async def update_game(
 
 class MetadataLockUpdate(BaseModel):
     locked: bool
+
+
+class NameLockUpdate(BaseModel):
+    locked: bool
+
+
+@router.put("/{game_id}/name-lock", response_model=dict)
+async def set_game_name_lock(
+    game_id: int,
+    body: NameLockUpdate,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Prevent scans from overwriting a manually chosen name/company."""
+    result = await session.execute(select(Game).where(Game.id == game_id))
+    game = result.scalar_one_or_none()
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    game.name_locked = bool(body.locked)
+    game.updated_at = datetime.utcnow()
+    await session.commit()
+    logger.info(
+        "Game name lock changed: actor_id=%s game_id=%s locked=%s",
+        user.id,
+        game.id,
+        game.name_locked,
+    )
+    return {
+        "message": "名称已锁定" if game.name_locked else "名称已解锁",
+        "name_locked": bool(game.name_locked),
+    }
 
 
 @router.put("/{game_id}/metadata-lock", response_model=dict)

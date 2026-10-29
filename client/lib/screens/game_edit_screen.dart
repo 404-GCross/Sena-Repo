@@ -45,6 +45,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       _bgUrl;
   bool _saving = false;
   bool _locked = false;
+  bool _nameLocked = false;
   bool _isNsfw = false;
   int _lengthMinutes = 0;
   int _lengthCategory = 0;
@@ -100,6 +101,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     final g = widget.game;
     _versions = List<GameVersion>.from(g.versions);
     _locked = g.metadataLocked;
+    _nameLocked = g.nameLocked;
     _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
@@ -776,6 +778,42 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
+  Future<void> _toggleNameLock() async {
+    final target = !_nameLocked;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(target ? "锁定名称" : "恢复自动命名"),
+        content: Text(
+          target
+              ? "锁定后，扫描不会再用目录名覆盖当前名称和会社；手动编辑仍然可用。"
+              : "解锁后，下次扫描可能用目录名覆盖当前名称和会社。",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("取消"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(target ? "锁定" : "解锁"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final locked = await context
+          .read<GameProvider>()
+          .api
+          .setGameNameLock(widget.game.id, target);
+      if (!mounted) return;
+      setState(() => _nameLocked = locked);
+    } catch (e) {
+      if (mounted) _showError("${target ? "锁定" : "解锁"}名称失败: $e");
+    }
+  }
+
   Widget _lockedBanner() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1255,6 +1293,13 @@ class _GameEditScreenState extends State<GameEditScreen> {
           color: _locked ? Colors.amber[700] : null,
           filled: _locked,
           onPressed: _toggleLock,
+        ),
+        AppActionButton(
+          icon: _nameLocked ? Icons.lock_rounded : Icons.drive_file_rename_outline,
+          label: _nameLocked ? "名称已锁" : "锁定名称",
+          color: _nameLocked ? Colors.blue : null,
+          filled: _nameLocked,
+          onPressed: _toggleNameLock,
         ),
         if (isDesktop)
           AppActionButton(
