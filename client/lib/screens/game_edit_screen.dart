@@ -1294,13 +1294,16 @@ class _GameEditScreenState extends State<GameEditScreen> {
           filled: _locked,
           onPressed: _toggleLock,
         ),
-        AppActionButton(
-          icon: _nameLocked ? Icons.lock_rounded : Icons.drive_file_rename_outline,
-          label: _nameLocked ? "名称已锁" : "锁定名称",
-          color: _nameLocked ? Colors.blue : null,
-          filled: _nameLocked,
-          onPressed: _toggleNameLock,
-        ),
+        if (g.entrySource == "library")
+          AppActionButton(
+            icon: _nameLocked
+                ? Icons.lock_rounded
+                : Icons.drive_file_rename_outline,
+            label: _nameLocked ? "名称已锁" : "锁定名称",
+            color: _nameLocked ? Colors.blue : null,
+            filled: _nameLocked,
+            onPressed: _toggleNameLock,
+          ),
         if (isDesktop)
           AppActionButton(
             icon: Icons.save_outlined,
