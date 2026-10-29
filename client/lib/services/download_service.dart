@@ -169,6 +169,9 @@ class DownloadService with WidgetsBindingObserver {
   static const _foregroundChannel = MethodChannel(
     "com.github.senarepo/foreground",
   );
+  static const _storageChannel = MethodChannel(
+    "com.github.senarepo/storage",
+  );
 
   Future<void> _startForegroundService() async {
     if (!Platform.isAndroid) return;
@@ -248,6 +251,7 @@ class DownloadService with WidgetsBindingObserver {
       }
       if (_tasks.isNotEmpty) _emit();
       _scheduleDownloads();
+      unawaited(_cleanupStaleTempFiles());
     } catch (e, stackTrace) {
       LoggerService().record(
         LogLevel.warning,
@@ -362,6 +366,50 @@ class DownloadService with WidgetsBindingObserver {
         "${(await getApplicationSupportDirectory()).path}/downloads";
     await Directory(_downloadDir!).create(recursive: true);
     return _downloadDir!;
+  }
+
+  Future<int?> _availableBytes(String path) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _storageChannel.invokeMethod<int>("freeBytes", {
+        "path": path,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    var value = bytes.toDouble();
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return "${value.toStringAsFixed(unit == 0 ? 0 : 1)} ${units[unit]}";
+  }
+
+  Future<bool> _ensureFreeSpace(DownloadTask t, String path, int needed) async {
+    if (!Platform.isAndroid || needed <= 0) return true;
+    final free = await _availableBytes(path);
+    if (free == null || free >= needed) return true;
+    t.status = "failed";
+    t.error =
+        "存储空间不足：需要约 ${_formatSize(needed)}，剩余 ${_formatSize(free)}。"
+        "请清理空间或更换下载目录。";
+    LoggerService().warn(
+      "insufficient space: path=$path needed=$needed free=$free",
+    );
+    _emit();
+    return false;
+  }
+
+  int _extractTimeoutSeconds(int bytes) {
+    if (bytes <= 0) return 1800;
+    final estimated = 900 + (bytes / (1024 * 1024)).round();
+    return estimated.clamp(1800, 14400).toInt();
   }
 
   Future<void> setDownloadDir(String path) async {
@@ -823,6 +871,16 @@ class DownloadService with WidgetsBindingObserver {
     try {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
+      if (await tmp.exists()) {
+        final archiveBytes = await tmp.length();
+        if (!await _ensureFreeSpace(
+          t,
+          outDir,
+          archiveBytes + 256 * 1024 * 1024,
+        )) {
+          return;
+        }
+      }
       t.status = "extracting";
       t.progress = 0.0;
       _emit();
@@ -883,6 +941,7 @@ class DownloadService with WidgetsBindingObserver {
   // ── binary management ──
 
   String? _sevenZipPath;
+  String? _extractorFailure;
   String? _aria2Path;
   Process? _extractionProcess;
   bool _userSkippedSetup = false;
@@ -907,6 +966,9 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   Future<String> _getSevenZipPath() async {
+    if (_extractorFailure != null) {
+      throw Exception("解压组件与设备不兼容：$_extractorFailure");
+    }
     if (_sevenZipPath != null) return _sevenZipPath!;
 
     final dir = await getApplicationSupportDirectory();
@@ -1008,7 +1070,22 @@ class DownloadService with WidgetsBindingObserver {
     }
 
     _sevenZipPath = dest.path;
-    await _verifyExtractorRuns(_sevenZipPath!);
+    try {
+      await _verifyExtractorRuns(_sevenZipPath!);
+    } catch (e) {
+      if (Platform.isLinux) {
+        final systemExe = await _findSystemSevenZip();
+        if (systemExe != null) {
+          LoggerService().warn(
+            "bundled 7zz failed self-check; using system 7z: $systemExe",
+          );
+          _sevenZipPath = systemExe;
+          _extractorFailure = null;
+          return systemExe;
+        }
+      }
+      rethrow;
+    }
     return _sevenZipPath!;
   }
 
@@ -1029,13 +1106,10 @@ class DownloadService with WidgetsBindingObserver {
         );
       }
       _extractorProbeOk = path;
+      _extractorFailure = null;
     } catch (e) {
       LoggerService().warn("extractor self-check failed: $path ($e)");
-      if (Platform.isAndroid) {
-        try {
-          await File(path).delete();
-        } catch (_) {}
-      }
+      _extractorFailure = _firstLine("$e");
       _sevenZipPath = null;
       _extractorProbeOk = null;
       throw Exception("解压组件与设备不兼容，请更新应用后重试");
@@ -1126,6 +1200,15 @@ class DownloadService with WidgetsBindingObserver {
       t._cancelled = false;
       await Directory(outDir).create(recursive: true);
 
+      if (t.expectedBytes > 0 &&
+          !await _ensureFreeSpace(
+            t,
+            dir,
+            t.expectedBytes * 2 + 512 * 1024 * 1024,
+          )) {
+        return;
+      }
+
       // Download + extract with extract-level retry
       const maxExtractRetries = 2;
       for (int retry = 0; retry <= maxExtractRetries; retry++) {
@@ -1153,17 +1236,39 @@ class DownloadService with WidgetsBindingObserver {
         if (t.expectedBytes > 0 && await tmp.exists()) {
           final actual = await tmp.length();
           if (actual != t.expectedBytes) {
-            LoggerService().warn(
-              "download size mismatch: expected=${t.expectedBytes} actual=$actual",
-            );
-            try {
-              await tmp.delete();
-            } catch (_) {}
-            t.receivedBytes = 0;
-            t.totalBytes = 0;
-            throw Exception(
-              "下载文件大小不符：服务端声明 ${t.expectedBytes} 字节，实际 $actual 字节",
-            );
+            final contentLength = t.totalBytes;
+            if (contentLength > 0 && actual == contentLength) {
+              // The library record is stale; trust the transfer length.
+              LoggerService().warn(
+                "server size metadata stale: expected=${t.expectedBytes} "
+                "contentLength=$contentLength actual=$actual",
+              );
+            } else {
+              LoggerService().warn(
+                "download size mismatch: expected=${t.expectedBytes} "
+                "contentLength=$contentLength actual=$actual",
+              );
+              try {
+                await tmp.delete();
+              } catch (_) {}
+              t.receivedBytes = 0;
+              t.totalBytes = 0;
+              throw Exception(
+                "下载文件大小不符：服务端声明 ${t.expectedBytes} 字节，实际 $actual 字节",
+              );
+            }
+          }
+        }
+        // The archive already occupies disk; extraction needs roughly its
+        // size again. Check before handing the file to 7-Zip.
+        if (await tmp.exists()) {
+          final archiveBytes = await tmp.length();
+          if (!await _ensureFreeSpace(
+            t,
+            outDir,
+            archiveBytes + 256 * 1024 * 1024,
+          )) {
+            return;
           }
         }
         if (t._cancelled) {
@@ -3499,6 +3604,10 @@ class DownloadService with WidgetsBindingObserver {
     } catch (e) {
       throw Exception("解压组件未就绪: $e");
     }
+    var extractTimeout = 1800;
+    try {
+      extractTimeout = _extractTimeoutSeconds(await File(filePath).length());
+    } catch (_) {}
     // Extract to a temp subdirectory so _fixLayout only sees the new content
     // and isn't confused by pre-existing sibling game folders in outDir.
     final extractTempDir =
@@ -3567,7 +3676,7 @@ class DownloadService with WidgetsBindingObserver {
           exe,
           args,
           onProgress: onProgress,
-          timeout: 1800,
+          timeout: extractTimeout,
         );
       } on _ToolFailure catch (e) {
         // A 4 KB/16 KB page mismatch or an arm64 multithreading bug can corrupt
@@ -3595,7 +3704,7 @@ class DownloadService with WidgetsBindingObserver {
           exe,
           singleThreaded,
           onProgress: onProgress,
-          timeout: 1800,
+          timeout: extractTimeout,
         );
       }
       final produced = await Directory(extractTempDir).list().isEmpty;
@@ -3991,6 +4100,32 @@ class DownloadService with WidgetsBindingObserver {
         : "bin";
     final safeExt = ext.replaceAll(RegExp(r"[^a-z0-9]"), "");
     return "$supportDir/.tmp_${t.gameId}_${t.versionId}.${safeExt.isEmpty ? "bin" : safeExt}";
+  }
+
+  Future<void> _cleanupStaleTempFiles() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final active = _tasks.map((t) => _tempArchivePath(dir.path, t)).toSet();
+      final cutoff = DateTime.now().subtract(const Duration(days: 3));
+      var removed = 0;
+      await for (final entity in Directory(dir.path).list()) {
+        if (entity is! File) continue;
+        final name = entity.path.split(Platform.pathSeparator).last;
+        if (!name.startsWith(".tmp_")) continue;
+        if (active.contains(entity.path)) continue;
+        try {
+          final stat = await entity.stat();
+          if (stat.modified.isAfter(cutoff)) continue;
+          await entity.delete();
+          removed++;
+        } catch (_) {}
+      }
+      if (removed > 0) {
+        LoggerService().info("removed $removed stale download temp files");
+      }
+    } catch (e) {
+      LoggerService().warn("stale temp cleanup failed: $e");
+    }
   }
 
   Future<String> _taskDir(DownloadTask t) async {
