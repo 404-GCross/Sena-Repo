@@ -145,14 +145,18 @@ def _signature_secret() -> bytes:
     return secret.encode("utf-8")
 
 
-def _signature_payload(game_id: int, version_id: int, expires_at: int) -> bytes:
-    return f"{game_id}:{version_id}:{expires_at}".encode("utf-8")
+def _signature_payload(
+    game_id: int, version_id: int, expires_at: int, user_id: int = 0
+) -> bytes:
+    return f"{game_id}:{version_id}:{expires_at}:{user_id}".encode("utf-8")
 
 
-def _sign_download(game_id: int, version_id: int, expires_at: int) -> str:
+def _sign_download(
+    game_id: int, version_id: int, expires_at: int, user_id: int = 0
+) -> str:
     return hmac.new(
         _signature_secret(),
-        _signature_payload(game_id, version_id, expires_at),
+        _signature_payload(game_id, version_id, expires_at, user_id),
         hashlib.sha256,
     ).hexdigest()
 
@@ -162,10 +166,11 @@ def _verify_download_signature(
     version_id: int,
     expires_at: int,
     signature: str,
+    user_id: int = 0,
 ) -> bool:
     if expires_at <= int(time.time()):
         return False
-    expected = _sign_download(game_id, version_id, expires_at)
+    expected = _sign_download(game_id, version_id, expires_at, user_id)
     return hmac.compare_digest(expected, signature)
 
 
@@ -746,6 +751,7 @@ def _build_signed_download_url(
     version_id: int,
     expires_at: int,
     *,
+    user_id: int = 0,
     proxy_openlist: bool = False,
 ) -> str:
     base = str(
@@ -757,7 +763,8 @@ def _build_signed_download_url(
     )
     params = {
         "expires_at": str(expires_at),
-        "signature": _sign_download(game_id, version_id, expires_at),
+        "uid": str(user_id),
+        "signature": _sign_download(game_id, version_id, expires_at, user_id),
     }
     if proxy_openlist:
         params["proxy"] = "1"
@@ -807,6 +814,7 @@ async def _manager_download_url(
     version_id: int,
     expires_at: int,
     *,
+    user_id: int = 0,
     proxy_openlist: bool = False,
 ) -> tuple[str, int | None]:
     return (
@@ -815,6 +823,7 @@ async def _manager_download_url(
             game_id,
             version_id,
             expires_at,
+            user_id=user_id,
             proxy_openlist=proxy_openlist,
         ),
         expires_at,
@@ -828,11 +837,20 @@ async def download_signed_game_version(
     expires_at: int,
     signature: str,
     request: Request,
+    uid: int = 0,
     session: AsyncSession = Depends(get_session),
 ):
     """Download a game version through a short-lived signed URL."""
-    if not _verify_download_signature(game_id, version_id, expires_at, signature):
+    if not _verify_download_signature(
+        game_id, version_id, expires_at, signature, uid
+    ):
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
+    logger.info(
+        "Signed download served user_id=%s gid=%s vid=%s",
+        uid,
+        game_id,
+        version_id,
+    )
     try:
         game, version = await _get_game_and_version(game_id, version_id, session)
         return await _serve_version_download(
@@ -861,18 +879,21 @@ async def create_download_link(
     session: AsyncSession = Depends(get_session),
 ):
     """Create a signed download URL for client downloads."""
-    del user
     game, version = await _get_game_and_version(game_id, version_id, session)
     size = int(version.file_size or 0)
     expires_at = int(time.time()) + max(_download_ttl_seconds(size), 24 * 60 * 60)
     logger.info(
-        "Download link requested gid=%s vid=%s source_type=%s",
+        "Download link requested user_id=%s username=%s gid=%s vid=%s source_type=%s",
+        user.id,
+        user.username,
         game.id,
         version.id,
         version.source_type or "local",
     )
     return DownloadLinkResponse(
-        url=_build_signed_download_url(request, game_id, version_id, expires_at),
+        url=_build_signed_download_url(
+            request, game_id, version_id, expires_at, user_id=user.id
+        ),
         expires_at=expires_at,
     )
 
@@ -887,7 +908,6 @@ async def create_manager_install_link(
     session: AsyncSession = Depends(get_session),
 ):
     """Create a LunaBox/ReinaManager install protocol URL for a game version."""
-    del user
     game, version = await _get_game_and_version(game_id, version_id, session)
 
     if version.extract_password:
@@ -902,7 +922,10 @@ async def create_manager_install_link(
         raise HTTPException(status_code=400, detail="文件大小无效，无法生成管理器安装链接")
 
     logger.info(
-        "Manager install link requested target=%s gid=%s vid=%s source_type=%s checksum_cached=%s",
+        "Manager install link requested user_id=%s username=%s target=%s "
+        "gid=%s vid=%s source_type=%s checksum_cached=%s",
+        user.id,
+        user.username,
         body.target,
         game_id,
         version_id,
@@ -919,6 +942,7 @@ async def create_manager_install_link(
         game_id,
         version_id,
         expires_at,
+        user_id=user.id,
     )
 
     if body.target == "lunabox":

@@ -14,6 +14,7 @@ from pathlib import Path
 import database as db
 from cli.common import (
     REMOTE_CHECK_ATTEMPTS,
+    audit,
     REMOTE_CHECK_DELAY,
     choose,
     confirm,
@@ -507,6 +508,7 @@ async def cmd_status(args) -> int:
 async def cmd_scan(args) -> int:
     config = await prepare_app()
     scrape_mode = _resolve_scrape_mode(args.scrape)
+    audit("cli.scan", root_ids=args.root_id or [], scrape=scrape_mode)
     return await _run_scan(
         config,
         root_ids=args.root_id,
@@ -538,6 +540,7 @@ async def cmd_clear(args) -> int:
         await session.execute(delete(Game))
         await cleanup_empty_companies(session)
         await session.commit()
+        audit("cli.clear", cleared_games=cleared_games)
         echo(f"已清空游戏条目: {cleared_games}")
 
     scrape_mode = _resolve_scrape_mode(args.scrape)

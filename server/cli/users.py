@@ -8,6 +8,7 @@ from datetime import datetime
 import database as db
 from cli.common import (
     CliError,
+    audit,
     choose,
     confirm,
     confirm_phrase,
@@ -152,6 +153,7 @@ async def cmd_useradd(args) -> int:
             await session.rollback()
             raise CliError("创建用户失败：用户名重复", 4) from exc
         await session.refresh(user)
+        audit("cli.useradd", username=user.username, user_id=user.id, role=user.role)
         echo(f"已创建用户: {user.username} (id={user.id}, role={user.role})")
     return 0
 
@@ -173,6 +175,7 @@ async def cmd_username(args) -> int:
         user.username = new_username
         revoked = await _revoke_sessions(session, user.id)
         await session.commit()
+        audit("cli.username", old=old_username, new=new_username, revoked=revoked)
         echo(f"已修改用户名: {old_username} -> {new_username}；已踢出 {revoked} 个会话")
     return 0
 
@@ -186,6 +189,7 @@ async def cmd_passwd(args) -> int:
         user.password_set = True
         revoked = await _revoke_sessions(session, user.id)
         await session.commit()
+        audit("cli.passwd", username=user.username, revoked=revoked)
         echo(f"已修改密码: {user.username}；已踢出 {revoked} 个会话")
     return 0
 
@@ -210,6 +214,7 @@ async def cmd_userdel(args) -> int:
         await session.execute(delete(UserSession).where(UserSession.user_id == user_id))
         await session.delete(user)
         await session.commit()
+        audit("cli.userdel", username=username, user_id=user_id)
         echo(f"已删除用户: {username} (id={user_id})")
     return 0
 
@@ -242,6 +247,7 @@ async def cmd_useradmin(args) -> int:
         user.status = "active"
         revoked = await _revoke_sessions(session, user.id)
         await session.commit()
+        audit("cli.useradmin", username=user.username, role=desired_role, revoked=revoked)
         echo(f"已更新角色: {user.username} -> {desired_role}；已踢出 {revoked} 个会话")
     return 0
 

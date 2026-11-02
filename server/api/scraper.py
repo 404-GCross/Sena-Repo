@@ -705,6 +705,11 @@ async def upload_game_cover(
     import os
     ext = os.path.splitext(file.filename or "cover.jpg")[1].lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        logger.warning(
+            "Cover upload rejected: actor_id=%s game_id=%s reason=extension",
+            user.id,
+            game_id,
+        )
         raise HTTPException(status_code=400, detail="不支持的图片格式，仅支持 JPG/PNG/GIF/WebP")
 
     config = load_config()
@@ -724,9 +729,17 @@ async def upload_game_cover(
                 except Exception: pass
 
     cover_path = covers_dir / f"{game_id}_upload{ext}"
-    cover_path.write_bytes(
-        await read_upload(file, limit=20 * 1024 * 1024, label="封面")
-    )
+    try:
+        content = await read_upload(file, limit=20 * 1024 * 1024, label="封面")
+    except HTTPException as exc:
+        logger.warning(
+            "Cover upload rejected: actor_id=%s game_id=%s status=%s",
+            user.id,
+            game_id,
+            exc.status_code,
+        )
+        raise
+    cover_path.write_bytes(content)
     game.cover_path = str(cover_path)
     await session.commit()
     logger.info("Game cover uploaded: actor_id=%s game_id=%s", user.id, game_id)
@@ -825,6 +838,11 @@ async def upload_game_background(
     import os
     ext = os.path.splitext(file.filename or "bg.jpg")[1].lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        logger.warning(
+            "Background upload rejected: actor_id=%s game_id=%s reason=extension",
+            user.id,
+            game_id,
+        )
         raise HTTPException(status_code=400, detail="不支持的图片格式，仅支持 JPG/PNG/GIF/WebP")
 
     config = load_config()
@@ -844,9 +862,17 @@ async def upload_game_background(
                 except Exception: pass
 
     bg_path = bg_dir / f"{game_id}_hero{ext}"
-    bg_path.write_bytes(
-        await read_upload(file, limit=20 * 1024 * 1024, label="背景图")
-    )
+    try:
+        content = await read_upload(file, limit=20 * 1024 * 1024, label="背景图")
+    except HTTPException as exc:
+        logger.warning(
+            "Background upload rejected: actor_id=%s game_id=%s status=%s",
+            user.id,
+            game_id,
+            exc.status_code,
+        )
+        raise
+    bg_path.write_bytes(content)
     game.bg_path = str(bg_path)
     await session.commit()
     logger.info(

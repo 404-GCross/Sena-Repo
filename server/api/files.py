@@ -25,6 +25,11 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(require
     """Upload an image file. Returns the filename for use in cover/bg URLs."""
     ext = Path(file.filename or "image.jpg").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
+        logger.warning(
+            "Image upload rejected: actor_id=%s filename=%s reason=extension",
+            user.id,
+            file.filename,
+        )
         raise HTTPException(status_code=400, detail="File type not allowed")
 
     config = load_config()
@@ -32,7 +37,16 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(require
     dest = config.covers_path / name
     config.covers_path.mkdir(parents=True, exist_ok=True)
 
-    content = await read_upload(file, limit=20 * 1024 * 1024, label="图片")
+    try:
+        content = await read_upload(file, limit=20 * 1024 * 1024, label="图片")
+    except HTTPException as exc:
+        logger.warning(
+            "Image upload rejected: actor_id=%s filename=%s status=%s",
+            user.id,
+            file.filename,
+            exc.status_code,
+        )
+        raise
     dest.write_bytes(content)
     logger.info(
         "Image uploaded: actor_id=%s filename=%s bytes=%s",

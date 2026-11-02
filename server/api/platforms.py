@@ -212,6 +212,11 @@ async def reorder_platforms(
             continue
         category.sort_order = index
     await session.commit()
+    logger.info(
+        "Platform categories reordered: actor_id=%s ids=%s",
+        user.id,
+        body.ids,
+    )
     return MessageResponse(message="顺序已更新")
 
 

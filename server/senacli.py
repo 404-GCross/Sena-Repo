@@ -13,7 +13,15 @@ SERVER_DIR = Path(__file__).resolve().parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-from cli.common import CliError, ROOT_COMMANDS, echo, ensure_root
+from cli.common import (
+    CliError,
+    ROOT_COMMANDS,
+    audit,
+    configure_cli_logging,
+    echo,
+    ensure_root,
+    redact_cli_args,
+)
 
 SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
 CHANNELS = ("dev", "beta", "release")
@@ -186,14 +194,34 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return asyncio.run(dispatch(args))
+        configure_cli_logging()
+    except Exception:
+        pass
+    started = time.monotonic()
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    audit(
+        "cli.command.start",
+        command=getattr(args, "command", ""),
+        args=redact_cli_args(raw_argv),
+    )
+    rc = 1
+    try:
+        rc = asyncio.run(dispatch(args))
     except CliError as exc:
         if exc.code:
             echo(str(exc), err=True)
-        return exc.code
+        rc = exc.code
     except KeyboardInterrupt:
         echo("已取消", err=True)
-        return 130
+        rc = 130
+    finally:
+        audit(
+            "cli.command.finish",
+            command=getattr(args, "command", ""),
+            rc=rc,
+            elapsed_ms=round((time.monotonic() - started) * 1000),
+        )
+    return rc
 
 
 if __name__ == "__main__":

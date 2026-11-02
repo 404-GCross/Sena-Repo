@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -76,6 +77,57 @@ def load_environment_file() -> None:
         value = value.strip().strip("'\"")
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def configure_cli_logging() -> None:
+    load_environment_file()
+    from config import load_config
+    from utils.logging_config import configure_logging
+
+    configure_logging("cli", load_config().data_path)
+
+
+_SENSITIVE_CLI_FLAGS = {
+    "--password",
+    "--token",
+    "--api-key",
+    "--secret",
+    "--nextmoe-api-key",
+    "--proxy",
+}
+
+
+def redact_cli_args(argv: list[str]) -> list[str]:
+    out: list[str] = []
+    redact_next = False
+    for arg in argv:
+        if redact_next:
+            out.append("***")
+            redact_next = False
+            continue
+        if arg in _SENSITIVE_CLI_FLAGS:
+            out.append(arg)
+            redact_next = True
+            continue
+        replaced = False
+        for flag in _SENSITIVE_CLI_FLAGS:
+            if arg.startswith(f"{flag}="):
+                out.append(f"{flag}=***")
+                replaced = True
+                break
+        if not replaced:
+            out.append(arg)
+    return out
+
+
+def audit(event: str, **fields) -> None:
+    from utils.log_redaction import redact_text
+
+    actor = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
+    payload = [f"actor={redact_text(actor)}", f"pid={os.getpid()}"]
+    for key, value in fields.items():
+        payload.append(f"{key}={redact_text(str(value), limit=512)}")
+    logging.getLogger("sena.audit").info("%s %s", event, " ".join(payload))
 
 
 async def prepare_app() -> "Config":

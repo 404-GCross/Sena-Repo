@@ -197,11 +197,13 @@ async def _revoke_user_sessions(user_id: int, session: AsyncSession) -> None:
 # ── Auth dependencies ───────────────────────────────────────────────────────
 
 async def get_current_user(
+    request: Request,
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     token = _extract_bearer_token(authorization)
     now = datetime.utcnow()
+    client = request.client.host if request.client else "-"
 
     auth_session = (
         await session.execute(
@@ -212,10 +214,22 @@ async def get_current_user(
         )
     ).scalar_one_or_none()
     if auth_session is None:
+        logger.warning(
+            "Auth denied: path=%s method=%s client=%s reason=invalid_token",
+            request.url.path,
+            request.method,
+            client,
+        )
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
     if auth_session.expires_at <= now:
         auth_session.revoked_at = now
         await session.commit()
+        logger.warning(
+            "Auth denied: path=%s method=%s client=%s reason=expired_token",
+            request.url.path,
+            request.method,
+            client,
+        )
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
 
     user = (
@@ -229,15 +243,34 @@ async def get_current_user(
     if user is None:
         auth_session.revoked_at = now
         await session.commit()
+        logger.warning(
+            "Auth denied: path=%s method=%s client=%s reason=inactive_user",
+            request.url.path,
+            request.method,
+            client,
+        )
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
 
     await _touch_session(auth_session, session)
     return user
 
 
-async def require_admin(user: User = Depends(get_current_user)) -> User:
+async def require_admin(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> User:
     """Require administrator privileges."""
     if user.role != "admin":
+        logger.warning(
+            "Admin access denied: user_id=%s username=%s role=%s "
+            "path=%s method=%s client=%s",
+            user.id,
+            user.username,
+            user.role,
+            request.url.path,
+            request.method,
+            request.client.host if request.client else "-",
+        )
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
 
@@ -649,9 +682,23 @@ async def upload_avatar(user_id: int, file: UploadFile = File(...),
     _ensure_profile_edit_access(current, user)
     from utils.uploads import read_upload
 
-    contents = await read_upload(file, limit=5 * 1024 * 1024, label="头像")
+    try:
+        contents = await read_upload(file, limit=5 * 1024 * 1024, label="头像")
+    except HTTPException as exc:
+        logger.warning(
+            "Avatar upload rejected: actor_id=%s user_id=%s status=%s",
+            current.id,
+            user_id,
+            exc.status_code,
+        )
+        raise
     ext = Path(file.filename or "avatar.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        logger.warning(
+            "Avatar upload rejected: actor_id=%s user_id=%s reason=extension",
+            current.id,
+            user_id,
+        )
         raise HTTPException(status_code=400, detail="File type not allowed")
     config = load_config()
     avatars_dir = Path(config.data_path) / "avatars"

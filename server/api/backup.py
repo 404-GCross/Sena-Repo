@@ -158,6 +158,12 @@ async def export_backup(body: ExportRequest, user: User = Depends(require_admin)
 async def download_backup(name: str, user: User = Depends(require_admin)):
     """Download a stored backup archive."""
     path = _resolve(name)
+    logger.info(
+        "Backup download: actor_id=%s filename=%s bytes=%s",
+        user.id,
+        path.name,
+        path.stat().st_size,
+    )
     return FileResponse(
         path,
         media_type="application/zip" if path.suffix.lower() == ".zip" else "application/json",

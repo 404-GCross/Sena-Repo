@@ -242,6 +242,7 @@ async def oauth_providers():
 @router.post("/start")
 async def oauth_start(
     body: StartRequest,
+    request: Request,
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ):
@@ -254,7 +255,7 @@ async def oauth_start(
     user: User | None = None
     if authorization:
         try:
-            user = await get_current_user(authorization, session)
+            user = await get_current_user(request, authorization, session)
         except HTTPException:
             user = None
     if purpose == "bind" and user is None:
@@ -268,6 +269,12 @@ async def oauth_start(
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
     request_id = secrets.token_urlsafe(24)
+    logger.info(
+        "OAuth start: purpose=%s request_id=%s client=%s",
+        purpose,
+        request_id,
+        request.client.host if request.client else "-",
+    )
     _prune_flows()
     _flows[request_id] = OAuthFlow(
         request_id=request_id,
@@ -332,7 +339,7 @@ async def oauth_complete(
         user = None
         if authorization:
             try:
-                user = await get_current_user(authorization, session)
+                user = await get_current_user(request, authorization, session)
             except HTTPException:
                 user = None
         if user is None or flow.user_id != user.id:
