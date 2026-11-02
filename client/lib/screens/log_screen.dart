@@ -105,9 +105,18 @@ class _LogScreenState extends State<LogScreen> {
       }
     }
     selected ??= files.isEmpty ? null : files.first;
-    final entries = selected == null
+    final sameFile = _selectedFile?.path == selected?.path;
+    final fresh = selected == null
         ? <LogRecord>[]
         : await _logger.readEntries(access, selected);
+    var entries = fresh;
+    if (quiet && sameFile && _entries.length > fresh.length) {
+      final seen = fresh.map((entry) => entry.raw).toSet();
+      entries = [
+        ...fresh,
+        ..._entries.where((entry) => seen.add(entry.raw)),
+      ];
+    }
     if (!mounted) return;
     setState(() {
       _files = files;
@@ -235,8 +244,39 @@ class _LogScreenState extends State<LogScreen> {
     _startLiveRefresh();
   }
 
-  void _loadEarlierEntries() {
-    setState(() => _visibleLimit += _loadMoreStep);
+  Future<void> _loadEarlierEntries() async {
+    if (_visibleLimit < _filteredEntries.length) {
+      setState(() => _visibleLimit += _loadMoreStep);
+      return;
+    }
+    final access = _access;
+    final file = _selectedFile;
+    if (access == null || file == null || _entries.isEmpty) {
+      _message("没有更早的记录了");
+      return;
+    }
+    setState(() => _loading = true);
+    final older = await _logger.readEntries(
+      access,
+      file,
+      before: _entries.last.timestamp,
+    );
+    if (!mounted) return;
+    if (older.isEmpty) {
+      setState(() => _loading = false);
+      _message("没有更早的记录了");
+      return;
+    }
+    final seen = _entries.map((entry) => entry.raw).toSet();
+    final merged = [
+      ..._entries,
+      ...older.where((entry) => seen.add(entry.raw)),
+    ];
+    setState(() {
+      _entries = merged;
+      _visibleLimit += _loadMoreStep;
+      _loading = false;
+    });
   }
 
   void _message(String message) {

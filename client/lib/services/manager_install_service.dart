@@ -2,6 +2,9 @@
 
 import "dart:io";
 
+import "../models/log_models.dart";
+import "logger_service.dart";
+
 class ManagerInstallService {
   ManagerInstallService._();
 
@@ -17,6 +20,14 @@ class ManagerInstallService {
     if (!isAllowed) {
       throw ArgumentError("不支持的管理器安装链接");
     }
+
+    await LoggerService().record(
+      LogLevel.info,
+      "manager.install_requested",
+      "已请求打开管理器安装链接",
+      module: "下载",
+      fields: {"target": scheme, "host": host},
+    );
 
     if (Platform.isWindows) {
       await Process.start(

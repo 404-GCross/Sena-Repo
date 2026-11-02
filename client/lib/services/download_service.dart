@@ -379,6 +379,22 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
+  void _logTaskEvent(
+    String event,
+    String message,
+    DownloadTask task, {
+    Map<String, Object?> fields = const {},
+  }) {
+    unawaited(LoggerService().record(
+      LogLevel.info,
+      event,
+      message,
+      module: "下载",
+      taskId: "${task.gameId}-${task.versionId}",
+      fields: {"game": task.gameName, ...fields},
+    ));
+  }
+
   String _formatSize(int bytes) {
     if (bytes <= 0) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -417,6 +433,13 @@ class DownloadService with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("local_download_dir", path);
     await Directory(path).create(recursive: true);
+    await LoggerService().record(
+      LogLevel.info,
+      "download.setting_changed",
+      "下载目录已更新",
+      module: "下载",
+      fields: {"key": "download_dir", "path": path},
+    );
   }
 
   Future<int> get maxConcurrentDownloads async {
@@ -434,6 +457,13 @@ class DownloadService with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt("max_concurrent_downloads", normalized);
     _scheduleDownloads();
+    await LoggerService().record(
+      LogLevel.info,
+      "download.setting_changed",
+      "并发下载数已更新",
+      module: "下载",
+      fields: {"key": "max_concurrent_downloads", "value": normalized},
+    );
   }
 
   Future<int> get downloadSpeedLimitKbps async {
@@ -450,6 +480,13 @@ class DownloadService with WidgetsBindingObserver {
     _speedWindowBytes = 0;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt("download_speed_limit_kbps", _downloadSpeedLimitKbps!);
+    await LoggerService().record(
+      LogLevel.info,
+      "download.setting_changed",
+      "下载限速已更新",
+      module: "下载",
+      fields: {"key": "speed_limit_kbps", "value": _downloadSpeedLimitKbps},
+    );
   }
 
   Future<void> _scheduleDownloads() async {
@@ -766,12 +803,14 @@ class DownloadService with WidgetsBindingObserver {
       _runningTasks.remove(task);
       _emit();
       _scheduleDownloads();
+      _logTaskEvent("download.paused", "已暂停下载", task);
     } else if (task.status == "extracting") {
       _killExtractor();
       task.status = "paused";
       _runningTasks.remove(task);
       _emit();
       _scheduleDownloads();
+      _logTaskEvent("download.paused", "已暂停解压", task);
     }
   }
 
@@ -788,6 +827,7 @@ class DownloadService with WidgetsBindingObserver {
       task.status = "pending";
       _emit();
       _scheduleDownloads();
+      _logTaskEvent("download.resumed", "已继续下载", task);
     }
   }
 
@@ -818,6 +858,7 @@ class DownloadService with WidgetsBindingObserver {
           : 0;
       _emit();
       _scheduleDownloads();
+      _logTaskEvent("download.retried", "已重试下载", task);
     }
   }
 
@@ -924,11 +965,13 @@ class DownloadService with WidgetsBindingObserver {
       _emit();
       _cleanupTemp(task);
       _scheduleDownloads();
+      _logTaskEvent("download.cancelled", "已取消下载", task);
     } else if (task.status == "failed") {
       task.status = "cancelled";
       NotificationService().cancel(task.gameId);
       _emit();
       _cleanupTemp(task);
+      _logTaskEvent("download.cancelled", "已取消失败任务", task);
     }
   }
 
@@ -936,6 +979,7 @@ class DownloadService with WidgetsBindingObserver {
     cancelTask(task);
     _tasks.remove(task);
     _emit();
+    _logTaskEvent("download.removed", "已移除下载任务", task);
   }
 
   // ── binary management ──

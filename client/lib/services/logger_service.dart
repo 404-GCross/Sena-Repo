@@ -221,6 +221,7 @@ class LoggerService {
     LogViewerAccess access,
     LogFileInfo file, {
     int limit = 500,
+    DateTime? before,
   }) async {
     if (!access.isUsable) return const [];
     try {
@@ -231,6 +232,7 @@ class LoggerService {
         final parsed = _parseLine(line);
         if (parsed == null) continue;
         if (!access.canRead(parsed)) continue;
+        if (before != null && !parsed.timestamp.isBefore(before)) continue;
         records.add(parsed);
       }
       records.sort((a, b) => b.timestamp.compareTo(a.timestamp));

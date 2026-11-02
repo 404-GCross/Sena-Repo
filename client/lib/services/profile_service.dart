@@ -4,6 +4,8 @@ import "dart:convert";
 
 import "package:shared_preferences/shared_preferences.dart";
 
+import "../models/log_models.dart";
+import "logger_service.dart";
 import "secure_store.dart";
 
 int parseProfileUserId(Object? value) {
@@ -109,6 +111,18 @@ class ProfileService {
     await prefs.setString("username", profile.username);
     await prefs.setBool("is_admin", profile.isAdmin);
     await prefs.setBool("use_https", profile.useHttps);
+    await LoggerService().record(
+      LogLevel.info,
+      "client.profile_applied",
+      "已切换服务器配置",
+      module: "连接",
+      fields: {
+        "host": profile.host,
+        "port": profile.port,
+        "username": profile.username,
+        "https": profile.useHttps,
+      },
+    );
   }
 
   /// Save current session as a new or updated profile
@@ -153,5 +167,17 @@ class ProfileService {
       await setActiveIndex(profiles.length - 1);
     }
     await saveProfiles(profiles);
+    await LoggerService().record(
+      LogLevel.info,
+      "client.profile_saved",
+      "已保存连接配置",
+      module: "连接",
+      fields: {
+        "name": name,
+        "host": host,
+        "port": port,
+        "username": username,
+      },
+    );
   }
 }

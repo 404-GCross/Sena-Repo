@@ -19,6 +19,8 @@ import "../services/nextmoe_oauth.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
 import "../services/notification_service.dart";
+import "../services/logger_service.dart";
+import "../models/log_models.dart";
 import "../widgets/app_shell.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
@@ -843,8 +845,20 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Future<void> _deleteProfile(int index) async {
     final ps = ProfileService();
     final active = await ps.getActiveIndex();
+    final removed = _profiles[index];
     _profiles.removeAt(index);
     await ps.saveProfiles(_profiles);
+    await LoggerService().record(
+      LogLevel.info,
+      "client.profile_deleted",
+      "已删除连接配置",
+      module: "连接",
+      fields: {
+        "name": removed.name,
+        "host": removed.host,
+        "username": removed.username,
+      },
+    );
     if (active == index) {
       await ps.setActiveIndex(-1);
     } else if (active > index) {
