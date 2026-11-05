@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import load_config
 from database import create_tables, init_database
+from utils.log_redaction import redact_exception
 
 _initial_scan_tasks: set[asyncio.Task] = set()
 
@@ -71,7 +72,7 @@ async def _auto_scan_task(config, logger):
             if result.get("skipped"):
                 logger.info("Auto-scan skipped: scan already running")
         except Exception as e:
-            logger.error(f"Auto-scan error: {e}")
+            logger.error("Auto-scan error: %s", redact_exception(e))
 
 
 async def _auto_backup_task(config, logger):
@@ -105,9 +106,7 @@ async def _auto_backup_task(config, logger):
                             result.get("games"),
                         )
         except Exception as exc:
-            logger.error(
-                "Auto backup failed: %s", type(exc).__name__, exc_info=True
-            )
+            logger.error("Auto backup failed: %s", redact_exception(exc))
             try:
                 settings = sched.load_backup_settings(config)
                 sched.save_backup_settings(
@@ -176,14 +175,17 @@ async def lifespan(app: FastAPI):
                             "Initial scan complete: %s games",
                             stats.get("total_games", 0),
                         )
-                    except Exception:
-                        logger.exception("Initial auto-scan failed")
+                    except Exception as exc:
+                        logger.error(
+                            "Initial auto-scan failed: %s",
+                            redact_exception(exc),
+                        )
 
                 task = asyncio.create_task(_initial_scan())
                 _initial_scan_tasks.add(task)
                 task.add_done_callback(_initial_scan_tasks.discard)
     except Exception as e:
-        logger.error(f"Initial auto-scan failed: {e}", exc_info=True)
+        logger.error("Initial auto-scan failed: %s", redact_exception(e))
 
     # Restore persisted auto-scan settings before starting background task
     from api.settings import _load_scan_settings

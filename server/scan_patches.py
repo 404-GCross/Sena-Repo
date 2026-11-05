@@ -12,6 +12,8 @@ from pathlib import Path
 
 import httpx
 
+from utils.log_redaction import redact_exception
+
 logger = logging.getLogger(__name__)
 
 # Default keywords for auto type detection (mirrors steam_patch.py)
@@ -200,11 +202,11 @@ def _nextmoe_get(path: str, params: dict) -> dict:
                 logger.warning(
                     "NextMoe request failed (%s): %s (X-Request-ID: %s)",
                     path,
-                    exc,
+                    redact_exception(exc),
                     request_id,
                 )
             else:
-                logger.warning("NextMoe request failed (%s): %s", path, exc)
+                logger.warning("NextMoe request failed (%s): %s", path, redact_exception(exc))
             return {}
         except Exception as exc:
             logger.warning("NextMoe request failed (%s): %s", path, exc)
@@ -513,7 +515,7 @@ def _load_appdetails(app_id: int, langs: tuple[str, ...] = ("schinese",)) -> dic
                 resp.raise_for_status()
                 data = resp.json()
         except Exception as exc:
-            logger.warning("Steam appdetails failed for app_id=%s lang=%s: %s", app_id, lang, exc)
+            logger.warning("Steam appdetails failed for app_id=%s lang=%s: %s", app_id, lang, redact_exception(exc))
             continue
         # A completed request is required before the language is marked fetched,
         # so transient failures can be retried on the next call.
@@ -622,7 +624,7 @@ def _search_steam_app_id(game_name: str) -> int | None:
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:
-        logger.warning("Steam search failed for %r: %s", game_name, exc)
+        logger.warning("Steam search failed for %r: %s", game_name, redact_exception(exc))
         return None
 
     items = [item for item in (data.get("items") or [])[:_STEAM_SEARCH_LIMIT] if isinstance(item.get("id"), int)]

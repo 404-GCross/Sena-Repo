@@ -247,7 +247,6 @@ async def import_backup(
         logger.error(
             "Backup import failed: stage=apply error=%s",
             redact_exception(exc),
-            exc_info=True,
         )
         raise HTTPException(status_code=500, detail="导入失败，请查看服务端日志") from exc
 

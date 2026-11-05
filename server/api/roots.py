@@ -21,6 +21,7 @@ from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from services.importer import cleanup_empty_companies, import_from_root
+from utils.log_redaction import redact_exception
 from utils.secrets import encrypt_secret, redact_url
 from utils.process_lock import process_lock, scan_lock_path
 
@@ -163,8 +164,11 @@ async def add_root(
         _load_scan_settings(config)
         if getattr(config, "_auto_scan", False):
             _bg_scan(config, [root.id], update_last=True)
-    except Exception:
-        logger.exception("Failed to start auto-scan for new root")
+    except Exception as exc:
+        logger.error(
+            "Failed to start auto-scan for new root: %s",
+            redact_exception(exc),
+        )
     return root
 
 
@@ -275,8 +279,8 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
             result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
             if result.get("skipped"):
                 logger.info("Background scan skipped: scan already running")
-        except Exception:
-            logger.exception("Background scan failed")
+        except Exception as exc:
+            logger.error("Background scan failed: %s", redact_exception(exc))
             _set_scan_state(
                 status="failed",
                 current_root=None,
@@ -460,16 +464,23 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                     try:
                         stats = await import_from_root(root.id, config, session)
                         total_games += stats.get("total_games", 0)
-                    except Exception:
-                        logger.exception("Scan root %s failed", root.id)
+                    except Exception as exc:
+                        logger.error(
+                            "Scan root %s failed: %s",
+                            root.id,
+                            redact_exception(exc),
+                        )
                         failed_roots.append(root.id)
                     finally:
                         _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
             if update_last:
                 try:
                     _mark_auto_scan(config, time.time())
-                except Exception:
-                    logger.exception("Failed to persist last auto-scan time")
+                except Exception as exc:
+                    logger.error(
+                        "Failed to persist last auto-scan time: %s",
+                        redact_exception(exc),
+                    )
             if failed_roots:
                 _set_scan_state(
                     status="failed",

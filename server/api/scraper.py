@@ -547,7 +547,9 @@ async def start_batch_scrape(
                     )
             loop.run_until_complete(_work())
         except Exception as e:
-            logger.error("Batch scrape job %s failed: %s", job.id, _safe_error_text(e), exc_info=True)
+            logger.error(
+                "Batch scrape job %s failed: %s", job.id, redact_exception(e)
+            )
             error_message = _safe_error_text(e)
 
             async def _mark_failed():
@@ -570,8 +572,11 @@ async def start_batch_scrape(
 
             try:
                 loop.run_until_complete(_mark_failed())
-            except Exception:
-                logger.exception("Failed to mark batch scrape job as failed")
+            except Exception as exc:
+                logger.error(
+                    "Failed to mark batch scrape job as failed: %s",
+                    redact_exception(exc),
+                )
         finally:
             loop.close()
 

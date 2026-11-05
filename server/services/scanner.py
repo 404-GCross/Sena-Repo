@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from utils.log_redaction import redact_exception
+
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -162,7 +164,7 @@ def scan_source(
         try:
             return source.list(path)
         except Exception as exc:
-            logger.warning("Failed to list source path %s: %s", path, exc)
+            logger.warning("Failed to list source path %s: %s", path, redact_exception(exc))
             # Returning an empty list here would look like "the folder is gone"
             # and the importer would mark every game under it as deleted.
             raise SourceUnavailable(f"无法读取 {path}: {exc}") from exc

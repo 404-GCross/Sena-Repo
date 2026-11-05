@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from utils.log_redaction import redact_exception
+
 import logging
 import asyncio
 import ipaddress
@@ -549,7 +551,7 @@ async def scrape_single_game(
                 if result:
                     await handle_result(scraper, result)
             except Exception as e:
-                logger.error(f"Scraper {scraper.source_name} error for VNDB ID '{game.vndb_id}': {e}")
+                logger.error("Scraper %s error for VNDB ID '%s': %s", scraper.source_name, game.vndb_id, redact_exception(e))
 
     # Prefer an explicitly saved Bangumi ID for the Bangumi scraper only.
     if game.bangumi_id:
@@ -561,7 +563,7 @@ async def scrape_single_game(
                 if result:
                     await handle_result(scraper, result)
             except Exception as e:
-                logger.error(f"Scraper {scraper.source_name} error for Bangumi ID '{game.bangumi_id}': {e}")
+                logger.error("Scraper %s error for Bangumi ID '%s': %s", scraper.source_name, game.bangumi_id, redact_exception(e))
 
     # Prefer an explicitly saved Hikarinagi ID for the Hikarinagi scraper only.
     if game.hikarinagi_id:
@@ -578,7 +580,10 @@ async def scrape_single_game(
                     await handle_result(scraper, result)
             except Exception as e:
                 logger.error(
-                    f"Scraper {scraper.source_name} error for Hikarinagi ID '{game.hikarinagi_id}': {e}"
+                    "Scraper %s error for Hikarinagi ID '%s': %s",
+                    scraper.source_name,
+                    game.hikarinagi_id,
+                    redact_exception(e),
                 )
 
     # Prefer saved external anchors for NextMoe's refs lookup; a weak or
@@ -599,7 +604,9 @@ async def scrape_single_game(
                     await handle_result(scraper, result)
             except Exception as e:
                 logger.error(
-                    f"Scraper nextmoe error for refs '{nextmoe_refs}': {e}"
+                    "Scraper nextmoe error for refs '%s': %s",
+                    nextmoe_refs,
+                    redact_exception(e),
                 )
 
     # ── Standard search: try candidates × scrapers ──
@@ -612,7 +619,7 @@ async def scrape_single_game(
                 if result:
                     await handle_result(scraper, result)
             except Exception as e:
-                logger.error(f"Scraper {scraper.source_name} error for '{query}': {e}")
+                logger.error("Scraper %s error for '%s': %s", scraper.source_name, query, redact_exception(e))
 
     ordered_results = [
         (scraper.source_name, results[scraper.source_name])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from utils.log_redaction import redact_exception
+
 import logging
 import re
 
@@ -97,7 +99,7 @@ class VndbKanaScraper(BaseScraper):
                 cover = await self._pick_cover(client, item)
                 parsed_results.append(self._parse(item, cover))
         except Exception as e:
-            logger.warning(f"VNDB Kana failed for '{name}': {e}")
+            logger.warning("VNDB Kana failed for '%s': %s", name, redact_exception(e))
         return parsed_results
 
     async def _pick_cover(self, client: httpx.AsyncClient, item: dict) -> str:
@@ -272,5 +274,5 @@ class VndbTitlesScraper(BaseScraper):
                     is_nsfw=float((image.get("sexual") or 0)) >= 2.0,
                 ))
         except Exception as e:
-            logger.warning(f"VNDB failed for '{name}': {e}")
+            logger.warning("VNDB failed for '%s': %s", name, redact_exception(e))
         return results

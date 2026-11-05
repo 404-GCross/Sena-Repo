@@ -2048,7 +2048,6 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                 "Restore failed: error=%s rollback=%s",
                 redact_exception(exc),
                 "clean" if not rollback_lines else "partial",
-                exc_info=True,
             )
             # Put the in-memory settings back in sync with the restored files.
             try:
