@@ -2,7 +2,7 @@
 /// Steam patch tab is hidden on Android (PC-only feature).
 
 import "dart:async";
-import "dart:io" show File, Platform;
+import "dart:io" show Platform;
 
 import "package:flutter/gestures.dart";
 import "package:flutter/material.dart";
@@ -11,7 +11,6 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "package:font_awesome_flutter/font_awesome_flutter.dart";
 
-import "../providers/theme_provider.dart";
 import "../providers/settings_provider.dart";
 
 import "../providers/game_provider.dart";
@@ -25,7 +24,6 @@ import "../widgets/new_game_dialog.dart";
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
-import "settings_screen.dart";
 import "../services/logged_http.dart" as http;
 import "dart:convert";
 import "download_manager_screen.dart";
@@ -1440,7 +1438,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final gameProvider = context.watch<GameProvider>();
-    final theme = context.watch<ThemeProvider>();
     final wide = _isWide(context);
     final showSteam = !Platform.isAndroid && !Platform.isIOS; // Steam patch is PC-only
     final cs = Theme.of(context).colorScheme;
@@ -1454,24 +1451,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return AppBackdrop(
       child: Stack(children: [
-        // Background image (desktop only — covered by opaque widgets on mobile)
-        if (wide &&
-            theme.backgroundUrl != null &&
-            theme.backgroundUrl!.isNotEmpty)
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.2,
-              child: theme.backgroundUrl!.startsWith("file://")
-                  ? Image.file(
-                      File(theme.backgroundUrl!.replaceFirst("file://", "")),
-                      fit: BoxFit.cover)
-                  : Image.network(theme.backgroundUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-            ),
-          )
-        else if (theme.bgColor != null)
-          Positioned.fill(child: ColoredBox(color: theme.bgColor!)),
         Scaffold(
           backgroundColor: Colors.transparent,
           appBar: wide

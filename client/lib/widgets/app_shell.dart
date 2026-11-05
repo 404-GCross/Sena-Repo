@@ -1,7 +1,10 @@
+import "dart:io";
 import "dart:ui";
 
 import "package:flutter/material.dart";
+import "package:provider/provider.dart";
 
+import "../providers/theme_provider.dart";
 import "../utils/theme_utils.dart";
 
 class AppRadius {
@@ -463,19 +466,70 @@ class AppBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            appBackgroundTop(context),
-            appBackgroundBottom(context),
-          ],
+    final background = context.watch<ThemeProvider>();
+    final settings = background.backgroundFor(background.isMobilePlatform);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                appBackgroundTop(context),
+                appBackgroundBottom(context),
+              ],
+            ),
+          ),
         ),
-      ),
-      child: child,
+        if (settings.hasImage) _BackgroundImage(settings: settings),
+        child,
+      ],
     );
+  }
+}
+
+class _BackgroundImage extends StatelessWidget {
+  final BackgroundSettings settings;
+
+  const _BackgroundImage({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final path = settings.path!;
+    final alignment = Alignment(settings.alignX, settings.alignY);
+    final Widget image;
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      image = Image.network(
+        path,
+        fit: BoxFit.cover,
+        alignment: alignment,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
+    } else {
+      image = Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        alignment: alignment,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
+    }
+
+    Widget layer = Opacity(opacity: settings.opacity, child: image);
+    if (settings.blur > 0) {
+      layer = ClipRect(
+        child: ImageFiltered(
+          imageFilter: ImageFilter.blur(
+            sigmaX: settings.blur,
+            sigmaY: settings.blur,
+            tileMode: TileMode.clamp,
+          ),
+          child: layer,
+        ),
+      );
+    }
+    return IgnorePointer(child: layer);
   }
 }
 
