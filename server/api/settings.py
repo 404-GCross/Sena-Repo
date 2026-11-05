@@ -26,6 +26,7 @@ from models.ignore_list import IgnoreList
 from schemas.common import MessageResponse
 from services.scanner import normalize_game_depth, structure_from_depth
 from utils.secrets import SCRAPER_SECRET_KEYS, encryption_key_status, redact_url
+from utils.log_redaction import redact_exception
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -111,8 +112,7 @@ async def update_scan_settings(body: ScanSettings, user: User = Depends(require_
     try:
         _save_scan_settings(config)  # persist to disk
     except Exception as e:
-        import traceback
-        logger.error(f"Failed to save scan settings: {e}\n{traceback.format_exc()}")
+        logger.error("Failed to save scan settings: %s", redact_exception(e))
         raise HTTPException(status_code=500, detail=f"保存失败: {e}")
     logger.info(
         "Scan settings updated: actor_id=%s auto_scan=%s interval_hours=%s depth=%s",

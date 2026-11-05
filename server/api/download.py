@@ -32,6 +32,7 @@ from models.game import Game, GameVersion
 from models.root_directory import RootDirectory
 from models.user import User
 from services.file_source import adapter_from_source
+from utils.log_redaction import redact_exception
 
 logger = logging.getLogger(__name__)
 
@@ -866,7 +867,12 @@ async def download_signed_game_version(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Signed download failed gid={game_id} vid={version_id}: {e}")
+        logger.error(
+            "Signed download failed gid=%s vid=%s: %s",
+            game_id,
+            version_id,
+            redact_exception(e),
+        )
         raise HTTPException(status_code=500, detail="下载失败，请查看服务端日志")
 
 
@@ -1015,7 +1021,12 @@ async def download_game_version(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Download failed gid={game_id} vid={version_id}: {e}")
+        logger.error(
+            "Download failed gid=%s vid=%s: %s",
+            game_id,
+            version_id,
+            redact_exception(e),
+        )
         raise HTTPException(status_code=500, detail="下载失败，请查看服务端日志")
 
 

@@ -18,6 +18,7 @@ from models.file_source import FileSource, SteamPatchRoot
 from api.auth import get_current_user, require_admin
 from api.download import build_signed_patch_url, patch_download_ttl, verify_patch_download_signature
 from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
+from utils.log_redaction import redact_exception
 from utils.secrets import encrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -224,7 +225,7 @@ def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
                 idx[str(aid)] = p
         return idx
     except Exception as exc:
-        logger.error("Failed to read patch index %s: %s", idx_path, exc)
+        logger.error("Failed to read patch index %s: %s", idx_path, redact_exception(exc))
         return None
 
 
@@ -238,7 +239,7 @@ def _load_all_patches(patches_dir: Path) -> list[dict]:
             data = json.load(f)
         return [_normalize_patch_record(p) for p in data.get("patches", [])]
     except Exception as exc:
-        logger.error("Failed to read patch index %s: %s", idx_path, exc)
+        logger.error("Failed to read patch index %s: %s", idx_path, redact_exception(exc))
         return []
 
 
@@ -332,7 +333,7 @@ def _load_type_keywords(patches_dir: Path) -> dict[str, list[str]]:
             logger.warning(
                 "Patch type keywords at %s are unreadable (%s), recreating defaults",
                 kw_path,
-                exc,
+                redact_exception(exc),
             )
     # Create with current defaults
     patches_dir.mkdir(parents=True, exist_ok=True)
@@ -519,7 +520,7 @@ async def _game_name_for_app_id(app_id: str) -> str | None:
         try:
             name = await asyncio.to_thread(_nextmoe_name_for_app_id, str(app_id))
         except Exception as exc:
-            logger.warning("NextMoe name lookup failed for app_id=%s: %s", app_id, exc)
+            logger.warning("NextMoe name lookup failed for app_id=%s: %s", app_id, redact_exception(exc))
             return None
         return name or None
     from scan_patches import _fetch_game_name
@@ -527,7 +528,7 @@ async def _game_name_for_app_id(app_id: str) -> str | None:
     try:
         name = await asyncio.to_thread(_fetch_game_name, int(app_id))
     except Exception as exc:
-        logger.warning("Steam name lookup failed for app_id=%s: %s", app_id, exc)
+        logger.warning("Steam name lookup failed for app_id=%s: %s", app_id, redact_exception(exc))
         return None
     return name or None
 
@@ -1421,11 +1422,11 @@ async def scan_patches_endpoint(
         )
         raise
     except Exception as e:
-        logger.error(f"Patch scan failed: {e}")
+        logger.error("Patch scan failed: %s", redact_exception(e))
         _set_patch_scan_state(
             status="failed",
             stage="失败",
-            error=str(e),
+            error=redact_exception(e),
             finished_at=time.time(),
         )
         raise HTTPException(status_code=500, detail="Patch scan failed; check server logs")

@@ -32,6 +32,7 @@ from services.scraper.orchestrator import (
     run_batch_scrape,
 )
 from services.scraper.base import rank_scraper_results
+from utils.log_redaction import redact_exception
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +339,7 @@ async def scrape_apply(
                     cover_path.write_bytes(resp.content)
                     game.cover_path = str(cover_path)
                 except Exception as e:
-                    logger.warning(f"Cover download failed: {e}")
+                    logger.warning("Cover download failed: %s", redact_exception(e))
             # Download hero/landscape banner to backgrounds folder
             if hero_url:
                 try:
@@ -350,7 +351,7 @@ async def scrape_apply(
                     bg_path.write_bytes(resp.content)
                     game.bg_path = str(bg_path)
                 except Exception as e:
-                    logger.warning(f"Hero download failed: {e}")
+                    logger.warning("Hero download failed: %s", redact_exception(e))
 
     if developer:
         game.developer = developer
@@ -456,7 +457,7 @@ async def scrape_game_cover(
                         replaced_tags = True
 
             except Exception as e:
-                logger.error(f"Scraper {scraper.source_name} failed: {e}")
+                logger.error("Scraper %s failed: %s", scraper.source_name, redact_exception(e))
             finally:
                 await scraper.close()
 
@@ -681,7 +682,7 @@ async def update_game_cover(
                 await session.commit()
                 return {"message": "Cover updated", "cover_path": game.cover_path}
             except Exception as e:
-                logger.warning(f"Cover download failed: {e}")
+                logger.warning("Cover download failed: %s", redact_exception(e))
                 raise HTTPException(status_code=400, detail="封面下载失败")
 
     return MessageResponse(message="No cover URL provided")
@@ -815,7 +816,7 @@ async def update_game_background(
                 await session.commit()
                 return MessageResponse(message="Background updated from URL")
             except Exception as e:
-                logger.warning(f"Background download failed: {e}")
+                logger.warning("Background download failed: %s", redact_exception(e))
                 raise HTTPException(status_code=400, detail="背景下载失败")
 
     return MessageResponse(message="No background URL provided")

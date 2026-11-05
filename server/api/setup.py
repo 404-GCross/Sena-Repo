@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio, logging, traceback
+import asyncio, logging
 import secrets
 from pathlib import Path
 
@@ -23,6 +23,7 @@ from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
 from models.user import User, hash_password
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
+from utils.log_redaction import redact_exception
 from services.scanner import normalize_game_depth, structure_from_depth
 from utils.secrets import encrypt_secret
 
@@ -334,7 +335,7 @@ async def initialize_setup(
         from api.settings import _save_scan_settings
         _save_scan_settings(config)
     except Exception as e:
-        logger.error(f"Failed to save initial scan settings: {e}\n{traceback.format_exc()}")
+        logger.error("Failed to save initial scan settings: %s", redact_exception(e))
         raise HTTPException(status_code=500, detail=f"保存自动扫描设置失败: {e}")
 
     vndb_token = body.vndb_token.strip()
@@ -367,7 +368,7 @@ async def initialize_setup(
         scraper_config["enabled_scrapers"] = config.scrapers.enabled_scrapers
         _write_scraper_config(scraper_config)
     except Exception as e:
-        logger.error(f"Failed to save initial scraper settings: {e}\n{traceback.format_exc()}")
+        logger.error("Failed to save initial scraper settings: %s", redact_exception(e))
         raise HTTPException(status_code=500, detail=f"保存刮削设置失败: {e}")
 
     try:
@@ -410,7 +411,7 @@ async def _background_scan(config):
         games = stats.get("total_games", 0) if stats else 0
         logger.info(f"Background scan complete: {games} games")
     except Exception as e:
-        logger.error(f"Background game scan failed: {e}\n{traceback.format_exc()}")
+        logger.error("Background game scan failed: %s", redact_exception(e))
 
     try:
         import database
@@ -419,4 +420,4 @@ async def _background_scan(config):
             result = await scan_patches_endpoint(user=None, session=session)
             logger.info(f"Background patch scan complete: {result.get('scanned', 0)} files")
     except Exception as e:
-        logger.error(f"Background patch scan failed: {e}\n{traceback.format_exc()}")
+        logger.error("Background patch scan failed: %s", redact_exception(e))

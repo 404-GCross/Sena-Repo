@@ -49,8 +49,10 @@ def redact_text(value: object, *, limit: int = 2048) -> str:
     text = text.replace("\r", " ").replace("\n", " ")
     text = _BEARER_RE.sub("Bearer [redacted]", text)
     text = _USERINFO_RE.sub(r"\1[redacted]@", text)
-    text = _QUERY_RE.sub(r"\1[redacted]", text)
+    # Key/value first; the query pass then only normalizes anything left.
+    # Doing query first made the KV pass append a second closing bracket.
     text = _KV_RE.sub(r"\1[redacted]", text)
+    text = _QUERY_RE.sub(r"\1[redacted]", text)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) > limit:
         return text[: limit - 1] + "…"
