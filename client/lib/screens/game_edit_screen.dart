@@ -16,6 +16,7 @@ import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
+import "../services/api_response_utils.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/new_game_dialog.dart";
@@ -84,8 +85,12 @@ class _GameEditScreenState extends State<GameEditScreen> {
     );
     final resp = await http.get(uri, headers: _authHeaders);
     if (resp.statusCode != 200) {
+      final data = tryDecodeJsonMap(resp.body);
+      final detail = data?["detail"]?.toString() ?? "";
       final label = _allMetadataSources[source] ?? source;
-      throw Exception("$label 搜索失败 (${resp.statusCode})");
+      throw Exception(
+        detail.isNotEmpty ? detail : "$label 搜索失败 (${resp.statusCode})",
+      );
     }
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     final results = (data["results"] as List?) ?? const [];

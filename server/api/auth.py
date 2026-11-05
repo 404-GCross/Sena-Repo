@@ -11,13 +11,13 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from config import load_config
 from database import get_session
-from models.user import User, UserSession, hash_password, verify_password
+from models.user import User, UserOAuthBinding, UserSession, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -100,8 +100,14 @@ def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
     message = str(exc).lower()
     if "users.username" in message:
         return "用户名已存在"
-    if "ix_users_oauth_user_id" in message or "users.oauth_user_id" in message:
+    if (
+        "ix_users_oauth_user_id" in message
+        or "users.oauth_user_id" in message
+        or "uq_user_oauth_bindings_provider_user_id" in message
+    ):
         return "该 NextMoe 用户 ID 已被使用"
+    if "uq_user_oauth_bindings_provider_subject" in message:
+        return "该第三方账号已绑定其他用户"
     return None
 
 
@@ -287,8 +293,7 @@ async def _ensure_not_last_admin(session: AsyncSession, user: User) -> None:
                 User.status == "active",
                 or_(
                     User.password_set.is_(True),
-                    User.oauth_subject.isnot(None),
-                    User.oauth_user_id.isnot(None),
+                    User.id.in_(select(UserOAuthBinding.user_id)),
                 ),
             )
         )
@@ -404,12 +409,27 @@ async def list_users(current: User = Depends(require_admin),
                      session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
+    binding_rows = (
+        await session.execute(select(UserOAuthBinding))
+    ).scalars().all()
+    bindings_by_user: dict[int, list[UserOAuthBinding]] = {}
+    for binding in binding_rows:
+        bindings_by_user.setdefault(binding.user_id, []).append(binding)
     return [{"id": u.id, "username": u.username, "role": u.role,
              "is_admin": u.role == "admin",
              "status": u.status, "created_at": str(u.created_at),
-             "oauth_bound": bool(u.oauth_subject),
+             "oauth_bound": bool(bindings_by_user.get(u.id)) or bool(u.oauth_subject),
              "oauth_name": u.oauth_name or "",
              "oauth_user_id": u.oauth_user_id,
+             "oauth_bindings": [
+                 {
+                     "provider": b.provider,
+                     "name": b.name or "",
+                     "user_id": b.oauth_user_id,
+                     "bound": bool(b.subject),
+                 }
+                 for b in bindings_by_user.get(u.id, [])
+             ],
              "password_set": bool(u.password_set)} for u in users]
 
 
@@ -439,9 +459,9 @@ async def admin_create_user(body: CreateUserRequest,
         if nextmoe_user_id <= 0:
             raise HTTPException(status_code=400, detail="NextMoe 用户 ID 无效")
         taken = await session.execute(
-            select(User).where(
-                User.oauth_provider == "nextmoe",
-                User.oauth_user_id == nextmoe_user_id,
+            select(UserOAuthBinding).where(
+                UserOAuthBinding.provider == "nextmoe",
+                UserOAuthBinding.oauth_user_id == nextmoe_user_id,
             )
         )
         if taken.scalar_one_or_none():
@@ -465,6 +485,15 @@ async def admin_create_user(body: CreateUserRequest,
         oauth_user_id=nextmoe_user_id,
     )
     session.add(user)
+    if nextmoe_user_id is not None:
+        await session.flush()
+        session.add(
+            UserOAuthBinding(
+                user_id=user.id,
+                provider="nextmoe",
+                oauth_user_id=nextmoe_user_id,
+            )
+        )
     try:
         await session.commit()
     except IntegrityError as exc:
@@ -523,28 +552,71 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
     if body.nextmoe_user_id is not None:
         if body.nextmoe_user_id <= 0:
             raise HTTPException(status_code=400, detail="NextMoe 用户 ID 无效")
-        if user.oauth_user_id != body.nextmoe_user_id:
+        binding = (
+            await session.execute(
+                select(UserOAuthBinding).where(
+                    UserOAuthBinding.user_id == user.id,
+                    UserOAuthBinding.provider == "nextmoe",
+                )
+            )
+        ).scalar_one_or_none()
+        if binding is None or binding.oauth_user_id != body.nextmoe_user_id:
             taken = await session.execute(
-                select(User).where(
-                    User.oauth_provider == "nextmoe",
-                    User.oauth_user_id == body.nextmoe_user_id,
-                    User.id != user.id,
+                select(UserOAuthBinding).where(
+                    UserOAuthBinding.provider == "nextmoe",
+                    UserOAuthBinding.oauth_user_id == body.nextmoe_user_id,
+                    UserOAuthBinding.user_id != user.id,
                 )
             )
             if taken.scalar_one_or_none():
                 raise HTTPException(
                     status_code=409, detail="该 NextMoe 用户 ID 已被使用"
                 )
+            if binding is None:
+                binding = UserOAuthBinding(
+                    user_id=user.id, provider="nextmoe"
+                )
+                session.add(binding)
+            binding.oauth_user_id = body.nextmoe_user_id
+            binding.subject = None
+            binding.name = None
+            binding.access_token = None
+            binding.refresh_token = None
+            binding.expires_at = None
             user.oauth_provider = "nextmoe"
             user.oauth_user_id = body.nextmoe_user_id
             user.oauth_subject = None
             user.oauth_name = None
     elif body.clear_nextmoe:
-        if user.role == "admin" and not user.password_set and not body.password:
+        other_binding = (
+            await session.execute(
+                select(UserOAuthBinding).where(
+                    UserOAuthBinding.user_id == user.id,
+                    UserOAuthBinding.provider != "nextmoe",
+                    UserOAuthBinding.subject.isnot(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if (
+            user.role == "admin"
+            and not user.password_set
+            and not body.password
+            and other_binding is None
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="该管理员没有密码，清除 NextMoe 绑定后将无法登录",
             )
+        binding = (
+            await session.execute(
+                select(UserOAuthBinding).where(
+                    UserOAuthBinding.user_id == user.id,
+                    UserOAuthBinding.provider == "nextmoe",
+                )
+            )
+        ).scalar_one_or_none()
+        if binding is not None:
+            await session.delete(binding)
         user.oauth_provider = None
         user.oauth_user_id = None
         user.oauth_subject = None
@@ -584,6 +656,9 @@ async def admin_delete_user(user_id: int, current: User = Depends(require_admin)
         raise HTTPException(status_code=400, detail="不能删除自己的账户")
     await _ensure_not_last_admin(session, user)
     await _revoke_user_sessions(user.id, session)
+    await session.execute(
+        delete(UserOAuthBinding).where(UserOAuthBinding.user_id == user.id)
+    )
     await session.delete(user)
     await session.commit()
     logger.info("User deleted: actor_id=%s user_id=%s", current.id, user_id)
@@ -603,11 +678,20 @@ async def get_my_profile(current: User = Depends(get_current_user),
                           session: AsyncSession = Depends(get_session)):
     from utils.log_identity import account_log_scope
 
+    bindings = (
+        await session.execute(
+            select(UserOAuthBinding).where(UserOAuthBinding.user_id == current.id)
+        )
+    ).scalars().all()
     return {"id": current.id, "username": current.username,
             "role": current.role, "is_admin": current.role == "admin",
             "avatar_path": current.avatar_path,
             "password_set": bool(current.password_set),
-            "oauth_bound": bool(current.oauth_subject),
+            "oauth_bound": bool(bindings) or bool(current.oauth_subject),
+            "oauth_bindings": [
+                {"provider": b.provider, "bound": bool(b.subject)}
+                for b in bindings
+            ],
             "log_scope": account_log_scope(current)}
 
 
@@ -618,12 +702,23 @@ async def get_profile(user_id: int, user: User = Depends(get_current_user),
     profile_user = result.scalar_one_or_none()
     if profile_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    bindings = (
+        await session.execute(
+            select(UserOAuthBinding).where(
+                UserOAuthBinding.user_id == profile_user.id
+            )
+        )
+    ).scalars().all()
     return {"id": profile_user.id, "username": profile_user.username,
             "role": profile_user.role,
             "is_admin": profile_user.role == "admin",
             "avatar_path": profile_user.avatar_path,
             "password_set": bool(profile_user.password_set),
-            "oauth_bound": bool(profile_user.oauth_subject)}
+            "oauth_bound": bool(bindings) or bool(profile_user.oauth_subject),
+            "oauth_bindings": [
+                {"provider": b.provider, "bound": bool(b.subject)}
+                for b in bindings
+            ]}
 
 
 @router.put("/profile/{user_id}")

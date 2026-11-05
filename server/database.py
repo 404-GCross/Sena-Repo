@@ -358,6 +358,48 @@ async def create_tables():
             WHERE oauth_user_id IS NOT NULL
             """
         )
+
+        # ── user_oauth_bindings migration ──────────────────────────────────
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_user_oauth_bindings_provider_subject
+            ON user_oauth_bindings (provider, subject)
+            WHERE subject IS NOT NULL
+            """
+        )
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_user_oauth_bindings_user_provider
+            ON user_oauth_bindings (user_id, provider)
+            """
+        )
+        await conn.exec_driver_sql(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_user_oauth_bindings_provider_user_id
+            ON user_oauth_bindings (provider, oauth_user_id)
+            WHERE oauth_user_id IS NOT NULL
+            """
+        )
+        oauth_schema_version = int(
+            (await conn.exec_driver_sql("PRAGMA user_version")).scalar() or 0
+        )
+        if oauth_schema_version < 2:
+            await conn.exec_driver_sql(
+                """
+                INSERT OR IGNORE INTO user_oauth_bindings
+                    (user_id, provider, subject, name, oauth_user_id, created_at, updated_at)
+                SELECT id,
+                       COALESCE(NULLIF(oauth_provider, ''), 'nextmoe'),
+                       oauth_subject,
+                       oauth_name,
+                       oauth_user_id,
+                       COALESCE(created_at, CURRENT_TIMESTAMP),
+                       COALESCE(created_at, CURRENT_TIMESTAMP)
+                FROM users
+                WHERE oauth_subject IS NOT NULL OR oauth_user_id IS NOT NULL
+                """
+            )
+            await conn.exec_driver_sql("PRAGMA user_version = 2")
         from utils.secrets import encrypt_secret, is_encrypted
 
         source_rows = await conn.exec_driver_sql(

@@ -11,7 +11,7 @@ import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../services/api_client.dart";
-import "../services/nextmoe_token_store.dart";
+import "../services/oauth_token_store.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/obscured.dart";
 import "about_screen.dart";
@@ -345,7 +345,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (confirmed == true && context.mounted) {
       final api = context.read<GameProvider>().api;
-      await NextmoeTokenStore.clear(api);
+      await OAuthTokenStore.clear(api);
+      await OAuthTokenStore.clear(api, provider: "hikarinagi");
       await api.logout();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");

@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime
+from typing import Awaitable, Callable
 
 import httpx
+
+from services.oauth_tokens import OAuthTokenError
 
 from .base import (
     MAX_SCRAPED_TAGS,
@@ -40,17 +43,33 @@ class HikarinagiScraper(BaseScraper):
         client_id: str = "",
         client_secret: str = "",
         scope: str = "catalog:full",
+        access_token: str = "",
+        token_provider: Callable[[bool], Awaitable[str | None]] | None = None,
     ):
         super().__init__(proxy=proxy, client=client)
         self._client_id = client_id
         self._client_secret = client_secret
         self._scope = scope or "catalog:full"
+        self._access_token = access_token
+        self._token_provider = token_provider
+        self._force_token_refresh = False
         self._token = ""
         self._token_expires = 0.0
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
+        if self._token_provider is not None:
+            force = self._force_token_refresh
+            self._force_token_refresh = False
+            token = await self._token_provider(force)
+            if token:
+                self._access_token = token
+                return token
+        if self._access_token:
+            return self._access_token
         if not self._client_id or not self._client_secret:
-            raise RuntimeError("Hikarinagi client_id/client_secret 未配置")
+            raise OAuthTokenError(
+                "Hikarinagi 用户授权或客户端凭据未配置，请先绑定 Hikarinagi 账号"
+            )
 
         now = time.monotonic()
         if self._token and now < self._token_expires:
@@ -104,11 +123,19 @@ class HikarinagiScraper(BaseScraper):
                     headers=headers,
                 )
             except httpx.HTTPStatusError as e:
-                if use_auth and e.response.status_code in (401, 403) and attempt == 0:
-                    self._token = ""
-                    token = await self._ensure_token(client)
-                    headers["Authorization"] = f"Bearer {token}"
-                    continue
+                if use_auth and e.response.status_code in (401, 403):
+                    if attempt == 0:
+                        self._token = ""
+                        if self._token_provider is not None:
+                            self._force_token_refresh = True
+                        else:
+                            self._access_token = ""
+                        token = await self._ensure_token(client)
+                        headers["Authorization"] = f"Bearer {token}"
+                        continue
+                    raise OAuthTokenError(
+                        "Hikarinagi 授权不足或已失效，请重新绑定并授权目录读取"
+                    )
                 raise
             payload = resp.json()
             if not isinstance(payload, dict):
@@ -156,6 +183,8 @@ class HikarinagiScraper(BaseScraper):
                         continue
                     try:
                         detail = await self._get_detail(client, fallback.source_id, fallback)
+                    except OAuthTokenError:
+                        raise
                     except Exception as e:
                         logger.debug(
                             "Hikarinagi detail failed for '%s': %s",
@@ -166,6 +195,8 @@ class HikarinagiScraper(BaseScraper):
                     if detail:
                         results.append(detail)
                 return results
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.warning("Hikarinagi search failed for '%s': %s", name, e)
                 return []
@@ -198,6 +229,8 @@ class HikarinagiScraper(BaseScraper):
                 if not fallback:
                     return None
                 return await self._get_detail(client, fallback.source_id, fallback)
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.warning("Hikarinagi search_best failed for '%s': %s", name, e)
                 return None

@@ -1093,20 +1093,22 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> oauthStart({
+    required String provider,
     required String purpose,
     required String redirectUri,
     bool withAuth = false,
   }) async {
-    final uri = Uri.parse("$baseUrl/api/auth/oauth/start");
-    final resp = await _execute(
+    final body = jsonEncode({
+      "purpose": purpose,
+      "redirect_uri": redirectUri,
+    });
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/$provider/start");
+    var resp = await _execute(
       () => _client
           .post(
             uri,
             headers: _jsonHeaders(withAuth: withAuth),
-            body: jsonEncode({
-              "purpose": purpose,
-              "redirect_uri": redirectUri,
-            }),
+            body: body,
           )
           .timeout(const Duration(seconds: 15)),
       allowRetry: false,
@@ -1114,30 +1116,50 @@ class ApiClient {
       uri: uri,
       label: "oauth start",
     );
+    if (resp.statusCode == 404 && provider == "nextmoe") {
+      final legacy = Uri.parse("$baseUrl/api/auth/oauth/start");
+      resp = await _execute(
+        () => _client
+            .post(
+              legacy,
+              headers: _jsonHeaders(withAuth: withAuth),
+              body: body,
+            )
+            .timeout(const Duration(seconds: 15)),
+        allowRetry: false,
+        method: "POST",
+        uri: legacy,
+        label: "oauth start legacy",
+      );
+    }
     final data = tryDecodeJsonMap(resp.body);
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "无法发起 NextMoe 授权");
+    throw AuthException(
+      data?["detail"]?.toString() ?? "无法发起第三方账号授权",
+    );
   }
 
   Future<Map<String, dynamic>> oauthComplete({
+    required String provider,
     required String requestId,
     required String code,
     required String state,
     bool withAuth = false,
   }) async {
-    final uri = Uri.parse("$baseUrl/api/auth/oauth/complete");
-    final resp = await _execute(
+    final body = jsonEncode({
+      "request_id": requestId,
+      "code": code,
+      "state": state,
+    });
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/$provider/complete");
+    var resp = await _execute(
       () => _client
           .post(
             uri,
             headers: _jsonHeaders(withAuth: withAuth),
-            body: jsonEncode({
-              "request_id": requestId,
-              "code": code,
-              "state": state,
-            }),
+            body: body,
           )
           .timeout(const Duration(seconds: 20)),
       allowRetry: false,
@@ -1145,11 +1167,49 @@ class ApiClient {
       uri: uri,
       label: "oauth complete",
     );
+    if (resp.statusCode == 404 && provider == "nextmoe") {
+      final legacy = Uri.parse("$baseUrl/api/auth/oauth/complete");
+      resp = await _execute(
+        () => _client
+            .post(
+              legacy,
+              headers: _jsonHeaders(withAuth: withAuth),
+              body: body,
+            )
+            .timeout(const Duration(seconds: 20)),
+        allowRetry: false,
+        method: "POST",
+        uri: legacy,
+        label: "oauth complete legacy",
+      );
+    }
     final data = tryDecodeJsonMap(resp.body);
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "NextMoe 授权失败，请重试");
+    throw AuthException(data?["detail"]?.toString() ?? "第三方账号授权失败，请重试");
+  }
+
+  Future<Map<String, dynamic>?> getOauthBindings() async {
+    if (_accessToken == null || _accessToken!.isEmpty) return null;
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/bindings");
+    try {
+      final resp = await _execute(
+        () => _client
+            .get(uri, headers: {"Authorization": "Bearer $_accessToken"})
+            .timeout(const Duration(seconds: 10)),
+        allowRetry: false,
+        method: "GET",
+        uri: uri,
+        label: "oauth bindings",
+      );
+      if (resp.statusCode == 200) {
+        return tryDecodeJsonMap(resp.body);
+      }
+    } catch (e, stackTrace) {
+      LoggerService().warn("oauth bindings lookup failed", e, stackTrace);
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>?> getOauthBinding() async {
@@ -1174,9 +1234,9 @@ class ApiClient {
     return null;
   }
 
-  Future<void> unbindOauth() async {
-    final uri = Uri.parse("$baseUrl/api/auth/oauth/binding");
-    final resp = await _execute(
+  Future<void> unbindOauth({String provider = "nextmoe"}) async {
+    final uri = Uri.parse("$baseUrl/api/auth/oauth/binding/$provider");
+    var resp = await _execute(
       () => _client
           .delete(uri, headers: {"Authorization": "Bearer $_accessToken"})
           .timeout(const Duration(seconds: 10)),
@@ -1185,6 +1245,18 @@ class ApiClient {
       uri: uri,
       label: "oauth unbind",
     );
+    if (resp.statusCode == 404 && provider == "nextmoe") {
+      final legacy = Uri.parse("$baseUrl/api/auth/oauth/binding");
+      resp = await _execute(
+        () => _client
+            .delete(legacy, headers: {"Authorization": "Bearer $_accessToken"})
+            .timeout(const Duration(seconds: 10)),
+        allowRetry: false,
+        method: "DELETE",
+        uri: legacy,
+        label: "oauth unbind legacy",
+      );
+    }
     if (resp.statusCode == 200) return;
     final data = tryDecodeJsonMap(resp.body);
     throw AuthException(data?["detail"]?.toString() ?? "解除绑定失败");

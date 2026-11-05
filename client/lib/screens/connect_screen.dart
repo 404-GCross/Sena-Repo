@@ -12,18 +12,17 @@ import "package:file_picker/file_picker.dart";
 import "../providers/settings_provider.dart";
 import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
-import "../utils/source_icons.dart";
 import "../services/api_response_utils.dart";
 import "../services/api_client.dart";
-import "../services/nextmoe_oauth.dart";
+import "../services/oauth_service.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
-import "../services/notification_service.dart";
 import "../services/logger_service.dart";
 import "../models/log_models.dart";
 import "../widgets/app_shell.dart";
 import "home_screen.dart";
 import "setup_wizard_screen.dart";
+import "beautify_screen.dart";
 
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
@@ -488,8 +487,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
       port: profile.port,
       useHttps: profile.useHttps,
     );
-    final oauthEnabled = await _oauthEnabledFor(api);
-    var oauthBusy = false;
+    final oauthProviders = await _oauthProvidersFor(api);
+    String? oauthBusyProvider;
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -519,31 +518,30 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   obscureText: true,
                   autofocus: true,
                 ),
-                if (oauthEnabled) ...[
-                  const SizedBox(height: 10),
-                  _nextmoeDivider(),
-                  const SizedBox(height: 10),
-                  _nextmoeLoginButton(
-                    busy: oauthBusy,
-                    onPressed: oauthBusy
-                        ? null
-                        : () async {
-                            final outcome = await _runNextmoeAuth(
-                              api,
-                              setBusy: (busy) {
-                                if (ctx.mounted) setD(() => oauthBusy = busy);
-                              },
-                              onError: (message) {
-                                if (ctx.mounted) _toast(message);
-                              },
-                            );
-                            if (!ctx.mounted) return;
-                            if (outcome.kind == NextmoeAuthKind.session) {
-                              Navigator.pop(ctx, outcome.session);
-                            }
-                          },
-                  ),
-                ],
+                _oauthButtons(
+                  providers: oauthProviders,
+                  busyProvider: oauthBusyProvider,
+                  onLogin: (provider) async {
+                    final outcome = await _runOAuth(
+                      api,
+                      provider.key,
+                      setBusy: (busy) {
+                        if (ctx.mounted) {
+                          setD(
+                            () => oauthBusyProvider = busy ? provider.key : null,
+                          );
+                        }
+                      },
+                      onError: (message) {
+                        if (ctx.mounted) _toast(message);
+                      },
+                    );
+                    if (!ctx.mounted) return;
+                    if (outcome.kind == OAuthAuthKind.session) {
+                      Navigator.pop(ctx, outcome.session);
+                    }
+                  },
+                ),
               ],
             ),
           ),
@@ -652,8 +650,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
       port: profile.port,
       useHttps: profile.useHttps,
     );
-    final oauthEnabled = await _oauthEnabledFor(api);
-    var oauthBusy = false;
+    final oauthProviders = await _oauthProvidersFor(api);
+    String? oauthBusyProvider;
 
     final result = await showDialog<bool>(
       context: context,
@@ -701,69 +699,64 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   decoration: const InputDecoration(labelText: "密码（留空不修改）"),
                   obscureText: true,
                 ),
-                if (oauthEnabled) ...[
-                  const SizedBox(height: 10),
-                  _nextmoeDivider(),
-                  const SizedBox(height: 10),
-                  _nextmoeLoginButton(
-                    busy: oauthBusy,
-                    onPressed: oauthBusy
-                        ? null
-                        : () async {
-                            final outcome = await _runNextmoeAuth(
-                              api,
-                              setBusy: (busy) {
-                                if (ctx.mounted) setD(() => oauthBusy = busy);
-                              },
-                              onError: (message) {
-                                if (ctx.mounted) _toast(message);
-                              },
-                            );
-                            if (!ctx.mounted) return;
-                            final session = outcome.session;
-                            if (session == null) return;
-                            final newToken =
-                                session["token"]?.toString() ?? "";
-                            final newUserId = parseProfileUserId(session["id"]);
-                            final newUsername = session["username"]
-                                    ?.toString() ??
-                                userCtrl.text.trim();
-                            final newProfile = UserProfile(
-                              name: nameCtrl.text.trim().isEmpty
-                                  ? profile.name
-                                  : nameCtrl.text.trim(),
-                              host: hostCtrl.text.trim().isEmpty
-                                  ? profile.host
-                                  : hostCtrl.text.trim(),
-                              port: int.tryParse(portCtrl.text.trim()) ?? 11451,
-                              authToken: newToken,
-                              userId: newUserId > 0
-                                  ? newUserId
-                                  : profile.userId,
-                              username: newUsername.isEmpty
-                                  ? profile.username
-                                  : newUsername,
-                              isAdmin: session["is_admin"] == true,
-                              useHttps: useHttps,
-                            );
-                            final ps = ProfileService();
-                            final profiles = await ps.loadProfiles();
-                            final saveIndex = profiles.indexWhere(
-                              (p) => p.name == profile.name,
-                            );
-                            if (saveIndex >= 0) {
-                              profiles[saveIndex] = newProfile;
-                            } else {
-                              profiles.add(newProfile);
-                            }
-                            await ps.saveProfiles(profiles);
-                            await ps.applyProfile(newProfile);
-                            if (!ctx.mounted) return;
-                            Navigator.pop(ctx, true);
-                            _reloadProfiles();
-                          },
-                  ),
-                ],
+                _oauthButtons(
+                  providers: oauthProviders,
+                  busyProvider: oauthBusyProvider,
+                  onLogin: (provider) async {
+                    final outcome = await _runOAuth(
+                      api,
+                      provider.key,
+                      setBusy: (busy) {
+                        if (ctx.mounted) {
+                          setD(
+                            () => oauthBusyProvider = busy ? provider.key : null,
+                          );
+                        }
+                      },
+                      onError: (message) {
+                        if (ctx.mounted) _toast(message);
+                      },
+                    );
+                    if (!ctx.mounted) return;
+                    final session = outcome.session;
+                    if (session == null) return;
+                    final newToken = session["token"]?.toString() ?? "";
+                    final newUserId = parseProfileUserId(session["id"]);
+                    final newUsername =
+                        session["username"]?.toString() ?? userCtrl.text.trim();
+                    final newProfile = UserProfile(
+                      name: nameCtrl.text.trim().isEmpty
+                          ? profile.name
+                          : nameCtrl.text.trim(),
+                      host: hostCtrl.text.trim().isEmpty
+                          ? profile.host
+                          : hostCtrl.text.trim(),
+                      port: int.tryParse(portCtrl.text.trim()) ?? 11451,
+                      authToken: newToken,
+                      userId: newUserId > 0 ? newUserId : profile.userId,
+                      username: newUsername.isEmpty
+                          ? profile.username
+                          : newUsername,
+                      isAdmin: session["is_admin"] == true,
+                      useHttps: useHttps,
+                    );
+                    final ps = ProfileService();
+                    final profiles = await ps.loadProfiles();
+                    final saveIndex = profiles.indexWhere(
+                      (p) => p.name == profile.name,
+                    );
+                    if (saveIndex >= 0) {
+                      profiles[saveIndex] = newProfile;
+                    } else {
+                      profiles.add(newProfile);
+                    }
+                    await ps.saveProfiles(profiles);
+                    await ps.applyProfile(newProfile);
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx, true);
+                    _reloadProfiles();
+                  },
+                ),
               ],
             ),
           ),
@@ -898,6 +891,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
       scrollable: false,
       padding: EdgeInsets.zero,
       actions: [
+        AppActionButton(
+          icon: Icons.palette_outlined,
+          label: "美化",
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const BeautifyScreen()),
+          ),
+        ),
         AppActionButton(
           icon: Icons.settings_outlined,
           label: "本地设置",
@@ -1066,10 +1067,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
-  Widget _nextmoeLoginButton({
+  Widget _oauthLoginButton({
+    required OAuthProviderInfo provider,
     required bool busy,
     required VoidCallback? onPressed,
-    String label = "使用 NextMoe·未萌 账号登录",
   }) {
     return SizedBox(
       width: double.infinity,
@@ -1084,21 +1085,46 @@ class _ConnectScreenState extends State<ConnectScreen> {
             : ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: Image.asset(
-                  nextmoeSourceIcon,
+                  provider.asset,
                   width: 20,
                   height: 20,
                   fit: BoxFit.cover,
                 ),
               ),
         label: Text(
-          busy ? "等待浏览器授权…" : label,
+          busy ? "等待浏览器授权…" : "使用 ${provider.shortLabel} 账号登录",
           style: const TextStyle(fontSize: 13.5),
         ),
       ),
     );
   }
 
-  Widget _nextmoeDivider() {
+  Widget _oauthButtons({
+    required List<OAuthProviderInfo> providers,
+    required String? busyProvider,
+    required void Function(OAuthProviderInfo) onLogin,
+  }) {
+    if (providers.isEmpty) return const SizedBox.shrink();
+    return Column(
+      children: [
+        const SizedBox(height: 10),
+        _oauthDivider(),
+        const SizedBox(height: 10),
+        for (final provider in providers) ...[
+          _oauthLoginButton(
+            provider: provider,
+            busy: busyProvider == provider.key,
+            onPressed: busyProvider == null
+                ? () => onLogin(provider)
+                : null,
+          ),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
+  Widget _oauthDivider() {
     return Row(
       children: [
         Expanded(
@@ -1124,27 +1150,31 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
-  Future<bool> _oauthEnabledFor(ApiClient api) async {
-    final providers = await api.getAuthProviders();
-    final nextmoe = providers?["nextmoe"];
-    return nextmoe is Map && nextmoe["enabled"] == true;
+  Future<List<OAuthProviderInfo>> _oauthProvidersFor(ApiClient api) async {
+    final all = await OAuthService.loadProviders(api);
+    return all.values.where((provider) => provider.enabled).toList();
   }
 
-  /// Runs a NextMoe login flow.
-  Future<NextmoeAuthOutcome> _runNextmoeAuth(
-    ApiClient api, {
+  /// Runs a provider login flow.
+  Future<OAuthOutcome> _runOAuth(
+    ApiClient api,
+    String provider, {
     required void Function(bool busy) setBusy,
     void Function(String message)? onError,
   }) async {
     setBusy(true);
-    final outcome = await NextmoeOAuth.authorize(api, purpose: "login");
+    final outcome = await OAuthService.authorize(
+      api,
+      provider: provider,
+      purpose: "login",
+    );
     setBusy(false);
     switch (outcome.kind) {
-      case NextmoeAuthKind.error:
+      case OAuthAuthKind.error:
         if (!outcome.cancelled) onError?.call(outcome.error);
         break;
-      case NextmoeAuthKind.session:
-      case NextmoeAuthKind.bound:
+      case OAuthAuthKind.session:
+      case OAuthAuthKind.bound:
         break;
     }
     return outcome;
@@ -1160,24 +1190,31 @@ class _ConnectScreenState extends State<ConnectScreen> {
     var loading = false;
     var error = "";
     var loginError = "";
-    var oauthBusy = false;
-    var oauthEnabled = false;
+    String? oauthBusyProvider;
+    var oauthProviders = <OAuthProviderInfo>[];
     ApiClient? api;
 
-    Future<void> startNextmoe(BuildContext dialogCtx, StateSetter setD) async {
+    Future<void> startOAuth(
+      BuildContext dialogCtx,
+      StateSetter setD,
+      OAuthProviderInfo provider,
+    ) async {
       final client = api;
-      if (client == null || oauthBusy) return;
-      final outcome = await _runNextmoeAuth(
+      if (client == null || oauthBusyProvider != null) return;
+      final outcome = await _runOAuth(
         client,
+        provider.key,
         setBusy: (busy) {
-          if (dialogCtx.mounted) setD(() => oauthBusy = busy);
+          if (dialogCtx.mounted) {
+            setD(() => oauthBusyProvider = busy ? provider.key : null);
+          }
         },
         onError: (message) {
           if (dialogCtx.mounted) setD(() => loginError = message);
         },
       );
       if (!dialogCtx.mounted) return;
-      if (outcome.kind == NextmoeAuthKind.session) {
+      if (outcome.kind == OAuthAuthKind.session) {
         Navigator.pop(dialogCtx);
         final username = outcome.session?["username"]?.toString() ?? "";
         await ProfileService().saveCurrentAsProfile(username);
@@ -1277,19 +1314,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         ),
                       ),
                     ),
-                  if (step == 1 && oauthEnabled) ...[
-                    const SizedBox(height: 4),
-                    _nextmoeDivider(),
-                    const SizedBox(height: 12),
-                    _nextmoeLoginButton(
-                      busy: oauthBusy,
-                      label: "使用 NextMoe·未萌 账号登录",
-                      onPressed:
-                          oauthBusy ? null : () => startNextmoe(ctx, setD),
+                  if (step == 1)
+                    _oauthButtons(
+                      providers: oauthProviders,
+                      busyProvider: oauthBusyProvider,
+                      onLogin: (provider) => startOAuth(ctx, setD, provider),
                     ),
+                  if (step == 1 && oauthProviders.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
-                      "需先在「设置 → 用户管理」中添加你的 NextMoe 用户 ID",
+                      "需使用管理员已创建并启用的 Sena 账号；"
+                      "Hikarinagi 首次使用请先在个人信息中绑定。",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 11.5,
@@ -1391,11 +1426,21 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         });
 
                         final providers = await api!.getAuthProviders();
-                        final nextmoe = providers?["nextmoe"];
+                        final loaded = providers == null
+                            ? <OAuthProviderInfo>[]
+                            : providers.entries
+                                .where((entry) => entry.value is Map)
+                                .map(
+                                  (entry) => OAuthProviderInfo.fromMap(
+                                    entry.key,
+                                    entry.value as Map,
+                                  ),
+                                )
+                                .where((provider) => provider.enabled)
+                                .toList();
                         if (ctx.mounted) {
                           setD(() {
-                            oauthEnabled =
-                                nextmoe is Map && nextmoe["enabled"] == true;
+                            oauthProviders = loaded;
                           });
                         }
                       } else {

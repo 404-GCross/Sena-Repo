@@ -10,7 +10,6 @@ import "dart:convert";
 import "dart:io" show Platform;
 
 import "../providers/game_provider.dart";
-import "../providers/theme_provider.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
@@ -3717,22 +3716,53 @@ class _UserManagePageState extends State<_UserManagePage> {
     }
   }
 
-  Widget _nextmoeChip({
+  List<Widget> _oauthChips(Map<dynamic, dynamic> user) {
+    final bindings = user["oauth_bindings"];
+    if (bindings is List && bindings.isNotEmpty) {
+      return [
+        for (final binding in bindings)
+          if (binding is Map)
+            _providerChip(
+              provider: binding["provider"]?.toString() ?? "nextmoe",
+              name: binding["name"]?.toString() ?? "",
+              userId: binding["user_id"]?.toString() ?? "",
+              pending: binding["bound"] != true,
+            ),
+      ];
+    }
+    if (user["oauth_user_id"] != null) {
+      return [
+        _providerChip(
+          provider: "nextmoe",
+          name: "",
+          userId: user["oauth_user_id"].toString(),
+          pending: true,
+        ),
+      ];
+    }
+    return const [];
+  }
+
+  Widget _providerChip({
+    required String provider,
     required String name,
     required String userId,
     bool pending = false,
   }) {
+    final isHikarinagi = provider == "hikarinagi";
+    final label = isHikarinagi ? "Hikarinagi" : "未萌";
+    final color = isHikarinagi ? Colors.pink : Colors.indigo;
     final displayName = name.length > 12 ? "${name.substring(0, 12)}…" : name;
     final idLabel = userId.isEmpty ? "" : " (#$userId)";
-    final label = pending
-        ? "未萌 · 待绑定$idLabel"
-        : "未萌 · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
+    final text = pending
+        ? "$label · 待绑定$idLabel"
+        : "$label · ${displayName.isEmpty ? "已绑定" : displayName}$idLabel";
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.indigo.withValues(alpha: 0.10),
+        color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3740,7 +3770,7 @@ class _UserManagePageState extends State<_UserManagePage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(3),
             child: Image.asset(
-              nextmoeSourceIcon,
+              sourceIconAsset(provider) ?? nextmoeSourceIcon,
               width: 12,
               height: 12,
               fit: BoxFit.cover,
@@ -3748,10 +3778,10 @@ class _UserManagePageState extends State<_UserManagePage> {
           ),
           const SizedBox(width: 5),
           Text(
-            label,
-            style: const TextStyle(
+            text,
+            style: TextStyle(
               fontSize: 11,
-              color: Colors.indigo,
+              color: color,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -3977,18 +4007,7 @@ class _UserManagePageState extends State<_UserManagePage> {
                                 Wrap(spacing: 6, runSpacing: 6, children: [
                                   _roleChip(role),
                                   _statusChip(status),
-                                  if (u["oauth_bound"] == true)
-                                    _nextmoeChip(
-                                      name: u["oauth_name"]?.toString() ?? "",
-                                      userId:
-                                          u["oauth_user_id"]?.toString() ?? "",
-                                    )
-                                  else if (u["oauth_user_id"] != null)
-                                    _nextmoeChip(
-                                      name: "",
-                                      userId: u["oauth_user_id"].toString(),
-                                      pending: true,
-                                    ),
+                                  ..._oauthChips(u),
                                   if (u["password_set"] == false)
                                     _plainChip("无本地密码", Colors.orange),
                                 ]),

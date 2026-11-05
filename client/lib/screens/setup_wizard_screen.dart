@@ -11,7 +11,7 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/log_models.dart";
 import "../services/api_client.dart";
-import "../services/nextmoe_oauth.dart";
+import "../services/oauth_service.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
@@ -63,6 +63,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   String _oauthRequestId = "";
   String _oauthName = "";
   String _oauthUserId = "";
+  String _oauthProviderLabel = "";
+  List<OAuthProviderInfo> _oauthProviders = const [];
+  OAuthProviderInfo? _selectedOauthProvider;
   bool _oauthBusy = false;
 
   final _userCtrl = TextEditingController(text: "admin");
@@ -92,6 +95,22 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     "\u76ee\u5f55\u4e0e\u626b\u63cf",
     "\u522e\u524a\u6e90",
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOauthProviders();
+  }
+
+  Future<void> _loadOauthProviders() async {
+    final all = await OAuthService.loadProviders(widget.api);
+    final enabled = all.values.where((provider) => provider.enabled).toList();
+    if (!mounted) return;
+    setState(() {
+      _oauthProviders = enabled;
+      _selectedOauthProvider = enabled.isEmpty ? null : enabled.first;
+    });
+  }
 
   @override
   void dispose() {
@@ -838,9 +857,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           rows: {
             "用户": _userCtrl.text.trim().isEmpty ? "未填写" : _userCtrl.text.trim(),
             "密码": _passCtrl.text.isEmpty ? "未填写" : "已填写",
-            "NextMoe": _oauthRequestId.isEmpty
+            "第三方账号": _oauthRequestId.isEmpty
                 ? "未绑定（可选）"
-                : "已绑定${_oauthName.isEmpty ? "" : "：$_oauthName"}",
+                : "${_oauthProviderLabel.isEmpty ? "已绑定" : _oauthProviderLabel}"
+                    "${_oauthName.isEmpty ? "" : "：$_oauthName"}",
             "权限": "管理员",
           },
         ),
@@ -849,11 +869,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     return _twoColumn(primary, side, compact: compact);
   }
 
-  Widget _nextmoeMark() {
+  Widget _oauthMark(String provider) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(9),
       child: Image.asset(
-        nextmoeSourceIcon,
+        sourceIconAsset(provider) ?? nextmoeSourceIcon,
         width: 34,
         height: 34,
         fit: BoxFit.cover,
@@ -863,26 +883,51 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Widget _oauthBindingCard() {
     final bound = _oauthRequestId.isNotEmpty;
+    final selected = _selectedOauthProvider;
     final subtitle = bound
-        ? "${_oauthName.isEmpty ? "已绑定 NextMoe 账号" : _oauthName}"
-            "${_oauthUserId.isEmpty ? "" : " · NextMoe ID $_oauthUserId"}"
-        : "绑定后可用 NextMoe 账号免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
+        ? "${_oauthProviderLabel.isEmpty ? "已绑定第三方账号" : _oauthProviderLabel}"
+            "${_oauthName.isEmpty ? "" : "：$_oauthName"}"
+            "${_oauthUserId.isEmpty ? "" : " · ID $_oauthUserId"}"
+        : "绑定后可用第三方账号免密登录；不绑定也可完成初始化，稍后可在「设置 → 个人信息」绑定。";
     return _setupCard(
-      title: "NextMoe 账号（可选）",
+      title: "第三方账号（可选）",
       icon: Icons.link_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (!bound && _oauthProviders.length > 1) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _oauthProviders
+                  .map(
+                    (provider) => ChoiceChip(
+                      avatar: CircleAvatar(
+                        backgroundColor: Colors.transparent,
+                        backgroundImage: AssetImage(provider.asset),
+                      ),
+                      label: Text(provider.shortLabel),
+                      selected: selected?.key == provider.key,
+                      onSelected: (_) =>
+                          setState(() => _selectedOauthProvider = provider),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: AppGap.md),
+          ],
           Row(
             children: [
-              _nextmoeMark(),
+              if (selected != null) _oauthMark(selected.key),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      bound ? "已绑定" : "未绑定",
+                      bound
+                          ? "已绑定"
+                          : selected?.shortLabel ?? "未启用第三方登录",
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -912,6 +957,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         _oauthRequestId = "";
                         _oauthName = "";
                         _oauthUserId = "";
+                        _oauthProviderLabel = "";
                       }),
               icon: const Icon(Icons.link_off, size: 18),
               label: const Text("解除绑定"),
@@ -922,7 +968,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             )
           else
             FilledButton.icon(
-              onPressed: _oauthBusy ? null : _bindOauth,
+              onPressed: _oauthBusy || selected == null
+                  ? null
+                  : _bindOauth,
               icon: _oauthBusy
                   ? const SizedBox(
                       width: 16,
@@ -933,7 +981,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       ),
                     )
                   : const Icon(Icons.link, size: 18),
-              label: Text(_oauthBusy ? "等待浏览器授权…" : "绑定 NextMoe 账号"),
+              label: Text(
+                _oauthBusy
+                    ? "等待浏览器授权…"
+                    : "绑定 ${selected?.shortLabel ?? "第三方"} 账号",
+              ),
             ),
         ],
       ),
@@ -942,26 +994,33 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
   Future<void> _bindOauth() async {
     if (_oauthBusy) return;
+    final provider = _selectedOauthProvider;
+    if (provider == null) return;
     setState(() {
       _oauthBusy = true;
       _error = null;
     });
-    final outcome = await NextmoeOAuth.authorize(widget.api, purpose: "setup");
+    final outcome = await OAuthService.authorize(
+      widget.api,
+      provider: provider.key,
+      purpose: "setup",
+    );
     if (!mounted) return;
     setState(() => _oauthBusy = false);
     switch (outcome.kind) {
-      case NextmoeAuthKind.bound:
+      case OAuthAuthKind.bound:
         setState(() {
           _oauthRequestId = outcome.requestId;
           _oauthName = outcome.boundName;
           _oauthUserId = outcome.boundUserId;
+          _oauthProviderLabel = provider.shortLabel;
         });
         return;
-      case NextmoeAuthKind.error:
+      case OAuthAuthKind.error:
         if (outcome.cancelled) return;
         setState(() => _error = outcome.error);
         return;
-      case NextmoeAuthKind.session:
+      case OAuthAuthKind.session:
         return;
     }
   }

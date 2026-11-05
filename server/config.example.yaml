@@ -63,13 +63,23 @@ scrapers:
   # enabled_scrapers:
   #   - nextmoe
 
-# NextMoe·未萌 OAuth login (enabled by default).
-# The default client_id is the official Sena-Repo public client
-# (loopback callback http://127.0.0.1/callback, PKCE, no client_secret).
-# Self-hosters can keep it or register their own public client.
-# Set enabled: false to hide the NextMoe login entry entirely.
+# Third-party account login and binding (public clients + PKCE, no secret).
+# Legacy top-level keys (`enabled`, `issuer`, `client_id`, `scopes`) configure
+# NextMoe and remain supported. `providers` overrides either provider.
 oauth:
   enabled: true
   issuer: "https://account.nextmoe.com/api/v1"
   client_id: "5b726fdccdb94ded61628f503e072ac5"
   scopes: "openid profile catalog:read"
+  providers:
+    nextmoe:
+      enabled: true
+    hikarinagi:
+      enabled: true
+      issuer: "https://id.hikarinagi.org/oidc"
+      client_id: "hkn_OhbUMMUl1xZODdiz"
+      scopes: "openid profile offline_access catalog:full"
+      # Must match the Hikarinagi developer console exactly.
+      redirect_uri: "http://127.0.0.1:11453/callback"
+      prompt: "consent"
+      numeric_user_id: false

@@ -21,7 +21,8 @@ from config import (
 from database import get_session
 from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
-from models.user import User, hash_password
+from models.user import User, UserOAuthBinding, hash_password
+from services.oauth_tokens import save_binding_tokens
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from utils.log_redaction import redact_exception
 from services.scanner import normalize_game_depth, structure_from_depth
@@ -206,23 +207,44 @@ async def initialize_setup(
     pw_hash, salt = hash_password(body.admin_password)
     user = User(username=body.admin_username, password_hash=pw_hash, salt=salt, role="admin", is_admin=True)
     session.add(user)
+    await session.flush()
 
     if body.oauth_request_id:
-        from api.oauth import PROVIDER, consume_setup_binding
+        from api.oauth import consume_setup_binding
 
-        binding = consume_setup_binding(body.oauth_request_id)
-        if binding is None:
+        binding_payload = consume_setup_binding(body.oauth_request_id)
+        if binding_payload is None:
             logger.warning("Setup OAuth binding expired, continuing without it")
         else:
-            subject, oauth_name, oauth_user_id = binding
+            provider_key = str(binding_payload.get("provider") or "")
+            subject = str(binding_payload.get("subject") or "")
+            oauth_name = str(binding_payload.get("name") or "")
+            oauth_user_id = binding_payload.get("user_id")
             existing_binding = await session.execute(
-                select(User).where(User.oauth_subject == subject)
+                select(UserOAuthBinding).where(
+                    UserOAuthBinding.provider == provider_key,
+                    UserOAuthBinding.subject == subject,
+                )
             )
-            if existing_binding.scalar_one_or_none() is None:
-                user.oauth_provider = PROVIDER
-                user.oauth_subject = subject
-                user.oauth_name = oauth_name
-                user.oauth_user_id = oauth_user_id
+            if provider_key and subject and existing_binding.scalar_one_or_none() is None:
+                binding = UserOAuthBinding(
+                    user_id=user.id,
+                    provider=provider_key,
+                    subject=subject,
+                    name=oauth_name,
+                    oauth_user_id=oauth_user_id,
+                )
+                session.add(binding)
+                save_binding_tokens(
+                    binding,
+                    binding_payload.get("tokens") or {},
+                    provider_key=provider_key,
+                )
+                if provider_key == "nextmoe":
+                    user.oauth_provider = provider_key
+                    user.oauth_subject = subject
+                    user.oauth_name = oauth_name
+                    user.oauth_user_id = oauth_user_id
             else:
                 logger.warning("Setup OAuth subject already bound, skipping")
 

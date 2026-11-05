@@ -7,7 +7,7 @@ import "dart:math" as math;
 import "api_client.dart";
 import "logged_http.dart" as http;
 import "logger_service.dart";
-import "nextmoe_token_store.dart";
+import "oauth_token_store.dart";
 
 /// Raised when a NextMoe-backed scrape needs the user to log in again.
 class NextmoeAuthRequiredException implements Exception {
@@ -544,7 +544,7 @@ class ScrapeService {
   ) async {
     final keyword = query.trim();
     if (keyword.isEmpty) return const [];
-    final token = await NextmoeTokenStore.getValidAccessToken(api);
+    final token = await OAuthTokenStore.getValidAccessToken(api);
     if (token == null || token.isEmpty) {
       throw NextmoeAuthRequiredException("请先使用 NextMoe 登录");
     }
@@ -586,7 +586,7 @@ class ScrapeService {
   }) async {
     final id = workId.trim();
     if (id.isEmpty) return null;
-    final token = await NextmoeTokenStore.getValidAccessToken(api);
+    final token = await OAuthTokenStore.getValidAccessToken(api);
     if (token == null || token.isEmpty) {
       throw NextmoeAuthRequiredException("请先使用 NextMoe 登录");
     }
@@ -642,7 +642,7 @@ class ScrapeService {
     ApiClient api,
   ) async {
     if (statusCode != 401 && statusCode != 403) return;
-    await NextmoeTokenStore.clear(api);
+    await OAuthTokenStore.clear(api);
     throw NextmoeAuthRequiredException(
       statusCode == 403
           ? "需要重新使用 NextMoe 登录以授权目录读取"

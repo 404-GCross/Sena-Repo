@@ -51,7 +51,7 @@ from models.game import (
 from models.ignore_list import IgnoreList
 from models.root_directory import RootDirectory
 from models.tag import Tag
-from models.user import User, UserSession
+from models.user import User, UserOAuthBinding, UserSession
 from services.file_source import canonical_source_path
 from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
 from utils.process_lock import process_lock, scan_lock_path
@@ -368,6 +368,12 @@ async def _export_steam_patch(session, config) -> dict[str, Any]:
 
 async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
     users = list((await session.execute(select(User).order_by(User.id))).scalars())
+    binding_rows = list(
+        (await session.execute(select(UserOAuthBinding))).scalars()
+    )
+    bindings_by_user: dict[int, list[UserOAuthBinding]] = {}
+    for binding in binding_rows:
+        bindings_by_user.setdefault(binding.user_id, []).append(binding)
     return {
         "users": [
             {
@@ -383,6 +389,15 @@ async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
                 "oauth_subject": user.oauth_subject,
                 "oauth_name": user.oauth_name,
                 "oauth_user_id": user.oauth_user_id,
+                "oauth_bindings": [
+                    {
+                        "provider": binding.provider,
+                        "subject": binding.subject,
+                        "name": binding.name,
+                        "user_id": binding.oauth_user_id,
+                    }
+                    for binding in bindings_by_user.get(user.id, [])
+                ],
                 "password_set": bool(user.password_set),
             }
             for user in users
@@ -913,6 +928,20 @@ def normalise_payload(data: dict[str, Any]) -> dict[str, Any]:
         avatar = entry.get("avatar")
         if avatar and avatar not in media["avatars"]:
             fail(f"备份结构不正确: 账号 {entry.get('username')} 的头像不在媒体清单中", 3)
+        raw_bindings = entry.get("oauth_bindings")
+        if raw_bindings is not None:
+            for binding in _expect_list(
+                raw_bindings, "accounts.users[].oauth_bindings"
+            ):
+                binding = _expect_dict(
+                    binding, "accounts.users[].oauth_bindings[]"
+                )
+                provider_key = str(binding.get("provider") or "").strip()
+                if provider_key not in {"nextmoe", "hikarinagi"}:
+                    fail(
+                        f"备份结构不正确: 账号 {entry.get('username')} 的第三方提供方无效",
+                        3,
+                    )
 
     rules = _expect_list(steam_patch.get("rules") or [], "steam_patch.rules")
     for entry in rules:
@@ -1476,6 +1505,96 @@ async def import_patch_roots(
     return stats, notes
 
 
+async def _restore_user_bindings(
+    session,
+    user: User,
+    entry: dict[str, Any],
+    stats: dict[str, int],
+    notes: list[str],
+) -> None:
+    raw_bindings = entry.get("oauth_bindings")
+    bindings: list[dict[str, Any]] = []
+    if isinstance(raw_bindings, list):
+        bindings = [item for item in raw_bindings if isinstance(item, dict)]
+    if not bindings:
+        provider = str(entry.get("oauth_provider") or "").strip()
+        subject = entry.get("oauth_subject")
+        oauth_user_id = entry.get("oauth_user_id")
+        if provider and (subject or oauth_user_id is not None):
+            bindings = [
+                {
+                    "provider": provider,
+                    "subject": subject,
+                    "name": entry.get("oauth_name"),
+                    "user_id": oauth_user_id,
+                }
+            ]
+    for item in bindings:
+        provider = str(item.get("provider") or "").strip()
+        if not provider:
+            continue
+        subject = str(item.get("subject") or "").strip() or None
+        name = str(item.get("name") or "").strip() or None
+        oauth_user_id = item.get("user_id")
+        try:
+            oauth_user_id = int(oauth_user_id) if oauth_user_id is not None else None
+        except (TypeError, ValueError):
+            oauth_user_id = None
+        if subject:
+            taken = (
+                await session.execute(
+                    select(UserOAuthBinding).where(
+                        UserOAuthBinding.provider == provider,
+                        UserOAuthBinding.subject == subject,
+                        UserOAuthBinding.user_id != user.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if taken is not None:
+                notes.append(
+                    f"{provider} 账号已绑定其他用户，已跳过 {user.username} 的该绑定"
+                )
+                stats["users_skipped"] += 1
+                continue
+        if oauth_user_id is not None:
+            taken_id = (
+                await session.execute(
+                    select(UserOAuthBinding).where(
+                        UserOAuthBinding.provider == provider,
+                        UserOAuthBinding.oauth_user_id == oauth_user_id,
+                        UserOAuthBinding.user_id != user.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if taken_id is not None:
+                notes.append(
+                    f"{provider} 用户 ID 已被其他账号占用，已跳过 {user.username} 的该绑定"
+                )
+                stats["users_skipped"] += 1
+                continue
+        binding = (
+            await session.execute(
+                select(UserOAuthBinding).where(
+                    UserOAuthBinding.user_id == user.id,
+                    UserOAuthBinding.provider == provider,
+                )
+            )
+        ).scalar_one_or_none()
+        if binding is None:
+            binding = UserOAuthBinding(user_id=user.id, provider=provider)
+            session.add(binding)
+        elif binding.subject != subject or binding.oauth_user_id != oauth_user_id:
+            binding.access_token = None
+            binding.refresh_token = None
+            binding.expires_at = None
+            binding.scope = None
+        binding.subject = subject
+        binding.name = name
+        binding.oauth_user_id = oauth_user_id
+    if bindings:
+        await session.flush()
+
+
 async def import_accounts(
     config,
     session,
@@ -1525,6 +1644,7 @@ async def import_accounts(
                 user.created_at = created_at
             session.add(user)
             await session.flush()
+            await _restore_user_bindings(session, user, entry, stats, notes)
             existing[username] = user
             stats["users_new"] += 1
             continue
@@ -1532,6 +1652,7 @@ async def import_accounts(
         password_changed = user.password_hash != fields["password_hash"]
         for field_name, value in fields.items():
             setattr(user, field_name, value)
+        await _restore_user_bindings(session, user, entry, stats, notes)
         stats["users_updated"] += 1
         if password_changed:
             revoked = await session.execute(
@@ -1549,14 +1670,27 @@ async def _ensure_admin(session) -> None:
     )
     if not admins:
         fail("恢复后没有任何管理员账号，已取消本次恢复", 4)
+    bound_user_ids = set(
+        (
+            await session.execute(
+                select(UserOAuthBinding.user_id).where(
+                    UserOAuthBinding.subject.isnot(None)
+                )
+            )
+        ).scalars()
+    )
     usable = any(
         admin.status == "active"
-        and ((admin.password_hash or "").strip() or admin.oauth_subject)
+        and (
+            (admin.password_hash or "").strip()
+            or admin.oauth_subject
+            or admin.id in bound_user_ids
+        )
         for admin in admins
     )
     if not usable:
         fail(
-            "恢复后没有可用的管理员账号（需要启用状态，并设置密码或绑定 NextMoe），"
+            "恢复后没有可用的管理员账号（需要启用状态，并设置密码或绑定第三方账号），"
             "已取消本次恢复",
             4,
         )
@@ -1882,6 +2016,7 @@ async def _clear_selected(
         await session.execute(delete(RootDirectory))
         if wipe_accounts:
             await session.execute(delete(UserSession))
+            await session.execute(delete(UserOAuthBinding))
             await session.execute(delete(User))
     await session.flush()
 

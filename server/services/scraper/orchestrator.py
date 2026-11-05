@@ -22,6 +22,7 @@ from config import Config, normalize_scraper_config
 from models.game import Game, GameTag
 from models.scrape_job import JobStatus, ScrapeJob
 from models.tag import Tag
+from services.oauth_tokens import OAuthTokenError
 
 from .base import BaseScraper, ScrapedTag, ScraperResult, build_alias_value, clean_title
 from .vndb_kana import VndbKanaScraper, VndbTitlesScraper
@@ -168,19 +169,28 @@ async def _is_public_http_url(url: str) -> bool:
     return True
 
 
-def _build_scrapers(config: Config) -> list[BaseScraper]:
+def _build_scrapers(
+    config: Config, *, hikarinagi_user_id: int | None = None
+) -> list[BaseScraper]:
     """Build enabled scrapers in the configured priority order."""
     from config import reload_persisted_scraper_config
+    from services.oauth_tokens import token_provider_for_user
 
     reload_persisted_scraper_config(config)
     s = config.scrapers
     normalize_scraper_config(s)
+    hikarinagi_token_provider = (
+        token_provider_for_user(hikarinagi_user_id)
+        if hikarinagi_user_id is not None
+        else None
+    )
     builders = {
         "hikarinagi": lambda: HikarinagiScraper(
             proxy=config.proxy,
             client_id=s.hikarinagi_client_id,
             client_secret=s.hikarinagi_client_secret,
             scope=s.hikarinagi_scope,
+            token_provider=hikarinagi_token_provider,
         ),
         "vndb_kana": lambda: VndbKanaScraper(proxy=config.proxy),
         "bangumi": lambda: BangumiScraper(proxy=config.proxy, token=s.bangumi_token),
@@ -502,6 +512,8 @@ async def scrape_single_game(
                 last_error=message,
             )
             return None
+        except OAuthTokenError:
+            raise
         except Exception as exc:
             message = f"{scraper.source_name} {context} 查询失败：{_exception_summary(exc)}"
             logger.warning(
@@ -550,6 +562,8 @@ async def scrape_single_game(
                 result = await search_best(scraper, game.vndb_id, "VNDB ID")
                 if result:
                     await handle_result(scraper, result)
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.error("Scraper %s error for VNDB ID '%s': %s", scraper.source_name, game.vndb_id, redact_exception(e))
 
@@ -562,6 +576,8 @@ async def scrape_single_game(
                 result = await search_best(scraper, game.bangumi_id, "Bangumi ID")
                 if result:
                     await handle_result(scraper, result)
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.error("Scraper %s error for Bangumi ID '%s': %s", scraper.source_name, game.bangumi_id, redact_exception(e))
 
@@ -578,6 +594,8 @@ async def scrape_single_game(
                 )
                 if result:
                     await handle_result(scraper, result)
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.error(
                     "Scraper %s error for Hikarinagi ID '%s': %s",
@@ -602,6 +620,8 @@ async def scrape_single_game(
                 )
                 if result:
                     await handle_result(scraper, result)
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.error(
                     "Scraper nextmoe error for refs '%s': %s",
@@ -618,6 +638,8 @@ async def scrape_single_game(
                 result = await search_best(scraper, query, "query")
                 if result:
                     await handle_result(scraper, result)
+            except OAuthTokenError:
+                raise
             except Exception as e:
                 logger.error("Scraper %s error for '%s': %s", scraper.source_name, query, redact_exception(e))
 
@@ -855,6 +877,7 @@ async def run_batch_scrape(
     job: ScrapeJob,
     sources: list[str] | None = None,
     mode: str = "missing",
+    hikarinagi_user_id: int | None = None,
 ) -> dict:
     """Run batch scraping for specified games (or all without covers).
 
@@ -949,7 +972,9 @@ async def run_batch_scrape(
     job.started_at = datetime.utcnow()
     await session.commit()
 
-    scrapers = _build_scrapers(config)
+    scrapers = _build_scrapers(
+        config, hikarinagi_user_id=hikarinagi_user_id
+    )
     if sources:
         source_set = {str(source) for source in sources if str(source) in _VALID_SOURCES}
         if "vndb_kana" in source_set:
@@ -1050,6 +1075,29 @@ async def run_batch_scrape(
                         stage="game_timeout",
                         last_error=message,
                     )
+                except OAuthTokenError as e:
+                    await session.rollback()
+                    job = await session.merge(job)
+                    message = str(e)
+                    logger.error(
+                        "Batch scrape stopped for authorization: %s", message
+                    )
+                    await _update_job_progress(
+                        session,
+                        job,
+                        game=game,
+                        processed_games=processed,
+                        successful_games=successful,
+                        completed_games=processed,
+                        failed_games=failed,
+                        source=None,
+                        query=None,
+                        stage="authorization_required",
+                        status=JobStatus.FAILED,
+                        last_error=message,
+                        log=(job.log or "") + f" [授权失效] {message}",
+                    )
+                    break
                 except Exception as e:
                     await session.rollback()
                     job = await session.merge(job)

@@ -6,7 +6,15 @@ import hashlib
 from datetime import datetime
 
 import bcrypt
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 
 from database import Base
 
@@ -44,6 +52,35 @@ class User(Base):
     oauth_user_id = Column(Integer, nullable=True)
     password_set = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserOAuthBinding(Base):
+    __tablename__ = "user_oauth_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "provider",
+            name="uq_user_oauth_bindings_user_provider",
+        ),
+        UniqueConstraint(
+            "provider",
+            "subject",
+            name="uq_user_oauth_bindings_provider_subject",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    provider = Column(String(32), nullable=False)
+    subject = Column(String(128), nullable=True)
+    name = Column(String(128), nullable=True)
+    oauth_user_id = Column(Integer, nullable=True)
+    access_token = Column(String(4096), nullable=True)
+    refresh_token = Column(String(4096), nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    scope = Column(String(256), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class UserSession(Base):

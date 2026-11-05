@@ -88,6 +88,24 @@ def _dataclass_kwargs(cls, data: dict | None) -> dict:
     return {key: value for key, value in data.items() if key in valid_fields}
 
 
+def _parse_oauth_providers(value) -> dict[str, "OAuthProviderConfig"]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, OAuthProviderConfig] = {}
+    for key, item in value.items():
+        if not isinstance(item, dict):
+            continue
+        kwargs = _dataclass_kwargs(OAuthProviderConfig, item)
+        if "enabled" in kwargs:
+            kwargs["enabled"] = _parse_bool(kwargs["enabled"], True)
+        if "numeric_user_id" in kwargs:
+            kwargs["numeric_user_id"] = _parse_bool(
+                kwargs["numeric_user_id"], True
+            )
+        result[str(key).strip().lower()] = OAuthProviderConfig(**kwargs)
+    return result
+
+
 @dataclass
 class ServerConfig:
     host: str = "0.0.0.0"
@@ -119,11 +137,31 @@ class ScraperConfig:
 
 
 @dataclass
+class OAuthProviderConfig:
+    enabled: bool | None = None
+    name: str = ""
+    issuer: str = ""
+    client_id: str = ""
+    scopes: str = ""
+    authorize_path: str = ""
+    token_path: str = ""
+    userinfo_path: str = ""
+    redirect_uri: str = ""
+    prompt: str = ""
+    numeric_user_id: bool | None = None
+
+
+@dataclass
 class OAuthConfig:
     enabled: bool = True
     issuer: str = "https://account.nextmoe.com/api/v1"
     client_id: str = "5b726fdccdb94ded61628f503e072ac5"
     scopes: str = "openid profile catalog:read"
+    hikarinagi_enabled: bool = True
+    hikarinagi_issuer: str = "https://id.hikarinagi.org/oidc"
+    hikarinagi_client_id: str = "hkn_OhbUMMUl1xZODdiz"
+    hikarinagi_scopes: str = "openid profile offline_access catalog:full"
+    providers: dict[str, OAuthProviderConfig] = field(default_factory=dict)
 
 
 @dataclass
@@ -291,8 +329,12 @@ def load_config(config_path: str | None = None) -> Config:
                 **_dataclass_kwargs(ScraperConfig, data["scrapers"])
             )
         if "oauth" in data:
+            oauth_data = data["oauth"]
             config.oauth = OAuthConfig(
-                **_dataclass_kwargs(OAuthConfig, data["oauth"])
+                **_dataclass_kwargs(OAuthConfig, oauth_data)
+            )
+            config.oauth.providers = _parse_oauth_providers(
+                oauth_data.get("providers")
             )
 
     # 2. Env var overrides
@@ -338,6 +380,65 @@ def load_config(config_path: str | None = None) -> Config:
         config.oauth.client_id = os.environ["SENA_OAUTH_CLIENT_ID"].strip()
     if os.environ.get("SENA_OAUTH_SCOPES"):
         config.oauth.scopes = os.environ["SENA_OAUTH_SCOPES"].strip()
+    if os.environ.get("SENA_OAUTH_HIKARINAGI_ENABLED"):
+        config.oauth.hikarinagi_enabled = _parse_bool(
+            os.environ["SENA_OAUTH_HIKARINAGI_ENABLED"], False
+        )
+    if os.environ.get("SENA_OAUTH_HIKARINAGI_ISSUER"):
+        config.oauth.hikarinagi_issuer = os.environ[
+            "SENA_OAUTH_HIKARINAGI_ISSUER"
+        ].strip()
+    if os.environ.get("SENA_OAUTH_HIKARINAGI_CLIENT_ID"):
+        config.oauth.hikarinagi_client_id = os.environ[
+            "SENA_OAUTH_HIKARINAGI_CLIENT_ID"
+        ].strip()
+    if os.environ.get("SENA_OAUTH_HIKARINAGI_SCOPES"):
+        config.oauth.hikarinagi_scopes = os.environ[
+            "SENA_OAUTH_HIKARINAGI_SCOPES"
+        ].strip()
+
+    # Per-provider overrides (oauth.providers.*) via environment.
+    for provider_key in ("nextmoe", "hikarinagi"):
+        prefix = f"SENA_OAUTH_{provider_key.upper()}_"
+        overrides: dict = {}
+        env_fields = {
+            "ENABLED": ("enabled", _parse_bool),
+            "NAME": ("name", str),
+            "ISSUER": ("issuer", str),
+            "CLIENT_ID": ("client_id", str),
+            "SCOPES": ("scopes", str),
+            "AUTHORIZE_PATH": ("authorize_path", str),
+            "TOKEN_PATH": ("token_path", str),
+            "USERINFO_PATH": ("userinfo_path", str),
+            "REDIRECT_URI": ("redirect_uri", str),
+            "PROMPT": ("prompt", str),
+            "NUMERIC_USER_ID": ("numeric_user_id", _parse_bool),
+        }
+        for suffix, (field_name, converter) in env_fields.items():
+            env_name = f"{prefix}{suffix}"
+            if not os.environ.get(env_name):
+                continue
+            value = os.environ[env_name]
+            overrides[field_name] = (
+                converter(value, True)
+                if converter is _parse_bool
+                else value.strip()
+            )
+        if overrides:
+            existing = config.oauth.providers.get(provider_key)
+            kwargs = (
+                {
+                    field_name: getattr(existing, field_name)
+                    for field_name in dataclass_fields(OAuthProviderConfig)
+                    if getattr(existing, field_name) not in (None, "")
+                }
+                if existing is not None
+                else {}
+            )
+            kwargs.update(overrides)
+            config.oauth.providers[provider_key] = OAuthProviderConfig(
+                **kwargs
+            )
 
     # 3. CLI arg overrides
     if args.host:

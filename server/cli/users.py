@@ -20,7 +20,7 @@ from cli.common import (
     prompt_password_twice,
     prompt_text,
 )
-from models.user import User, UserSession, hash_password
+from models.user import User, UserOAuthBinding, UserSession, hash_password
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,8 +85,7 @@ async def _ensure_not_last_admin(session: AsyncSession, user: User) -> None:
                 User.status == "active",
                 or_(
                     User.password_set.is_(True),
-                    User.oauth_subject.isnot(None),
-                    User.oauth_user_id.isnot(None),
+                    User.id.in_(select(UserOAuthBinding.user_id)),
                 ),
             )
         )
@@ -212,6 +211,9 @@ async def cmd_userdel(args) -> int:
         username = user.username
         user_id = user.id
         await session.execute(delete(UserSession).where(UserSession.user_id == user_id))
+        await session.execute(
+            delete(UserOAuthBinding).where(UserOAuthBinding.user_id == user_id)
+        )
         await session.delete(user)
         await session.commit()
         audit("cli.userdel", username=username, user_id=user_id)

@@ -32,6 +32,7 @@ from services.scraper.orchestrator import (
     run_batch_scrape,
 )
 from services.scraper.base import rank_scraper_results
+from services.oauth_tokens import OAuthReauthRequired, OAuthTokenError
 from utils.log_redaction import redact_exception
 
 logger = logging.getLogger(__name__)
@@ -260,11 +261,15 @@ async def _fail_stale_scrape_jobs(
 async def search_candidates(
     q: str,
     source: str = "vndb_kana",
+    session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
     """Search a specific source and return all candidates."""
     config = load_config()
-    scrapers = {s.source_name: s for s in _build_scrapers(config)}
+    scrapers = {
+        s.source_name: s
+        for s in _build_scrapers(config, hikarinagi_user_id=user.id)
+    }
     scraper = scrapers.get(source)
     if scraper is None:
         raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
@@ -294,6 +299,10 @@ async def search_candidates(
                 for r in results
             ],
         }
+    except OAuthReauthRequired as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except OAuthTokenError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
@@ -404,7 +413,7 @@ async def scrape_game_cover(
     ensure_game_unlocked(game)
 
     config = load_config()
-    all_scrapers = _build_scrapers(config)
+    all_scrapers = _build_scrapers(config, hikarinagi_user_id=user.id)
 
     _validate_scrape_sources(sources)
     # Filter by requested sources
@@ -456,6 +465,10 @@ async def scrape_game_cover(
                     if replace_tags:
                         replaced_tags = True
 
+            except OAuthReauthRequired as e:
+                raise HTTPException(status_code=403, detail=str(e))
+            except OAuthTokenError as e:
+                raise HTTPException(status_code=502, detail=str(e))
             except Exception as e:
                 logger.error("Scraper %s failed: %s", scraper.source_name, redact_exception(e))
             finally:
@@ -544,6 +557,7 @@ async def start_batch_scrape(
                         job,
                         sources=body.sources,
                         mode=body.mode,
+                        hikarinagi_user_id=user.id,
                     )
             loop.run_until_complete(_work())
         except Exception as e:

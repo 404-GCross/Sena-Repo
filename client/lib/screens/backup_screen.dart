@@ -15,7 +15,7 @@ import "../models/log_models.dart";
 import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/logger_service.dart";
-import "../services/nextmoe_token_store.dart";
+import "../services/oauth_token_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 import "connect_screen.dart";
@@ -1352,7 +1352,8 @@ class _BackupScreenState extends State<BackupScreen> {
         ),
       );
       if (reloginNow != true || !mounted) return;
-      await NextmoeTokenStore.clear(widget.api);
+      await OAuthTokenStore.clear(widget.api);
+      await OAuthTokenStore.clear(widget.api, provider: "hikarinagi");
       await widget.api.logout();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove("active_profile_index");
