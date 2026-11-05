@@ -168,14 +168,25 @@ class OAuthService {
         ? fixedUri
         : "http://127.0.0.1:${server.port}$_callbackPath";
     try {
-      final Map<String, dynamic> start;
+      late final Map<String, dynamic> start;
       try {
-        start = await api.oauthStart(
-          provider: provider,
-          purpose: purpose,
-          redirectUri: redirectUri,
-          withAuth: withAuth,
-        );
+        try {
+          start = await api.oauthStart(
+            provider: provider,
+            purpose: purpose,
+            redirectPort: fixed == null ? server.port : null,
+            withAuth: withAuth,
+          );
+        } on AuthException {
+          // Older servers only accept an explicit redirect_uri.
+          if (fixed != null || provider != "nextmoe") rethrow;
+          start = await api.oauthStart(
+            provider: provider,
+            purpose: purpose,
+            redirectUri: redirectUri,
+            withAuth: withAuth,
+          );
+        }
       } on AuthException catch (e) {
         return OAuthOutcome(
           kind: OAuthAuthKind.error,

@@ -150,23 +150,33 @@ def _http_client_kwargs() -> dict:
     return kwargs
 
 
-def _validate_redirect(spec: OAuthProvider, uri: str) -> str:
+def _validate_redirect(
+    spec: OAuthProvider, uri: str, redirect_port: int | None = None
+) -> str:
     value = (uri or "").strip()
     if spec.redirect_uri:
-        if value != spec.redirect_uri:
+        if value and value != spec.redirect_uri:
             raise HTTPException(
                 status_code=400,
                 detail=f"回调地址必须为 {spec.redirect_uri}",
             )
+        return spec.redirect_uri
+    if value:
+        parsed = urlparse(value)
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname not in LOOPBACK_HOSTS
+            or parsed.path != "/callback"
+        ):
+            raise HTTPException(
+                status_code=400, detail="回调地址必须是本机环回地址"
+            )
         return value
-    parsed = urlparse(value)
-    if (
-        parsed.scheme != "http"
-        or parsed.hostname not in LOOPBACK_HOSTS
-        or parsed.path != "/callback"
-    ):
-        raise HTTPException(status_code=400, detail="回调地址必须是本机环回地址")
-    return value
+    if redirect_port is not None:
+        if redirect_port < 1 or redirect_port > 65535:
+            raise HTTPException(status_code=400, detail="回调端口无效")
+        return f"http://127.0.0.1:{redirect_port}/callback"
+    raise HTTPException(status_code=400, detail="缺少回调地址")
 
 
 def _pkce_pair() -> tuple[str, str]:
@@ -499,6 +509,7 @@ def _binding_payload(binding: UserOAuthBinding | None) -> dict:
 class StartRequest(BaseModel):
     purpose: str = "login"
     redirect_uri: str = ""
+    redirect_port: int | None = None
 
 
 class CompleteRequest(BaseModel):
@@ -545,7 +556,9 @@ async def _start_flow(
     if purpose == "login" and not await _has_admin(session):
         raise HTTPException(status_code=400, detail="服务器尚未初始化")
 
-    redirect_uri = _validate_redirect(spec, body.redirect_uri)
+    redirect_uri = _validate_redirect(
+        spec, body.redirect_uri, body.redirect_port
+    )
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
     request_id = secrets.token_urlsafe(24)

@@ -1095,12 +1095,14 @@ class ApiClient {
   Future<Map<String, dynamic>> oauthStart({
     required String provider,
     required String purpose,
-    required String redirectUri,
+    String redirectUri = "",
+    int? redirectPort,
     bool withAuth = false,
   }) async {
     final body = jsonEncode({
       "purpose": purpose,
-      "redirect_uri": redirectUri,
+      if (redirectUri.isNotEmpty) "redirect_uri": redirectUri,
+      if (redirectPort != null) "redirect_port": redirectPort,
     });
     final uri = Uri.parse("$baseUrl/api/auth/oauth/$provider/start");
     var resp = await _execute(
@@ -1136,8 +1138,11 @@ class ApiClient {
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
+    final detail = data?["detail"]?.toString() ?? "";
     throw AuthException(
-      data?["detail"]?.toString() ?? "无法发起第三方账号授权",
+      detail.isNotEmpty
+          ? detail
+          : "无法发起第三方账号授权（HTTP ${resp.statusCode}）",
     );
   }
 
@@ -1187,7 +1192,12 @@ class ApiClient {
     if (resp.statusCode == 200 && data != null) {
       return data;
     }
-    throw AuthException(data?["detail"]?.toString() ?? "第三方账号授权失败，请重试");
+    final detail = data?["detail"]?.toString() ?? "";
+    throw AuthException(
+      detail.isNotEmpty
+          ? detail
+          : "第三方账号授权失败（HTTP ${resp.statusCode}），请重试",
+    );
   }
 
   Future<Map<String, dynamic>?> getOauthBindings() async {
