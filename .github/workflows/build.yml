@@ -40,6 +40,9 @@ jobs:
       - name: Compile Python files
         run: python -m compileall .
 
+      - name: Test OAuth identity verification
+        run: python -m unittest discover -s tests -v
+
   flutter-analyze:
     name: Flutter analyze
     runs-on: ubuntu-latest

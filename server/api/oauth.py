@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from urllib.parse import urlencode, urlparse
 
 import httpx
+import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -24,6 +25,7 @@ from database import get_session
 from models.user import User, UserOAuthBinding
 from services.oauth_providers import OAuthProvider, provider, providers
 from services.oauth_tokens import save_binding_tokens
+from services.oidc import OIDCKeySetError, verify_id_token
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,7 @@ class OAuthFlow:
     name: str = ""
     oauth_id: int | None = None
     tokens: dict | None = None
+    nonce: str = ""
 
 
 _flows: dict[str, OAuthFlow] = {}
@@ -191,6 +194,7 @@ def _authorize_url(
     redirect_uri: str,
     state: str,
     challenge: str,
+    nonce: str = "",
 ) -> str:
     params = {
         "client_id": spec.client_id.strip(),
@@ -203,6 +207,8 @@ def _authorize_url(
     }
     if spec.prompt:
         params["prompt"] = spec.prompt
+    if nonce:
+        params["nonce"] = nonce
     return f"{spec.authorize_url}?{urlencode(params)}"
 
 
@@ -319,6 +325,31 @@ async def _fetch_userinfo(spec: OAuthProvider, access_token: str) -> dict:
             status_code=400, detail=f"{spec.label} 授权失败，请重试"
         )
     return data
+
+
+async def _fetch_identity(
+    spec: OAuthProvider, tokens: dict, flow: OAuthFlow
+) -> dict:
+    if spec.key != "hikarinagi":
+        return await _fetch_userinfo(spec, tokens["access_token"])
+    # Hikarinagi catalog tokens cannot call userinfo; identity is in id_token.
+    try:
+        return await verify_id_token(
+            spec, tokens, flow.nonce, http_client_kwargs=_http_client_kwargs()
+        )
+    except OIDCKeySetError:
+        logger.warning("OAuth signing key lookup failed: provider=%s", spec.key)
+        raise HTTPException(
+            status_code=502, detail=f"无法获取 {spec.label} 身份验证公钥，请稍后重试"
+        ) from None
+    except (jwt.PyJWTError, ValueError, TypeError) as exc:
+        logger.warning(
+            "OAuth ID token rejected: provider=%s reason=%s",
+            spec.key, type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=400, detail=f"{spec.label} 身份令牌校验失败，请重新授权"
+        ) from None
 
 
 def _profile_name(profile: dict) -> str:
@@ -561,6 +592,7 @@ async def _start_flow(
     )
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
+    nonce = secrets.token_urlsafe(32) if spec.key == "hikarinagi" else ""
     request_id = secrets.token_urlsafe(24)
     logger.info(
         "OAuth start: provider=%s purpose=%s request_id=%s client=%s",
@@ -578,12 +610,13 @@ async def _start_flow(
         verifier=verifier,
         redirect_uri=redirect_uri,
         created_at=time.monotonic(),
+        nonce=nonce,
         user_id=user.id if purpose == "bind" and user else None,
     )
     return {
         "request_id": request_id,
         "state": state,
-        "authorize_url": _authorize_url(spec, redirect_uri, state, challenge),
+        "authorize_url": _authorize_url(spec, redirect_uri, state, challenge, nonce),
         "expires_in": FLOW_TTL_SECONDS,
     }
 
@@ -647,7 +680,7 @@ async def _complete_flow(
         raise HTTPException(status_code=400, detail="缺少授权码")
     try:
         tokens = await _exchange_code(spec, code, flow)
-        profile = await _fetch_userinfo(spec, tokens["access_token"])
+        profile = await _fetch_identity(spec, tokens, flow)
     except Exception:
         _flows.pop(body.request_id, None)
         raise
