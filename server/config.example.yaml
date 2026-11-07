@@ -78,8 +78,8 @@ oauth:
       enabled: true
       issuer: "https://id.hikarinagi.org/oidc"
       client_id: "hkn_OhbUMMUl1xZODdiz"
-      scopes: "openid profile offline_access catalog:full"
+      scopes: "openid profile offline_access catalog:full user:read"
       # Must match the Hikarinagi developer console exactly.
       redirect_uri: "http://127.0.0.1:11453/callback"
       prompt: "consent"
-      numeric_user_id: false
+      numeric_user_id: true

@@ -105,7 +105,9 @@ def _integrity_conflict_detail(exc: IntegrityError) -> str | None:
         or "users.oauth_user_id" in message
         or "uq_user_oauth_bindings_provider_user_id" in message
     ):
-        return "该 NextMoe 用户 ID 已被使用"
+        return "该第三方用户 ID 已被使用"
+    if "user_oauth_bindings.provider, user_oauth_bindings.oauth_user_id" in message:
+        return "该第三方用户 ID 已被使用"
     if "uq_user_oauth_bindings_provider_subject" in message:
         return "该第三方账号已绑定其他用户"
     return None
@@ -324,6 +326,10 @@ class AdminUserUpdate(BaseModel):
     role: str | None = None        # admin | user
     nextmoe_user_id: int | None = None
     clear_nextmoe: bool = False
+    hikarinagi_user_id: int | None = Field(
+        default=None, strict=True, gt=0, le=9223372036854775807
+    )
+    clear_hikarinagi: bool = False
 
 
 # ── Auth endpoints ───────────────────────────────────────────────────────────
@@ -438,6 +444,9 @@ class CreateUserRequest(BaseModel):
     password: str | None = Field(default=None, min_length=4, max_length=128)
     role: str = "user"
     nextmoe_user_id: int | None = None
+    hikarinagi_user_id: int | None = Field(
+        default=None, strict=True, gt=0, le=9223372036854775807
+    )
 
 
 @router.post("/users")
@@ -446,10 +455,14 @@ async def admin_create_user(body: CreateUserRequest,
                              session: AsyncSession = Depends(get_session)):
     if body.role not in ("admin", "user"):
         raise HTTPException(status_code=400, detail="无效的角色")
-    if not body.password and body.nextmoe_user_id is None:
+    if (
+        not body.password
+        and body.nextmoe_user_id is None
+        and body.hikarinagi_user_id is None
+    ):
         raise HTTPException(
             status_code=400,
-            detail="请至少设置密码或填写 NextMoe 用户 ID，否则该账户无法登录",
+            detail="请至少设置密码或填写一种第三方用户 ID，否则该账户无法登录",
         )
     existing = await session.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
@@ -472,6 +485,15 @@ async def admin_create_user(body: CreateUserRequest,
     else:
         pw_hash, salt = hash_password(secrets.token_urlsafe(32))
         password_set = False
+    if body.hikarinagi_user_id is not None:
+        taken = (
+            await session.execute(select(UserOAuthBinding).where(
+                UserOAuthBinding.provider == "hikarinagi",
+                UserOAuthBinding.oauth_user_id == body.hikarinagi_user_id,
+            ))
+        ).scalar_one_or_none()
+        if taken is not None:
+            raise HTTPException(status_code=409, detail="该 Hikarinagi 用户 ID 已被使用")
     role = body.role if body.role in ("admin", "user") else "user"
     user = User(
         username=body.username,
@@ -485,16 +507,16 @@ async def admin_create_user(body: CreateUserRequest,
         oauth_user_id=nextmoe_user_id,
     )
     session.add(user)
-    if nextmoe_user_id is not None:
-        await session.flush()
-        session.add(
-            UserOAuthBinding(
-                user_id=user.id,
-                provider="nextmoe",
-                oauth_user_id=nextmoe_user_id,
-            )
-        )
     try:
+        await session.flush()
+        for provider_key, oauth_id in (
+            ("nextmoe", nextmoe_user_id),
+            ("hikarinagi", body.hikarinagi_user_id),
+        ):
+            if oauth_id is not None:
+                session.add(UserOAuthBinding(
+                    user_id=user.id, provider=provider_key, oauth_user_id=oauth_id
+                ))
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
@@ -508,7 +530,7 @@ async def admin_create_user(body: CreateUserRequest,
         user.id,
         user.username,
         role,
-        nextmoe_user_id is not None,
+        nextmoe_user_id is not None or body.hikarinagi_user_id is not None,
     )
     return {"message": "创建成功", "user_id": user.id}
 
@@ -517,10 +539,68 @@ async def admin_create_user(body: CreateUserRequest,
 async def admin_update_user(user_id: int, body: AdminUserUpdate,
                              current: User = Depends(require_admin),
                              session: AsyncSession = Depends(get_session)):
+    try:
+        return await _admin_update_user(user_id, body, current, session)
+    except IntegrityError as exc:
+        await session.rollback()
+        detail = _integrity_conflict_detail(exc)
+        if detail:
+            raise HTTPException(status_code=409, detail=detail) from None
+        raise
+
+
+async def _admin_update_user(
+    user_id: int, body: AdminUserUpdate, current: User, session: AsyncSession
+):
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
+
+    if (
+        (body.clear_hikarinagi and body.hikarinagi_user_id is not None)
+        or (body.clear_nextmoe and body.nextmoe_user_id is not None)
+    ):
+        raise HTTPException(status_code=400, detail="不能同时设置和清除同一第三方绑定")
+    if body.hikarinagi_user_id is not None or body.clear_hikarinagi:
+        binding = (await session.execute(select(UserOAuthBinding).where(
+            UserOAuthBinding.user_id == user.id,
+            UserOAuthBinding.provider == "hikarinagi",
+        ))).scalar_one_or_none()
+        if body.clear_hikarinagi:
+            other = (await session.execute(select(UserOAuthBinding).where(
+                UserOAuthBinding.user_id == user.id,
+                UserOAuthBinding.provider != "hikarinagi",
+                UserOAuthBinding.subject.isnot(None),
+            ))).scalar_one_or_none()
+            if (
+                not user.password_set
+                and not body.password
+                and (other is None or body.clear_nextmoe or body.nextmoe_user_id is not None)
+            ):
+                raise HTTPException(status_code=400, detail="请先设置密码或保留另一种已绑定的登录方式")
+            if binding is not None:
+                await session.delete(binding)
+                await _revoke_user_sessions(user.id, session)
+        elif binding is None or binding.oauth_user_id != body.hikarinagi_user_id:
+            taken = (await session.execute(select(UserOAuthBinding).where(
+                UserOAuthBinding.provider == "hikarinagi",
+                UserOAuthBinding.oauth_user_id == body.hikarinagi_user_id,
+                UserOAuthBinding.user_id != user.id,
+            ))).scalar_one_or_none()
+            if taken is not None:
+                raise HTTPException(status_code=409, detail="该 Hikarinagi 用户 ID 已被使用")
+            if binding is None:
+                binding = UserOAuthBinding(user_id=user.id, provider="hikarinagi")
+                session.add(binding)
+            binding.oauth_user_id = body.hikarinagi_user_id
+            binding.subject = None
+            binding.name = None
+            binding.access_token = None
+            binding.refresh_token = None
+            binding.expires_at = None
+            binding.scope = None
+            await _revoke_user_sessions(user.id, session)
 
     # Resolve desired role (body.role takes priority over legacy body.is_admin)
     desired_role: str | None = body.role
@@ -587,6 +667,7 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
             user.oauth_user_id = body.nextmoe_user_id
             user.oauth_subject = None
             user.oauth_name = None
+            await _revoke_user_sessions(user.id, session)
     elif body.clear_nextmoe:
         other_binding = (
             await session.execute(
@@ -621,19 +702,18 @@ async def admin_update_user(user_id: int, body: AdminUserUpdate,
         user.oauth_user_id = None
         user.oauth_subject = None
         user.oauth_name = None
+        if binding is not None:
+            await _revoke_user_sessions(user.id, session)
 
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        detail = _integrity_conflict_detail(exc)
-        if detail:
-            raise HTTPException(status_code=409, detail=detail) from exc
-        raise
+    await session.commit()
     changed = [
         name
-        for name in ("username", "password", "role", "is_admin", "nextmoe_user_id")
+        for name in (
+            "username", "password", "role", "is_admin", "nextmoe_user_id",
+            "hikarinagi_user_id", "clear_hikarinagi", "clear_nextmoe",
+        )
         if getattr(body, name, None) is not None
+        and (not name.startswith("clear_") or getattr(body, name))
     ]
     logger.info(
         "User updated by admin: actor_id=%s user_id=%s fields=%s role=%s",

@@ -334,7 +334,7 @@ async def _fetch_identity(
         return await _fetch_userinfo(spec, tokens["access_token"])
     # Hikarinagi catalog tokens cannot call userinfo; identity is in id_token.
     try:
-        return await verify_id_token(
+        claims = await verify_id_token(
             spec, tokens, flow.nonce, http_client_kwargs=_http_client_kwargs()
         )
     except OIDCKeySetError:
@@ -350,6 +350,32 @@ async def _fetch_identity(
         raise HTTPException(
             status_code=400, detail=f"{spec.label} 身份令牌校验失败，请重新授权"
         ) from None
+
+    try:
+        async with httpx.AsyncClient(**_http_client_kwargs()) as client:
+            response = await client.get(
+                "https://api.hikarinagi.org/v3/user/me",
+                headers={
+                    "Authorization": f"Bearer {tokens['access_token']}",
+                    "Accept": "application/json",
+                },
+            )
+            if response.status_code in (401, 403):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Hikarinagi 公开资料授权不足，请启用 user:read 并重新授权",
+                )
+            response.raise_for_status()
+            profile = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.warning("OAuth public profile lookup failed: provider=%s", spec.key)
+        raise HTTPException(
+            status_code=502, detail="无法读取 Hikarinagi 公开资料，请稍后重新授权"
+        ) from None
+    user_id = profile.get("id") if isinstance(profile, dict) else None
+    if type(user_id) is not int or not 0 < user_id <= 9223372036854775807:
+        raise HTTPException(status_code=502, detail="Hikarinagi 返回了无效的用户 ID")
+    return {**claims, "id": user_id}
 
 
 def _profile_name(profile: dict) -> str:
@@ -429,6 +455,21 @@ async def _upsert_binding(
             status_code=409, detail=f"该 {spec.label} 账号已绑定其他用户"
         )
     binding = await _binding_for_user(session, user.id, spec.key)
+    oauth_id = _profile_oauth_id(spec, profile)
+    if (
+        binding is not None
+        and binding.oauth_user_id is not None
+        and binding.oauth_user_id != oauth_id
+    ):
+        raise HTTPException(status_code=409, detail="授权账号与预设的第三方用户 ID 不一致")
+    if oauth_id is not None:
+        taken = (await session.execute(select(UserOAuthBinding).where(
+            UserOAuthBinding.provider == spec.key,
+            UserOAuthBinding.oauth_user_id == oauth_id,
+            UserOAuthBinding.user_id != user.id,
+        ))).scalar_one_or_none()
+        if taken is not None:
+            raise HTTPException(status_code=409, detail="该第三方用户 ID 已分配给其他用户")
     if binding is None:
         binding = UserOAuthBinding(user_id=user.id, provider=spec.key)
         session.add(binding)
@@ -442,7 +483,11 @@ async def _upsert_binding(
     binding.name = _profile_name(profile)
     binding.oauth_user_id = _profile_oauth_id(spec, profile)
     save_binding_tokens(binding, tokens, provider_key=spec.key)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="第三方账号绑定冲突，请重新授权") from None
     if spec.key == LEGACY_PROVIDER:
         await _sync_legacy_nextmoe(session, user)
     return binding
@@ -455,6 +500,17 @@ async def _find_login_user(
 ) -> tuple[User | None, UserOAuthBinding | None]:
     subject = str(profile["sub"])
     binding = await _binding_by_subject(session, spec.key, subject)
+    oauth_id = _profile_oauth_id(spec, profile)
+    if binding is not None and oauth_id is not None:
+        if binding.oauth_user_id is not None and binding.oauth_user_id != oauth_id:
+            raise HTTPException(status_code=409, detail="第三方账号身份与用户 ID 不一致")
+        taken = (await session.execute(select(UserOAuthBinding).where(
+            UserOAuthBinding.provider == spec.key,
+            UserOAuthBinding.oauth_user_id == oauth_id,
+            UserOAuthBinding.user_id != binding.user_id,
+        ))).scalar_one_or_none()
+        if taken is not None:
+            raise HTTPException(status_code=409, detail="第三方账号身份与预绑定用户冲突")
     if binding is not None:
         user = (
             await session.execute(select(User).where(User.id == binding.user_id))

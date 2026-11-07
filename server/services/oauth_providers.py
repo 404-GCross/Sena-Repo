@@ -57,7 +57,7 @@ def _defaults() -> dict[str, OAuthProviderConfig]:
             userinfo_path="me",
             redirect_uri=HIKARINAGI_REDIRECT_URI,
             prompt="consent",
-            numeric_user_id=False,
+            numeric_user_id=True,
         ),
     }
 
@@ -99,6 +99,9 @@ def providers() -> dict[str, OAuthProvider]:
     result: dict[str, OAuthProvider] = {}
     for key, default in defaults.items():
         spec = _merge(default, oauth.providers.get(key))
+        if key == "hikarinagi":
+            spec.scopes = " ".join(dict.fromkeys([*spec.scopes.split(), "user:read"]))
+            spec.numeric_user_id = True
         issuer = (spec.issuer or "").strip()
         client_id = (spec.client_id or "").strip()
         result[key] = OAuthProvider(

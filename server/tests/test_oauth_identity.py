@@ -13,11 +13,11 @@ import jwt
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import config
-from api import oauth
+from api import auth, oauth
 from api.auth import _issue_session_token
 from database import Base, get_session
 from models.user import User, UserOAuthBinding, UserSession
@@ -51,6 +51,7 @@ class OAuthIdentityTests(unittest.IsolatedAsyncioTestCase):
                     c, tables=[User.__table__, UserOAuthBinding.__table__, UserSession.__table__]
                 )
             )
+            await conn.execute(text("CREATE UNIQUE INDEX uq_user_oauth_bindings_provider_user_id ON user_oauth_bindings (provider, oauth_user_id) WHERE oauth_user_id IS NOT NULL"))
         async with self.sessions() as session:
             user = User(
                 username="test-admin", password_hash="unused", salt="unused",
@@ -64,6 +65,7 @@ class OAuthIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.auth = {"Authorization": f"Bearer {token}"}
         self.app = FastAPI()
         self.app.include_router(oauth.router)
+        self.app.include_router(auth.router)
 
         async def session_dependency():
             async with self.sessions() as session:
@@ -84,6 +86,8 @@ class OAuthIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.jwks_body = None
         self.jwks = {"keys": [self.public_jwk(self.signing_key, "test-key")]}
         self.nonce = ""
+        self.profile_status = 200
+        self.profile_body = {"id": 456, "nickname": "Test nickname"}
         self.id_token = ""
         self.catalog_access = jwt.encode(
             {"sub": "catalog-subject", "aud": "open-api", "exp": int(time.time()) + 3600},
@@ -110,6 +114,10 @@ class OAuthIdentityTests(unittest.IsolatedAsyncioTestCase):
 
     def upstream(self, request):
         self.requests.append((request.method, request.url.path))
+        if request.url.path == "/v3/user/me":
+            self.assertEqual(str(request.url), "https://api.hikarinagi.org/v3/user/me")
+            self.assertEqual(request.headers["authorization"], f"Bearer {self.catalog_access}")
+            return httpx.Response(self.profile_status, json=self.profile_body)
         if request.url.path == "/oidc/token":
             form = parse_qs(request.content.decode())
             self.assertNotIn("authorization", request.headers)
@@ -345,3 +353,188 @@ class OAuthIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["nextmoe_access_token"], "nextmoe-token")
         self.assertIn(("GET", "/api/v1/oauth/userinfo"), self.requests)
         self.assertNotIn(("GET", "/oidc/jwks"), self.requests)
+
+    async def test_admin_preprovisioned_hikarinagi_first_login(self):
+        created = await self.api.post("/api/auth/users", headers=self.auth, json={
+            "username": "new-user", "hikarinagi_user_id": 456,
+        })
+        self.assertEqual(created.status_code, 200, created.text)
+        user_id = created.json()["user_id"]
+        async with self.sessions() as session:
+            user = await session.get(User, user_id)
+            self.assertFalse(user.password_set)
+        for _ in range(2):
+            response = await self.complete(await self.start("login"), "login")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["id"], user_id)
+        async with self.sessions() as session:
+            binding = (await session.execute(select(UserOAuthBinding).where(UserOAuthBinding.user_id == user_id))).scalar_one()
+            self.assertEqual(binding.subject, "identity-subject")
+            self.assertEqual(binding.oauth_user_id, 456)
+
+    async def test_create_validation_and_duplicate_id(self):
+        for value in (0, -1, True, 1.5, "456", 9223372036854775808):
+            response = await self.api.post("/api/auth/users", headers=self.auth, json={"username": "new-user", "hikarinagi_user_id": value})
+            self.assertEqual(response.status_code, 422)
+        response = await self.api.post("/api/auth/users", headers=self.auth, json={"username": "new-user"})
+        self.assertEqual(response.status_code, 400)
+        for username, expected in (("first", 200), ("second", 409)):
+            response = await self.api.post("/api/auth/users", headers=self.auth, json={"username": username, "hikarinagi_user_id": 456})
+            self.assertEqual(response.status_code, expected, response.text)
+
+    async def test_profile_failure_never_binds(self):
+        for status, body, expected in ((403, {}, 400), (401, {}, 400), (503, {}, 502), (200, [], 502), (200, {"id": True}, 502), (200, {"id": "456"}, 502)):
+            self.profile_status, self.profile_body = status, body
+            response = await self.complete(await self.start())
+            self.assertEqual(response.status_code, expected, response.text)
+            await self.assert_no_binding()
+
+    async def test_subject_and_numeric_id_cannot_select_different_users(self):
+        async with self.sessions() as session:
+            other = User(username="other", password_hash="unused", salt="unused", role="user", status="active")
+            session.add(other)
+            await session.flush()
+            session.add_all([
+                UserOAuthBinding(user_id=self.user_id, provider="hikarinagi", subject="identity-subject"),
+                UserOAuthBinding(user_id=other.id, provider="hikarinagi", oauth_user_id=456),
+            ])
+            await session.commit()
+        response = await self.complete(await self.start("login"), "login")
+        self.assertEqual(response.status_code, 409)
+
+    async def test_wrong_preassigned_id_cannot_be_overwritten_by_binding(self):
+        async with self.sessions() as session:
+            session.add(UserOAuthBinding(user_id=self.user_id, provider="hikarinagi", oauth_user_id=999))
+            await session.commit()
+        response = await self.complete(await self.start())
+        self.assertEqual(response.status_code, 409)
+
+    async def test_admin_edit_preserves_clears_and_revokes_sessions(self):
+        response = await self.complete(await self.start())
+        self.assertEqual(response.status_code, 200)
+        response = await self.api.put(f"/api/auth/users/{self.user_id}", headers=self.auth, json={"hikarinagi_user_id": 456})
+        self.assertEqual(response.status_code, 200)
+        response = await self.api.get("/api/auth/users", headers=self.auth)
+        self.assertTrue(response.json()[0]["oauth_bindings"][0]["bound"])
+        response = await self.api.put(f"/api/auth/users/{self.user_id}", headers=self.auth, json={"hikarinagi_user_id": 789, "clear_hikarinagi": True})
+        self.assertEqual(response.status_code, 400)
+        response = await self.api.put(f"/api/auth/users/{self.user_id}", headers=self.auth, json={"clear_hikarinagi": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((await self.api.get("/api/auth/users", headers=self.auth)).status_code, 401)
+        async with self.sessions() as session:
+            self.assertEqual((await session.execute(select(func.count()).select_from(UserOAuthBinding))).scalar(), 0)
+
+    async def test_user_cannot_provision_accounts(self):
+        async with self.sessions() as session:
+            user = await session.get(User, self.user_id)
+            user.role = "user"
+            user.is_admin = False
+            await session.commit()
+        response = await self.api.post("/api/auth/users", headers=self.auth, json={"username": "new-user", "hikarinagi_user_id": 456})
+        self.assertEqual(response.status_code, 403)
+        response = await self.api.put(f"/api/auth/users/{self.user_id}", headers=self.auth, json={"hikarinagi_user_id": 456})
+        self.assertEqual(response.status_code, 403)
+
+    async def test_last_passwordless_admin_cannot_clear_only_binding(self):
+        self.assertEqual((await self.complete(await self.start())).status_code, 200)
+        async with self.sessions() as session:
+            user = await session.get(User, self.user_id)
+            user.password_set = False
+            await session.commit()
+        response = await self.api.put(f"/api/auth/users/{self.user_id}", headers=self.auth, json={"clear_hikarinagi": True})
+        self.assertEqual(response.status_code, 400)
+
+    def test_legacy_provider_config_still_requests_public_profile(self):
+        config._cached_config.oauth.providers["hikarinagi"] = config.OAuthProviderConfig(scopes="openid profile catalog:full", numeric_user_id=False)
+        spec = provider("hikarinagi")
+        self.assertIn("user:read", spec.scopes.split())
+        self.assertTrue(spec.numeric_user_id)
+
+    async def test_both_preassigned_providers_can_login(self):
+        response = await self.api.post("/api/auth/users", headers=self.auth, json={
+            "username": "dual-user", "hikarinagi_user_id": 456, "nextmoe_user_id": 123,
+        })
+        self.assertEqual(response.status_code, 200)
+        target_id = response.json()["user_id"]
+        response = await self.complete(await self.start("login"), "login")
+        self.assertEqual(response.json()["id"], target_id)
+        response = await self.api.post("/api/auth/oauth/start", json={"purpose": "login", "redirect_port": 54321})
+        flow = response.json()
+        response = await self.api.post("/api/auth/oauth/complete", json={
+            "request_id": flow["request_id"], "state": flow["state"], "code": "nextmoe-code",
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["id"], target_id)
+
+    async def test_profile_timeout_never_binds(self):
+        flow = await self.start()
+        original = self.upstream
+
+        def upstream(request):
+            if request.url.path == "/v3/user/me":
+                raise httpx.ReadTimeout("test timeout", request=request)
+            return original(request)
+
+        with patch.object(oauth, "_http_client_kwargs", return_value={"transport": httpx.MockTransport(upstream)}):
+            response = await self.complete(flow)
+        self.assertEqual(response.status_code, 502)
+        await self.assert_no_binding()
+
+    async def test_wrong_id_cannot_login_to_pending_account(self):
+        async with self.sessions() as session:
+            session.add(UserOAuthBinding(user_id=self.user_id, provider="hikarinagi", oauth_user_id=999))
+            await session.commit()
+        response = await self.complete(await self.start("login"), "login")
+        self.assertEqual(response.status_code, 403)
+        async with self.sessions() as session:
+            binding = (await session.execute(select(UserOAuthBinding))).scalar_one()
+            self.assertIsNone(binding.subject)
+            self.assertIsNone(binding.access_token)
+
+    async def test_changed_id_clears_tokens_and_revokes_session(self):
+        self.assertEqual((await self.complete(await self.start())).status_code, 200)
+        response = await self.api.put(f"/api/auth/users/{self.user_id}", headers=self.auth, json={"hikarinagi_user_id": 789})
+        self.assertEqual(response.status_code, 200)
+        async with self.sessions() as session:
+            binding = (await session.execute(select(UserOAuthBinding))).scalar_one()
+            self.assertEqual(binding.oauth_user_id, 789)
+            for name in ("subject", "name", "access_token", "refresh_token", "expires_at", "scope"):
+                self.assertIsNone(getattr(binding, name))
+        self.assertEqual((await self.api.get("/api/auth/users", headers=self.auth)).status_code, 401)
+
+    async def test_pending_and_bound_ids_survive_backup_restore(self):
+        from cli.backup import _export_accounts, _restore_user_bindings
+
+        async with self.sessions() as session:
+            session.add(UserOAuthBinding(user_id=self.user_id, provider="hikarinagi", oauth_user_id=456))
+            await session.commit()
+        for bound in (False, True):
+            if bound:
+                self.assertEqual((await self.complete(await self.start())).status_code, 200)
+            async with self.sessions() as session:
+                exported = await _export_accounts(session)
+                entry = exported["users"][0]
+                self.assertEqual(entry["oauth_bindings"][0]["user_id"], 456)
+                await session.execute(delete(UserOAuthBinding))
+                await session.flush()
+                user = await session.get(User, self.user_id)
+                await _restore_user_bindings(session, user, entry, {"users_skipped": 0}, [])
+                await session.commit()
+                binding = (await session.execute(select(UserOAuthBinding))).scalar_one()
+                self.assertEqual(binding.oauth_user_id, 456)
+                self.assertEqual(bool(binding.subject), bound)
+
+    async def test_database_rejects_duplicate_provider_id(self):
+        from sqlalchemy.exc import IntegrityError
+
+        async with self.sessions() as session:
+            other = User(username="other", password_hash="unused", salt="unused", role="user", status="active")
+            session.add(other)
+            await session.flush()
+            session.add_all([
+                UserOAuthBinding(user_id=self.user_id, provider="hikarinagi", oauth_user_id=456),
+                UserOAuthBinding(user_id=other.id, provider="hikarinagi", oauth_user_id=456),
+            ])
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+            await session.rollback()

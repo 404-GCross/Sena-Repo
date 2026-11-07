@@ -3519,6 +3519,13 @@ class _UserManagePageState extends State<_UserManagePage> {
   }
 
   Future<void> _editUser(Map<String, dynamic> u) async {
+    final bindings = (u["oauth_bindings"] as List? ?? []).whereType<Map>();
+    final hikarinagi =
+        bindings.where((b) => b["provider"] == "hikarinagi").firstOrNull;
+    final originalHikarinagiId = hikarinagi?["user_id"];
+    final hikarinagiIdCtrl =
+        TextEditingController(text: originalHikarinagiId?.toString() ?? "");
+    var clearHikarinagi = false;
     final nameCtrl = TextEditingController(text: u["username"] ?? "");
     final passCtrl = TextEditingController();
     final nextmoeIdCtrl = TextEditingController(
@@ -3528,39 +3535,73 @@ class _UserManagePageState extends State<_UserManagePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("编辑用户"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration:
-                  const InputDecoration(labelText: "用户名", isDense: true),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: passCtrl,
-              obscureText: true,
-              decoration:
-                  const InputDecoration(labelText: "新密码（留空不修改）", isDense: true),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: nextmoeIdCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "NextMoe 用户 ID",
-                helperText: "留空则解除现有绑定；修改后需重新登录完成绑定",
-                isDense: true,
-              ),
-            ),
-          ],
-        ),
+        content: SingleChildScrollView(
+            child: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                          labelText: "用户名", isDense: true),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: passCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                          labelText: "新密码（留空不修改）", isDense: true),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: nextmoeIdCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: "NextMoe 用户 ID",
+                        helperText: "留空则解除现有绑定；修改后需重新登录完成绑定",
+                        helperMaxLines: 3,
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: hikarinagiIdCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: "Hikarinagi 用户 ID（可选）",
+                        helperText: hikarinagi?["bound"] == true &&
+                                originalHikarinagiId == null
+                            ? "已绑定，重新授权后补全 ID；留空保留现有绑定"
+                            : "修改后需重新授权；留空保留现有绑定",
+                        helperMaxLines: 3,
+                        isDense: true,
+                      ),
+                    ),
+                    if (hikarinagi != null)
+                      StatefulBuilder(
+                          builder: (context, update) => CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text("解除 Hikarinagi 绑定"),
+                                value: clearHikarinagi,
+                                onChanged: (value) => update(
+                                    () => clearHikarinagi = value == true),
+                              )),
+                  ],
+                ))),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
           FilledButton(
             onPressed: () {
               if (nameCtrl.text.trim().isEmpty) return;
+              final id = hikarinagiIdCtrl.text.trim();
+              if (!clearHikarinagi &&
+                  id.isNotEmpty &&
+                  (int.tryParse(id) == null || int.parse(id) <= 0)) {
+                _toast(context, "Hikarinagi 用户 ID 必须是正整数");
+                return;
+              }
               Navigator.pop(ctx, true);
             },
             child: const Text("保存"),
@@ -3571,6 +3612,12 @@ class _UserManagePageState extends State<_UserManagePage> {
     if (result != true) return;
     try {
       final body = <String, dynamic>{"username": nameCtrl.text.trim()};
+      if (clearHikarinagi) {
+        body["clear_hikarinagi"] = true;
+      } else if (hikarinagiIdCtrl.text.trim().isNotEmpty &&
+          hikarinagiIdCtrl.text.trim() != originalHikarinagiId?.toString()) {
+        body["hikarinagi_user_id"] = int.parse(hikarinagiIdCtrl.text.trim());
+      }
       if (passCtrl.text.isNotEmpty) body["password"] = passCtrl.text;
       final originalId = u["oauth_user_id"];
       final nextmoeId = int.tryParse(nextmoeIdCtrl.text.trim());
@@ -3635,40 +3682,57 @@ class _UserManagePageState extends State<_UserManagePage> {
     final nameCtrl = TextEditingController();
     final passCtrl = TextEditingController();
     final nextmoeIdCtrl = TextEditingController();
+    final hikarinagiIdCtrl = TextEditingController();
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("创建用户"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration:
-                  const InputDecoration(labelText: "用户名", isDense: true),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: passCtrl,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: "密码（可留空）",
-                helperText: "留空则只能使用 NextMoe 账号登录",
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: nextmoeIdCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "NextMoe 用户 ID（可选）",
-                helperText: "填写后该用户首次 NextMoe 登录会自动完成绑定",
-                isDense: true,
-              ),
-            ),
-          ],
-        ),
+        content: SingleChildScrollView(
+            child: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                          labelText: "用户名", isDense: true),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: passCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: "密码（可留空）",
+                        helperText: "至少设置密码，或填写一种第三方账号 ID",
+                        helperMaxLines: 3,
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: nextmoeIdCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: "NextMoe 用户 ID（可选）",
+                        helperText: "填写后该用户首次 NextMoe 登录会自动完成绑定",
+                        helperMaxLines: 3,
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: hikarinagiIdCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: "Hikarinagi 用户 ID（可选）",
+                        helperText: "填写后该用户首次 Hikarinagi 登录会自动完成绑定",
+                        helperMaxLines: 3,
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                ))),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
@@ -3678,7 +3742,17 @@ class _UserManagePageState extends State<_UserManagePage> {
               final password = passCtrl.text;
               if (password.isNotEmpty && password.length < 4) return;
               final nextmoeId = nextmoeIdCtrl.text.trim();
-              if (nextmoeId.isNotEmpty && int.tryParse(nextmoeId) == null) {
+              final hikarinagiId = hikarinagiIdCtrl.text.trim();
+              if (password.isEmpty &&
+                  nextmoeId.isEmpty &&
+                  hikarinagiId.isEmpty) {
+                _toast(context, "请设置密码或填写一种第三方账号 ID");
+                return;
+              }
+              if ([nextmoeId, hikarinagiId].any((id) =>
+                  id.isNotEmpty &&
+                  (int.tryParse(id) == null || int.parse(id) <= 0))) {
+                _toast(context, "第三方用户 ID 必须是正整数");
                 return;
               }
               Navigator.pop(ctx, true);
@@ -3696,6 +3770,8 @@ class _UserManagePageState extends State<_UserManagePage> {
       };
       if (passCtrl.text.isNotEmpty) body["password"] = passCtrl.text;
       final nextmoeId = int.tryParse(nextmoeIdCtrl.text.trim());
+      final hikarinagiId = int.tryParse(hikarinagiIdCtrl.text.trim());
+      if (hikarinagiId != null) body["hikarinagi_user_id"] = hikarinagiId;
       if (nextmoeId != null && nextmoeId > 0) {
         body["nextmoe_user_id"] = nextmoeId;
       }

@@ -160,7 +160,7 @@ class OAuthConfig:
     hikarinagi_enabled: bool = True
     hikarinagi_issuer: str = "https://id.hikarinagi.org/oidc"
     hikarinagi_client_id: str = "hkn_OhbUMMUl1xZODdiz"
-    hikarinagi_scopes: str = "openid profile offline_access catalog:full"
+    hikarinagi_scopes: str = "openid profile offline_access catalog:full user:read"
     providers: dict[str, OAuthProviderConfig] = field(default_factory=dict)
 
 
