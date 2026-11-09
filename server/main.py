@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import load_config
 from database import create_tables, init_database
 from utils.log_redaction import redact_exception
+from services.steam_names import SteamNameResolver
 
 _initial_scan_tasks: set[asyncio.Task] = set()
 
@@ -195,10 +196,13 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(_auto_scan_task(config, logger))
     backup_task = asyncio.create_task(_auto_backup_task(config, logger))
 
-    yield
-
-    task.cancel()
-    backup_task.cancel()
+    app.state.steam_names = SteamNameResolver()
+    try:
+        yield
+    finally:
+        await app.state.steam_names.close()
+        task.cancel()
+        backup_task.cancel()
     try:
         await task
     except asyncio.CancelledError:

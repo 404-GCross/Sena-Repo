@@ -125,18 +125,31 @@ class SteamService {
   static Future<Map<String, String>> resolveGameNames(
     ApiClient api, List<String> appids,
   ) async {
-    if (appids.isEmpty) return {};
-    try {
-      final resp = await http.post(
-        Uri.parse("${api.baseUrl}/api/steam/game-names"),
-        headers: {"Content-Type": "application/json", ...api.headers},
-        body: jsonEncode({"appids": appids}),
-      );
-      if (resp.statusCode == 200) {
-        return Map<String, String>.from(jsonDecode(resp.body) as Map);
+    final validId = RegExp(r'^[1-9][0-9]{0,9}$');
+    final ids = appids
+        .where((id) => validId.stringMatch(id) == id && int.parse(id) <= 4294967295)
+        .toSet()
+        .toList();
+    final results = <String, String>{};
+    for (var start = 0; start < ids.length; start += 100) {
+      final batch = ids.skip(start).take(100).toList();
+      try {
+        final resp = await http.post(
+          Uri.parse("${api.baseUrl}/api/steam/game-names"),
+          headers: {"Content-Type": "application/json", ...api.headers},
+          body: jsonEncode({"appids": batch}),
+        ).timeout(const Duration(seconds: 65));
+        if (resp.statusCode != 200) break;
+        final names = Map<String, String>.from(jsonDecode(resp.body) as Map);
+        for (final id in batch) {
+          final name = names[id];
+          if (name != null && name.trim().isNotEmpty) results[id] = name;
+        }
+      } catch (_) {
+        break;
       }
-    } catch (_) {}
-    return {};
+    }
+    return results;
   }
 
   /// Send scanned games to server for patch matching.

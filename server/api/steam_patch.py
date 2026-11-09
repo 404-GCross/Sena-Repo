@@ -4,10 +4,12 @@ from __future__ import annotations
 import asyncio, hashlib, json, logging, re, shutil, subprocess, tempfile, threading, time, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,10 @@ from api.download import build_signed_patch_url, patch_download_ttl, verify_patc
 from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
 from utils.log_redaction import redact_exception
 from utils.secrets import encrypt_secret
+from services.steam_names import (
+    MAX_APP_ID, MAX_BATCH_IDS, MAX_BODY_BYTES,
+    SteamNameResolver, SteamNamesLimited, SteamNamesUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1754,41 +1760,60 @@ def _nextmoe_mode_enabled() -> bool:
 # Steam game name resolution
 
 class AppIdList(BaseModel):
-    appids: list[str]
+    appids: list[Annotated[str, Field(
+        strict=True, min_length=1, max_length=10, pattern=r"^[1-9][0-9]*$"
+    )]] = Field(max_length=MAX_BATCH_IDS)
+
+    @field_validator("appids")
+    @classmethod
+    def validate_app_ids(cls, values: list[str]) -> list[str]:
+        if any(int(value) > MAX_APP_ID for value in values):
+            raise ValueError("Steam AppID 超出有效范围")
+        return list(dict.fromkeys(values))
 
 
-@router.post("/game-names")
-async def get_game_names(body: AppIdList, user: User = Depends(get_current_user)):
-    """Resolve Steam AppIDs to Chinese game names via Store API."""
-    import httpx
-    import asyncio
+class _NamesRequest(Request):
+    async def body(self) -> bytes:
+        if not hasattr(self, "_body"):
+            chunks = bytearray()
+            async for chunk in self.stream():
+                if len(chunks) + len(chunk) > MAX_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="名称查询请求体过大")
+                chunks.extend(chunk)
+            self._body = bytes(chunks)
+        return self._body
 
-    config = load_config()
-    client_kwargs = {"timeout": httpx.Timeout(10.0)}
-    if config.proxy:
-        client_kwargs["proxy"] = config.proxy
 
-    results: dict[str, str] = {}
-    sem = asyncio.Semaphore(5)
+class _NamesRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
 
-    async with httpx.AsyncClient(**client_kwargs) as client:
+        async def limited(request: Request):
+            return await handler(_NamesRequest(request.scope, request.receive))
 
-        async def resolve(appid: str):
-            async with sem:
-                try:
-                    for lang in ("schinese", "english"):
-                        resp = await client.get(
-                            f"https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}"
-                        )
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            details = (data.get(str(appid)) or {}).get("data") or {}
-                            name = details.get("name", "")
-                            if name:
-                                results[appid] = name
-                                return
-                except Exception:
-                    pass
+        return limited
 
-        await asyncio.gather(*(resolve(a) for a in body.appids))
-    return results
+
+_names_router = APIRouter(route_class=_NamesRoute)
+
+
+@_names_router.post("/game-names", response_model=dict[str, str])
+async def get_game_names(
+    body: AppIdList, request: Request, user: User = Depends(get_current_user)
+):
+    resolver: SteamNameResolver | None = getattr(request.app.state, "steam_names", None)
+    if resolver is None:
+        raise HTTPException(status_code=503, detail="名称查询服务尚未就绪")
+    try:
+        return await resolver.resolve(user.id, body.appids)
+    except SteamNamesLimited as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="名称查询繁忙，请稍后重试",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from None
+    except SteamNamesUnavailable:
+        raise HTTPException(status_code=502, detail="暂时无法读取 Steam 名称，请稍后重试") from None
+
+
+router.include_router(_names_router)

@@ -40,7 +40,7 @@ jobs:
       - name: Compile Python files
         run: python -m compileall .
 
-      - name: Test OAuth identity verification
+      - name: Test server regressions
         run: python -m unittest discover -s tests -v
 
   flutter-analyze:
@@ -63,6 +63,9 @@ jobs:
 
       - name: Analyze Flutter client
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test Steam name batching
+        run: flutter test --no-pub test/steam_service_test.dart
 
   # ── Android APK ──────────────────────────────────
   build-android:
