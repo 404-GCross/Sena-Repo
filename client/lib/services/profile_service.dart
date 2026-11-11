@@ -75,9 +75,23 @@ class ProfileService {
     final raw = await SecureStore.getString(_keyProfiles);
     if (raw == null || raw.isEmpty) return [];
     final list = jsonDecode(raw) as List;
-    return list
+    final profiles = list
         .map((j) => UserProfile.fromJson(j as Map<String, dynamic>))
         .toList();
+    final owners = <String, Set<String>>{};
+    for (final profile in profiles) {
+      if (profile.authToken.isEmpty) continue;
+      final origin = serverOrigin(profile.baseUrl);
+      if (origin == null) {
+        profile.authToken = "";
+        continue;
+      }
+      owners.putIfAbsent(profile.authToken, () => <String>{}).add(origin);
+    }
+    for (final profile in profiles) {
+      if ((owners[profile.authToken]?.length ?? 0) > 1) profile.authToken = "";
+    }
+    return profiles;
   }
 
   Future<void> saveProfiles(List<UserProfile> profiles) async {

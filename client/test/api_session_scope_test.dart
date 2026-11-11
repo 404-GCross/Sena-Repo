@@ -137,6 +137,20 @@ void main() {
     }
   });
 
+  test("ambiguous saved profiles cannot bypass migration through auto-login",
+      () async {
+    await ProfileService().saveProfiles([
+      UserProfile(
+          name: "a", host: "a.test", authToken: "ambiguous-token", userId: 1),
+      UserProfile(
+          name: "b", host: "b.test", authToken: "ambiguous-token", userId: 1),
+    ]);
+    final profiles = await ProfileService().loadProfiles();
+    expect(profiles.every((profile) => profile.authToken.isEmpty), isTrue);
+    await ProfileService().applyProfile(profiles.last);
+    expect(tokenForServer("http://b.test:11451"), isNull);
+  });
+
   test("authoritative record restores token and owner as one pair", () async {
     await installA();
     final record = (await SecureStore.getString("auth_session"))!;
