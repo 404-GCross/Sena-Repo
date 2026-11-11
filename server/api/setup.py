@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -27,6 +27,8 @@ from services.file_source import adapter_from_source, canonical_source_path, nor
 from utils.log_redaction import redact_exception
 from services.scanner import normalize_game_depth, structure_from_depth
 from utils.secrets import encrypt_secret
+from utils.process_lock import process_lock
+from utils import backup_limits
 
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -102,6 +104,7 @@ async def import_setup_backup(
             detail="服务器已完成初始化，请用 senacli restore 恢复备份",
         )
 
+    await session.rollback()
     filename = Path(file.filename or "backup.zip").name
     suffix = Path(filename).suffix.lower() or ".zip"
     if suffix not in {".zip", ".json"}:
@@ -114,22 +117,24 @@ async def import_setup_backup(
         f"uploaded-{backup_cli.utc_timestamp()}-{secrets.token_hex(4)}{suffix}"
     )
     size = 0
+    upload_limit = (backup_limits.MAX_JSON_BYTES if suffix == ".json"
+                    else backup_limits.MAX_ARCHIVE_BYTES)
     try:
         with stored.open("wb") as handle:
             while True:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                handle.write(chunk)
                 size += len(chunk)
-                if size > 16 * 1024 ** 3:
-                    stored.unlink(missing_ok=True)
-                    raise HTTPException(
-                        status_code=413, detail="备份文件过大，最大 16 GB"
-                    )
+                if size > upload_limit:
+                    raise HTTPException(status_code=413, detail="备份文件大小超过限制")
+                handle.write(chunk)
     except OSError as exc:
         stored.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
+    except BaseException:
+        stored.unlink(missing_ok=True)
+        raise
     finally:
         await file.close()
 
@@ -151,12 +156,21 @@ async def import_setup_backup(
             scope=backup_cli.SCOPE_ALL,
             mode=backup_cli.MODE_MERGE,
             media_policy=backup_cli.MEDIA_OVERWRITE,
+            require_uninitialized=True,
         )
-    except CliError as exc:
+    except backup_cli.SetupAlreadyInitialized:
+        stored.unlink(missing_ok=True)
+        raise HTTPException(status_code=409, detail="服务器已完成初始化，请登录后恢复备份") from None
+    except (CliError, backup_limits.BackupLimitError) as exc:
+        stored.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        stored.unlink(missing_ok=True)
         logger.error("Setup import failed: %s", type(exc).__name__)
         raise HTTPException(status_code=500, detail="导入失败，请查看服务端日志") from exc
+    except BaseException:
+        stored.unlink(missing_ok=True)
+        raise
 
     users = payload["accounts"].get("users") or []
     library = payload["library"]
@@ -190,8 +204,21 @@ async def initialize_setup(
     body: InitRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """First-time setup: create admin user and initial configuration."""
-    # Check if already set up
+    config = load_config()
+    with process_lock(Path(config.data_path or "/data") / ".restore.lock", blocking=False) as acquired:
+        if not acquired:
+            raise HTTPException(status_code=409, detail="初始化或恢复正在进行，请稍后重试")
+        await session.rollback()
+        await session.execute(text("BEGIN IMMEDIATE"))
+        try:
+            return await _initialize_setup_locked(body, session)
+        except BaseException:
+            await session.rollback()
+            raise
+
+
+async def _initialize_setup_locked(body: InitRequest, session: AsyncSession):
+    # Check again under the shared restore lock and SQLite write transaction.
     status = await setup_status(session)
     if status.has_admin:
         raise HTTPException(status_code=400, detail="Server already initialized")

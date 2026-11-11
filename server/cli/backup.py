@@ -28,12 +28,13 @@ import secrets
 import shutil
 import sqlite3
 import zipfile
+import zlib
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import selectinload
 
 import database as db
@@ -55,6 +56,7 @@ from models.user import User, UserOAuthBinding, UserSession
 from services.file_source import canonical_source_path
 from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
 from utils.process_lock import process_lock, scan_lock_path
+from utils import backup_limits
 from utils.log_redaction import redact_exception
 from utils.secrets import (
     SCRAPER_SECRET_KEYS,
@@ -801,19 +803,11 @@ def read_backup_payload(path: Path) -> dict[str, Any]:
     if not path.is_file():
         fail(f"文件不存在: {path}", 3)
     try:
-        if zipfile.is_zipfile(path):
-            with zipfile.ZipFile(path) as archive:
-                if JSON_NAME not in archive.namelist():
-                    fail(f"备份文件缺少 {JSON_NAME}", 3)
-                raw = archive.read(JSON_NAME).decode("utf-8")
-        else:
-            raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        fail(f"读取备份失败: {exc}", 3)
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        fail(f"备份文件格式错误: {exc}", 3)
+        data = backup_limits.load_backup_json(path)
+    except backup_limits.BackupLimitError as exc:
+        fail(str(exc), 3)
+    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError, RecursionError, zlib.error):
+        fail("备份文件无法解析或已经损坏", 3)
     if not isinstance(data, dict):
         fail("备份文件顶层必须是对象", 3)
     if data.get("kind") != KIND:
@@ -888,6 +882,8 @@ def normalise_payload(data: dict[str, Any]) -> dict[str, Any]:
             key = _require(entry, "key", f"媒体 {kind}")
             if not MEDIA_KEY_RE.match(str(key)):
                 fail(f"备份结构不正确: 媒体标识不合法: {key}", 3)
+            if key in known:
+                fail("备份结构不正确: 媒体标识重复", 3)
             known[key] = entry
         media[kind] = known
 
@@ -1707,7 +1703,8 @@ def apply_media(
     if not archive.is_file() or not zipfile.is_zipfile(archive):
         return available
     directories = media_dirs(config)
-    with zipfile.ZipFile(archive) as source:
+    with backup_limits.open_backup_zip(archive) as source:
+        budget = backup_limits.ExpandedBudget(source.getinfo(JSON_NAME).file_size)
         names = set(source.namelist())
         for kind in MEDIA_KINDS:
             target_dir = directories[kind]
@@ -1726,9 +1723,18 @@ def apply_media(
                     continue
                 if destination.is_file():
                     continue
-                with source.open(entry) as src, open(destination, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
-                journal.record_media(destination)
+                created = False
+                try:
+                    with open(destination, "xb") as dst:
+                        created = True
+                        journal.record_media(destination)
+                        backup_limits.copy_zip_entry(
+                            source, entry, dst, backup_limits.MAX_MEDIA_BYTES, budget
+                        )
+                except BaseException:
+                    if created:
+                        destination.unlink(missing_ok=True)
+                    raise
     return available
 
 
@@ -1844,7 +1850,7 @@ class _RestoreJournal:
                 type(exc).__name__,
             )
 
-    def rollback(self) -> list[str]:
+    def rollback(self, *, restore_database: bool = True) -> list[str]:
         lines: list[str] = []
         for path in self.created_media:
             try:
@@ -1861,14 +1867,15 @@ class _RestoreJournal:
                 path.unlink(missing_ok=True)
             except OSError:
                 lines.append(f"无法移除恢复时新建的文件: {path}")
-        try:
-            _restore_database(self.config, self.snapshot)
-            lines.append("数据库已回滚到恢复前状态")
-        except Exception as exc:  # noqa: BLE001 - report the snapshot instead of masking
-            lines.append(
-                f"数据库自动回滚失败（{type(exc).__name__}），"
-                f"请用 {self.snapshot} 恢复"
-            )
+        if restore_database:
+            try:
+                _restore_database(self.config, self.snapshot)
+                lines.append("数据库已回滚到恢复前状态")
+            except Exception as exc:  # noqa: BLE001 - report the snapshot instead of masking
+                lines.append(
+                    f"数据库自动回滚失败（{type(exc).__name__}），"
+                    f"请用 {self.snapshot} 恢复"
+                )
         return lines
 
     def finish(self) -> None:
@@ -2021,8 +2028,33 @@ async def _clear_selected(
     await session.flush()
 
 
+class SetupAlreadyInitialized(RuntimeError):
+    pass
+
+
+async def _restore_thread(function, *args):
+    from functools import partial
+
+    worker = asyncio.get_running_loop().run_in_executor(None, partial(function, *args))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        # A cancelled await does not stop a thread writing restore files.
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not worker.cancelled():
+            worker.exception()
+        raise
+
+
 async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
-                        scope: str, mode: str, media_policy: str) -> dict[str, Any]:
+                        scope: str, mode: str, media_policy: str,
+                        require_uninitialized: bool = False) -> dict[str, Any]:
     lines: list[str] = []
     stats: dict[str, int] = {}
     wants_patch = scope in {SCOPE_ALL, SCOPE_PATCH}
@@ -2041,26 +2073,31 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
         )
         if not scan_idle:
             fail("扫描任务正在进行，请稍后再试", 4)
-        journal = _RestoreJournal.begin(config)
-        logger.info(
-            "Restore started: scope=%s mode=%s media=%s", scope, mode, media_policy
-        )
+        journal = None
+        database_committed = False
         try:
-            available_media = {kind: set() for kind in MEDIA_KINDS}
-            if wants_library:
-                available_media = await asyncio.to_thread(
-                    apply_media, config, archive, payload["media"], journal
-                )
-
-            account_entries = payload["accounts"].get("users") or []
-            wiped_accounts = replace and wants_library and bool(account_entries)
-            source_stats: dict[str, int] = {}
             async with db._session_factory() as session:
+                await session.execute(text("BEGIN IMMEDIATE"))
                 had_admin = (
-                    await session.execute(
-                        select(User).where(User.role == "admin")
-                    )
+                    await session.execute(select(User.id).where(User.role == "admin"))
                 ).scalars().first() is not None
+                if require_uninitialized and had_admin:
+                    raise SetupAlreadyInitialized()
+                backup_limits.check_restore_space(
+                    config, archive, payload["media"] if wants_library else None
+                )
+                journal = _RestoreJournal.begin(config)
+                logger.info(
+                    "Restore started: scope=%s mode=%s media=%s", scope, mode, media_policy
+                )
+                available_media = {kind: set() for kind in MEDIA_KINDS}
+                if wants_library:
+                    available_media = await _restore_thread(
+                        apply_media, config, archive, payload["media"], journal
+                    )
+                account_entries = payload["accounts"].get("users") or []
+                wiped_accounts = replace and wants_library and bool(account_entries)
+                source_stats: dict[str, int] = {}
                 if replace:
                     await _clear_selected(
                         session,
@@ -2111,71 +2148,78 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
 
                 if wants_library and (account_entries or had_admin):
                     await _ensure_admin(session)
-                await session.commit()
+                stats.update(source_stats)
+                stats.update(library_stats)
+                stats.update(patch_root_stats)
+                stats.update(account_stats)
+                stats["media_written"] = sum(len(items) for items in available_media.values())
 
-            stats.update(source_stats)
-            stats.update(library_stats)
-            stats.update(patch_root_stats)
-            stats.update(account_stats)
-            stats["media_written"] = sum(len(items) for items in available_media.values())
-
-            if wants_patch and (
-                payload["rules"] or payload["keywords"] or payload["patch_roots"]
-            ):
-                patch_lines, patch_stats = await asyncio.to_thread(
-                    _apply_patch_files,
-                    config,
-                    payload,
-                    mode,
-                    journal,
-                    source_map,
-                )
-                stats.update(patch_stats)
-                lines.extend(patch_lines)
-
-            if wants_library:
-                lines.append(
-                    "文件源: "
-                    f"{stats.get('sources_new', 0)} 新建/"
-                    f"{stats.get('sources_updated', 0)} 更新"
-                )
-                lines.append(
-                    "游戏库: "
-                    f"目录库 {stats.get('roots_new', 0)} 新建/"
-                    f"{stats.get('roots_matched', 0)} 匹配，"
-                    f"游戏 {stats.get('games_new', 0)} 新增/"
-                    f"{stats.get('games_updated', 0)} 更新/"
-                    f"{stats.get('games_skipped', 0)} 跳过，"
-                    f"版本 {stats.get('versions_new', 0)} 新增/"
-                    f"{stats.get('versions_updated', 0)} 更新，"
-                    f"标签 {stats.get('tags_new', 0)} 新增（关联 {stats.get('game_tags', 0)}）"
-                )
-                lines.append(
-                    f"账号: {stats.get('users_new', 0)} 新增/"
-                    f"{stats.get('users_updated', 0)} 更新，"
-                    f"失效登录态 {stats.get('sessions_revoked', 0)} 个"
-                )
-                for note in (library_notes + account_notes)[:10]:
-                    lines.append(f"注意: {note}")
-                lines.extend(import_settings(config, payload.get("settings") or {}, journal))
-
-            if wants_patch and patch_root_stats:
-                lines.append(
-                    "补丁库目录: "
-                    f"{patch_root_stats.get('patch_roots_new', 0)} 新建/"
-                    f"{patch_root_stats.get('patch_roots_matched', 0)} 匹配"
-                    + (
-                        f"，跳过 {patch_root_stats['patch_roots_skipped']}"
-                        if patch_root_stats.get("patch_roots_skipped")
-                        else ""
+                if wants_patch and (
+                    payload["rules"] or payload["keywords"] or payload["patch_roots"]
+                ):
+                    patch_lines, patch_stats = await _restore_thread(
+                        _apply_patch_files,
+                        config,
+                        payload,
+                        mode,
+                        journal,
+                        source_map,
                     )
-                )
-            for note in patch_notes[:5]:
-                lines.append(f"注意: {note}")
+                    stats.update(patch_stats)
+                    lines.extend(patch_lines)
+
+                if wants_library:
+                    lines.append(
+                        "文件源: "
+                        f"{stats.get('sources_new', 0)} 新建/"
+                        f"{stats.get('sources_updated', 0)} 更新"
+                    )
+                    lines.append(
+                        "游戏库: "
+                        f"目录库 {stats.get('roots_new', 0)} 新建/"
+                        f"{stats.get('roots_matched', 0)} 匹配，"
+                        f"游戏 {stats.get('games_new', 0)} 新增/"
+                        f"{stats.get('games_updated', 0)} 更新/"
+                        f"{stats.get('games_skipped', 0)} 跳过，"
+                        f"版本 {stats.get('versions_new', 0)} 新增/"
+                        f"{stats.get('versions_updated', 0)} 更新，"
+                        f"标签 {stats.get('tags_new', 0)} 新增（关联 {stats.get('game_tags', 0)}）"
+                    )
+                    lines.append(
+                        f"账号: {stats.get('users_new', 0)} 新增/"
+                        f"{stats.get('users_updated', 0)} 更新，"
+                        f"失效登录态 {stats.get('sessions_revoked', 0)} 个"
+                    )
+                    for note in (library_notes + account_notes)[:10]:
+                        lines.append(f"注意: {note}")
+                    lines.extend(import_settings(config, payload.get("settings") or {}, journal))
+
+                if wants_patch and patch_root_stats:
+                    lines.append(
+                        "补丁库目录: "
+                        f"{patch_root_stats.get('patch_roots_new', 0)} 新建/"
+                        f"{patch_root_stats.get('patch_roots_matched', 0)} 匹配"
+                        + (
+                            f"，跳过 {patch_root_stats['patch_roots_skipped']}"
+                            if patch_root_stats.get("patch_roots_skipped")
+                            else ""
+                        )
+                    )
+                for note in patch_notes[:5]:
+                    lines.append(f"注意: {note}")
+
+                await session.commit()
+                database_committed = True
 
             journal.finish()
-        except Exception as exc:
-            rollback_lines = journal.rollback()
+        except BaseException as exc:
+            if journal is None:
+                if isinstance(exc, backup_limits.BackupLimitError):
+                    fail(str(exc), 3)
+                raise
+            rollback_lines = await _restore_thread(
+                lambda: journal.rollback(restore_database=database_committed)
+            )
             for line in rollback_lines:
                 echo(line)
             journal.finish()
@@ -2193,6 +2237,8 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                 reload_persisted_scraper_config(config)
             except Exception:
                 pass
+            if isinstance(exc, (backup_limits.BackupLimitError, zipfile.BadZipFile, zlib.error)):
+                fail("备份展开失败，文件损坏或超过安全限制", 3)
             raise
 
     return {

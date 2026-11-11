@@ -22,6 +22,7 @@ from cli.common import CliError
 from config import load_config
 from models.user import User
 from utils.log_redaction import redact_exception
+from utils import backup_limits
 
 logger = logging.getLogger(__name__)
 
@@ -211,16 +212,17 @@ async def import_backup(
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                handle.write(chunk)
                 size += len(chunk)
-                if size > MAX_BACKUP_UPLOAD_BYTES:
-                    stored.unlink(missing_ok=True)
-                    raise HTTPException(
-                        status_code=413, detail="备份文件过大，最大 16 GB"
-                    )
+                limit = backup_limits.MAX_JSON_BYTES if suffix == ".json" else MAX_BACKUP_UPLOAD_BYTES
+                if size > limit:
+                    raise HTTPException(status_code=413, detail="备份文件大小超过限制")
+                handle.write(chunk)
     except OSError as exc:
         stored.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
+    except BaseException:
+        stored.unlink(missing_ok=True)
+        raise
     finally:
         await file.close()
 
@@ -241,14 +243,19 @@ async def import_backup(
             config, stored, payload,
             scope=scope, mode=mode, media_policy=media_policy,
         )
-    except CliError as exc:
+    except (CliError, backup_limits.BackupLimitError) as exc:
+        stored.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        stored.unlink(missing_ok=True)
         logger.error(
             "Backup import failed: stage=apply error=%s",
             redact_exception(exc),
         )
         raise HTTPException(status_code=500, detail="导入失败，请查看服务端日志") from exc
+    except BaseException:
+        stored.unlink(missing_ok=True)
+        raise
 
     library = payload["library"]
     logger.warning(
