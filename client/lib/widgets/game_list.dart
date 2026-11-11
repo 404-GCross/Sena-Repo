@@ -161,7 +161,7 @@ class _GameListTileState extends State<_GameListTile> {
                           key: ValueKey(game.coverPath),
                           imageUrl:
                               "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
-                          httpHeaders: mediaAuthHeaders,
+                          httpHeaders: mediaHeadersFor(widget.coverBaseUrl),
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) => _placeholder(cs),
                           placeholder: (_, __) => _placeholder(cs),

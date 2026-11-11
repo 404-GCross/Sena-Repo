@@ -7,6 +7,8 @@ import "package:shared_preferences/shared_preferences.dart";
 import "../models/log_models.dart";
 import "logger_service.dart";
 import "secure_store.dart";
+import "api_client.dart";
+import "server_origin.dart";
 
 int parseProfileUserId(Object? value) {
   final id = value is int ? value : int.tryParse(value?.toString() ?? "");
@@ -37,6 +39,7 @@ class UserProfile {
   });
 
   String get scheme => useHttps ? "https" : "http";
+  String get baseUrl => serverEndpoint(host, port, useHttps);
 
   Map<String, dynamic> toJson() => {
     "name": name, "host": host, "port": port,
@@ -95,34 +98,45 @@ class ProfileService {
   }
 
   /// Apply a profile as active: update current session values
-  Future<void> applyProfile(UserProfile profile) async {
-    final prefs = await SharedPreferences.getInstance();
-    // Save as current
-    await prefs.setString("server_host", profile.host);
-    await prefs.setInt("server_port", profile.port);
-    await SecureStore.setString("auth_token", profile.authToken);
-    // final rt = profile.refreshToken; — removed
-    // if (rt.isNotEmpty) await prefs.setString("refresh_token", rt);
-    if (profile.userId > 0) {
-      await prefs.setInt("user_id", profile.userId);
-    } else {
-      await prefs.remove("user_id");
+  Future<int> applyProfile(UserProfile profile, {
+    int? expectedGeneration, bool Function()? stillCurrent, String? logScope,
+  }) async {
+    final selected = UserProfile.fromJson(profile.toJson());
+    if (expectedGeneration == null) await ApiClient.restoreToken();
+    var generation = expectedGeneration ?? ApiClient.sessionGeneration;
+    void ensureCurrent() {
+      if (generation != ApiClient.sessionGeneration || stillCurrent?.call() == false) {
+        throw AuthException("连接选择已变化，请重试");
+      }
     }
-    await prefs.setString("username", profile.username);
-    await prefs.setBool("is_admin", profile.isAdmin);
-    await prefs.setBool("use_https", profile.useHttps);
-    await LoggerService().record(
-      LogLevel.info,
-      "client.profile_applied",
-      "已切换服务器配置",
-      module: "连接",
-      fields: {
-        "host": profile.host,
-        "port": profile.port,
-        "username": profile.username,
-        "https": profile.useHttps,
-      },
-    );
+    ensureCurrent();
+    final prefs = await SharedPreferences.getInstance();
+    ensureCurrent();
+    final fresh = selected.userId > 0
+        ? tokenForServer(selected.baseUrl, userId: selected.userId) : null;
+    selected.authToken = fresh ?? selected.authToken;
+    final promotion = selected.authToken.isEmpty
+        ? ApiClient.clearTokens()
+        : ApiClient.persistSessionInfo(accessToken: selected.authToken,
+            serverBaseUrl: selected.baseUrl, userId: selected.userId,
+            username: selected.username, isAdmin: selected.isAdmin,
+            role: selected.isAdmin ? "admin" : "user", logScope: logScope,
+            expectedGeneration: generation);
+    generation = ApiClient.sessionGeneration;
+    await promotion;
+    ensureCurrent();
+    await prefs.setString("server_host", selected.host);
+    ensureCurrent();
+    await prefs.setInt("server_port", selected.port);
+    ensureCurrent();
+    await prefs.setBool("use_https", selected.useHttps);
+    ensureCurrent();
+    if (serverOrigin(profile.baseUrl) == serverOrigin(selected.baseUrl) &&
+        profile.userId == selected.userId) profile.authToken = selected.authToken;
+    await LoggerService().record(LogLevel.info, "client.profile_applied",
+        "已切换服务器配置", module: "连接");
+    ensureCurrent();
+    return generation;
   }
 
   /// Save current session as a new or updated profile
@@ -130,12 +144,13 @@ class ProfileService {
     final prefs = await SharedPreferences.getInstance();
     final host = prefs.getString("server_host") ?? "";
     final port = prefs.getInt("server_port") ?? 11451;
-    final token = await SecureStore.getString("auth_token") ?? "";
-    // final refreshToken = prefs.getString("refresh_token") ?? "";
-    final userId = prefs.getInt("user_id") ?? 0;
-    final username = prefs.getString("username") ?? "";
-    final isAdmin = prefs.getBool("is_admin") ?? false;
     final useHttps = prefs.getBool("use_https") ?? false;
+    await ApiClient.restoreToken();
+    final token = tokenForServer(serverEndpoint(host, port, useHttps)) ?? "";
+    // final refreshToken = prefs.getString("refresh_token") ?? "";
+    final userId = token.isEmpty ? 0 : (prefs.getInt("user_id") ?? 0);
+    final username = token.isEmpty ? "" : (prefs.getString("username") ?? "");
+    final isAdmin = token.isNotEmpty && (prefs.getBool("is_admin") ?? false);
 
     final profiles = await loadProfiles();
     // Update existing or add new. Keep different servers separate even when

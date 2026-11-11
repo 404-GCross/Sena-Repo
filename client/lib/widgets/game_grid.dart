@@ -169,7 +169,7 @@ class _PosterCardState extends State<_PosterCard>
                         key: ValueKey(game.coverPath),
                         imageUrl:
                             "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
-                        httpHeaders: mediaAuthHeaders,
+                        httpHeaders: mediaHeadersFor(widget.coverBaseUrl),
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => _placeholder(),
                         placeholder: (_, __) => _placeholder(),

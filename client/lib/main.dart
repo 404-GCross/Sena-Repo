@@ -5,18 +5,14 @@
 import "dart:async";
 import "dart:io"
     show
-        HttpClient,
         HttpOverrides,
         InternetAddress,
         Platform,
         Process,
-        SecurityContext,
         ServerSocket,
         Socket,
-        X509Certificate,
         exit;
 import "dart:ui" show PlatformDispatcher, PointerDeviceKind;
-import "services/api_client.dart" show trustedServerHost;
 
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
@@ -32,6 +28,7 @@ import "services/tray_service.dart";
 import "services/logger_service.dart";
 import "services/notification_service.dart";
 import "services/download_service.dart";
+import "services/tls_policy.dart";
 import "utils/theme_utils.dart";
 
 /// Palette derived from the accent, but with neutral surfaces and outlines.
@@ -93,16 +90,6 @@ void _startInstanceListener() {
   });
 }
 
-class _AllowAllCertificates extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
-        return host == trustedServerHost;
-      };
-  }
-}
-
 void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
@@ -119,7 +106,7 @@ void main() {
       return true;
     };
 
-    HttpOverrides.global = _AllowAllCertificates();
+    HttpOverrides.global = StrictCertificatePolicy();
     // Prevent Android system bars from overlapping the app
     if (Platform.isAndroid) {
       SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(

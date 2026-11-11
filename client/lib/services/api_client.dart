@@ -12,6 +12,7 @@ import "../models/log_models.dart";
 import "api_response_utils.dart";
 import "logger_service.dart";
 import "secure_store.dart";
+import "server_origin.dart";
 
 class ManagerInstallLink {
   final String target;
@@ -64,28 +65,35 @@ class DownloadLink {
 
 /// Global access token — always accessible, survives Provider rebuilds.
 String? _accessToken;
+String? _tokenOrigin;
+int _sessionGeneration = 0;
+Future<void> _sessionWrites = Future<void>.value();
+
+String? tokenForServer(String? url, {int? userId}) {
+  final origin = serverOrigin(url);
+  if (origin == null || origin != _tokenOrigin) return null;
+  if (userId != null && userId != _cachedUserId) return null;
+  return _accessToken;
+}
+
+int? userIdForServer(String? url) => tokenForServer(url) == null ? null : _cachedUserId;
+
+Map<String, String>? mediaHeadersFor(String url) {
+  final token = tokenForServer(url);
+  return token == null || token.isEmpty ? null : {"Authorization": "Bearer $token"};
+}
 
 /// Cached user info from the last login.
 String? _cachedUsername;
 int? _cachedUserId;
 bool? _cachedIsAdmin;
 String? _cachedRole;
+String _cachedLogScope = "";
 
 int? _parseUserId(Object? value) {
   final id = value is int ? value : int.tryParse(value?.toString() ?? "");
   return id != null && id > 0 ? id : null;
 }
-
-/// Shared accessor for DownloadService request headers.
-String? get globalToken => _accessToken;
-
-Map<String, String>? get mediaAuthHeaders {
-  if (_accessToken == null || _accessToken!.isEmpty) return null;
-  return {"Authorization": "Bearer $_accessToken"};
-}
-
-/// Hostname of the configured server — only bypasses TLS for this host.
-String? trustedServerHost;
 
 /// Verified log ownership. Set only from an authenticated profile response.
 String _logServerKey = "";
@@ -106,6 +114,8 @@ Future<void> activateLogContext({
   required String baseUrl,
   required Map<String, dynamic> profile,
 }) async {
+  if (tokenForServer(baseUrl) == null ||
+      (_cachedUserId != null && _cachedUserId != _parseUserId(profile["id"]))) return;
   final scope = profile["log_scope"]?.toString() ?? "";
   final userId = _parseUserId(profile["id"]) ?? 0;
   final role = profile["role"]?.toString() ?? "user";
@@ -150,108 +160,150 @@ class AuthException implements Exception {
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
+  int? _oauthGeneration;
+  String? _oauthOrigin;
+  String? _oauthRequestId;
 
   String get baseUrl => _baseUrl ?? "http://localhost:11451";
   bool get isConnected => _baseUrl != null;
 
-  String? get accessToken => _accessToken;
-  String? get cachedUsername => _cachedUsername;
-  int? get cachedUserId => _cachedUserId;
-  bool? get cachedIsAdmin => _cachedIsAdmin;
-  String? get cachedRole => _cachedRole;
+  String? get accessToken => tokenForServer(_baseUrl);
+  String? get cachedUsername => accessToken == null ? null : _cachedUsername;
+  int? get cachedUserId => accessToken == null ? null : _cachedUserId;
+  bool? get cachedIsAdmin => accessToken == null ? null : _cachedIsAdmin;
+  String? get cachedRole => accessToken == null ? null : _cachedRole;
+  static int get sessionGeneration => _sessionGeneration;
+  static void invalidatePendingSession() => _sessionGeneration++;
 
   /// Scope the log viewer may read for the current verified account.
-  LogViewerAccess? get logViewerAccess => currentLogViewerAccess;
+  LogViewerAccess? get logViewerAccess => accessToken == null ? null : currentLogViewerAccess;
 
   Map<String, String> get headers {
-    if (_accessToken != null && _accessToken!.isNotEmpty) {
-      return {"Authorization": "Bearer $_accessToken"};
-    }
-    LoggerService().warn("auth headers requested without token");
-    return {};
+    final token = accessToken;
+    return token == null || token.isEmpty ? {} : {"Authorization": "Bearer $token"};
   }
 
   static Future<void> restoreToken() async {
-    if (_accessToken != null && _accessToken!.isNotEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    _accessToken = await SecureStore.getString("auth_token");
-    _cachedUsername = prefs.getString("username");
-    _cachedUserId = prefs.getInt("user_id");
-    _cachedIsAdmin = prefs.getBool("is_admin");
-    _cachedRole = prefs.getString("role");
-    if (_accessToken != null && _accessToken!.isNotEmpty) {
-      LoggerService().info("auth token restored from secure storage");
-    } else {
-      LoggerService().info("auth token not found on disk");
+    if (_accessToken != null) return;
+    final generation = _sessionGeneration;
+    await _sessionWrites;
+    Map<String, dynamic>? session;
+    try {
+      final raw = await SecureStore.getString("auth_session");
+      if (raw != null) {
+        session = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      } else {
+        final legacy = await SecureStore.getString("auth_token");
+        final profiles = jsonDecode(await SecureStore.getString("user_profiles") ?? "[]") as List;
+        final matches = profiles.whereType<Map>().where((p) =>
+            legacy != null && legacy.isNotEmpty && p["authToken"] == legacy).toList();
+        final origins = matches.map((p) => serverOrigin(serverEndpoint(
+            p["host"] as String, p["port"] as int? ?? 11451,
+            p["useHttps"] == true))).whereType<String>().toSet();
+        if (origins.length == 1) {
+          final profile = matches.first;
+          session = {"token": legacy, "origin": origins.single,
+            "user_id": profile["userId"], "username": profile["username"],
+            "is_admin": profile["isAdmin"],
+            "role": profile["isAdmin"] == true ? "admin" : "user"};
+        }
+      }
+    } catch (_) {
+      LoggerService().warn("stored session ownership could not be verified");
+      return;
     }
+    if (generation != _sessionGeneration || session == null) return;
+    final token = session["token"];
+    final originValue = session["origin"];
+    final origin = originValue is String ? serverOrigin(originValue) : null;
+    if (token is! String || token.isEmpty || origin == null) return;
+    await _persistTokens(accessToken: token, serverBaseUrl: origin,
+      expectedGeneration: generation, userId: _parseUserId(session["user_id"]),
+      username: session["username"] as String?, isAdmin: session["is_admin"] == true,
+      role: session["role"] as String?, logScope: session["log_scope"] as String?);
   }
 
   static Future<void> _persistTokens({
     String? accessToken,
+    String? serverBaseUrl,
+    int? expectedGeneration,
     int? userId,
     String? username,
     bool? isAdmin,
     String? role,
     String? logScope,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    if (expectedGeneration != null && expectedGeneration != _sessionGeneration) {
+      throw AuthException("连接已变化，请重新登录");
+    }
+    final origin = serverOrigin(serverBaseUrl);
     if (accessToken != null && accessToken.isNotEmpty) {
-      await SecureStore.setString("auth_token", accessToken);
+      if (origin == null) throw AuthException("缺少登录令牌所属的服务器地址");
+      final sameAccount = _tokenOrigin == origin && userId != null &&
+          userId > 0 && userId == _cachedUserId;
+      if (!sameAccount) {
+        clearLogContext();
+        _cachedUserId = null;
+        _cachedUsername = null;
+        _cachedIsAdmin = null;
+        _cachedRole = null;
+        _cachedLogScope = "";
+      }
+      _accessToken = accessToken;
+      _tokenOrigin = origin;
+      _sessionGeneration++;
+    } else if (origin == null || origin != _tokenOrigin) {
+      return;
     }
-    if (username != null) {
-      await prefs.setString("username", username);
-      _cachedUsername = username;
-    }
-    if (userId != null && userId > 0) {
-      await prefs.setInt("user_id", userId);
-      _cachedUserId = userId;
-    }
-    if (isAdmin != null) {
-      await prefs.setBool("is_admin", isAdmin);
-      _cachedIsAdmin = isAdmin;
-    }
-    if (role != null) {
-      await prefs.setString("role", role);
-      _cachedRole = role;
-    }
-    if (logScope != null && logScope.isNotEmpty) {
-      await prefs.setString("log_scope", logScope);
-    }
+    _cachedUserId = userId ?? _cachedUserId;
+    _cachedUsername = username ?? _cachedUsername;
+    _cachedIsAdmin = isAdmin ?? _cachedIsAdmin;
+    _cachedRole = role ?? _cachedRole;
+    _cachedLogScope = logScope ?? _cachedLogScope;
+    final snapshot = {"token": _accessToken, "origin": _tokenOrigin,
+      "user_id": _cachedUserId, "username": _cachedUsername,
+      "is_admin": _cachedIsAdmin, "role": _cachedRole, "log_scope": _cachedLogScope};
+    _sessionWrites = _sessionWrites.catchError((_) {}).then((_) async {
+      await SecureStore.setString("auth_session", jsonEncode(snapshot));
+      await SecureStore.setString("auth_token", snapshot["token"] as String);
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in ["user_id", "username", "is_admin", "role", "log_scope"]) {
+        final value = snapshot[key];
+        if (value is String) { await prefs.setString(key, value); }
+        else if (value is int) { await prefs.setInt(key, value); }
+        else if (value is bool) { await prefs.setBool(key, value); }
+        else { await prefs.remove(key); }
+      }
+    });
+    await _sessionWrites;
   }
 
   static Future<void> persistSessionInfo({
-    String? accessToken,
-    int? userId,
-    String? username,
-    bool? isAdmin,
-    String? role,
-    String? logScope,
-  }) async {
-    if (accessToken != null && accessToken.isNotEmpty) {
-      _accessToken = accessToken;
-    }
-    await _persistTokens(
-      accessToken: accessToken,
-      userId: userId,
-      username: username,
-      isAdmin: isAdmin,
-      role: role,
-      logScope: logScope,
-    );
-  }
+    String? accessToken, String? serverBaseUrl, int? expectedGeneration,
+    int? userId, String? username, bool? isAdmin, String? role, String? logScope,
+  }) => _persistTokens(accessToken: accessToken, serverBaseUrl: serverBaseUrl,
+    expectedGeneration: expectedGeneration, userId: userId, username: username,
+    isAdmin: isAdmin, role: role, logScope: logScope);
 
   static Future<void> clearTokens() async {
+    _sessionGeneration++;
     _accessToken = null;
+    _tokenOrigin = null;
     _cachedUsername = null;
     _cachedUserId = null;
     _cachedIsAdmin = null;
     _cachedRole = null;
-    final prefs = await SharedPreferences.getInstance();
-    await SecureStore.delete("auth_token");
-    await prefs.remove("username");
-    await prefs.remove("user_id");
-    await prefs.remove("is_admin");
-    await prefs.remove("role");
+    _cachedLogScope = "";
+    clearLogContext();
+    _sessionWrites = _sessionWrites.catchError((_) {}).then((_) async {
+      await SecureStore.setString("auth_session", "{}");
+      await SecureStore.delete("auth_token");
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in ["username", "user_id", "is_admin", "role", "log_scope"]) {
+        await prefs.remove(key);
+      }
+    });
+    await _sessionWrites;
   }
 
   Future<void> connect(
@@ -259,16 +311,16 @@ class ApiClient {
     int port = 11451,
     bool useHttps = false,
   }) async {
-    final scheme = useHttps ? "https" : "http";
-    _baseUrl = "$scheme://$host:$port";
-    trustedServerHost = host;
+    _baseUrl = serverEndpoint(host, port, useHttps);
     await _restoreLogContextFromPrefs();
   }
 
   Future<void> _restoreLogContextFromPrefs() async {
     final base = _baseUrl;
-    if (base == null) return;
+    if (base == null || accessToken == null) return;
+    final generation = _sessionGeneration;
     final prefs = await SharedPreferences.getInstance();
+    if (generation != _sessionGeneration || tokenForServer(base) == null) return;
     final scope = prefs.getString("log_scope") ?? "";
     if (scope.isEmpty) return;
     _logServerKey = stableLogKey(base);
@@ -286,7 +338,9 @@ class ApiClient {
 
   /// Re-read the verified profile so log ownership follows role changes.
   Future<void> refreshLogContext() async {
-    if (_accessToken == null || _baseUrl == null) return;
+    if (accessToken == null || _baseUrl == null) return;
+    final origin = _baseUrl!;
+    final generation = _sessionGeneration;
     try {
       final resp = await _client
           .get(
@@ -297,7 +351,9 @@ class ApiClient {
       if (resp.statusCode != 200) return;
       final data = tryDecodeJsonMap(resp.body);
       if (data == null) return;
+      if (generation != _sessionGeneration) return;
       await _persistTokens(
+        serverBaseUrl: origin, expectedGeneration: generation,
         userId: _parseUserId(data["id"]),
         username: data["username"]?.toString(),
         isAdmin: data["is_admin"] == true,
@@ -334,6 +390,8 @@ class ApiClient {
         " (${label ?? method})",
       );
     }
+    final initialBase = _baseUrl;
+    final generation = _sessionGeneration;
     const maxAttempts = 2;
     final retryEnabled = allowRetry &&
         (method == "GET" ||
@@ -343,6 +401,10 @@ class ApiClient {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final started = DateTime.now();
       try {
+        if (initialBase != _baseUrl || generation != _sessionGeneration ||
+            (uri != null && _baseUrl != null && serverOrigin(uri.toString()) != serverOrigin(_baseUrl))) {
+          throw AuthException("连接或账号已变化，请重试");
+        }
         final pending = request();
         final response = (method == "GET" || method == "HEAD")
             ? await pending.timeout(_requestTimeout)
@@ -925,7 +987,7 @@ class ApiClient {
     try {
       final uri = Uri.parse("$baseUrl/api/setup/status");
       final resp = await _execute(
-        () => _client.get(uri, headers: headers).timeout(
+        () => _client.get(uri).timeout(
               const Duration(seconds: 5),
             ),
         allowRetry: false,
@@ -944,7 +1006,10 @@ class ApiClient {
   // --- Auth ---
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final loginUri = Uri.parse("$baseUrl/api/auth/login");
+    final origin = serverOrigin(_baseUrl);
+    if (origin == null) throw AuthException("请先连接服务器");
+    final generation = ++_sessionGeneration;
+    final loginUri = Uri.parse("$origin/api/auth/login");
     final started = DateTime.now();
     try {
       LoggerService().info("auth login started: POST ${_uriForLog(loginUri)}");
@@ -975,8 +1040,8 @@ class ApiClient {
           );
         }
 
-        _accessToken = data["token"]?.toString();
-        if (_accessToken == null || _accessToken!.isEmpty) {
+        final token = data["token"]?.toString();
+        if (token == null || token.isEmpty) {
           throw AuthException(
             "服务器返回 200，但登录响应缺少 token，域名可能没有把 /api/auth/login 转发到服务端",
           );
@@ -987,11 +1052,11 @@ class ApiClient {
         var isAdmin = data["is_admin"] == true;
         var role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
         try {
-          final meUri = Uri.parse("$baseUrl/api/auth/profile/me");
+          final meUri = Uri.parse("$origin/api/auth/profile/me");
           final meStarted = DateTime.now();
           final meResp = await _client.get(
             meUri,
-            headers: {"Authorization": "Bearer $_accessToken"},
+            headers: {"Authorization": "Bearer $token"},
           ).timeout(const Duration(seconds: 5));
           _logHttpResponse(
             "GET",
@@ -1027,8 +1092,9 @@ class ApiClient {
         } catch (e, stackTrace) {
           LoggerService().warn("auth profile sync after login failed", e, stackTrace);
         }
+        if (serverOrigin(_baseUrl) != origin) throw AuthException("连接已变化，请重新登录");
         await _persistTokens(
-          accessToken: _accessToken,
+          accessToken: token, serverBaseUrl: origin, expectedGeneration: generation,
           userId: userId,
           username: username,
           isAdmin: isAdmin,
@@ -1036,6 +1102,10 @@ class ApiClient {
           logScope: data["log_scope"]?.toString(),
         );
         await activateLogContext(baseUrl: baseUrl, profile: data);
+        if (_sessionGeneration != generation + 1 || tokenForServer(origin) != token) {
+          throw AuthException("连接或账号已变化，请重试");
+        }
+        data["_installed_generation"] = _sessionGeneration;
         LoggerService().info("auth login succeeded: role=$role isAdmin=$isAdmin");
         return data;
       }
@@ -1067,9 +1137,7 @@ class ApiClient {
 
   Map<String, String> _jsonHeaders({bool withAuth = false}) {
     final headers = {"Content-Type": "application/json"};
-    if (withAuth && _accessToken != null && _accessToken!.isNotEmpty) {
-      headers["Authorization"] = "Bearer $_accessToken";
-    }
+    if (withAuth) headers.addAll(this.headers);
     return headers;
   }
 
@@ -1099,6 +1167,12 @@ class ApiClient {
     int? redirectPort,
     bool withAuth = false,
   }) async {
+    _oauthRequestId = null;
+    _oauthGeneration = purpose == "login" ? ++_sessionGeneration : null;
+    _oauthOrigin = serverOrigin(_baseUrl);
+    final flowGeneration = _oauthGeneration;
+    final flowOrigin = _oauthOrigin;
+    if (flowOrigin == null) throw AuthException("请先连接服务器");
     final body = jsonEncode({
       "purpose": purpose,
       if (redirectUri.isNotEmpty) "redirect_uri": redirectUri,
@@ -1119,7 +1193,7 @@ class ApiClient {
       label: "oauth start",
     );
     if (resp.statusCode == 404 && provider == "nextmoe") {
-      final legacy = Uri.parse("$baseUrl/api/auth/oauth/start");
+      final legacy = uri.replace(path: "/api/auth/oauth/start");
       resp = await _execute(
         () => _client
             .post(
@@ -1136,6 +1210,11 @@ class ApiClient {
     }
     final data = tryDecodeJsonMap(resp.body);
     if (resp.statusCode == 200 && data != null) {
+      if (flowOrigin != serverOrigin(_baseUrl) || flowGeneration != _oauthGeneration ||
+          (flowGeneration != null && flowGeneration != _sessionGeneration)) {
+        throw AuthException("授权连接已变化，请重试");
+      }
+      _oauthRequestId = data["request_id"]?.toString();
       return data;
     }
     final detail = data?["detail"]?.toString() ?? "";
@@ -1153,6 +1232,11 @@ class ApiClient {
     required String state,
     bool withAuth = false,
   }) async {
+    final flowGeneration = _oauthGeneration;
+    final flowOrigin = _oauthOrigin;
+    if (requestId != _oauthRequestId || flowOrigin != serverOrigin(_baseUrl)) {
+      throw AuthException("授权流程已变化，请重试");
+    }
     final body = jsonEncode({
       "request_id": requestId,
       "code": code,
@@ -1173,7 +1257,7 @@ class ApiClient {
       label: "oauth complete",
     );
     if (resp.statusCode == 404 && provider == "nextmoe") {
-      final legacy = Uri.parse("$baseUrl/api/auth/oauth/complete");
+      final legacy = uri.replace(path: "/api/auth/oauth/complete");
       resp = await _execute(
         () => _client
             .post(
@@ -1190,6 +1274,15 @@ class ApiClient {
     }
     final data = tryDecodeJsonMap(resp.body);
     if (resp.statusCode == 200 && data != null) {
+      if (data["token"] != null) {
+        if (flowGeneration == null || flowGeneration != _sessionGeneration ||
+            flowGeneration != _oauthGeneration || requestId != _oauthRequestId ||
+            flowOrigin != serverOrigin(_baseUrl)) {
+          throw AuthException("授权流程已变化，请重试");
+        }
+        data["_session_origin"] = flowOrigin;
+        data["_session_generation"] = flowGeneration;
+      }
       return data;
     }
     final detail = data?["detail"]?.toString() ?? "";
@@ -1201,12 +1294,12 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>?> getOauthBindings() async {
-    if (_accessToken == null || _accessToken!.isEmpty) return null;
+    if (accessToken == null || accessToken!.isEmpty) return null;
     final uri = Uri.parse("$baseUrl/api/auth/oauth/bindings");
     try {
       final resp = await _execute(
         () => _client
-            .get(uri, headers: {"Authorization": "Bearer $_accessToken"})
+            .get(uri, headers: headers)
             .timeout(const Duration(seconds: 10)),
         allowRetry: false,
         method: "GET",
@@ -1223,12 +1316,12 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>?> getOauthBinding() async {
-    if (_accessToken == null || _accessToken!.isEmpty) return null;
+    if (accessToken == null || accessToken!.isEmpty) return null;
     final uri = Uri.parse("$baseUrl/api/auth/oauth/binding");
     try {
       final resp = await _execute(
         () => _client
-            .get(uri, headers: {"Authorization": "Bearer $_accessToken"})
+            .get(uri, headers: headers)
             .timeout(const Duration(seconds: 10)),
         allowRetry: false,
         method: "GET",
@@ -1248,7 +1341,7 @@ class ApiClient {
     final uri = Uri.parse("$baseUrl/api/auth/oauth/binding/$provider");
     var resp = await _execute(
       () => _client
-          .delete(uri, headers: {"Authorization": "Bearer $_accessToken"})
+          .delete(uri, headers: headers)
           .timeout(const Duration(seconds: 10)),
       allowRetry: false,
       method: "DELETE",
@@ -1259,7 +1352,7 @@ class ApiClient {
       final legacy = Uri.parse("$baseUrl/api/auth/oauth/binding");
       resp = await _execute(
         () => _client
-            .delete(legacy, headers: {"Authorization": "Bearer $_accessToken"})
+            .delete(legacy, headers: headers)
             .timeout(const Duration(seconds: 10)),
         allowRetry: false,
         method: "DELETE",
@@ -1279,27 +1372,37 @@ class ApiClient {
     if (token.isEmpty) {
       throw AuthException("登录响应缺少 token");
     }
-    _accessToken = token;
+    final origin = serverOrigin(data["_session_origin"] as String?);
+    final generation = data["_session_generation"] as int?;
+    if (origin == null || origin != _oauthOrigin || generation == null ||
+        generation != _sessionGeneration) throw AuthException("授权连接已变化，请重试");
     final username = data["username"]?.toString() ?? "";
     final userId = _parseUserId(data["id"]);
     final isAdmin = data["is_admin"] == true;
     final role = data["role"]?.toString() ?? (isAdmin ? "admin" : "user");
     await _persistTokens(
-      accessToken: token,
+      accessToken: token, serverBaseUrl: origin, expectedGeneration: generation,
       userId: userId,
       username: username,
       isAdmin: isAdmin,
       role: role,
     );
     await refreshLogContext();
+    if (_sessionGeneration != generation + 1 || tokenForServer(origin) != token) {
+      throw AuthException("连接或账号已变化，请重试");
+    }
+    data["_installed_generation"] = _sessionGeneration;
     LoggerService().info("oauth login succeeded: role=$role isAdmin=$isAdmin");
     return data;
   }
 
   Future<bool> logout() async {
+    final token = accessToken;
+    if (token == null) return true;
+    final generation = _sessionGeneration;
     var success = true;
     try {
-      if (_accessToken != null && _accessToken!.isNotEmpty) {
+      if (token.isNotEmpty) {
         final uri = Uri.parse("$baseUrl/api/auth/logout");
         final resp = await _execute(
           () => _client.post(uri, headers: headers),
@@ -1314,8 +1417,7 @@ class ApiClient {
       success = false;
       LoggerService().warn("auth logout request failed", e, stackTrace);
     } finally {
-      await clearTokens();
-      clearLogContext();
+      if (generation == _sessionGeneration) await clearTokens();
     }
     return success;
   }

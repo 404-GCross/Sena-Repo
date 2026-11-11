@@ -66,6 +66,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
   String get _baseUrl => _api.baseUrl;
 
   Future<bool> _refreshIsAdmin() async {
+    final requestOrigin = _baseUrl;
+    final generation = ApiClient.sessionGeneration;
     final prefs = await SharedPreferences.getInstance();
     var isAdmin = prefs.getBool("is_admin") ?? false;
     try {
@@ -79,6 +81,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         isAdmin = data["is_admin"] == true;
         await ApiClient.persistSessionInfo(
+          serverBaseUrl: requestOrigin, expectedGeneration: generation,
           userId: data["id"] is int
               ? data["id"] as int
               : int.tryParse(data["id"]?.toString() ?? "") ?? 0,
@@ -231,7 +234,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                               isNsfw: game.isNsfw,
                               child: Image.network(
                                 "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
-                                headers: mediaAuthHeaders,
+                                headers: mediaHeadersFor(_baseUrl),
                                 width: double.infinity,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) =>
@@ -341,7 +344,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                             isNsfw: game.isNsfw,
                                             child: Image.network(
                                               "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
-                                              headers: mediaAuthHeaders,
+                                              headers: mediaHeadersFor(_baseUrl),
                                               fit: BoxFit.cover,
                                               errorBuilder: (_, __, ___) =>
                                                   _coverPlaceholder(),
@@ -383,7 +386,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                           isNsfw: game.isNsfw,
                                           child: Image.network(
                                             "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
-                                            headers: mediaAuthHeaders,
+                                            headers: mediaHeadersFor(_baseUrl),
                                             fit: BoxFit.cover,
                                             errorBuilder: (_, __, ___) =>
                                                 _coverPlaceholder(),
@@ -918,7 +921,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                 isNsfw: game.isNsfw,
                 child: Image.network(
                   "$_baseUrl/api/files/backgrounds/${game.bgPath!.split("/").last}?t=$_refreshKey",
-                  headers: mediaAuthHeaders,
+                  headers: mediaHeadersFor(_baseUrl),
                   fit: BoxFit.cover,
                   width: double.infinity,
                   height: double.infinity,
@@ -978,7 +981,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                       isNsfw: game.isNsfw,
                       child: Image.network(
                         "$_baseUrl/api/files/covers${game.coverPath!}?t=$_refreshKey",
-                        headers: mediaAuthHeaders,
+                        headers: mediaHeadersFor(_baseUrl),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _coverPlaceholder(),
                       ),
@@ -2440,9 +2443,13 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       }
     }
 
+    final downloadApi = _api;
+    final downloadOrigin = downloadApi.baseUrl;
+    final downloadToken = downloadApi.accessToken;
+    final downloadUserId = downloadApi.cachedUserId;
     late final DownloadLink link;
     try {
-      link = await _api.createDownloadLink(
+      link = await downloadApi.createDownloadLink(
         gameId: game.id,
         versionId: v.id,
       );
@@ -2465,6 +2472,9 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       bgUrl = "$_baseUrl/api/files/backgrounds/$name";
     }
     final task = DownloadService().startDownload(
+      serverBaseUrl: downloadOrigin,
+      authToken: downloadToken,
+      authUserId: downloadUserId,
       gameId: game.id,
       versionId: v.id,
       fileName: v.filename,

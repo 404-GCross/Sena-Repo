@@ -1904,7 +1904,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   ? Image.network(
                       "$_baseUrl/api/files/covers$_coverPath?v=$_coverVersion",
                       key: ValueKey("cover_$_coverVersion"),
-                      headers: mediaAuthHeaders,
+                      headers: mediaHeadersFor(_baseUrl),
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _coverPlaceholder(),
                     )
@@ -2322,7 +2322,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
                   ? Image.network(
                       "$_baseUrl/api/files/covers$_coverPath?v=$_coverVersion",
                       key: ValueKey("cover_$_coverVersion"),
-                      headers: mediaAuthHeaders,
+                      headers: mediaHeadersFor(_baseUrl),
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _coverPlaceholder(),
                     )
@@ -2674,7 +2674,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
       aspectRatio: 16 / 9,
       child: Image.network(
         url,
-        headers: url.contains("/api/files/") ? mediaAuthHeaders : null,
+        headers: mediaHeadersFor(url),
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => Container(
           color: placeholderBg(context),
@@ -3209,7 +3209,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               sourceLabel: "${sources[src] ?? src} 封面",
               currentUrl: currentCoverUrl,
               sourceUrl: coverUrl,
-              currentHeaders: mediaAuthHeaders,
+              currentHeaders: mediaHeadersFor(currentCoverUrl),
               aspectRatio: 3 / 4,
               icon: Icons.image_outlined,
             ),
@@ -3221,9 +3221,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
               sourceLabel: "${sources[src] ?? src} 背景",
               currentUrl: currentHeroUrl,
               sourceUrl: heroUrl,
-              currentHeaders: currentHeroUrl.contains("/api/files/")
-                  ? mediaAuthHeaders
-                  : null,
+              currentHeaders: mediaHeadersFor(currentHeroUrl),
               aspectRatio: 16 / 9,
               icon: Icons.wallpaper_outlined,
             ),

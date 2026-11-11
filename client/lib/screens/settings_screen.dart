@@ -57,6 +57,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadIsAdmin() async {
+    final requestOrigin = _api.baseUrl;
+    final generation = ApiClient.sessionGeneration;
     final prefs = await SharedPreferences.getInstance();
     var isAdmin = prefs.getBool("is_admin") ?? false;
     if (mounted)
@@ -73,6 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final username = data["username"]?.toString();
         isAdmin = data["is_admin"] == true;
         await ApiClient.persistSessionInfo(
+          serverBaseUrl: requestOrigin, expectedGeneration: generation,
           userId: parseProfileUserId(data["id"]),
           username: username,
           isAdmin: isAdmin,
@@ -3401,8 +3404,9 @@ class _UserManagePageState extends State<_UserManagePage> {
   String _currentRole = "user";
 
   Future<Map<String, String>> get _authHeaders async {
+    final origin = widget.api.baseUrl;
     await ApiClient.restoreToken();
-    final token = globalToken ?? "";
+    final token = tokenForServer(origin) ?? "";
     final headers = {"Content-Type": "application/json"};
     if (token.isNotEmpty) {
       headers["Authorization"] = "Bearer $token";

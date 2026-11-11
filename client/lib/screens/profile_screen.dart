@@ -78,6 +78,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _username = cachedUsername;
         });
       }
+      final requestOrigin = api.baseUrl;
+      final generation = ApiClient.sessionGeneration;
       final resp = await http.get(
         Uri.parse("${api.baseUrl}/api/auth/profile/me"),
         headers: api.headers,
@@ -90,6 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final username = data["username"]?.toString() ?? _username;
         final avatarPath = data["avatar_path"]?.toString();
         await ApiClient.persistSessionInfo(
+          serverBaseUrl: requestOrigin, expectedGeneration: generation,
           userId: userId,
           username: username,
           isAdmin: data["is_admin"] == true,
@@ -148,7 +151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? ClipOval(
                       child: Image.network(
                         _avatarUrl!,
-                        headers: mediaAuthHeaders,
+                        headers: mediaHeadersFor(_avatarUrl!),
                         width: 88,
                         height: 88,
                         fit: BoxFit.cover,

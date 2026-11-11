@@ -212,7 +212,7 @@ class SteamIntegrationService {
     try {
       final resp = await http.get(
         Uri.parse(coverUrl),
-        headers: coverUrl.contains("/api/files/") ? mediaAuthHeaders : null,
+        headers: mediaHeadersFor(coverUrl),
       ).timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200) return false;
       if (resp.bodyBytes.length < 1024) return false;
@@ -232,7 +232,7 @@ class SteamIntegrationService {
     try {
       final resp = await http.get(
         Uri.parse(heroUrl),
-        headers: heroUrl.contains("/api/files/") ? mediaAuthHeaders : null,
+        headers: mediaHeadersFor(heroUrl),
       ).timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200) return false;
       if (resp.bodyBytes.length < 1024) return false;

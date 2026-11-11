@@ -17,6 +17,7 @@ import "../services/api_client.dart";
 import "../services/oauth_service.dart";
 import "../services/download_service.dart";
 import "../services/profile_service.dart";
+import "../services/server_origin.dart";
 import "../services/logger_service.dart";
 import "../models/log_models.dart";
 import "../widgets/app_shell.dart";
@@ -37,6 +38,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   bool _loading = true;
 
   String? _error;
+  int _connectionAttempt = 0;
 
   @override
   void initState() {
@@ -148,6 +150,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _connectToProfile(UserProfile profile, int index) async {
     setState(() => _error = null);
+    final attempt = ++_connectionAttempt;
+    ApiClient.invalidatePendingSession();
+    final generation = ApiClient.sessionGeneration;
     var loadingShown = false;
     var cancelled = false;
     void hideLoading() {
@@ -158,6 +163,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
     _showConnectingDialog(profile, () {
       cancelled = true;
+      ApiClient.invalidatePendingSession();
       hideLoading();
     });
     loadingShown = true;
@@ -170,7 +176,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         profile.port,
         useHttps: profile.useHttps,
       );
-      if (cancelled) return;
+      if (cancelled || attempt != _connectionAttempt) return;
       if (!success) {
         hideLoading();
         if (mounted) {
@@ -180,7 +186,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
         return;
       }
 
-      games.connect(profile.host, profile.port, useHttps: profile.useHttps);
       final setupApi = ApiClient();
       await setupApi.connect(
         profile.host,
@@ -188,23 +193,22 @@ class _ConnectScreenState extends State<ConnectScreen> {
         useHttps: profile.useHttps,
       );
       if (await setupApi.checkSetupNeeded()) {
-        if (cancelled) return;
+        if (cancelled || attempt != _connectionAttempt) return;
         hideLoading();
         await _handleResetServerSetup(profile, index, games, setupApi);
         return;
       }
-      if (cancelled) return;
+      if (cancelled || attempt != _connectionAttempt) return;
 
+      if (profile.userId > 0) {
+        profile.authToken = tokenForServer(profile.baseUrl, userId: profile.userId) ?? profile.authToken;
+      }
       if (profile.authToken.isEmpty) {
         hideLoading();
         await _showReAuthDialog(profile, index, games);
         return;
       }
 
-      await ApiClient.clearTokens();
-      await ProfileService().applyProfile(profile);
-      await ApiClient.restoreToken();
-      await ProfileService().setActiveIndex(index);
       final meUri = Uri.parse(
         "${profile.scheme}://${profile.host}:${profile.port}/api/auth/profile/me",
       );
@@ -212,15 +216,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
         meUri,
         headers: {"Authorization": "Bearer ${profile.authToken}"},
       ).timeout(const Duration(seconds: 5));
-      if (cancelled) return;
+      if (cancelled || attempt != _connectionAttempt) return;
       if (meResp.statusCode == 401) {
         if (await setupApi.checkSetupNeeded()) {
-          if (cancelled) return;
+          if (cancelled || attempt != _connectionAttempt) return;
           hideLoading();
           await _handleResetServerSetup(profile, index, games, setupApi);
           return;
         }
-        if (cancelled) return;
+        if (cancelled || attempt != _connectionAttempt) return;
         hideLoading();
         await _showReAuthDialog(profile, index, games);
         return;
@@ -250,7 +254,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
           );
         return;
       }
-      await _syncProfileFromMeResponse(profile, index, meResp.body);
+      await _syncProfileFromMeResponse(profile, index, meResp.body,
+        expectedGeneration: generation,
+        stillCurrent: () => !cancelled && attempt == _connectionAttempt);
+      games.connect(profile.host, profile.port, useHttps: profile.useHttps);
 
       // Proactively refresh token now so the user doesn't hit a stale 401
       // while editing metadata 15+ minutes later.
@@ -258,7 +265,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       try {
         await games.loadGames();
-        if (cancelled) return;
+        if (cancelled || attempt != _connectionAttempt) return;
         hideLoading();
         if (mounted)
           Navigator.pushReplacement(
@@ -266,7 +273,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
             MaterialPageRoute(builder: (_) => const HomeScreen()),
           );
       } catch (e) {
-        if (cancelled) return;
+        if (cancelled || attempt != _connectionAttempt) return;
         hideLoading();
         if (mounted) {
           setState(() {
@@ -276,7 +283,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         }
       }
     } catch (e) {
-      if (cancelled) return;
+      if (cancelled || attempt != _connectionAttempt) return;
       hideLoading();
       if (mounted)
         _showToast(
@@ -435,44 +442,42 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   Future<void> _syncProfileFromMeResponse(
-    UserProfile profile,
-    int index,
-    String body,
-  ) async {
-    final data = tryDecodeJsonMap(body);
-    if (data == null) {
-      throw const FormatException("用户资料响应不是 JSON");
+    UserProfile profile, int index, String body, {
+    int? expectedGeneration, bool Function()? stillCurrent,
+  }) async {
+    var generation = expectedGeneration ?? ApiClient.sessionGeneration;
+    void ensureCurrent() {
+      if (generation != ApiClient.sessionGeneration || stillCurrent?.call() == false) {
+        throw AuthException("连接选择已变化，请重试");
+      }
     }
+    ensureCurrent();
+    final data = tryDecodeJsonMap(body);
+    if (data == null) throw const FormatException("用户资料响应不是 JSON");
+    final verified = UserProfile.fromJson(profile.toJson());
     final userId = parseProfileUserId(data["id"]);
-    if (userId > 0) profile.userId = userId;
-    profile.username = data["username"]?.toString() ?? profile.username;
-    profile.isAdmin = data["is_admin"] == true;
-
+    if (userId > 0) verified.userId = userId;
+    verified.username = data["username"]?.toString() ?? verified.username;
+    verified.isAdmin = data["is_admin"] == true;
     final ps = ProfileService();
     final profiles = await ps.loadProfiles();
+    ensureCurrent();
     var saveIndex = index;
     if (saveIndex < 0 || saveIndex >= profiles.length) {
-      saveIndex = profiles.indexWhere(
-        (p) =>
-            p.host == profile.host &&
-            p.port == profile.port &&
-            p.useHttps == profile.useHttps &&
-            p.authToken == profile.authToken,
-      );
+      saveIndex = profiles.indexWhere((p) =>
+        serverOrigin(p.baseUrl) == serverOrigin(profile.baseUrl) &&
+        p.authToken == profile.authToken);
     }
+    generation = await ps.applyProfile(verified, expectedGeneration: generation,
+        stillCurrent: stillCurrent, logScope: data["log_scope"]?.toString());
+    ensureCurrent();
     if (saveIndex >= 0 && saveIndex < profiles.length) {
-      profiles[saveIndex] = profile;
+      profiles[saveIndex] = verified;
       await ps.saveProfiles(profiles);
+      ensureCurrent();
       await ps.setActiveIndex(saveIndex);
+      ensureCurrent();
     }
-    await ps.applyProfile(profile);
-    await ApiClient.persistSessionInfo(
-      accessToken: profile.authToken,
-      userId: profile.userId,
-      username: profile.username,
-      isAdmin: profile.isAdmin,
-      role: data["role"]?.toString(),
-    );
   }
 
   Future<void> _showReAuthDialog(
@@ -569,7 +574,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
       ),
     );
 
+    if (result == null) ApiClient.invalidatePendingSession();
     if (result != null && mounted) {
+      final generation = result["_installed_generation"] as int?;
+      if (generation != ApiClient.sessionGeneration) return;
       profile.authToken = result["token"]?.toString() ?? "";
       final resultUserId = parseProfileUserId(result["id"]);
       if (resultUserId > 0) profile.userId = resultUserId;
@@ -579,14 +587,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
       final ps = ProfileService();
       final profiles = await ps.loadProfiles();
-      await ApiClient.clearTokens();
+      if (generation != ApiClient.sessionGeneration) return;
       if (index < profiles.length) {
         profiles[index] = profile;
         await ps.setActiveIndex(index);
         await ps.saveProfiles(profiles);
       }
-      await ps.applyProfile(profile);
-      await ApiClient.restoreToken();
+      await ps.applyProfile(profile, expectedGeneration: generation);
+      games.connect(profile.host, profile.port, useHttps: profile.useHttps);
 
       try {
         await games.loadGames();
@@ -703,8 +711,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   providers: oauthProviders,
                   busyProvider: oauthBusyProvider,
                   onLogin: (provider) async {
+                    final oauthHost = hostCtrl.text.trim();
+                    final oauthPort = int.tryParse(portCtrl.text.trim()) ?? 11451;
+                    final oauthHttps = useHttps;
+                    final oauthApi = ApiClient();
+                    await oauthApi.connect(oauthHost, port: oauthPort, useHttps: oauthHttps);
                     final outcome = await _runOAuth(
-                      api,
+                      oauthApi,
                       provider.key,
                       setBusy: (busy) {
                         if (ctx.mounted) {
@@ -720,6 +733,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     if (!ctx.mounted) return;
                     final session = outcome.session;
                     if (session == null) return;
+                    final generation = session["_installed_generation"] as int?;
+                    if (generation != ApiClient.sessionGeneration) return;
                     final newToken = session["token"]?.toString() ?? "";
                     final newUserId = parseProfileUserId(session["id"]);
                     final newUsername =
@@ -728,17 +743,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       name: nameCtrl.text.trim().isEmpty
                           ? profile.name
                           : nameCtrl.text.trim(),
-                      host: hostCtrl.text.trim().isEmpty
-                          ? profile.host
-                          : hostCtrl.text.trim(),
-                      port: int.tryParse(portCtrl.text.trim()) ?? 11451,
+                      host: oauthHost,
+                      port: oauthPort,
                       authToken: newToken,
                       userId: newUserId > 0 ? newUserId : profile.userId,
                       username: newUsername.isEmpty
                           ? profile.username
                           : newUsername,
                       isAdmin: session["is_admin"] == true,
-                      useHttps: useHttps,
+                      useHttps: oauthHttps,
                     );
                     final ps = ProfileService();
                     final profiles = await ps.loadProfiles();
@@ -751,7 +764,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       profiles.add(newProfile);
                     }
                     await ps.saveProfiles(profiles);
-                    await ps.applyProfile(newProfile);
+                    await ps.applyProfile(newProfile, expectedGeneration: generation);
                     if (!ctx.mounted) return;
                     Navigator.pop(ctx, true);
                     _reloadProfiles();
@@ -770,16 +783,22 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 if (nameCtrl.text.trim().isEmpty ||
                     hostCtrl.text.trim().isEmpty) return;
                 final port = int.tryParse(portCtrl.text.trim()) ?? 11451;
+                final password = passCtrl.text;
+                final generation = ApiClient.sessionGeneration;
+                final sameServer = serverOrigin(profile.baseUrl) == serverOrigin(
+                    serverEndpoint(hostCtrl.text.trim(), port, useHttps));
+                final keepIdentity = sameServer && passCtrl.text.isEmpty &&
+                    (userCtrl.text.trim().isEmpty || userCtrl.text.trim() == profile.username);
                 final newProfile = UserProfile(
                   name: nameCtrl.text.trim(),
                   host: hostCtrl.text.trim(),
                   port: port,
-                  authToken: passCtrl.text.isNotEmpty ? "" : profile.authToken,
-                  userId: profile.userId,
+                  authToken: keepIdentity ? profile.authToken : "",
+                  userId: keepIdentity ? profile.userId : 0,
                   username: userCtrl.text.trim().isEmpty
                       ? profile.username
                       : userCtrl.text.trim(),
-                  isAdmin: profile.isAdmin,
+                  isAdmin: keepIdentity && profile.isAdmin,
                   useHttps: useHttps,
                 );
                 final ps = ProfileService();
@@ -793,19 +812,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 }
                 await ps.saveProfiles(profiles);
 
-                if (passCtrl.text.isNotEmpty) {
-                  final scheme = useHttps ? "https" : "http";
+                if (password.isNotEmpty) {
                   try {
                     final resp = await http.post(
                       Uri.parse(
-                        "$scheme://${hostCtrl.text.trim()}:$port/api/auth/login",
+                        "${newProfile.baseUrl}/api/auth/login",
                       ),
                       headers: {"Content-Type": "application/json"},
                       body: jsonEncode({
-                        "username": userCtrl.text.trim(),
-                        "password": passCtrl.text,
+                        "username": newProfile.username,
+                        "password": password,
                       }),
                     );
+                    if (!ctx.mounted) return;
                     if (resp.statusCode == 200) {
                       final data = tryDecodeJsonMap(resp.body);
                       if (data != null && data["token"] != null) {
@@ -818,7 +837,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         // newProfile.refreshToken = data["refresh_token"]?.toString() ?? "";
                         profiles[saveIndex] = newProfile;
                         await ps.saveProfiles(profiles);
-                        await ps.applyProfile(newProfile);
+                        await ps.applyProfile(newProfile, expectedGeneration: generation);
                       }
                     }
                   } catch (_) {}
@@ -832,7 +851,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
         ),
       ),
     );
-    if (result == true) _reloadProfiles();
+    if (result == true) {
+      _reloadProfiles();
+    } else {
+      ApiClient.invalidatePendingSession();
+    }
   }
 
   Future<void> _deleteProfile(int index) async {

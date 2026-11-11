@@ -64,8 +64,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<Map<String, String>> get _authHeaders async {
+    final origin = _baseUrl;
     await ApiClient.restoreToken();
-    final token = globalToken ?? "";
+    final token = tokenForServer(origin) ?? "";
     final headers = {"Content-Type": "application/json"};
     if (token.isNotEmpty) {
       headers["Authorization"] = "Bearer $token";
@@ -80,6 +81,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _loadUser() async {
+    final requestOrigin = _baseUrl;
+    final generation = ApiClient.sessionGeneration;
     try {
       final resp = await http.get(
         Uri.parse("$_baseUrl/api/auth/profile/me"),
@@ -89,6 +92,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final userId = _parseUserId(data["id"]);
         await ApiClient.persistSessionInfo(
+          serverBaseUrl: requestOrigin, expectedGeneration: generation,
           userId: userId,
           username: data["username"]?.toString(),
           isAdmin: data["is_admin"] == true,
@@ -482,6 +486,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _save() async {
+    final requestOrigin = _baseUrl;
+    final generation = ApiClient.sessionGeneration;
     setState(() {
       _saving = true;
       _error = null;
@@ -514,6 +520,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         if (resp.statusCode == 200) {
           final newToken = data["new_token"]?.toString();
           await ApiClient.persistSessionInfo(
+            serverBaseUrl: requestOrigin, expectedGeneration: generation,
             accessToken: newToken,
             userId: _userId,
             username: data["username"]?.toString() ?? newName,
@@ -845,7 +852,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 ? ClipOval(
                     child: Image.network(
                       avatarUrl,
-                      headers: mediaAuthHeaders,
+                      headers: mediaHeadersFor(avatarUrl),
                       width: diameter,
                       height: diameter,
                       fit: BoxFit.cover,

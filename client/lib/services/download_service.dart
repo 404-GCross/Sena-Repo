@@ -19,7 +19,10 @@ import "package:path_provider/path_provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "package:permission_handler/permission_handler.dart";
-import "api_client.dart" show ApiClient, globalToken;
+import "api_client.dart" show ApiClient, tokenForServer, userIdForServer;
+import "server_origin.dart";
+import "download_origin.dart";
+import "tls_policy.dart";
 import "notification_service.dart";
 
 class _ToolRunResult {
@@ -75,6 +78,7 @@ class DownloadTask {
   final String? patchLookupKey;
   /// Token of the server that created this task; never sent to another origin.
   String? authToken;
+  final int? authUserId;
   /// Size declared by the server; 0 when unknown.
   int expectedBytes;
 
@@ -115,6 +119,7 @@ class DownloadTask {
     this.targetDir,
     this.patchLookupKey,
     this.authToken,
+    this.authUserId,
     this.expectedBytes = 0,
     this.status = "pending",
     this.progress = 0,
@@ -124,6 +129,14 @@ class DownloadTask {
     this.outputPath,
   }) : startedAt = DateTime.now();
 
+  Map<String, String> headersForUrl(String url) {
+    final origin = serverOrigin(serverBaseUrl);
+    if (origin == null || origin != serverOrigin(url)) return {};
+    final current = authUserId == null ? null : tokenForServer(origin, userId: authUserId);
+    final token = current ?? authToken;
+    return token == null || token.isEmpty ? {} : {"Authorization": "Bearer $token"};
+  }
+
   Map<String, dynamic> toJson() => {
     "gameId": gameId,
     "versionId": versionId,
@@ -131,6 +144,8 @@ class DownloadTask {
     "downloadUrl": downloadUrl,
     "expiresAt": expiresAt,
     "serverBaseUrl": serverBaseUrl,
+    "authScopeVersion": 1,
+    "authUserId": authUserId,
     "gameName": gameName,
     "companyName": companyName,
     "sourceType": sourceType,
@@ -224,7 +239,8 @@ class DownloadService with WidgetsBindingObserver {
                 fileName: m["fileName"] ?? "",
                 downloadUrl: m["downloadUrl"] ?? "",
                 expiresAt: m["expiresAt"] ?? 0,
-                serverBaseUrl: m["serverBaseUrl"],
+                serverBaseUrl: restoredDownloadOrigin(m),
+                authUserId: restoredDownloadUserId(m),
                 gameName: m["gameName"] ?? "",
                 companyName: m["companyName"] ?? "",
                 sourceType: m["sourceType"]?.toString() ?? "local",
@@ -277,6 +293,9 @@ class DownloadService with WidgetsBindingObserver {
               "downloadUrl": t.downloadUrl,
               "expiresAt": t.expiresAt,
               "serverBaseUrl": t.serverBaseUrl,
+              "authScopeVersion": 1,
+              "authUserId": t.authUserId,
+              "patchLookupKey": t.patchLookupKey,
               "gameName": t.gameName,
               "companyName": t.companyName,
               "sourceType": t.sourceType,
@@ -554,6 +573,8 @@ class DownloadService with WidgetsBindingObserver {
     )?
     onProgress,
   }) async {
+    final taskToken = tokenForServer(serverBaseUrl);
+    final taskUserId = userIdForServer(serverBaseUrl);
     final dir = await downloadDir;
     final safeAppId = appId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), "_");
     final ext = patchFilename.contains(".")
@@ -573,7 +594,8 @@ class DownloadService with WidgetsBindingObserver {
       patchLookupKey: patchLookupKey,
       expiresAt: expiresAt,
       serverBaseUrl: serverBaseUrl,
-      authToken: globalToken,
+      authToken: taskToken,
+      authUserId: taskUserId,
     );
     final inj = _PatchInjection(task: task, tempPath: tmpPath);
     _patchInjections[appId] = inj;
@@ -744,6 +766,9 @@ class DownloadService with WidgetsBindingObserver {
   // ── public API ──
 
   DownloadTask startDownload({
+    required String serverBaseUrl,
+    required String? authToken,
+    required int? authUserId,
     required int gameId,
     required int versionId,
     required String fileName,
@@ -765,14 +790,14 @@ class DownloadService with WidgetsBindingObserver {
             fileName: fileName,
             downloadUrl: downloadUrl,
             expiresAt: expiresAt,
-            serverBaseUrl: _serverOrigin(ApiClient().baseUrl) ??
-                _serverOrigin(downloadUrl),
+            serverBaseUrl: serverOrigin(serverBaseUrl),
+            authUserId: authUserId,
             gameName: gameName,
             companyName: companyName,
             sourceType: sourceType,
             targetDir: targetDir,
           )
-          ..authToken = globalToken
+          ..authToken = authToken
           ..expectedBytes = expectedBytes
           ..coverUrl = coverUrl
           ..bgUrl = bgUrl
@@ -1594,15 +1619,7 @@ class DownloadService with WidgetsBindingObserver {
   static const _parallelDownloadMaxTransientRetriesAtOne = 3;
 
   Future<void> _refreshSignedDownloadLink(DownloadTask task) async {
-    final original = Uri.tryParse(task.downloadUrl);
-    final origin = task.serverBaseUrl ??
-        (original == null
-            ? null
-            : Uri(
-                scheme: original.scheme,
-                host: original.host,
-                port: original.hasPort ? original.port : null,
-              ).toString().replaceFirst(RegExp(r"/$"), ""));
+    final origin = serverOrigin(task.serverBaseUrl);
     final patchKey = task.patchLookupKey;
     if (origin == null || (patchKey == null && (task.gameId <= 0 || task.versionId <= 0))) {
       throw DownloadHttpException(401, "下载链接已过期，无法刷新");
@@ -1638,26 +1655,8 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  Map<String, String> _downloadAuthHeaders(DownloadTask task) {
-    final taskOrigin = task.serverBaseUrl;
-    final activeOrigin = _serverOrigin(ApiClient().baseUrl);
-    final token = (taskOrigin != null && taskOrigin == activeOrigin)
-        ? globalToken
-        : task.authToken;
-    return token == null || token.isEmpty
-        ? {}
-        : {"Authorization": "Bearer $token"};
-  }
-
-  static String? _serverOrigin(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) return null;
-    return Uri(
-      scheme: uri.scheme,
-      host: uri.host,
-      port: uri.hasPort ? uri.port : null,
-    ).toString().replaceFirst(RegExp(r"/$"), "");
-  }
+  Map<String, String> _downloadAuthHeaders(DownloadTask task) =>
+      task.headersForUrl(task.serverBaseUrl ?? "");
 
   static int? _retryAfterSeconds(String? value) {
     if (value == null) return null;
@@ -2223,6 +2222,7 @@ class DownloadService with WidgetsBindingObserver {
     Uri? finalUri;
     try {
       final resp = await _sendDownloadRequest(
+        t,
         client,
         t.downloadUrl,
         {
@@ -2614,17 +2614,16 @@ class DownloadService with WidgetsBindingObserver {
       "--dir=${dest.parent.path}",
       "--out=${_safeName(dest.path)}",
     ];
+    String? caCertificate;
     if (Platform.isAndroid) {
-      final caCertificate = await _androidAria2CaCertificatePath(aria2);
+      caCertificate = await _androidAria2CaCertificatePath(aria2);
       if (caCertificate == null) {
         LoggerService().warn(
-          "aria2 Android CA bundle unavailable; disabling certificate check",
+          "aria2 Android CA bundle unavailable; retaining certificate verification",
         );
-        args.add("--check-certificate=false");
-      } else {
-        args.add("--ca-certificate=$caCertificate");
       }
     }
+    args.addAll(aria2CertificateArguments(caCertificate));
     if (split > 1) {
       args.add("--min-split-size=32M");
       args.add("--stream-piece-selector=inorder");
@@ -2699,7 +2698,7 @@ class DownloadService with WidgetsBindingObserver {
         headers["Range"] = "bytes=${t.receivedBytes}-";
       }
 
-      final resp = await _sendDownloadRequest(client, t.downloadUrl, headers);
+      final resp = await _sendDownloadRequest(t, client, t.downloadUrl, headers);
       t.headersReceived = true;
       _emit();
       LoggerService().info(
@@ -3342,6 +3341,7 @@ class DownloadService with WidgetsBindingObserver {
     _trackTaskClient(t, client);
     try {
       final resp = await _sendDownloadRequest(
+        t,
         client,
         t.downloadUrl,
         {"Range": "bytes=0-0"},
@@ -3373,6 +3373,7 @@ class DownloadService with WidgetsBindingObserver {
     _trackTaskClient(t, client);
     try {
       final resp = await _sendDownloadRequest(
+        t,
         client,
         t.downloadUrl,
         const {},
@@ -3442,6 +3443,7 @@ class DownloadService with WidgetsBindingObserver {
     try {
       final start = part.start + existing;
       final resp = await _sendDownloadRequest(
+        t,
         client,
         t.downloadUrl,
         {"Range": "bytes=$start-${part.end}"},
@@ -3556,6 +3558,7 @@ class DownloadService with WidgetsBindingObserver {
   }
 
   Future<http.StreamedResponse> _sendDownloadRequest(
+    DownloadTask task,
     http.Client client,
     String url,
     Map<String, String> baseHeaders, {
@@ -3563,23 +3566,14 @@ class DownloadService with WidgetsBindingObserver {
     void Function(Uri uri)? onFinalUri,
   }) async {
     var current = Uri.parse(url);
-    final originalScheme = current.scheme;
-    final originalHost = current.host;
-    final originalPort = current.hasPort ? current.port : null;
 
     for (var redirectCount = 0; redirectCount < 8; redirectCount++) {
       final req = http.Request(method, current)..followRedirects = false;
       req.headers.addAll(baseHeaders);
+      req.headers.removeWhere((key, _) => key.toLowerCase() == "authorization");
+      req.headers.addAll(task.headersForUrl(current.toString()));
       req.headers.putIfAbsent("User-Agent", () => _downloadUserAgent);
       req.headers.putIfAbsent("Accept", () => "*/*");
-
-      final sameOrigin =
-          current.scheme == originalScheme &&
-          current.host == originalHost &&
-          (current.hasPort ? current.port : null) == originalPort;
-      if (sameOrigin && globalToken != null && globalToken!.isNotEmpty) {
-        req.headers["Authorization"] = "Bearer $globalToken";
-      }
 
       LoggerService().info(
         "download request[$redirectCount]: $method ${_downloadLogTarget(current)} "
@@ -3603,6 +3597,10 @@ class DownloadService with WidgetsBindingObserver {
           throw Exception("下载重定向缺少 Location: HTTP ${resp.statusCode}");
         }
         final next = current.resolve(location.trim());
+        if (serverOrigin(next.toString()) == null ||
+            (current.scheme == "https" && next.scheme != "https")) {
+          throw DownloadHttpException(502, "拒绝不安全的下载重定向");
+        }
         LoggerService().info(
           "download redirect[$redirectCount]: HTTP ${resp.statusCode} "
           "${_downloadLogTarget(current)} -> ${_downloadLogTarget(next)}",

@@ -6,7 +6,6 @@ import "package:flutter/material.dart";
 import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 
-import "../services/api_client.dart" show trustedServerHost;
 import "../services/api_response_utils.dart";
 import "../services/logger_service.dart";
 
@@ -71,10 +70,6 @@ class SettingsProvider extends ChangeNotifier {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
-
-    // Trust the endpoint before the health probe, otherwise a self-signed
-    // certificate is rejected on the very first connection.
-    trustedServerHost = host;
 
     LoggerService().info("正在连接 $host:$port (${useHttps ? "HTTPS" : "HTTP"})");
     try {

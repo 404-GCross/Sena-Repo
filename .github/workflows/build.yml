@@ -64,8 +64,10 @@ jobs:
       - name: Analyze Flutter client
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Test Steam name batching
-        run: flutter test --no-pub test/steam_service_test.dart
+      - name: Test Flutter client
+        run: |
+          openssl version
+          flutter test --no-pub
 
   # ── Android APK ──────────────────────────────────
   build-android:

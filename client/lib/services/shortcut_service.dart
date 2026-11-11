@@ -94,7 +94,7 @@ class ShortcutService {
 
       final resp = await http.get(
         Uri.parse(coverUrl),
-        headers: coverUrl.contains("/api/files/") ? mediaAuthHeaders : null,
+        headers: mediaHeadersFor(coverUrl),
       );
       if (resp.statusCode == 200) {
         await dest.writeAsBytes(resp.bodyBytes);
