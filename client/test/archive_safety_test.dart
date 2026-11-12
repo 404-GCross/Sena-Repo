@@ -106,8 +106,10 @@ void main() {
     await file("outside/file", "original");
     await file("source/sub/file", "replacement");
     if (Platform.isWindows) {
+      final linkPath = "${target.path}\\sub".replaceAll("/", "\\");
+      final outsidePath = outside.path.replaceAll("/", "\\");
       final result = await Process.run(
-          "cmd", ["/c", "mklink", "/J", "${target.path}\\sub", outside.path]);
+          "cmd", ["/c", "mklink", "/J", linkPath, outsidePath]);
       expect(result.exitCode, 0, reason: "${result.stdout} ${result.stderr}");
     } else {
       await Link("${target.path}/sub").create(outside.path);
@@ -276,7 +278,14 @@ void main() {
             ? "Linux-x64/7zz"
             : null;
     if (platform == null) return;
-    final exe = File("assets/binaries/7zip-zstd/$platform").absolute.path;
+    final bundled = File("assets/binaries/7zip-zstd/$platform").absolute;
+    final exe = (await bundled
+            .copy("${root.path}/${Platform.isWindows ? '7zz.exe' : '7zz'}"))
+        .path;
+    if (!Platform.isWindows) {
+      final chmod = await Process.run("chmod", ["+x", exe]);
+      expect(chmod.exitCode, 0, reason: "${chmod.stderr}");
+    }
     final fixture =
         await Process.run(Platform.isWindows ? "python" : "python3", [
       "-c",
