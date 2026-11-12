@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import stat
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -595,6 +597,53 @@ def docker_channel_tag() -> str:
     return "latest"
 
 
+def _persist_update_channel(channel: str, *, expected_sha: str) -> None:
+    path = install_root().resolve() / ".version"
+    temporary: Path | None = None
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            fail("版本元数据不是普通文件，无法保存更新通道", 2)
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            content = handle.read()
+        metadata = dict(tuple(part.strip() for part in line.split("=", 1)) for line in content.splitlines() if "=" in line)
+        if metadata.get("SOURCE_SHA", "").strip() != expected_sha:
+            fail("安装版本已变化，请重新运行更新命令", 2)
+        newline = "\r\n" if "\r\n" in content else "\n"
+        lines = []
+        replaced = False
+        for line in content.splitlines(keepends=True):
+            if line.split("=", 1)[0].strip() == "SOURCE_CHANNEL":
+                if not replaced:
+                    lines.append(f"SOURCE_CHANNEL={channel}{newline}")
+                    replaced = True
+            else:
+                lines.append(line)
+        if not replaced:
+            if lines and not lines[-1].endswith(("\n", "\r")):
+                lines[-1] += newline
+            lines.append(f"SOURCE_CHANNEL={channel}{newline}")
+        fd, name = tempfile.mkstemp(prefix=".version.channel-", dir=path.parent)
+        temporary = Path(name)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            os.fchmod(handle.fileno(), stat.S_IMODE(before.st_mode))
+            handle.write("".join(lines))
+            handle.flush()
+            os.fsync(handle.fileno())
+        after = path.lstat()
+        if (before.st_dev, before.st_ino, before.st_mtime_ns, before.st_size) != (
+            after.st_dev, after.st_ino, after.st_mtime_ns, after.st_size
+        ):
+            fail("版本元数据已变化，请重新运行更新命令", 2)
+        os.replace(temporary, path)
+        temporary = None
+    except (OSError, UnicodeError):
+        fail("无法保存更新通道，请检查安装目录权限后重试", 2)
+    finally:
+        if temporary is not None and temporary.parent == path.parent and temporary.name.startswith(".version.channel-"):
+            temporary.unlink(missing_ok=True)
+
+
 def cmd_update(args) -> int:
     if in_docker():
         tag = docker_channel_tag()
@@ -665,7 +714,14 @@ def cmd_update(args) -> int:
         return 1
 
     if current_sha == remote_sha and not args.force:
-        echo("已经是最新版本")
+        if args.channel and not args.ref and channel and metadata.get("SOURCE_CHANNEL", "") != channel:
+            if not args.yes and not confirm(f"当前版本已是最新，确认将后续更新通道切换为 {channel}？"):
+                echo("已取消")
+                return 130
+            _persist_update_channel(channel, expected_sha=current_sha)
+            echo(f"已经是最新版本，后续更新通道已保存为 {channel}")
+        else:
+            echo("已经是最新版本")
         return 0
     if not args.yes and not confirm(f"确认更新到 {repo_ref}@{short_sha(remote_sha)}？"):
         echo("已取消")
@@ -673,6 +729,7 @@ def cmd_update(args) -> int:
     env = {
         "SENA_REPO_URL": repo_url,
         "SENA_REPO_REF": repo_ref,
+        "SENA_CHANNEL": "" if args.ref else channel,
     }
     if channel and not args.ref:
         # Persist the channel so the next `senacli update` resolves the newest

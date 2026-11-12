@@ -24,7 +24,7 @@ dependencies:
   window_manager:
     git:
       url: https://github.com/bggRGjQaUbCoE/window_manager.git
-      ref: main
+      ref: ac535d09a5850279e6591a9bdd285f9a3edeebf8
       path: packages/window_manager
 
 dev_dependencies:

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
+import re
 from datetime import datetime
 
 import bcrypt
@@ -19,20 +22,52 @@ from sqlalchemy import (
 from database import Base
 
 
+PASSWORD_SCHEME = "bcrypt-sha256-v1"
+MAX_VERIFY_PASSWORD_BYTES = 4096
+
+
+def validate_new_password(password: str) -> str:
+    if not isinstance(password, str) or not 4 <= len(password) <= 128:
+        raise ValueError("密码长度必须为 4–128 个字符")
+    try:
+        password.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("密码包含无效字符") from None
+    return password
+
+
+def _password_prehash(raw: bytes) -> bytes:
+    return base64.b64encode(hashlib.sha256(b"sena-password-v1\0" + raw).digest())
+
+
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
-    """Hash a password with bcrypt (preferred) or SHA-256 (legacy)."""
+    raw = validate_new_password(password).encode("utf-8")
     if salt is None:
-        h = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-        return h, "bcrypt"
-    h = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-    return h, salt
+        hashed = bcrypt.hashpw(_password_prehash(raw), bcrypt.gensalt()).decode("ascii")
+        return hashed, PASSWORD_SCHEME
+    return hashlib.sha256(salt.encode("utf-8") + raw).hexdigest(), salt
 
 
 def verify_password(password: str, salt: str, stored_hash: str) -> bool:
-    """Verify password, supporting both bcrypt and legacy SHA-256."""
-    if salt == "bcrypt":
-        return bcrypt.checkpw(password.encode(), stored_hash.encode())
-    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == stored_hash
+    if not isinstance(password, str) or len(password) > MAX_VERIFY_PASSWORD_BYTES:
+        return False
+    if not isinstance(salt, str) or not isinstance(stored_hash, str):
+        return False
+    try:
+        raw = password.encode("utf-8")
+        if len(raw) > MAX_VERIFY_PASSWORD_BYTES:
+            return False
+        if salt == PASSWORD_SCHEME:
+            return bcrypt.checkpw(_password_prehash(raw), stored_hash.encode("ascii"))
+        if salt == "bcrypt":
+            # Older bcrypt truncated at 72 bytes, including partial UTF-8 sequences.
+            return bcrypt.checkpw(raw[:72], stored_hash.encode("ascii"))
+        if salt.startswith("bcrypt") or len(salt) > 64 or not re.fullmatch(r"[0-9a-f]{64}", stored_hash):
+            return False
+        digest = hashlib.sha256(salt.encode("utf-8") + raw).hexdigest()
+        return hmac.compare_digest(digest, stored_hash)
+    except (UnicodeError, ValueError, TypeError):
+        return False
 
 
 class User(Base):

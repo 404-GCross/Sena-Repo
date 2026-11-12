@@ -7,7 +7,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -21,7 +21,7 @@ from config import (
 from database import get_session
 from models.root_directory import RootDirectory
 from models.file_source import FileSource, SteamPatchRoot
-from models.user import User, UserOAuthBinding, hash_password
+from models.user import User, UserOAuthBinding, hash_password, validate_new_password
 from services.oauth_tokens import save_binding_tokens
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from utils.log_redaction import redact_exception
@@ -46,7 +46,7 @@ class SetupStatus(BaseModel):
 
 class InitRequest(BaseModel):
     admin_username: str = Field(min_length=2, max_length=128)
-    admin_password: str = Field(min_length=4, max_length=128)
+    admin_password: str
     game_dirs: list[str] = Field(default_factory=list)  # paths to scan
     steam_dir: str = ""
     patch_dir: str = ""
@@ -68,6 +68,14 @@ class InitRequest(BaseModel):
     enabled_scrapers: list[str] = Field(
         default_factory=lambda: list(DEFAULT_ENABLED_SCRAPERS)
     )
+
+    @field_validator("admin_password", mode="before")
+    @classmethod
+    def validate_password(cls, value):
+        try:
+            return validate_new_password(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @router.get("/status", response_model=SetupStatus)

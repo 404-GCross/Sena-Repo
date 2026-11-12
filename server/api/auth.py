@@ -10,14 +10,14 @@ from math import ceil
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from config import load_config
 from database import get_session
-from models.user import User, UserOAuthBinding, UserSession, hash_password, verify_password
+from models.user import User, UserOAuthBinding, UserSession, hash_password, verify_password, validate_new_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -260,7 +260,27 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
 
     await _touch_session(auth_session, session)
+    request.state.auth_session = auth_session
     return user
+
+
+def require_request_session(request: Request, user: User) -> UserSession:
+    auth_session = getattr(request.state, "auth_session", None)
+    if (not isinstance(auth_session, UserSession)
+            or auth_session.user_id != user.id
+            or auth_session.revoked_at is not None
+            or auth_session.expires_at <= datetime.utcnow()):
+        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+    return auth_session
+
+
+def _validate_api_password(value, *, allow_empty: bool = False):
+    if value is None or (allow_empty and value == ""):
+        return value
+    try:
+        return validate_new_password(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 async def require_admin(
@@ -331,6 +351,11 @@ class AdminUserUpdate(BaseModel):
     )
     clear_hikarinagi: bool = False
 
+    @field_validator("password", mode="before")
+    @classmethod
+    def validate_password(cls, value):
+        return _validate_api_password(value, allow_empty=True)
+
 
 # ── Auth endpoints ───────────────────────────────────────────────────────────
 
@@ -372,8 +397,6 @@ async def login(
     if user.status != "active":
         logger.info("Login blocked: user_id=%s username=%s status=%s", user.id, user.username, user.status)
         raise HTTPException(status_code=403, detail="账户已被停用")
-    if user.salt != "bcrypt":
-        user.password_hash, user.salt = hash_password(body.password)
     token = await _issue_session_token(user, session, request)
     await session.commit()
     logger.info(
@@ -441,12 +464,17 @@ async def list_users(current: User = Depends(require_admin),
 
 class CreateUserRequest(BaseModel):
     username: str = Field(min_length=2, max_length=128)
-    password: str | None = Field(default=None, min_length=4, max_length=128)
+    password: str | None = None
     role: str = "user"
     nextmoe_user_id: int | None = None
     hikarinagi_user_id: int | None = Field(
         default=None, strict=True, gt=0, le=9223372036854775807
     )
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def validate_password(cls, value):
+        return _validate_api_password(value)
 
 
 @router.post("/users")
@@ -751,6 +779,11 @@ class ProfileUpdate(BaseModel):
     username: str | None = None
     current_password: str | None = None
     new_password: str | None = None
+
+    @field_validator("new_password", mode="before")
+    @classmethod
+    def validate_password(cls, value):
+        return _validate_api_password(value, allow_empty=True)
 
 
 @router.get("/profile/me")

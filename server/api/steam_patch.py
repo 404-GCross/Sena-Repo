@@ -17,8 +17,8 @@ from config import load_config
 from database import get_session
 from models.user import User
 from models.file_source import FileSource, SteamPatchRoot
-from api.auth import get_current_user, require_admin
-from api.download import build_signed_patch_url, patch_download_ttl, verify_patch_download_signature
+from api.auth import get_current_user, require_admin, require_request_session
+from api.download import build_signed_patch_url, patch_download_ttl, verify_patch_download_signature, signed_download_session
 from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
 from utils.log_redaction import redact_exception
 from utils.secrets import encrypt_secret
@@ -1195,7 +1195,7 @@ async def create_patch_download_link(
     entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
     size = int((entry or {}).get("size") or 0)
     expires_at = int(time.time()) + patch_download_ttl(size)
-    url = build_signed_patch_url(request, lookup_key, expires_at)
+    url = build_signed_patch_url(request, lookup_key, expires_at, require_request_session(request, user))
     logger.info(
         "Patch download link requested: lookup_key=%s source_type=%s size=%s expires_at=%s",
         lookup_key,
@@ -1215,10 +1215,13 @@ async def download_signed_patch(
     request: Request,
     expires_at: int,
     signature: str,
+    uid: int = 0,
+    sid: int = 0,
     session: AsyncSession = Depends(get_session),
 ):
     """Fetch a patch with a signed URL: no token, no Authorization header."""
-    if not verify_patch_download_signature(lookup_key, expires_at, signature):
+    auth_session = await signed_download_session(session, uid, sid)
+    if not verify_patch_download_signature(lookup_key, expires_at, signature, auth_session):
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
     return await serve_patch_file(lookup_key, request, session)
 

@@ -20,7 +20,7 @@ from cli.common import (
     prompt_password_twice,
     prompt_text,
 )
-from models.user import User, UserOAuthBinding, UserSession, hash_password
+from models.user import User, UserOAuthBinding, UserSession, hash_password, validate_new_password
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,14 +38,15 @@ def _read_password(args) -> str:
     if getattr(args, "password", None) and getattr(args, "password_stdin", False):
         fail("--password and --password-stdin cannot be used together", 2)
     if getattr(args, "password_stdin", False):
-        password = sys.stdin.readline().rstrip("\r\n")
+        password = sys.stdin.readline(131).rstrip("\r\n")
     elif getattr(args, "password", None):
         password = args.password
     else:
         password = prompt_password_twice()
-    if len(password) < 4:
-        fail("密码至少需要 4 位", 2)
-    return password
+    try:
+        return validate_new_password(password)
+    except ValueError as exc:
+        fail(str(exc), 2)
 
 
 async def _revoke_sessions(session: AsyncSession, user_id: int) -> int:

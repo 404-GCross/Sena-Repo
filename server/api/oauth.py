@@ -24,7 +24,7 @@ from config import load_config
 from database import get_session
 from models.user import User, UserOAuthBinding
 from services.oauth_providers import OAuthProvider, provider, providers
-from services.oauth_tokens import save_binding_tokens
+from services.oauth_tokens import OAuthTokenError, save_binding_tokens, validate_token_response
 from services.oidc import OIDCKeySetError, verify_id_token
 
 logger = logging.getLogger(__name__)
@@ -261,13 +261,10 @@ async def _exchange_code(
         raise HTTPException(
             status_code=502, detail=f"{spec.label} 返回了无效的响应"
         )
-    if not isinstance(data, dict) or not data.get("access_token"):
-        logger.warning(
-            "OAuth token exchange returned no access_token: provider=%s", spec.key
-        )
-        raise HTTPException(
-            status_code=400, detail=f"{spec.label} 授权失败，请重试"
-        )
+    try:
+        validate_token_response(data)
+    except OAuthTokenError:
+        raise HTTPException(status_code=502, detail=f"{spec.label} 返回了无效的授权响应") from None
     return data
 
 

@@ -24,13 +24,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_request_session
 from config import load_config
 from database import get_session
 from models.file_source import FileSource
 from models.game import Game, GameVersion
 from models.root_directory import RootDirectory
-from models.user import User
+from models.user import User, UserSession
 from services.file_source import adapter_from_source
 from utils.log_redaction import redact_exception
 
@@ -146,33 +146,43 @@ def _signature_secret() -> bytes:
     return secret.encode("utf-8")
 
 
-def _signature_payload(
-    game_id: int, version_id: int, expires_at: int, user_id: int = 0
-) -> bytes:
-    return f"{game_id}:{version_id}:{expires_at}:{user_id}".encode("utf-8")
+def _session_signature(domain: str, resource: list, expires_at: int, auth_session: UserSession) -> str:
+    payload = json.dumps(
+        [domain, *resource, expires_at, auth_session.user_id, auth_session.id, auth_session.token_hash],
+        separators=(",", ":"), ensure_ascii=True,
+    ).encode("ascii")
+    return hmac.new(_signature_secret(), payload, hashlib.sha256).hexdigest()
 
 
-def _sign_download(
-    game_id: int, version_id: int, expires_at: int, user_id: int = 0
-) -> str:
-    return hmac.new(
-        _signature_secret(),
-        _signature_payload(game_id, version_id, expires_at, user_id),
-        hashlib.sha256,
-    ).hexdigest()
+def _valid_signature_input(expires_at: int, signature: str) -> bool:
+    return expires_at > int(time.time()) and re.fullmatch(r"[0-9a-f]{64}", signature) is not None
+
+
+async def signed_download_session(session: AsyncSession, uid: int, sid: int) -> UserSession:
+    if not (0 < uid <= 9223372036854775807 and 0 < sid <= 9223372036854775807):
+        raise HTTPException(status_code=403, detail="下载链接无效或已过期")
+    auth_session = (await session.execute(
+        select(UserSession).join(User, User.id == UserSession.user_id).where(
+            UserSession.id == sid, UserSession.user_id == uid,
+            UserSession.revoked_at.is_(None), UserSession.expires_at > datetime.utcnow(),
+            User.status == "active",
+        ).execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if auth_session is None:
+        raise HTTPException(status_code=403, detail="下载链接无效或已过期")
+    return auth_session
+
+
+def _sign_download(game_id: int, version_id: int, expires_at: int, auth_session: UserSession) -> str:
+    return _session_signature("sena-game-download-v2", [game_id, version_id], expires_at, auth_session)
 
 
 def _verify_download_signature(
-    game_id: int,
-    version_id: int,
-    expires_at: int,
-    signature: str,
-    user_id: int = 0,
+    game_id: int, version_id: int, expires_at: int, signature: str, auth_session: UserSession,
 ) -> bool:
-    if expires_at <= int(time.time()):
+    if not _valid_signature_input(expires_at, signature):
         return False
-    expected = _sign_download(game_id, version_id, expires_at, user_id)
-    return hmac.compare_digest(expected, signature)
+    return hmac.compare_digest(_sign_download(game_id, version_id, expires_at, auth_session), signature)
 
 
 def _download_ttl_seconds(file_size: int) -> int:
@@ -189,36 +199,26 @@ def patch_download_ttl(file_size: int) -> int:
     return max(_download_ttl_seconds(file_size), 24 * 60 * 60)
 
 
-def _patch_signature_payload(lookup_key: str, expires_at: int) -> bytes:
-    return f"patch:{lookup_key}:{expires_at}".encode("utf-8")
-
-
-def sign_patch_download(lookup_key: str, expires_at: int) -> str:
-    return hmac.new(
-        _signature_secret(),
-        _patch_signature_payload(lookup_key, expires_at),
-        hashlib.sha256,
-    ).hexdigest()
+def sign_patch_download(lookup_key: str, expires_at: int, auth_session: UserSession) -> str:
+    return _session_signature("sena-patch-download-v2", [lookup_key], expires_at, auth_session)
 
 
 def verify_patch_download_signature(
-    lookup_key: str,
-    expires_at: int,
-    signature: str,
+    lookup_key: str, expires_at: int, signature: str, auth_session: UserSession,
 ) -> bool:
-    if expires_at <= int(time.time()):
+    if not _valid_signature_input(expires_at, signature):
         return False
-    return hmac.compare_digest(sign_patch_download(lookup_key, expires_at), signature)
+    return hmac.compare_digest(sign_patch_download(lookup_key, expires_at, auth_session), signature)
 
 
-def build_signed_patch_url(request: Request, lookup_key: str, expires_at: int) -> str:
+def build_signed_patch_url(
+    request: Request, lookup_key: str, expires_at: int, auth_session: UserSession,
+) -> str:
     base = str(request.url_for("download_signed_patch", lookup_key=lookup_key))
-    query = urlencode(
-        {
-            "expires_at": str(expires_at),
-            "signature": sign_patch_download(lookup_key, expires_at),
-        }
-    )
+    query = urlencode({
+        "expires_at": str(expires_at), "uid": str(auth_session.user_id), "sid": str(auth_session.id),
+        "signature": sign_patch_download(lookup_key, expires_at, auth_session),
+    })
     return f"{base}?{query}"
 
 
@@ -752,7 +752,7 @@ def _build_signed_download_url(
     version_id: int,
     expires_at: int,
     *,
-    user_id: int = 0,
+    auth_session: UserSession,
     proxy_openlist: bool = False,
 ) -> str:
     base = str(
@@ -764,8 +764,9 @@ def _build_signed_download_url(
     )
     params = {
         "expires_at": str(expires_at),
-        "uid": str(user_id),
-        "signature": _sign_download(game_id, version_id, expires_at, user_id),
+        "uid": str(auth_session.user_id),
+        "sid": str(auth_session.id),
+        "signature": _sign_download(game_id, version_id, expires_at, auth_session),
     }
     if proxy_openlist:
         params["proxy"] = "1"
@@ -815,7 +816,7 @@ async def _manager_download_url(
     version_id: int,
     expires_at: int,
     *,
-    user_id: int = 0,
+    auth_session: UserSession,
     proxy_openlist: bool = False,
 ) -> tuple[str, int | None]:
     return (
@@ -824,7 +825,7 @@ async def _manager_download_url(
             game_id,
             version_id,
             expires_at,
-            user_id=user_id,
+            auth_session=auth_session,
             proxy_openlist=proxy_openlist,
         ),
         expires_at,
@@ -839,11 +840,13 @@ async def download_signed_game_version(
     signature: str,
     request: Request,
     uid: int = 0,
+    sid: int = 0,
     session: AsyncSession = Depends(get_session),
 ):
     """Download a game version through a short-lived signed URL."""
+    auth_session = await signed_download_session(session, uid, sid)
     if not _verify_download_signature(
-        game_id, version_id, expires_at, signature, uid
+        game_id, version_id, expires_at, signature, auth_session
     ):
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
     logger.info(
@@ -898,7 +901,7 @@ async def create_download_link(
     )
     return DownloadLinkResponse(
         url=_build_signed_download_url(
-            request, game_id, version_id, expires_at, user_id=user.id
+            request, game_id, version_id, expires_at, auth_session=require_request_session(request, user)
         ),
         expires_at=expires_at,
     )
@@ -948,7 +951,7 @@ async def create_manager_install_link(
         game_id,
         version_id,
         expires_at,
-        user_id=user.id,
+        auth_session=require_request_session(request, user),
     )
 
     if body.target == "lunabox":

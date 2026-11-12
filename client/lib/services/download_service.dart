@@ -23,6 +23,8 @@ import "api_client.dart" show ApiClient, tokenForServer, userIdForServer;
 import "server_origin.dart";
 import "download_origin.dart";
 import "tls_policy.dart";
+import "archive_safety.dart";
+import "download_tool_policy.dart";
 import "notification_service.dart";
 
 class _ToolRunResult {
@@ -338,7 +340,7 @@ class DownloadService with WidgetsBindingObserver {
 
   void cancelPatchInjection(String appId) {
     final inj = _patchInjections[appId];
-    if (inj == null) return;
+    if (inj == null || inj.task.status == "done") return;
     inj.cancelled = true;
     inj.paused = false;
     _closeTaskClients(inj.task);
@@ -356,7 +358,7 @@ class DownloadService with WidgetsBindingObserver {
 
   void pausePatchInjection(String appId) {
     final inj = _patchInjections[appId];
-    if (inj == null) return;
+    if (inj == null || inj.task.status == "done") return;
     inj.paused = true;
     if (inj.task.status == "downloading" ||
         inj.task.status == "retrying" ||
@@ -650,23 +652,19 @@ class DownloadService with WidgetsBindingObserver {
       }
       if (task.status == "failed") return (task.error ?? "下载失败", null);
 
-      // Resolve target directory
-      String destDir = installDir;
+      final installTree = await SafeFileTree.open(installDir);
+      String destDir = installTree.root;
       if (targetDir != null && targetDir.isNotEmpty) {
-        try {
-          destDir = _resolveSafeRelativePath(installDir, targetDir);
-        } catch (e) {
-          return ("补丁目标目录非法: $targetDir", null);
-        }
+        await installTree.ensureDirectory(targetDir);
+        destDir = await installTree.checkedPath(targetDir);
       }
-      await Directory(destDir).create(recursive: true);
 
       final exe = await _getSevenZipPath();
+      await _inspectArchive(exe, tmp.path, injectionAppId: appId);
       task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
-      final tmpExtract =
-          "${dir}${Platform.pathSeparator}.patch_ext_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      final tmpExtract = (await Directory(dir).createTemp(".patch_ext_")).path;
       patchExtractDir = tmpExtract;
       LoggerService().info(
         "patch extract: $exe x -y -p- -o$tmpExtract ${tmp.path}",
@@ -674,7 +672,7 @@ class DownloadService with WidgetsBindingObserver {
       await Directory(tmpExtract).create(recursive: true);
       await _runTool(
         exe,
-        ["x", "-y", "-p-", "-o$tmpExtract", tmp.path],
+        ["x", "-y", "-p-", "-o$tmpExtract", "--", tmp.path],
         timeout: 1800,
         injectionAppId: appId,
         onProgress: (p) {
@@ -696,11 +694,13 @@ class DownloadService with WidgetsBindingObserver {
       LoggerService().info(
         "patch extract done: tmp=$tmpExtract patchDir=$patchDir targetDir=$targetDir destDir=$destDir",
       );
-      String sourceDir = tmpExtract;
+      final extractedTree = await SafeFileTree.open(tmpExtract);
+      await extractedTree.entries();
+      String sourceDir = extractedTree.root;
       if (patchDir != null && patchDir.isNotEmpty) {
         String pd;
         try {
-          pd = _resolveSafeRelativePath(tmpExtract, patchDir);
+          pd = await extractedTree.checkedPath(patchDir);
         } catch (e) {
           await Directory(tmpExtract).delete(recursive: true);
           return ("补丁源目录非法: $patchDir", null);
@@ -713,10 +713,13 @@ class DownloadService with WidgetsBindingObserver {
           return ("补丁源目录不存在: $patchDir（请检查压缩包内容）", null);
         }
       }
-      final backupDir =
-          "${dir}${Platform.pathSeparator}.patch_backup_${safeAppId}_${DateTime.now().millisecondsSinceEpoch}";
+      final backupDir = (await Directory(dir).createTemp(".patch_backup_")).path;
       patchBackupDir = backupDir;
       await Directory(backupDir).create(recursive: true);
+      await installTree.checkRoot();
+      if (targetDir != null && targetDir.isNotEmpty) {
+        await installTree.checkedPath(targetDir);
+      }
       LoggerService().info("patch merge with rollback: $sourceDir -> $destDir");
       await _copyMergeWithRollback(
         task,
@@ -724,26 +727,25 @@ class DownloadService with WidgetsBindingObserver {
         destDir,
         backupDir,
       );
-      await Directory(tmpExtract).delete(recursive: true);
+      task.status = "done";
+      try {
+        await Directory(tmpExtract).delete(recursive: true);
+      } catch (_) {}
       try {
         await Directory(backupDir).delete(recursive: true);
       } catch (_) {}
       patchBackupDir = null;
       LoggerService().info("patch merge done");
-      if (_stopped(task)) {
-        if (task.status != "paused") {
-          try {
-            await tmp.delete();
-          } catch (_) {}
-        }
-        await cleanupPatchTempDirs();
-        return (task.status == "paused" ? "已暂停" : "已取消", null);
-      }
       try {
         await tmp.delete();
       } catch (_) {}
       return (null, destDir);
     } catch (e) {
+      if (e is ArchiveRollbackException) {
+        patchBackupDir = null;
+        await cleanupPatchTempDirs();
+        return (e.toString(), null);
+      }
       if (_stopped(task)) {
         if (task.status != "paused") {
           try {
@@ -952,15 +954,17 @@ class DownloadService with WidgetsBindingObserver {
       _emit();
       await Future.delayed(const Duration(milliseconds: 100));
       if (t._cancelled || t.status == "cancelled") return;
-      await _extract(tmp.path, outDir, gameDir, null, password);
-      await _fixLayout(outDir, gameDir);
-      await tmp.delete();
+      await _extract(tmp.path, outDir, gameDir, null, password, t);
+      try {
+        await tmp.delete();
+      } catch (_) {}
       t.status = "done";
       t.outputPath = "${outDir}${Platform.pathSeparator}$gameDir";
       _emit();
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
       NotificationService().cancel(t.gameId);
+      if (e is! ArchiveRollbackException && _stopped(t)) return;
       final errStr = "$e";
       if (_isEncryptedError(errStr)) {
         t.needsPassword = true;
@@ -1016,19 +1020,13 @@ class DownloadService with WidgetsBindingObserver {
   bool _userSkippedSetup = false;
   Future<bool> Function()? onSetupNeeded;
 
-  static const int _min7zaVersion = 1600; // 16.00 = first RAR5 support
-
   Future<int?> _get7zaVersion(String path) async {
     try {
       final r = await Process.run(
         Platform.isAndroid ? "/system/bin/linker64" : path,
         Platform.isAndroid ? [path] : [],
       ).timeout(const Duration(seconds: 3));
-      final m = RegExp(r'(\d+)\.(\d+)').firstMatch("${r.stdout}${r.stderr}");
-      if (m != null) {
-        return int.parse(m.group(1)!) * 100 + int.parse(m.group(2)!);
-      }
-      return null;
+      return sevenZipVersion("${r.stdout}${r.stderr}");
     } catch (_) {
       return null;
     }
@@ -1044,10 +1042,9 @@ class DownloadService with WidgetsBindingObserver {
     final exeName = Platform.isWindows ? "7z.exe" : "7zz";
     final dest = File("${dir.path}/$exeName");
 
-    // Replace old binary (<16.00) or old 7za.exe
     if (await dest.exists()) {
       final v = await _get7zaVersion(dest.path);
-      if (v == null || v < _min7zaVersion) {
+      if (v == null || v < minimumSevenZipVersion) {
         LoggerService().warn(
           "Bundled 7zz cache invalid; replacing from assets: version=${v ?? "unknown"}",
         );
@@ -1097,7 +1094,7 @@ class DownloadService with WidgetsBindingObserver {
           } catch (_) {}
         }
         final version = await _get7zaVersion(dest.path);
-        if (version == null || version < _min7zaVersion) {
+        if (version == null || version < minimumSevenZipVersion) {
           throw Exception("解压组件校验失败");
         }
         if (await dest.exists()) ok = true;
@@ -1168,7 +1165,7 @@ class DownloadService with WidgetsBindingObserver {
         Platform.isAndroid ? [path, "i"] : ["i"],
       ).timeout(const Duration(seconds: 8));
       final output = "${result.stdout}${result.stderr}";
-      if (result.exitCode != 0 || !output.contains("7-Zip")) {
+      if (result.exitCode != 0 || !isSupportedSevenZip(output)) {
         throw Exception(
           "解压组件与设备不兼容：exit=${result.exitCode} "
           "${_firstLine(output)}",
@@ -1190,7 +1187,7 @@ class DownloadService with WidgetsBindingObserver {
   Future<String?> _findSystemSevenZip() async {
     for (final name in ["7zz", "7z"]) {
       final version = await _get7zaVersion(name);
-      if (version != null && version >= _min7zaVersion) return name;
+      if (version != null && version >= minimumSevenZipVersion) return name;
     }
     return null;
   }
@@ -1204,7 +1201,7 @@ class DownloadService with WidgetsBindingObserver {
         final resp = await client.send(
           http.Request(
             "GET",
-            Uri.parse("https://www.7-zip.org/a/7z2601-x64.exe"),
+            Uri.parse(sevenZipDownloadUrl(windows: true)),
           ),
         );
         if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
@@ -1231,14 +1228,18 @@ class DownloadService with WidgetsBindingObserver {
         client.close();
       }
     } else {
-      // Linux: extract from tar.xz
+      final architecture = await Process.run("uname", ["-m"]);
+      final machine = "${architecture.stdout}".trim();
+      if (architecture.exitCode != 0 || !["x86_64", "aarch64", "arm64"].contains(machine)) {
+        throw Exception("不支持此设备的解压组件下载");
+      }
       final tmp = File("$dir/_7z_dl");
       final client = http.Client();
       try {
         final resp = await client.send(
           http.Request(
             "GET",
-            Uri.parse("https://www.7-zip.org/a/7z2409-linux-x64.tar.xz"),
+            Uri.parse(sevenZipDownloadUrl(windows: false, arm64: machine != "x86_64")),
           ),
         );
         if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
@@ -1390,13 +1391,16 @@ class DownloadService with WidgetsBindingObserver {
               t.progress = p;
               _emit();
             }
-          }, presetPassword.isEmpty ? null : presetPassword);
+          }, presetPassword.isEmpty ? null : presetPassword, t);
           t.progress = 1.0;
           _emit();
 
-          await tmp.delete();
+          try {
+            await tmp.delete();
+          } catch (_) {}
           break; // success
         } catch (e) {
+          if (e is ArchiveRollbackException) rethrow;
           if (t._cancelled) {
             try {
               LoggerService().warn("DELETING temp file: $tmp");
@@ -1443,6 +1447,14 @@ class DownloadService with WidgetsBindingObserver {
       );
       NotificationService().showCompleted(id: t.gameId, gameName: t.gameName);
     } catch (e) {
+      if (e is ArchiveRollbackException) {
+        NotificationService().cancel(t.gameId);
+        t.status = "failed";
+        t.needsPassword = false;
+        t.error = "$e";
+        _emit();
+        return;
+      }
       if (t._cancelled) {
         NotificationService().cancel(t.gameId);
         try {
@@ -2596,6 +2608,7 @@ class DownloadService with WidgetsBindingObserver {
     required String userAgent,
   }) async {
     final args = <String>[
+      ...aria2HttpOnlyArguments,
       "--continue=true",
       "--allow-overwrite=true",
       "--auto-file-renaming=false",
@@ -3633,13 +3646,36 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── extract (desktop only) ──
 
+  Future<void> _inspectArchive(
+    String exe,
+    String filePath, {
+    String? password,
+    String? injectionAppId,
+  }) async {
+    final listing = await _runTool(
+      exe,
+      ["l", "-slt", "-ba", "-bd", "-sccUTF-8", password == null ? "-p-" : "-p$password", "--", filePath],
+      timeout: Platform.isAndroid ? 120 : 300,
+      injectionAppId: injectionAppId,
+      tolerateWarnings: false,
+      completeListing: true,
+    );
+    validateArchiveListing(listing.output);
+  }
+
   Future<void> _extract(
     String filePath,
     String outDir,
     String gameDir, [
     void Function(double)? onProgress,
     String? password,
+    DownloadTask? task,
   ]) async {
+    void checkCancellation() {
+      if (task != null && _stopped(task))
+        throw const ArchiveSafetyException("文件写入已取消");
+    }
+    checkCancellation();
     final String exe;
     try {
       exe = await _getSevenZipPath();
@@ -3650,50 +3686,14 @@ class DownloadService with WidgetsBindingObserver {
     try {
       extractTimeout = _extractTimeoutSeconds(await File(filePath).length());
     } catch (_) {}
-    // Extract to a temp subdirectory so _fixLayout only sees the new content
-    // and isn't confused by pre-existing sibling game folders in outDir.
+    await _inspectArchive(exe, filePath, password: password);
+    checkCancellation();
+    final outputTree = await SafeFileTree.open(outDir);
+    final finalDir = await outputTree.checkedPath(gameDir);
     final extractTempDir =
-        "$outDir${Platform.pathSeparator}.sena_tmp_${gameDir.hashCode.abs()}";
-    // Clean up any leftover from a previous crashed extraction
+        (await Directory(outputTree.root).createTemp(".sena_tmp_")).path;
     try {
-      await Directory(extractTempDir).delete(recursive: true);
-    } catch (_) {}
-    try {
-      // Cheap read-only check first: a failure here means the archive or the
-      // download is bad, so the caller should not blindly re-download.
-      try {
-        final listing = await _runTool(
-          exe,
-          [
-            "l",
-            "-slt",
-            "-sccUTF-8",
-            if (password != null) "-p$password" else "-p-",
-            filePath,
-          ],
-          timeout: Platform.isAndroid ? 120 : 300,
-        );
-        if (listing.output.isEmpty) {
-          LoggerService().warn("archive listing returned no output");
-        }
-      } on _ToolFailure catch (e) {
-        LoggerService().warn(
-          "archive listing failed: exit=${e.exitCode} ${e.message}",
-        );
-        // Header-encrypted archives cannot be listed without the password;
-        // let the extraction step ask for it instead of reporting corruption.
-        if (_isEncryptedError(e.raw)) {
-          LoggerService().info("archive listing needs a password; continuing");
-        } else {
-          throw Exception(
-            _isArchiveIntegrityError(e.raw)
-                ? "压缩包无法读取，可能下载不完整或源文件已损坏。点击重试将重新下载。"
-                : "压缩包无法读取（${_firstLine(e.raw)}）。点击重试将重新下载。",
-          );
-        }
-      }
-
-      final args = ["x", "-y", "-p-", "-sccUTF-8", "-o$extractTempDir", filePath];
+      final args = ["x", "-y", "-p-", "-sccUTF-8", "-o$extractTempDir", "--", filePath];
       if (password != null) {
         args.remove("-p-");
         args.insert(1, "-p$password");
@@ -3738,8 +3738,9 @@ class DownloadService with WidgetsBindingObserver {
         } catch (_) {}
         await Directory(extractTempDir).create(recursive: true);
         final singleThreaded = [
-          ...args.sublist(0, args.length - 1),
+          ...args.sublist(0, args.length - 2),
           "-mmt=1",
+          "--",
           args.last,
         ];
         run = await _runTool(
@@ -3757,17 +3758,16 @@ class DownloadService with WidgetsBindingObserver {
               : "解压没有产生任何文件，压缩包可能是空的",
         );
       }
-      await _fixLayout(extractTempDir, gameDir);
-      // Move result from temp to final location without ever losing the
-      // existing install: the old folder is renamed aside and restored if the
-      // new content cannot be put in place.
-      final finalDir = "$outDir${Platform.pathSeparator}$gameDir";
-      final source = "$extractTempDir${Platform.pathSeparator}$gameDir";
-      if (await Directory(source).exists()) {
-        await _replaceDirectory(source, finalDir);
-      } else {
-        await _replaceDirectory(extractTempDir, finalDir);
-      }
+      checkCancellation();
+      final source = await archiveInstallSource(extractTempDir);
+      await outputTree.checkedPath(gameDir);
+      checkCancellation();
+      await replaceDirectorySafely(
+        source,
+        finalDir,
+        isCancelled: () => task != null && _stopped(task),
+        onCommitted: () { if (task != null) task.status = "done"; },
+      );
     } finally {
       // Clean up temp directory
       try {
@@ -3776,210 +3776,18 @@ class DownloadService with WidgetsBindingObserver {
     }
   }
 
-  /// Swap [staging] into [finalDir], keeping the previous directory until the
-  /// new one is fully in place; restore it if anything fails.
-  Future<void> _replaceDirectory(String staging, String finalDir) async {
-    Directory? backup;
-    if (await Directory(finalDir).exists()) {
-      backup =
-          Directory("$finalDir.old-${DateTime.now().millisecondsSinceEpoch}");
-      await Directory(finalDir).rename(backup.path);
-    }
-    try {
-      try {
-        await Directory(staging).rename(finalDir);
-      } catch (_) {
-        // rename failed (may be cross-volume) → copy+delete fallback
-        await _copyMerge(staging, finalDir);
-        await Directory(staging).delete(recursive: true);
-      }
-      if (backup != null) {
-        try {
-          await backup.delete(recursive: true);
-        } catch (_) {
-          LoggerService().warn("旧游戏目录未能删除: ${backup.path}");
-        }
-      }
-    } catch (error) {
-      try {
-        if (await Directory(finalDir).exists()) {
-          await Directory(finalDir).delete(recursive: true);
-        }
-      } catch (_) {}
-      if (backup != null) {
-        try {
-          await backup.rename(finalDir);
-        } catch (_) {
-          LoggerService().error(
-            "替换失败且无法恢复旧目录，旧目录保留在 ${backup.path}",
-            error,
-            StackTrace.current,
-          );
-          rethrow;
-        }
-      }
-      rethrow;
-    }
-  }
-
-  /// Ensure clean output: rename archive folder to [gameDir] if different,
-  /// or wrap scattered files in [gameDir] folder.
-  Future<void> _fixLayout(String outDir, String gameDir) async {
-    List<FileSystemEntity> entries;
-    try {
-      entries = await Directory(outDir).list().toList();
-    } catch (_) {
-      return;
-    }
-    if (entries.isEmpty) return;
-
-    // One folder = archive had its own wrapper
-    if (entries.length == 1 && entries.first is Directory) {
-      final folder = entries.first as Directory;
-      final folderName = folder.uri.pathSegments.last;
-      // Rename to match game name if different
-      if (folderName != gameDir) {
-        final target = "${outDir}${Platform.pathSeparator}$gameDir";
-        try {
-          await folder.rename(target);
-        } catch (_) {
-          // rename failed (target exists or locked) → copy + delete
-          try {
-            await _copyMerge(folder.path, target);
-            await folder.delete(recursive: true);
-          } catch (_) {}
-        }
-      }
-      return;
-    }
-
-    // Multiple items = archive has no wrapper → create game folder and move in
-    if (entries.any(
-      (e) => e is Directory && e.uri.pathSegments.last == gameDir,
-    ))
-      return;
-
-    final wrap = "${outDir}${Platform.pathSeparator}$gameDir";
-    try {
-      await Directory(wrap).create();
-      for (final e in entries) {
-        try {
-          await e.rename(
-            "${wrap}${Platform.pathSeparator}${e.uri.pathSegments.last}",
-          );
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
-  /// Recursively copy/merge ALL contents of [from] into [to], preserving directory structure.
-  Future<void> _copyMerge(String from, String to) async {
-    await for (final child in Directory(from).list(recursive: true)) {
-      final rel = child.path
-          .substring(from.length)
-          .replaceFirst(RegExp(r'^[/\\]'), '');
-      final dest = "$to${Platform.pathSeparator}$rel";
-      if (child is Directory) {
-        await Directory(dest).create(recursive: true);
-      } else if (child is File) {
-        try {
-          await Directory(File(dest).parent.path).create(recursive: true);
-          await child.copy(dest);
-          LoggerService().info("patch copy: $rel -> $dest");
-        } catch (e) {
-          LoggerService().warn("patch copy FAIL: $rel -> $dest error=$e");
-          throw Exception("无法覆盖 $rel: $e");
-        }
-      }
-    }
-  }
-
   Future<void> _copyMergeWithRollback(
     DownloadTask task,
     String from,
     String to,
     String backupDir,
-  ) async {
-    final added = <String>[];
-    final backedUp = <String>[];
-    try {
-      await for (final child in Directory(from).list(recursive: true)) {
-        if (_stopped(task)) {
-          throw Exception("补丁注入已停止");
-        }
-        final rel = child.path
-            .substring(from.length)
-            .replaceFirst(RegExp(r"^[/\\]"), "");
-        final dest = "$to${Platform.pathSeparator}$rel";
-        if (child is Directory) {
-          await Directory(dest).create(recursive: true);
-          continue;
-        }
-        if (child is! File) continue;
-        final target = File(dest);
-        if (await target.exists()) {
-          final backup = File("$backupDir${Platform.pathSeparator}$rel");
-          await backup.parent.create(recursive: true);
-          await target.copy(backup.path);
-          backedUp.add(rel);
-        } else {
-          added.add(rel);
-        }
-        await target.parent.create(recursive: true);
-        await child.copy(dest);
-      }
-    } catch (error) {
-      for (final rel in added.reversed) {
-        try {
-          await File("$to${Platform.pathSeparator}$rel").delete();
-        } catch (_) {}
-      }
-      for (final rel in backedUp) {
-        try {
-          await File("$backupDir${Platform.pathSeparator}$rel")
-              .copy("$to${Platform.pathSeparator}$rel");
-        } catch (_) {}
-      }
-      throw Exception("补丁写入失败，已回滚: $error");
-    }
-  }
-
-  String _resolveSafeRelativePath(String base, String relative) {
-    final normalizedRelative = relative.replaceAll("\\", "/").trim();
-    if (normalizedRelative.isEmpty) return Directory(base).absolute.path;
-    if (normalizedRelative.contains("\u0000")) throw ArgumentError("NUL byte");
-    if (RegExp(r'^[A-Za-z]:').hasMatch(normalizedRelative) ||
-        normalizedRelative.startsWith("/") ||
-        normalizedRelative.startsWith("//")) {
-      throw ArgumentError("absolute path");
-    }
-
-    final parts = normalizedRelative
-        .split("/")
-        .where((p) => p.isNotEmpty && p != ".")
-        .toList();
-    if (parts.any((p) => p == "..")) throw ArgumentError("parent path");
-
-    var current = Directory(base).absolute.path;
-    for (final part in parts) {
-      current = "$current${Platform.pathSeparator}$part";
-    }
-
-    final baseResolved = Directory(
-      base,
-    ).absolute.uri.normalizePath().toFilePath();
-    final targetResolved = Directory(
-      current,
-    ).absolute.uri.normalizePath().toFilePath();
-    final baseWithSep = baseResolved.endsWith(Platform.pathSeparator)
-        ? baseResolved
-        : "$baseResolved${Platform.pathSeparator}";
-    if (targetResolved != baseResolved &&
-        !targetResolved.startsWith(baseWithSep)) {
-      throw ArgumentError("path escapes base");
-    }
-    return targetResolved;
-  }
+  ) => copyTreeSafely(
+    from,
+    to,
+    backupDirectory: backupDir,
+    isCancelled: () => _stopped(task),
+    onCommitted: () => task.status = "done",
+  );
 
   List<String> _redactToolArgs(List<String> args) {
     return args
@@ -4004,6 +3812,7 @@ class DownloadService with WidgetsBindingObserver {
     int timeout = 1800,
     String? injectionAppId,
     bool tolerateWarnings = true,
+    bool completeListing = false,
   }) async {
     // Android: bypass noexec by using dynamic linker to load the ELF
     if (Platform.isAndroid) {
@@ -4023,8 +3832,17 @@ class DownloadService with WidgetsBindingObserver {
     // 7z usually writes progress to stderr, but some builds use stdout.
     final stderrChunks = <int>[];
     final stdoutChunks = <int>[];
+    final stdoutDone = Completer<void>();
+    final stderrDone = Completer<void>();
+    var listingOverflow = false;
     void handleOutput(List<int> d, List<int> chunks) {
-      if (chunks.length < 8192) chunks.addAll(d.take(8192 - chunks.length));
+      final limit = completeListing && identical(chunks, stdoutChunks)
+          ? maxArchiveListingBytes : 8192;
+      if (completeListing && identical(chunks, stdoutChunks) && chunks.length + d.length > limit) {
+        listingOverflow = true;
+        proc.kill();
+      }
+      if (chunks.length < limit) chunks.addAll(d.take(limit - chunks.length));
       if (onProgress != null) {
         final s = _decodeToolOutput(d);
         final m = RegExp(r'\s+(\d+)%').firstMatch(s);
@@ -4036,17 +3854,27 @@ class DownloadService with WidgetsBindingObserver {
 
     final stderrSub = proc.stderr.listen((d) {
       handleOutput(d, stderrChunks);
+    }, onDone: stderrDone.complete, onError: (Object error, StackTrace stack) {
+      stderrDone.completeError(error, stack);
     });
     final stdoutSub = proc.stdout.listen((d) {
       handleOutput(d, stdoutChunks);
+    }, onDone: stdoutDone.complete, onError: (Object error, StackTrace stack) {
+      stdoutDone.completeError(error, stack);
     });
 
     // Wait with timeout
     int exitCode = -1;
     try {
-      exitCode = await proc.exitCode.timeout(Duration(seconds: timeout));
+      await Future.wait([
+        proc.exitCode,
+        stdoutDone.future,
+        stderrDone.future,
+      ]).timeout(Duration(seconds: timeout));
+      exitCode = await proc.exitCode;
     } on TimeoutException {
-      proc.kill();
+      proc.kill(ProcessSignal.sigkill);
+      await proc.exitCode;
       await stdoutSub.cancel();
       await stderrSub.cancel();
       _extractionProcess = null;
@@ -4054,7 +3882,8 @@ class DownloadService with WidgetsBindingObserver {
         _patchInjections[injectionAppId]?.extractProcess = null;
       throw Exception("超时（${timeout}s）");
     } catch (e) {
-      proc.kill();
+      proc.kill(ProcessSignal.sigkill);
+      await proc.exitCode;
       await stdoutSub.cancel();
       await stderrSub.cancel();
       _extractionProcess = null;
@@ -4069,6 +3898,9 @@ class DownloadService with WidgetsBindingObserver {
     if (injectionAppId != null)
       _patchInjections[injectionAppId]?.extractProcess = null;
 
+    if (listingOverflow) {
+      throw const ArchiveSafetyException("压缩包目录信息超过安全限制，拒绝解压");
+    }
     final err = [
       _decodeToolOutput(stderrChunks),
       _decodeToolOutput(stdoutChunks),
@@ -4087,7 +3919,10 @@ class DownloadService with WidgetsBindingObserver {
         "output=${err.length > 2000 ? err.substring(0, 2000) : err}",
       );
     }
-    return _ToolRunResult(exitCode: exitCode, output: err);
+    return _ToolRunResult(
+      exitCode: exitCode,
+      output: completeListing ? utf8.decode(stdoutChunks) : err,
+    );
   }
 
   /// 7-Zip exit 1 means warnings (timestamps, permissions, extra data) while
