@@ -474,7 +474,7 @@ async def _background_scan(config):
         import database
         from api.steam_patch import scan_patches_endpoint
         async with database._session_factory() as session:
-            result = await scan_patches_endpoint(user=None, session=session)
+            result = await scan_patches_endpoint(mode="merge", user=None, session=session)
             logger.info(f"Background patch scan complete: {result.get('scanned', 0)} files")
     except Exception as e:
         logger.error("Background patch scan failed: %s", redact_exception(e))

@@ -7,6 +7,7 @@ from .game import (
     PlatformCategoryRule,
 )
 from .tag import Tag
+from .agent import AgentConfig, AgentJob, AgentResult
 from .root_directory import RootDirectory
 from .file_source import FileSource, SteamPatchRoot
 from .ignore_list import IgnoreList

@@ -1,6 +1,7 @@
 /// Steam patch injection screen — PC-only (Windows / Linux).
 
 import "dart:async";
+import "agent_screen.dart";
 import "dart:io" show Directory, Platform;
 
 import "package:flutter/material.dart";
@@ -385,6 +386,19 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   }
 
   Future<void> _pickScanMode() async {
+    final api = context.read<GameProvider>().api;
+    try {
+      final method = await chooseScanMode(context, api, 'patch');
+      if (method == null || !mounted) return;
+      if (method == 'agent') {
+        await startAgentTask(context, api, 'patch');
+        if (mounted) await _loadServerPatches();
+        return;
+      }
+    } catch (e) {
+      if (mounted) _showMsg('智能体扫描启动失败: $e');
+      return;
+    }
     var selected = "merge";
     final mode = await showDialog<String>(
       context: context,

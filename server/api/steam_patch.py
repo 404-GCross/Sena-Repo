@@ -1314,6 +1314,14 @@ async def scan_patches_endpoint(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    from utils.process_lock import process_lock, scan_lock_path
+    with process_lock(scan_lock_path(load_config().data_path), blocking=False) as acquired:
+        if not acquired:
+            raise HTTPException(status_code=409, detail="扫描或恢复正在运行，请稍后重试")
+        return await _scan_patches_locked(mode, user, session)
+
+
+async def _scan_patches_locked(mode, user, session):
     """Re-scan all configured patch roots and regenerate patches.json.
 
     mode=merge keeps configured metadata for files that still exist;

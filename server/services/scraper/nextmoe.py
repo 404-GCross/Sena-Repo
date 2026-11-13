@@ -297,6 +297,7 @@ def _parse_work(item: dict) -> ScraperResult | None:
         release_date=_normalize_date(item.get("release_date")),
         cover_url=primary_cover or (cover_urls[0] if cover_urls else ""),
         cover_urls=cover_urls,
+        cover_metadata={_cover_row_url(c): {"width": _cover_row_size(c)[0], "height": _cover_row_size(c)[1], "language": c.get("language") or c.get("lang") or ""} for c in (item.get("covers") or []) if isinstance(c, dict) and _cover_row_url(c)},
         external_ids=_external_ids(item),
         hero_url=_image_url(item.get("banner")),
         screenshot_urls=_image_urls(item.get("screenshots")),

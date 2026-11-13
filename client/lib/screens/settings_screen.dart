@@ -16,6 +16,7 @@ import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "backup_screen.dart";
+import "agent_screen.dart";
 import "platform_categories_screen.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
@@ -186,6 +187,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _sectionHeader("服务端", Icons.dns_outlined),
                   const SizedBox(height: 8),
                   _menuCard([
+                    if (_isAdmin)
+                      _menuItem(Icons.auto_awesome, Colors.deepPurple, "智能体", "模型、独立代理、游戏与补丁偏好、任务记录",
+                        () => Navigator.push(context, MaterialPageRoute(builder: (_) => AgentScreen(api: _api)))),
                     _menuItem(
                       Icons.manage_search,
                       Colors.blue,
@@ -1514,6 +1518,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       _scraperOrder.where((source) => _sources[source] ?? false).toList();
 
   Future<void> _scanAndScrapeNow() async {
+    try {
+      final mode = await chooseScanMode(context, widget.api, 'game');
+      if (mode == null || !mounted) return;
+      if (mode == 'agent') {
+        await startAgentTask(context, widget.api, 'game');
+        return;
+      }
+    } catch (e) {
+      if (mounted) _toast(context, '智能体任务启动失败: $e');
+      return;
+    }
     final sources = _enabledScraperSources();
     if (sources.isEmpty) {
       _toast(context, "请先启用至少一个刮削源");

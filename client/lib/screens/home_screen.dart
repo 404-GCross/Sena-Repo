@@ -2,6 +2,7 @@
 /// Steam patch tab is hidden on Android (PC-only feature).
 
 import "dart:async";
+import "agent_screen.dart";
 import "dart:io" show Platform;
 
 import "package:flutter/gestures.dart";
@@ -1050,6 +1051,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
+    final agentApi = context.read<GameProvider>().api;
+    try {
+      final method = await chooseScanMode(context, agentApi, 'game');
+      if (method == null || !mounted) return;
+      if (method == 'agent') {
+        await startAgentTask(context, agentApi, 'scrape', gameIds: _selectedIds.toList());
+        if (mounted) await context.read<GameProvider>().loadGames();
+        return;
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      return;
+    }
     const allSrc = [
       "hikarinagi",
       "vndb_kana",

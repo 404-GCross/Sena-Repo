@@ -487,6 +487,17 @@ async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
             payload["steam_patch"] = await _export_steam_patch(session, config)
     if scope in (SCOPE_ALL, SCOPE_LIBRARY):
         payload["settings"] = _export_settings(config)
+        from models.agent import AgentConfig
+        async with db._session_factory() as session:
+            agent = await session.get(AgentConfig, 1)
+            if agent is not None:
+                payload["settings"]["agent"] = {
+                    **{k: v for k, v in agent.settings.items() if k not in {"api_key", "proxy_password", "proxy_username"}},
+                    "enabled": False,
+                    "api_key": "",
+                    "proxy_password": "",
+                    "proxy_username": "",
+                }
 
     return payload
 
@@ -2143,6 +2154,19 @@ async def apply_restore(config, archive: Path, payload: dict[str, Any], *,
                         config, session, payload["accounts"],
                         available_media=available_media,
                     )
+                    if isinstance(payload['settings'].get('agent'), dict):
+                        from models.agent import AgentConfig
+                        from schemas.agent import AgentSettings
+                        agent_data = AgentSettings.model_validate({
+                            **payload['settings']['agent'], 'enabled': False,
+                            'api_key': '', 'proxy_password': '', 'proxy_username': '',
+                        }).model_dump()
+                        agent = await session.get(AgentConfig, 1)
+                        if agent is None:
+                            agent = AgentConfig(id=1, revision=0)
+                            session.add(agent)
+                        agent.settings = agent_data
+                        agent.revision += 1
                 else:
                     account_notes = []
 

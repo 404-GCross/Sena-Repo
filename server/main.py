@@ -68,8 +68,8 @@ async def _auto_scan_task(config, logger):
                 continue
             logger.info("Auto-scan triggered")
             # Run scan via the internal function
-            from api.roots import _run_scan
-            result = await _run_scan(config, update_last=True)
+            from services.agent.jobs import scheduled_scan
+            result = await scheduled_scan(config)
             if result.get("skipped"):
                 logger.info("Auto-scan skipped: scan already running")
         except Exception as e:
@@ -137,6 +137,8 @@ async def lifespan(app: FastAPI):
     migrate_scraper_config_secrets(config)
     init_database(config)
     await create_tables()
+    from api.agent import interrupt_jobs
+    await interrupt_jobs()
     await _fail_interrupted_scrape_jobs(logger)
     logger.info(f"Database initialized at: {config.database_url}")
     logger.info(f"Games path: {config.games_path}")
@@ -265,6 +267,8 @@ app.include_router(scraper_router)
 app.include_router(files_router)
 app.include_router(steam_patch_router)
 app.include_router(setup_router)
+from api.agent import router as agent_router
+app.include_router(agent_router)
 app.include_router(auth_router)
 app.include_router(oauth_router)
 app.include_router(backup_router)

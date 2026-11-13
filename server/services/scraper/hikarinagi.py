@@ -331,6 +331,7 @@ class HikarinagiScraper(BaseScraper):
             ),
             cover_url=cover_url,
             cover_urls=cover_urls,
+            cover_metadata={_media_url(c): {"width": _cover_size(c)[0], "height": _cover_size(c)[1], "language": c.get("language") or c.get("lang") or ""} for c in covers if isinstance(c, dict) and _media_url(c)},
             hero_url=hero_url,
             screenshot_urls=screenshots,
             source_id=str(item.get("id") or (fallback.source_id if fallback else "") or "").strip(),

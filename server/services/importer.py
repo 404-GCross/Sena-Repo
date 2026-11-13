@@ -41,6 +41,9 @@ async def import_from_root(
     root_id: int,
     config: Config,
     session: AsyncSession,
+    *,
+    scan_override=None,
+    preserve_unseen: bool = False,
 ) -> dict:
     """Scan a root directory and import/update all discovered games.
 
@@ -76,7 +79,9 @@ async def import_from_root(
         scan_structure,
         scan_depth,
     )
-    if source_type == "local":
+    if scan_override is not None:
+        scan_result = scan_override
+    elif source_type == "local":
         scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure, scan_depth)
     else:
         adapter = adapter_from_source(source_model, source_type)
@@ -158,7 +163,7 @@ async def import_from_root(
     )
     orphans = 0
     for game in all_games.scalars().all():
-        if game.folder_path and game.folder_path not in scanned_paths:
+        if not preserve_unseen and game.folder_path and game.folder_path not in scanned_paths:
             if source_type != "local" or not Path(game.folder_path).exists():
                 game.is_deleted = True
                 game.updated_at = datetime.utcnow()

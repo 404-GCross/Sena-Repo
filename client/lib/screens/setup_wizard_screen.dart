@@ -12,6 +12,7 @@ import "package:shared_preferences/shared_preferences.dart";
 import "../models/log_models.dart";
 import "../services/api_client.dart";
 import "../services/oauth_service.dart";
+import "agent_screen.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
@@ -243,6 +244,16 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
       await _saveScraperPrefs();
       await widget.api.rememberEnabledScraperSources(enabledScrapers);
+      try {
+        await widget.api.login(_userCtrl.text.trim(), _passCtrl.text);
+        if (mounted) {
+          await Navigator.push(context, MaterialPageRoute(builder: (_) => AgentScreen(api: widget.api, setup: true)));
+        }
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('基础初始化已完成，请登录后在设置中配置智能体')));
+        }
+      }
       if (mounted) {
         Navigator.pop(context, {
           "username": _userCtrl.text.trim(),
@@ -370,7 +381,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     }
     return AppScaffold(
       title: "Sena Repo 初始化",
-      subtitle: "${_step + 1}/3 · ${_titles[_step]}",
+      subtitle: "${_step + 1}/4 · ${_titles[_step]}",
       leading: const Icon(Icons.auto_fix_high_outlined, size: 24),
       scrollable: false,
       padding: EdgeInsets.zero,
@@ -658,6 +669,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             title: "刮削源",
             subtitle: "Hikarinagi、VNDB、Bangumi、Steam 顺序与凭据。",
           ),
+          _SetupStepItem(index: 3, currentStep: _step, title: "智能体（可选）", subtitle: "管理员登录后配置统一模型、独立代理与刮削偏好，可跳过。"),
         ],
       ),
     );
@@ -679,7 +691,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             title: _titles[_step],
             subtitle: _stepDescription(),
             trailing: Chip(
-              label: Text("Step ${_step + 1} / 3"),
+              label: Text("Step ${_step + 1} / 4"),
               avatar: const Icon(Icons.check_circle_outline, size: 16),
             ),
           ),
@@ -706,11 +718,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       padding: const EdgeInsets.only(bottom: AppGap.lg),
       child: Row(
         children: List.generate(
-          3,
+          4,
           (i) => Expanded(
             child: Container(
               height: 5,
-              margin: EdgeInsets.only(right: i == 2 ? 0 : 6),
+              margin: EdgeInsets.only(right: i == 3 ? 0 : 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
                 color: i <= _step
@@ -767,7 +779,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         else
           AppActionButton(
             icon: Icons.check_rounded,
-            label: "完成初始化",
+            label: "下一步：智能体（可选）",
             filled: true,
             busy: _loading,
             onPressed: _loading ? null : _submit,
