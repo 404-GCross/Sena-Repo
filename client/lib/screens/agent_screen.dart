@@ -198,14 +198,20 @@ class _AgentScreenState extends State<AgentScreen> {
         onChanged: busy ? null : (v) => setState(() => value![key] = v),
       );
 
-  Widget card(String title, List<Widget> children) => Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-            color: cardBg(context), borderRadius: BorderRadius.circular(18)),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [Text(title, style: AppText.title), ...children]),
+  Widget card(String title, List<Widget> children) => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Material(
+          color: cardBg(context),
+          borderRadius: BorderRadius.circular(18),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [Text(title, style: AppText.title), ...children],
+            ),
+          ),
+        ),
       );
 
   Future<void> test({bool models = false}) async {
