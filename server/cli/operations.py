@@ -37,7 +37,7 @@ from cli.common import (
     short_sha,
     uninstaller_path,
 )
-from cli.versions import installed_project_version, remote_project_version, version_label
+from cli.versions import installed_version, source_version
 from config import Config
 from models.file_source import FileSource
 from models.game import Game, GameTag, GameVersion
@@ -403,17 +403,8 @@ async def _run_scan(
 
 
 def _reported_version(metadata: dict[str, str]) -> str:
-    """Version the server reports to clients; falls back to the source ref when unset."""
-    version = os.environ.get("SENA_VERSION", "").strip()
-    if version:
-        return version
-    ref = metadata.get("SOURCE_REF", "").strip()
-    if ref.startswith("v"):
-        return ref
-    sha = metadata.get("SOURCE_SHA", "").strip()
-    if sha:
-        return f"dev-{sha[:7]}"
-    return ref or "-"
+    """Use the runtime build version, falling back to installed source metadata."""
+    return installed_version(metadata)
 
 
 async def cmd_status(args) -> int:
@@ -463,11 +454,7 @@ async def cmd_status(args) -> int:
             ("CPU", cpu),
             ("Memory", memory),
             ("Uptime", uptime),
-            ("Version", version_label(
-                installed_project_version(metadata),
-                metadata.get("SOURCE_REF") or os.environ.get("SENA_VERSION", ""),
-            )),
-            ("Build", _reported_version(metadata)),
+            ("Version", _reported_version(metadata)),
             ("Update channel", metadata.get("SOURCE_CHANNEL", "-")),
             ("Source ref", metadata.get("SOURCE_REF", "-")),
             ("Source SHA", short_sha(metadata.get("SOURCE_SHA", ""))),
@@ -709,13 +696,8 @@ def cmd_update(args) -> int:
     if active_url != repo_url:
         echo(f"直连不可用，已改用镜像源: {active_url}")
         repo_url = active_url
-    current_version = version_label(
-        installed_project_version(metadata, allow_remote=True),
-        stored_ref or os.environ.get("SENA_VERSION", ""),
-    )
-    target_version = version_label(
-        remote_project_version(repo_url, remote_sha, repo_ref), repo_ref
-    )
+    current_version = _reported_version(metadata)
+    target_version = source_version(repo_ref, remote_sha)
     echo(f"当前版本: {current_version}")
     echo(f"目标版本: {target_version}")
     echo(f"更新通道: {channel or channel_from_ref(repo_ref) or '指定来源'} / {repo_ref}")

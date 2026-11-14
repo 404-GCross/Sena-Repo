@@ -1,9 +1,7 @@
-import contextlib
 import os
 import subprocess
 import tempfile
 import unittest
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,18 +14,12 @@ class VersionDisplayTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="sena-version-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.server = self.root / "server"
-        self.server.mkdir()
         self.sha = "a" * 40
-        for mock in (
-            patch.object(versions, "install_root", return_value=self.root),
-            patch.object(versions, "SERVER_DIR", self.server),
-            patch.dict(os.environ, {"SENA_VERSION": ""}),
-        ):
-            mock.start()
-            self.addCleanup(mock.stop)
+        env = patch.dict(os.environ, {"SENA_VERSION": ""})
+        env.start()
+        self.addCleanup(env.stop)
 
-    def test_version_validation_and_channel_labels(self):
+    def test_published_versions_keep_release_tags(self):
         for value in ("1.0.0-beta.3", "v1.0.0", "1.0.0+build.123"):
             self.assertEqual(versions.project_version(value), value.removeprefix("v"))
         for value in (
@@ -39,109 +31,75 @@ class VersionDisplayTests(unittest.TestCase):
         ):
             self.assertEqual(versions.project_version(value), "")
         self.assertEqual(
-            versions.version_label("1.0.0-beta.3", "main"), "v1.0.0-beta.3（开发版）"
+            versions.source_version("v1.0.0-beta.3", self.sha), "v1.0.0-beta.3"
         )
-        self.assertEqual(
-            versions.version_label("1.0.0-beta.3", "v1.0.0-beta.3"),
-            "v1.0.0-beta.3（测试版）",
-        )
-        self.assertEqual(versions.version_label("1.0.0", "1.0.0"), "v1.0.0（正式版）")
-        self.assertIn("未知", versions.version_label("", "main"))
+        self.assertEqual(versions.source_version("v1.0.0", self.sha), "v1.0.0")
 
-    def test_installed_version_prefers_recorded_metadata_not_cache_head(self):
-        (self.server / "VERSION").write_text("9.9.9")
-        self.assertEqual(
-            versions.installed_project_version(
-                {"SOURCE_VERSION": "1.0.0-beta.3", "SOURCE_REF": "main"}
-            ),
-            "1.0.0-beta.3",
-        )
-        (self.server / "VERSION").unlink()
-        with patch.object(
-            versions, "_cached_version", return_value="1.0.0-beta.1"
-        ) as cached:
-            version = versions.installed_project_version(
-                {"SOURCE_SHA": self.sha, "SOURCE_REF": "main"}
-            )
-        self.assertEqual(version, "1.0.0-beta.1")
-        cached.assert_called_once_with(self.sha)
-
-    def test_staged_version_and_release_tag_work_offline(self):
-        (self.server / "VERSION").write_text("1.0.0-beta.3\n")
-        with patch.object(versions.urllib.request, "urlopen") as network:
-            self.assertEqual(
-                versions.installed_project_version({"SOURCE_REF": "main"}),
-                "1.0.0-beta.3",
-            )
-            self.assertEqual(
-                versions.remote_project_version(
-                    "https://example.invalid/repo.git", self.sha, "v1.0.0-beta.2"
-                ),
-                "1.0.0-beta.2",
-            )
-            network.assert_not_called()
-
-    def test_remote_lookup_uses_resolved_sha_and_supports_mirror(self):
-        with patch.object(
-            versions.urllib.request,
-            "urlopen",
-            return_value=contextlib.closing(BytesIO(b"1.0.0-beta.3\n")),
-        ) as network:
-            value = versions.remote_project_version(
-                "https://mirror.invalid/https://github.com/owner/repo.git",
-                self.sha,
-                "main",
-            )
-        self.assertEqual(value, "1.0.0-beta.3")
-        self.assertEqual(
-            network.call_args.args[0].full_url,
-            f"https://mirror.invalid/https://raw.githubusercontent.com/owner/repo/{self.sha}/VERSION",
-        )
-        self.assertNotIn("/main/", network.call_args.args[0].full_url)
-
-    def test_remote_errors_do_not_block_update(self):
-        with patch.object(
-            versions.urllib.request, "urlopen", side_effect=OSError("offline")
-        ):
-            self.assertEqual(
-                versions.remote_project_version(
-                    "https://github.com/owner/repo.git", self.sha, "main"
-                ),
-                "",
-            )
-        with patch.object(versions.urllib.request, "urlopen") as network:
-            self.assertEqual(
-                versions.remote_project_version(
-                    "https://github.com/owner/repo.git", "--not-a-sha"
-                ),
-                "",
-            )
-            network.assert_not_called()
-
-    def test_same_project_version_different_commit_is_still_an_update(self):
-        args = SimpleNamespace(
-            repo_url=None, ref=None, channel=None, force=False, yes=False, check=False
-        )
+    def test_development_build_does_not_use_release_baseline(self):
         metadata = {
-            "SOURCE_SHA": "a" * 40,
+            "SOURCE_VERSION": "1.0.0-beta.3",
             "SOURCE_REF": "main",
+            "SOURCE_SHA": self.sha,
             "SOURCE_CHANNEL": "dev",
-            "SOURCE_URL": "https://github.com/owner/repo.git",
         }
+        self.assertEqual(versions.installed_version(metadata), "dev-aaaaaaa")
+        self.assertEqual(versions.source_version("main", "b" * 40), "dev-bbbbbbb")
+        self.assertEqual(
+            versions.source_version("dev-release", self.sha), "dev-aaaaaaa"
+        )
+        self.assertEqual(
+            versions.source_version("feature/custom", self.sha), "dev-aaaaaaa"
+        )
+
+    def test_runtime_version_takes_precedence(self):
+        metadata = {
+            "SOURCE_VERSION": "1.0.0-beta.3",
+            "SOURCE_REF": "main",
+            "SOURCE_SHA": self.sha,
+        }
+        for reported, expected in (
+            ("dev-2fc6d28", "dev-2fc6d28"),
+            ("dev", "dev"),
+            ("test", "test"),
+            ("1.0.0-beta.3", "v1.0.0-beta.3"),
+            ("v1.0.0", "v1.0.0"),
+        ):
+            with patch.dict(os.environ, {"SENA_VERSION": reported}):
+                self.assertEqual(versions.installed_version(metadata), expected)
+                self.assertEqual(operations._reported_version(metadata), expected)
+
+    def test_switching_future_channel_does_not_relabel_installed_build(self):
+        metadata = {
+            "SOURCE_SHA": self.sha,
+            "SOURCE_REF": "main",
+            "SOURCE_CHANNEL": "beta",
+        }
+        self.assertEqual(versions.installed_version(metadata), "dev-aaaaaaa")
+        metadata.update(SOURCE_REF="v1.0.0-beta.3", SOURCE_CHANNEL="dev")
+        self.assertEqual(versions.installed_version(metadata), "v1.0.0-beta.3")
+
+    def test_missing_or_invalid_build_is_not_replaced_with_baseline(self):
+        with patch.dict(os.environ, {"SENA_VERSION": "<html>not-a-version</html>"}):
+            self.assertEqual(
+                versions.installed_version({"SOURCE_VERSION": "1.0.0-beta.3"}), "未知"
+            )
+            self.assertEqual(versions.source_version("main", "--not-a-sha"), "未知")
+            self.assertEqual(
+                versions.source_version("vfeature", self.sha), "dev-aaaaaaa"
+            )
+
+    def run_update(self, metadata, remote_sha, ref="main", check=False):
+        args = SimpleNamespace(
+            repo_url=None, ref=None, channel=None, force=False, yes=False, check=check
+        )
         with (
             patch.object(operations, "in_docker", return_value=False),
             patch.object(operations, "read_version_metadata", return_value=metadata),
-            patch.object(operations, "channel_ref", return_value="main"),
+            patch.object(operations, "channel_ref", return_value=ref),
             patch.object(
                 operations,
                 "resolve_remote_source",
-                return_value=("b" * 40, metadata["SOURCE_URL"], []),
-            ),
-            patch.object(
-                operations, "installed_project_version", return_value="1.0.0-beta.3"
-            ),
-            patch.object(
-                operations, "remote_project_version", return_value="1.0.0-beta.3"
+                return_value=(remote_sha, "https://github.com/owner/repo.git", []),
             ),
             patch.object(
                 operations, "installer_path", return_value=self.root / "install.sh"
@@ -149,18 +107,67 @@ class VersionDisplayTests(unittest.TestCase):
             patch.object(operations, "run_command", return_value=0) as install,
             patch.object(operations, "echo") as echo,
             patch.object(operations, "confirm", return_value=True) as confirm,
+            patch(
+                "urllib.request.urlopen",
+                side_effect=AssertionError("Do not fetch VERSION to label a build"),
+            ),
         ):
-            self.assertEqual(operations.cmd_update(args), 0)
-            lines = [call.args[0] for call in echo.call_args_list]
-            self.assertIn("当前版本: v1.0.0-beta.3（开发版）", lines)
-            self.assertIn("目标版本: v1.0.0-beta.3（开发版）", lines)
-            self.assertIn("目标提交: bbbbbbbbbbbb", lines)
-            self.assertIn("v1.0.0-beta.3", confirm.call_args.args[0])
-            install.assert_called_once()
+            result = operations.cmd_update(args)
+            return (
+                result,
+                [c.args[0] for c in echo.call_args_list],
+                install.call_count,
+                confirm.call_args,
+            )
 
-    def test_installer_records_project_version_for_archive_sources(self):
-        source = Path(__file__).resolve().parents[1] / "install.sh"
-        script = source.read_text()
+    def test_update_shows_dev_versions_channel_and_separate_commits(self):
+        metadata = {
+            "SOURCE_SHA": self.sha,
+            "SOURCE_VERSION": "1.0.0-beta.3",
+            "SOURCE_REF": "main",
+            "SOURCE_CHANNEL": "dev",
+        }
+        result, lines, installed, confirmation = self.run_update(metadata, "b" * 40)
+        self.assertEqual(result, 0)
+        self.assertIn("当前版本: dev-aaaaaaa", lines)
+        self.assertIn("目标版本: dev-bbbbbbb", lines)
+        self.assertIn("更新通道: dev / main", lines)
+        self.assertIn("当前提交: aaaaaaaaaaaa", lines)
+        self.assertIn("目标提交: bbbbbbbbbbbb", lines)
+        self.assertIn("dev-bbbbbbb", confirmation.args[0])
+        self.assertNotIn("beta.3", "\n".join(lines))
+        self.assertEqual(installed, 1)
+
+    def test_release_target_is_distinct_from_current_dev_version(self):
+        metadata = {
+            "SOURCE_SHA": self.sha,
+            "SOURCE_REF": "main",
+            "SOURCE_CHANNEL": "beta",
+        }
+        result, lines, installed, _ = self.run_update(
+            metadata, "b" * 40, ref="v1.0.0-beta.3"
+        )
+        self.assertEqual(result, 0)
+        self.assertIn("当前版本: dev-aaaaaaa", lines)
+        self.assertIn("目标版本: v1.0.0-beta.3", lines)
+        self.assertEqual(installed, 1)
+
+    def test_full_sha_not_display_version_controls_update_detection(self):
+        metadata = {
+            "SOURCE_SHA": "abcdef0" + "a" * 33,
+            "SOURCE_REF": "main",
+            "SOURCE_CHANNEL": "dev",
+        }
+        result, lines, installed, _ = self.run_update(
+            metadata, "abcdef0" + "b" * 33, check=True
+        )
+        self.assertEqual(result, 1)
+        self.assertIn("当前版本: dev-abcdef0", lines)
+        self.assertIn("目标版本: dev-abcdef0", lines)
+        self.assertEqual(installed, 0)
+
+    def test_installer_records_project_baseline_for_archive_sources(self):
+        script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
         functions = []
         for name in ("source_project_version", "write_version_metadata"):
             start = script.index(name + "() {")
@@ -195,7 +202,7 @@ write_version_metadata "$source_dir"
         self.assertIn("SOURCE_VERSION=1.0.0-beta.3\n", metadata.read_text())
         self.assertIn(f"SOURCE_SHA={self.sha}\n", metadata.read_text())
 
-    def test_git_version_lookup_is_pinned_and_checkout_is_quiet(self):
+    def test_detached_cache_checkout_remains_quiet(self):
         cache = self.root / "repo"
         cache.mkdir()
 
@@ -214,19 +221,14 @@ write_version_metadata "$source_dir"
         git("add", "VERSION")
         git("commit", "-qm", "test: create fixture")
         first = git("rev-parse", "HEAD").stdout.strip()
-        (cache / "VERSION").write_text("1.0.0-beta.3\n")
-        git("add", "VERSION")
-        git("commit", "-qm", "test: update fixture")
-        second = git("rev-parse", "HEAD").stdout.strip()
-        self.assertEqual(versions._cached_version(first), "1.0.0-beta.1")
         result = git(
             "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", first
         )
         self.assertEqual(result.stdout + result.stderr, "")
-        (cache / "VERSION").write_text("1.0.0-beta.2\n")
+        (cache / "VERSION").write_text("1.0.0-beta.3\n")
         git("add", "VERSION")
         git("commit", "-qm", "test: create detached fixture")
         result = git(
-            "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", second
+            "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", first
         )
         self.assertEqual(result.stdout + result.stderr, "")

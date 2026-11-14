@@ -1,20 +1,16 @@
-"""Display project versions separately from source revisions."""
+"""Resolve displayed build versions independently of the next update channel."""
 
 from __future__ import annotations
 
 import os
 import re
-import subprocess
-import urllib.request
-from pathlib import Path
-
-from cli.common import SERVER_DIR, install_root, mirror_candidates
 
 _VERSION = re.compile(
-    r"v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
+    r"v?([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
     r"(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?)"
 )
-_SHA = re.compile(r"[0-9a-f]{40}")
+_SHA = re.compile(r"[0-9a-f]{7,64}")
+_DEV_VERSION = re.compile(r"dev-[0-9a-f]{7,64}")
 
 
 def project_version(value: str) -> str:
@@ -23,98 +19,22 @@ def project_version(value: str) -> str:
     return match.group(1) if match else ""
 
 
-def _read_version(path: Path) -> str:
-    try:
-        with path.open(encoding="utf-8") as handle:
-            return project_version(handle.read(256))
-    except (OSError, UnicodeError):
-        return ""
-
-
-def _cached_version(sha: str) -> str:
-    if not _SHA.fullmatch(sha):
-        return ""
-    cache = install_root() / "repo"
-    if not (cache / ".git").exists():
-        return ""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(cache), "show", f"{sha}:VERSION"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return project_version(result.stdout) if result.returncode == 0 else ""
-    except (OSError, UnicodeError, subprocess.TimeoutExpired):
-        return ""
-
-
-def _version_url(repo_url: str, sha: str) -> str:
-    prefix, marker, repo = repo_url.partition("https://github.com/")
-    if not marker or (
-        prefix
-        and not (prefix.startswith(("http://", "https://")) and prefix.endswith("/"))
-    ):
-        return ""
-    repo = repo.rstrip("/").removesuffix(".git")
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
-        return ""
-    return f"{prefix}https://raw.githubusercontent.com/{repo}/{sha}/VERSION"
-
-
-def remote_project_version(repo_url: str, sha: str, ref: str = "") -> str:
-    # A release tag is the published version, even if its source VERSION differs.
+def source_version(ref: str, sha: str) -> str:
+    ref, sha = ref.strip(), sha.strip()
     if ref.startswith("v") and (version := project_version(ref)):
-        return version
-    if not _SHA.fullmatch(sha):
-        return ""
-    cached = _cached_version(sha)
-    if cached:
-        return cached
-    for source in dict.fromkeys([repo_url, *mirror_candidates(repo_url)]):
-        url = _version_url(source, sha)
-        if not url:
-            continue
-        try:
-            request = urllib.request.Request(
-                url, headers={"User-Agent": "Sena-Repo/senacli", "Accept": "text/plain"}
-            )
-            with urllib.request.urlopen(request, timeout=5) as response:
-                version = project_version(response.read(256).decode("utf-8"))
-            if version:
-                return version
-        except (OSError, ValueError):
-            continue
-    return ""
+        return f"v{version}"
+    if _SHA.fullmatch(sha):
+        return f"dev-{sha[:7]}"
+    return "未知"
 
 
-def installed_project_version(
-    metadata: dict[str, str], *, allow_remote: bool = False
-) -> str:
-    for candidate in (
-        metadata.get("SOURCE_VERSION", ""),
-        os.environ.get("SENA_VERSION", ""),
-        metadata.get("SOURCE_REF", ""),
-    ):
-        if version := project_version(candidate):
-            return version
-    # This file is staged with the installed tree, not the mutable source cache.
-    if version := _read_version(SERVER_DIR / "VERSION"):
-        return version
-    sha = metadata.get("SOURCE_SHA", "")
-    if version := _cached_version(sha):
-        return version
-    if allow_remote:
-        return remote_project_version(metadata.get("SOURCE_URL", ""), sha)
-    return ""
-
-
-def version_label(version: str, ref: str) -> str:
-    if not version:
-        return "未知（无法读取项目版本，仍按提交号检查更新）"
-    if project_version(ref):
-        kind = "测试版" if "-" in version.split("+", 1)[0] else "正式版"
-    else:
-        kind = "开发版"
-    return f"v{version}（{kind}）"
+def installed_version(metadata: dict[str, str]) -> str:
+    reported = os.environ.get("SENA_VERSION", "").strip()
+    if reported in {"dev", "test"} or _DEV_VERSION.fullmatch(reported):
+        return reported
+    if version := project_version(reported):
+        return f"v{version}"
+    # SOURCE_VERSION is only a release baseline; SOURCE_CHANNEL is future policy.
+    return source_version(
+        metadata.get("SOURCE_REF", ""), metadata.get("SOURCE_SHA", "")
+    )
