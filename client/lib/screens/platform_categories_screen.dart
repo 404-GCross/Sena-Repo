@@ -6,15 +6,10 @@ import "../models/game.dart";
 import "../services/api_client.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 
-void _showToast(BuildContext context, String message, {bool error = false}) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message),
-      backgroundColor: error ? Colors.red.shade700 : null,
-    ),
-  );
-}
+Future<void> _showToast(BuildContext context, String message, {bool error = false}) =>
+    showFeedbackDialog(context, message, error: error);
 
 class PlatformCategoriesScreen extends StatefulWidget {
   final ApiClient api;

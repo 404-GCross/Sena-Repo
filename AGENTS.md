@@ -55,9 +55,14 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
 
 ## UI Feedback
 
-- Use modal dialogs with an explicit dismiss button for user-triggered operation results,
-  errors, and warnings. Do not use SnackBars or transient bottom toasts for this feedback.
+- Across the entire client, use modal dialogs with an explicit dismiss button for success,
+  error, warning, and informational feedback, including copy/export results and background
+  task completion. Do not use SnackBars, Toasts, or transient bottom messages in any feature.
+- Use `client/lib/widgets/feedback_dialog.dart` for ordinary feedback. Existing specialized
+  dialogs may remain; this rule is project-wide, not limited to the agent screens.
 - Await feedback dialogs before closing or navigating away from the originating screen.
+- Keep continuous progress and per-item batch records in their task view; do not turn each
+  item into a separate feedback dialog.
 
 ## Logging
 

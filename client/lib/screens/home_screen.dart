@@ -18,6 +18,7 @@ import "../providers/game_provider.dart";
 import "../utils/theme_utils.dart";
 import "../services/download_service.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
@@ -868,9 +869,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (createdId == null) return;
     await provider.loadGames();
     if (ctx.mounted) {
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        const SnackBar(content: Text("条目已创建")),
-      );
+      await showFeedbackDialog(ctx, "条目已创建");
     }
   }
 
@@ -1040,13 +1039,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       await context.read<GameProvider>().loadGames();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      await showFeedbackDialog(context, message);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${target ? "锁定" : "解锁"}失败: $e")),
-      );
+      await showFeedbackDialog(context, "${target ? "锁定" : "解锁"}失败: $e", error: true);
     }
   }
 
@@ -1061,7 +1057,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) await showFeedbackDialog(context, '$e', error: true);
       return;
     }
     const allSrc = [

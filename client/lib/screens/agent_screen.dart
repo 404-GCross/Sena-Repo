@@ -4,26 +4,10 @@ import 'package:flutter/material.dart';
 import '../services/agent_service.dart';
 import '../services/api_client.dart';
 import '../utils/theme_utils.dart';
+import '../widgets/feedback_dialog.dart';
 
 Future<void> _showAgentMessage(BuildContext context, String text,
-    {String title = '提示'}) async {
-  if (!context.mounted) return;
-  final message = text.replaceFirst(RegExp(r'^(Exception|AuthException):\s*'), '');
-  await showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title),
-      scrollable: true,
-      content: SelectableText(message),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('确定'),
-        ),
-      ],
-    ),
-  );
-}
+    {String title = '提示'}) => showFeedbackDialog(context, text, title: title);
 
 const agentPresets = <String, List<String>>{
   'OpenAI': ['openai', 'responses', 'https://api.openai.com/v1', ''],

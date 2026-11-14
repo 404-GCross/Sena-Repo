@@ -18,6 +18,7 @@ import "../services/logger_service.dart";
 import "../services/oauth_token_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 import "connect_screen.dart";
 
 class BackupScreen extends StatefulWidget {
@@ -136,12 +137,9 @@ class _BackupScreenState extends State<BackupScreen> {
     );
   }
 
-  void _toast(String message, {bool error = false}) {
+  Future<void> _toast(String message, {bool error = false}) async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: error ? Colors.red[700] : null,
-    ));
+    await showFeedbackDialog(context, message, error: error);
   }
 
   // ── automatic backup ──

@@ -16,6 +16,7 @@ import "../utils/theme_utils.dart";
 import "../services/file_open_service.dart";
 import "../services/steam_service.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 
 class SteamPatchScreen extends StatefulWidget {
   const SteamPatchScreen({super.key});
@@ -3914,9 +3915,7 @@ class _HoverPathTextState extends State<_HoverPathText> {
     await Clipboard.setData(ClipboardData(text: widget.path));
     _hideOverlay();
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text("路径已复制")),
-    );
+    await showFeedbackDialog(context, "路径已复制");
   }
 
   @override

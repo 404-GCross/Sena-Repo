@@ -16,6 +16,7 @@ import "agent_screen.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 
 class SetupWizardScreen extends StatefulWidget {
   final ApiClient api;
@@ -251,7 +252,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         }
       } catch (_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('基础初始化已完成，请登录后在设置中配置智能体')));
+          await showFeedbackDialog(context, '基础初始化已完成，请登录后在设置中配置智能体');
         }
       }
       if (mounted) {

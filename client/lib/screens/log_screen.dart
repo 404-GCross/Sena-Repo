@@ -15,6 +15,7 @@ import "../providers/game_provider.dart";
 import "../services/logger_service.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 
 class LogScreen extends StatefulWidget {
   const LogScreen({super.key});
@@ -279,11 +280,9 @@ class _LogScreenState extends State<LogScreen> {
     });
   }
 
-  void _message(String message) {
+  Future<void> _message(String message) async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    await showFeedbackDialog(context, message);
   }
 
   @override

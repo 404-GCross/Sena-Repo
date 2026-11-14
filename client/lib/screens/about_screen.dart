@@ -16,6 +16,7 @@ import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../utils/version.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 import "../widgets/obscured.dart";
 
 const _repoUrl = "https://github.com/404-GCross/Sena-Repo";
@@ -123,13 +124,13 @@ class _AboutScreenState extends State<AboutScreen> {
       launched = false;
     }
     if (!launched && mounted) {
-      _toast("无法打开链接：$url");
+      await _toast("无法打开链接：$url");
     }
   }
 
   Future<void> _copyText(String label, String value) async {
     await Clipboard.setData(ClipboardData(text: value));
-    if (mounted) _toast("$label 已复制");
+    if (mounted) await _toast("$label 已复制");
   }
 
   Future<void> _copyDiagnostics() async {
@@ -145,10 +146,9 @@ class _AboutScreenState extends State<AboutScreen> {
     await _copyText("诊断信息", text);
   }
 
-  void _toast(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _toast(String message) async {
+    if (!mounted) return;
+    await showFeedbackDialog(context, message);
   }
 
   void _showLicenses() {
@@ -414,7 +414,8 @@ class _AboutScreenState extends State<AboutScreen> {
     }
     if (!mounted) return;
     if (content.trim().isEmpty) {
-      _toast("应用内未随包该许可文本，已改为浏览器打开");
+      await _toast("应用内未随包该许可文本，将在浏览器打开");
+      if (!mounted) return;
       await _openUrl(fallbackUrl);
       return;
     }

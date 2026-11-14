@@ -11,6 +11,7 @@ import "../providers/theme_provider.dart";
 import "../services/background_image_store.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/feedback_dialog.dart";
 
 class BeautifyScreen extends StatefulWidget {
   const BeautifyScreen({super.key});
@@ -127,10 +128,9 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
     }
   }
 
-  void _notice(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
+  Future<void> _notice(String message) async {
+    if (!mounted) return;
+    await showFeedbackDialog(context, message);
   }
 
   @override
