@@ -2023,6 +2023,25 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           SizedBox(
                             width: width,
                             child: OutlinedButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => AgentJobsScreen(api: widget.api),
+                                ),
+                              ),
+                              icon: const Icon(Icons.history, size: 18),
+                              label: const Text("智能体任务"),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: OutlinedButton.icon(
                               onPressed: actionActive ? null : _clearAndRescan,
                               icon: const Icon(Icons.delete_sweep, size: 18),
                               label: const Text("清空并重扫"),

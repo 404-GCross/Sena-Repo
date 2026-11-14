@@ -22,8 +22,13 @@ from models.root_directory import RootDirectory
 from models.file_source import SteamPatchRoot
 from models.user import User
 from schemas.agent import AgentSettings
-from services.agent.inventory import archive_evidence, inventory, relative_path
-from services.agent.jobs import run_job
+from services.agent.inventory import (
+    archive_evidence,
+    inventory,
+    relative_path,
+    InventoryStopped,
+)
+from services.agent.jobs import run_job, collect_inventory
 from services.agent.providers import ModelClient, ModelError, tool_spec
 from services.agent.runtime import AgentBudget, AgentStopped, Runtime, object_schema
 from services.agent.settings import client_options, load_settings, save_settings
@@ -117,6 +122,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             await self.client.get("/api/agent/settings", headers=self.headers)
         ).json()
         self.assertFalse(data["enabled"])
+        self.assertEqual(data["max_calls"], 0)
+        self.assertEqual(data["max_tokens"], 0)
         self.assertTrue(data["patch_steam_name"])
         self.assertTrue(data["game_ask"])
         async with self.sessions() as session:
@@ -222,7 +229,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(value.proxy_password)
 
     async def test_cancel_and_disable_stop_next_call(self):
-        await self.configure()
+        await self.configure(max_calls=2)
         async with self.sessions() as session:
             job = AgentJob(kind="game", request={}, actor_id=self.user_id)
             session.add(job)
@@ -395,6 +402,43 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 relative_path(p)
 
+    async def test_inventory_progress_is_saved_before_model_calls(self):
+        await self.configure()
+        async with self.sessions() as session:
+            job = AgentJob(kind="game", request={}, actor_id=self.user_id)
+            session.add(job)
+            await session.commit()
+            settings, revision = await load_settings(session)
+            runtime = Runtime(session, job, settings, revision)
+            root = RootDirectory(path="/example", source_type="openlist")
+
+            def fake_inventory(root, source, ignored, *, on_progress, stop_requested):
+                self.assertFalse(stop_requested())
+                on_progress(3, 20, 8)
+                return []
+
+            with (
+                patch("services.agent.jobs.inventory", side_effect=fake_inventory),
+                patch.object(ModelClient, "turn", new_callable=AsyncMock) as model,
+            ):
+                self.assertEqual(
+                    await collect_inventory(runtime, root, None, set()), []
+                )
+                model.assert_not_awaited()
+            await session.refresh(job)
+            self.assertEqual(job.calls, 0)
+            self.assertIn("OpenList", job.message)
+            self.assertIn("3 个目录", job.message)
+            self.assertIn("20 个条目", job.message)
+            self.assertIn("8 个候选文件", job.message)
+
+    async def test_cancelled_inventory_does_not_request_another_directory(self):
+        root = RootDirectory(path=self.tmp.name, source_type="local")
+        with patch("services.agent.inventory.adapter_from_source") as adapter:
+            with self.assertRaises(InventoryStopped):
+                inventory(root, None, set(), stop_requested=lambda: True)
+            adapter.return_value.list.assert_not_called()
+
     async def make_game_job(self):
         root = Path(self.tmp.name) / "games"
         root.mkdir()
@@ -487,7 +531,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             statuses = (
                 (await session.execute(select(AgentResult.status))).scalars().all()
             )
-            self.assertIn("fallback", statuses)
+            self.assertIn("model_fallback", statuses)
 
     async def test_job_single_flight_and_recovery(self):
         await self.configure()
@@ -612,3 +656,46 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(AgentBudget):
                     await runtime.reason("metadata", {}, object_schema({}))
                 self.assertEqual(mocked.await_count, 1)
+
+    async def test_zero_budgets_do_not_limit_a_task(self):
+        await self.configure()
+        async with self.sessions() as session:
+            job = AgentJob(kind="game", request={}, calls=5000, tokens=3000000)
+            session.add(job)
+            await session.commit()
+            settings, revision = await load_settings(session)
+            await Runtime(session, job, settings, revision).check(model=True)
+
+    async def test_explicit_budget_fallback_is_not_reported_as_model_failure(self):
+        await self.configure(max_calls=1)
+        job_id = await self.make_game_job()
+        reply = {
+            "role": "assistant",
+            "content": "",
+            "calls": [
+                {"id": "query", "name": "search", "arguments": {"query": "Test Game"}}
+            ],
+        }
+        with (
+            patch.object(ModelClient, "turn", return_value=(reply, 10)) as model,
+            patch(
+                "services.agent.metadata._build_scrapers", return_value=[FakeScraper()]
+            ),
+        ):
+            await run_job(job_id)
+            self.assertEqual(model.await_count, 1)
+        async with self.sessions() as session:
+            job = await session.get(AgentJob, job_id)
+            self.assertEqual(job.status, "completed")
+            rows = (
+                (
+                    await session.execute(
+                        select(AgentResult).where(AgentResult.job_id == job_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            self.assertTrue(any(row.status == "budget_fallback" for row in rows))
+            self.assertFalse(any(row.status == "model_fallback" for row in rows))
+            self.assertTrue(any("不代表无法识别" in row.summary for row in rows))

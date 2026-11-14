@@ -5,6 +5,26 @@ import '../services/agent_service.dart';
 import '../services/api_client.dart';
 import '../utils/theme_utils.dart';
 
+Future<void> _showAgentMessage(BuildContext context, String text,
+    {String title = '提示'}) async {
+  if (!context.mounted) return;
+  final message = text.replaceFirst(RegExp(r'^(Exception|AuthException):\s*'), '');
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      scrollable: true,
+      content: SelectableText(message),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('确定'),
+        ),
+      ],
+    ),
+  );
+}
+
 const agentPresets = <String, List<String>>{
   'OpenAI': ['openai', 'responses', 'https://api.openai.com/v1', ''],
   'Anthropic': ['anthropic', 'anthropic', 'https://api.anthropic.com', ''],
@@ -78,9 +98,9 @@ class _AgentScreenState extends State<AgentScreen> {
     }
   }
 
-  void message(String text) {
+  Future<void> message(String text, {String title = '提示'}) async {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+      await _showAgentMessage(context, text, title: title);
     }
   }
 
@@ -96,10 +116,10 @@ class _AgentScreenState extends State<AgentScreen> {
         controllers['api_key']?.clear();
         controllers['proxy_password']?.clear();
       });
-      message('配置已保存');
-      if (finish) Navigator.pop(context);
+      await message('配置已保存', title: '保存成功');
+      if (finish && mounted) Navigator.pop(context);
     } catch (e) {
-      message('$e');
+      await message('$e', title: '操作失败');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -214,10 +234,10 @@ class _AgentScreenState extends State<AgentScreen> {
           });
         }
       } else {
-        message('${result['message']}');
+        await message('${result['message']}', title: '连接测试成功');
       }
     } catch (e) {
-      message('$e');
+      await message('$e', title: '操作失败');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -308,10 +328,13 @@ class _AgentScreenState extends State<AgentScreen> {
               padding: EdgeInsets.only(top: 12),
               child: Text('仅模型请求使用此代理，普通刮削和 OpenList 保持原有网络设置。直连会忽略代理环境变量。')),
         ]),
-        card('调用预算', [
+        card('任务预算（可选）', [
+          const Text('默认不限制。只有填写正数才启用对应上限；达到限制后转入常规流程，不代表游戏无法识别。'),
+          field('max_calls', '每任务请求次数上限（0 为不限制）', number: true),
+          field('max_tokens', '每任务 Token 上限（0 为不限制）', number: true),
+        ]),
+        card('请求与分析设置', [
           field('timeout', '单次请求超时（秒）', number: true),
-          field('max_calls', '每任务最多模型请求', number: true),
-          field('max_tokens', '每任务 token 预算', number: true),
           field('rounds', '每条目最多分析轮数', number: true),
           field('remote_archive_mb', '远程压缩包分析下载上限（MB，0 禁止）', number: true)
         ]),
@@ -401,6 +424,7 @@ class _AgentScreenState extends State<AgentScreen> {
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   for (int i = 0; i < 4; i++)
                     ChoiceChip(
+                        showCheckmark: false,
                         label: Text(['模型与代理', '游戏偏好', '补丁偏好', '扫描默认项'][i]),
                         selected: page == i,
                         onSelected: (_) => setState(() => page = i))
@@ -441,8 +465,8 @@ Future<String?> chooseScanMode(
   if (!available && mode == 'agent') {
     mode = 'regular';
     if (config['${kind}_ask'] == false) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('智能体已关闭或未配置，本次使用常规扫描')));
+      await _showAgentMessage(context, '智能体已关闭或未配置，本次使用常规扫描');
+      if (!context.mounted) return null;
     }
   }
   if (config['${kind}_ask'] == false) return mode;
@@ -519,6 +543,10 @@ class AgentJobsScreen extends StatefulWidget {
 }
 
 class _AgentJobsScreenState extends State<AgentJobsScreen> {
+  static const reviewStatuses = {
+    'review', 'fallback', 'partial', 'unmatched', 'budget_fallback',
+    'model_fallback', 'validation_fallback', 'config_fallback', 'source_fallback',
+  };
   late final service = AgentService(widget.api);
   List<dynamic> rows = [];
   Map<String, dynamic>? job;
@@ -595,6 +623,14 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
         'interrupted': '已中断',
         'review': '待处理',
         'fallback': '常规兜底',
+        'budget_fallback': '预算回退',
+        'model_fallback': '模型异常回退',
+        'validation_fallback': '校验回退',
+        'config_fallback': '配置变化回退',
+        'source_fallback': '资料源异常回退',
+        'partial': '部分识别',
+        'unmatched': '匹配待核实',
+        'skipped': '保留已有记录',
         'identified': '智能识别',
         'applied': '已自动应用',
         'cached': '复用结果',
@@ -604,6 +640,16 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
         'scrape': '资料刮削',
       }[value] ??
       '$value';
+
+  String resultSummary(Map row) {
+    final summary = '${row['summary']}';
+    final groups = (row['data'] as Map?)?['groups'];
+    if (row['status'] == 'identified' && groups is List && groups.isNotEmpty &&
+        summary.contains('未确定内容交给常规扫描')) {
+      return '已识别 ${groups.length} 组游戏';
+    }
+    return summary;
+  }
 
   Widget resultDetails(Map row) {
     final data = row['data'] as Map? ?? {};
@@ -651,6 +697,11 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
               '${label(job!['status'])} · 模型请求 ${job!['calls']} · Token ${job!['tokens']}',
               style: AppText.title),
           Text('${job!['message']}'),
+          if (job!['calls'] == 0 && ['pending', 'running'].contains(job!['status']))
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('模型尚未调用；目录列举和文件清单准备不计入调用次数。'),
+            ),
           Wrap(spacing: 8, children: [
             for (final entry in (job!['counts'] as Map? ?? {}).entries)
               Chip(label: Text('${label(entry.key)} ${entry.value}'))
@@ -674,12 +725,12 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
                   });
                   load();
                 }),
-            if (rows.any((r) => ['review', 'fallback'].contains(r['status'])))
+            if (rows.any((r) => reviewStatuses.contains(r['status'])))
               TextButton(
                   onPressed: () => action('/results/ignore', {
                         'ids': rows
                             .where((r) =>
-                                ['review', 'fallback'].contains(r['status']))
+                                reviewStatuses.contains(r['status']))
                             .map((r) => r['id'])
                             .toList()
                       }),
@@ -700,11 +751,11 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
                               builder: (_) => AgentJobsScreen(
                                   api: widget.api, jobId: row['id'] as int))))
                   : ExpansionTile(
-                      title: Text('${row['summary']}'),
+                      title: Text(resultSummary(row as Map)),
                       subtitle: Text('${label(row['status'])} · ${row['key']}'),
                       children: [
                           resultDetails(row as Map),
-                          if (['review', 'fallback'].contains(row['status']))
+                          if (reviewStatuses.contains(row['status']))
                             TextButton(
                                 onPressed: () =>
                                     action('/results/${row['id']}/ignore'),

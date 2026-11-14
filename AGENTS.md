@@ -53,6 +53,12 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
 - For user-visible workflows, inspect the UI call site and backend endpoint together before
   declaring a change complete.
 
+## UI Feedback
+
+- Use modal dialogs with an explicit dismiss button for user-triggered operation results,
+  errors, and warnings. Do not use SnackBars or transient bottom toasts for this feedback.
+- Await feedback dialogs before closing or navigating away from the originating screen.
+
 ## Logging
 
 - Use the project's logger abstraction instead of `print` or ad hoc debug output.

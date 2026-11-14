@@ -5,13 +5,14 @@ import hashlib
 import json
 import logging
 import posixpath
+import threading
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 import database
@@ -23,7 +24,13 @@ from models.root_directory import RootDirectory
 from services.agent.inventory import inventory, inspect_file, relative_path
 from services.agent.metadata import Catalog, select_metadata
 from services.agent.providers import ModelError, tool_spec
-from services.agent.runtime import AgentStopped, Runtime, object_schema
+from services.agent.runtime import (
+    AgentBudget,
+    AgentConfigurationChanged,
+    AgentStopped,
+    Runtime,
+    object_schema,
+)
 from services.agent.settings import load_settings
 from services.file_source import canonical_source_path, adapter_from_source
 from services.importer import import_from_root, scanner_ignore_paths
@@ -40,6 +47,68 @@ from utils.process_lock import process_lock, scan_lock_path
 
 logger = logging.getLogger(__name__)
 _tasks: dict[int, asyncio.Task] = {}
+
+
+def fallback_details(error):
+    if isinstance(error, AgentConfigurationChanged):
+        return "config_fallback", "模型配置已变化，本项使用常规流程"
+    if isinstance(error, AgentBudget):
+        return "budget_fallback", f"{error}；本项转常规流程，不代表无法识别"
+    if isinstance(error, ModelError):
+        return "model_fallback", f"{error}；本项转常规流程"
+    if isinstance(error, ValueError):
+        return "validation_fallback", "智能体结果未通过校验，本项转常规流程"
+    return (
+        "source_fallback",
+        f"文件或资料源处理失败（{type(error).__name__}），本项转常规流程",
+    )
+
+
+async def collect_inventory(runtime, root, source, ignored):
+    stopped = threading.Event()
+    progress = [None]
+    kind = "补丁" if runtime.job.kind == "patch" else "游戏"
+    location = "OpenList" if root.source_type == "openlist" else "本地"
+    prefix = f"正在列举{location}{kind}目录"
+    runtime.job.message = f"{prefix}，等待文件源响应；此阶段尚不调用模型"
+    await runtime.session.commit()
+
+    def report(directories, entries, files):
+        progress[0] = (directories, entries, files)
+
+    worker = asyncio.create_task(
+        asyncio.to_thread(
+            inventory,
+            root,
+            source,
+            ignored,
+            on_progress=report,
+            stop_requested=stopped.is_set,
+        )
+    )
+    last = None
+    try:
+        while True:
+            done, _ = await asyncio.wait({worker}, timeout=1)
+            await runtime.check()
+            current = progress[0]
+            if current is not None and current != last:
+                directories, entries, files = current
+                runtime.job.message = (
+                    f"{prefix}：已遍历 {directories} 个目录、{entries} 个条目，"
+                    f"发现 {files} 个候选文件；清单完成后开始模型分析"
+                )
+                await runtime.session.commit()
+                last = current
+            if done:
+                return worker.result()
+    except BaseException:
+        stopped.set()
+        try:
+            await asyncio.shield(worker)
+        except BaseException:
+            pass
+        raise
 
 
 class Group(BaseModel):
@@ -149,7 +218,9 @@ async def discover_root(runtime, root):
     catalog = Catalog(config, runtime.job.actor_id, runtime)
     try:
         try:
-            files = await asyncio.to_thread(inventory, root, source, ignored)
+            files = await collect_inventory(runtime, root, source, ignored)
+        except AgentStopped:
+            raise
         except Exception:
             files = []
             await record(
@@ -305,21 +376,39 @@ async def discover_root(runtime, root):
                                 "directory_only": not archives,
                             }
                         )
-                    await record(
-                        runtime,
-                        parent or str(root.id),
-                        digest,
-                        "identified" if accepted else "fallback",
-                        f"智能识别 {len(accepted)} 组；未确定内容交给常规扫描",
-                        {"groups": accepted},
+                    remaining = sum(
+                        (f["archive"] or f["relative"].lower().endswith(".exe"))
+                        and f["path"] not in assigned
+                        for f in batch
                     )
-                except (ModelError, ValueError):
+                    if accepted:
+                        outcome = "partial" if remaining else "identified"
+                        summary = f"已识别 {len(accepted)} 组游戏"
+                        if remaining:
+                            summary += f"；另有 {remaining} 个候选文件交给常规扫描"
+                    else:
+                        outcome = "unmatched" if remaining else "skipped"
+                        summary = (
+                            "未获得可验证的匹配，交给常规扫描"
+                            if remaining
+                            else "保留已有锁定或归组记录"
+                        )
                     await record(
                         runtime,
                         parent or str(root.id),
                         digest,
-                        "fallback",
-                        "智能识别未完成，已转常规扫描",
+                        outcome,
+                        summary,
+                        {"groups": accepted, "unresolved_files": remaining},
+                    )
+                except (ModelError, ValueError) as exc:
+                    outcome, summary = fallback_details(exc)
+                    await record(
+                        runtime,
+                        parent or str(root.id),
+                        digest,
+                        outcome,
+                        summary,
                     )
         await runtime.check()
         exclusions = (
@@ -483,7 +572,8 @@ async def scrape_game(runtime, game, client):
                 evidence,
                 {"game_id": game.id, "name": game.name, "source": result.source_name},
             )
-        except (ModelError, ValueError):
+        except (ModelError, ValueError) as exc:
+            outcome, summary = fallback_details(exc)
             await runtime.check()
             await scrape_single_game(
                 game,
@@ -498,8 +588,8 @@ async def scrape_game(runtime, game, client):
                 runtime,
                 game.id,
                 digest,
-                "fallback",
-                "智能刮削未完成，已使用原有刮削",
+                outcome,
+                summary,
                 {"game_id": game.id},
             )
     finally:
@@ -526,7 +616,9 @@ async def patch_scan(runtime):
             await session.get(FileSource, root.source_id) if root.source_id else None
         )
         try:
-            files = await asyncio.to_thread(inventory, root, source, set())
+            files = await collect_inventory(runtime, root, source, set())
+        except AgentStopped:
+            raise
         except Exception:
             from scan_patches import scan_patches_dir, scan_patches_source
 
@@ -721,7 +813,8 @@ async def patch_scan(runtime):
                     summary += "；复制目录依据不足，保持待配置"
             except AgentStopped:
                 raise
-            except Exception:
+            except Exception as exc:
+                outcome, summary = fallback_details(exc)
                 app_id = await asyncio.to_thread(
                     _guess_app_id, item["relative"], Path(item["path"]).name
                 )
@@ -863,6 +956,18 @@ async def run_job(job_id):
                                 )
                 job.status = "completed"
                 job.message = "任务完成，明确结果已自动应用，请查看待处理项"
+                budget_fallbacks = (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(AgentResult)
+                        .where(
+                            AgentResult.job_id == job_id,
+                            AgentResult.status == "budget_fallback",
+                        )
+                    )
+                ).scalar_one()
+                if budget_fallbacks:
+                    job.message = f"任务完成；{budget_fallbacks} 项因预算限制转入常规流程，不代表资料无法识别"
         except AgentStopped:
             await session.rollback()
             job.status = "cancelled"

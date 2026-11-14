@@ -28,7 +28,18 @@ def relative_path(value: str, allow_empty=False) -> str:
     return value
 
 
-def inventory(root, source, ignored: set[str], max_entries=20000):
+class InventoryStopped(RuntimeError):
+    pass
+
+
+def inventory(
+    root,
+    source,
+    ignored: set[str],
+    max_entries=20000,
+    on_progress=None,
+    stop_requested=None,
+):
     base = root.source_path or root.path if hasattr(root, "source_path") else root.path
     local = (root.source_type or "local") == "local"
     adapter = adapter_from_source(source, root.source_type or "local")
@@ -36,11 +47,15 @@ def inventory(root, source, ignored: set[str], max_entries=20000):
     pending, visited, files = [base], set(), []
     seen = 0
     while pending:
+        if stop_requested is not None and stop_requested():
+            raise InventoryStopped()
         current = pending.pop()
         if current in visited:
             continue
         visited.add(current)
         for item in adapter.list(current):
+            if stop_requested is not None and stop_requested():
+                raise InventoryStopped()
             seen += 1
             if seen > max_entries:
                 raise ValueError("智能目录清单超过上限，改用常规扫描")
@@ -75,6 +90,8 @@ def inventory(root, source, ignored: set[str], max_entries=20000):
                         "archive": is_archive(item.name),
                     }
                 )
+        if on_progress is not None:
+            on_progress(len(visited), seen, len(files))
     return files
 
 

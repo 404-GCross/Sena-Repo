@@ -20,6 +20,17 @@ from utils.process_lock import process_lock
 router = APIRouter(
     prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_admin)]
 )
+REVIEW_STATUSES = (
+    "review",
+    "fallback",
+    "partial",
+    "unmatched",
+    "budget_fallback",
+    "model_fallback",
+    "validation_fallback",
+    "config_fallback",
+    "source_fallback",
+)
 
 
 @router.get("/settings")
@@ -174,7 +185,7 @@ async def job_detail(
         raise HTTPException(404, "任务不存在")
     query = select(AgentResult).where(AgentResult.job_id == job_id)
     if review_only:
-        query = query.where(AgentResult.status.in_(["review", "fallback"]))
+        query = query.where(AgentResult.status.in_(REVIEW_STATUSES))
     rows = (
         await session.execute(query.order_by(AgentResult.id).offset(offset).limit(100))
     ).scalars()
@@ -248,7 +259,7 @@ async def ignore_results(
         await session.execute(
             select(AgentResult).where(
                 AgentResult.id.in_(body.ids),
-                AgentResult.status.in_(["review", "fallback"]),
+                AgentResult.status.in_(REVIEW_STATUSES),
             )
         )
     ).scalars()

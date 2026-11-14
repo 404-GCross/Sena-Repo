@@ -92,8 +92,13 @@ void main() {
                       child: const Text('Scan'))))));
       await tester.tap(find.text('Scan'));
       await tester.pumpAndSettle();
-      expect(chosen, 'regular');
+      expect(chosen, isNull);
       expect(find.text('智能体已关闭或未配置，本次使用常规扫描'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(chosen, 'regular');
     },
         () => MockClient((_) async => http.Response(
             jsonEncode({

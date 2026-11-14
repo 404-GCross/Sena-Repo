@@ -17,6 +17,10 @@ class AgentBudget(ModelError):
     pass
 
 
+class AgentConfigurationChanged(AgentBudget):
+    pass
+
+
 class Runtime:
     def __init__(self, session, job, settings, revision):
         self.session, self.job, self.settings, self.revision = (
@@ -52,12 +56,23 @@ class Runtime:
             if settings.model_dump(exclude=excluded) != self.settings.model_dump(
                 exclude=excluded
             ):
-                raise AgentBudget("模型配置已变化，剩余项目使用常规处理")
-        if model and (
-            self.job.calls >= self.settings.max_calls
-            or self.job.tokens >= self.settings.max_tokens
+                raise AgentConfigurationChanged("模型配置已变化，剩余项目使用常规处理")
+        if (
+            model
+            and self.settings.max_calls > 0
+            and self.job.calls >= self.settings.max_calls
         ):
-            raise AgentBudget("模型预算已用完，剩余项目使用常规处理")
+            raise AgentBudget(
+                f"请求次数达到限制（{self.job.calls}/{self.settings.max_calls}）"
+            )
+        if (
+            model
+            and self.settings.max_tokens > 0
+            and self.job.tokens >= self.settings.max_tokens
+        ):
+            raise AgentBudget(
+                f"Token 用量达到限制（{self.job.tokens}/{self.settings.max_tokens}）"
+            )
 
     async def reason(
         self,
@@ -87,6 +102,12 @@ class Runtime:
         for _ in range(self.settings.rounds):
             await self.check(model=True)
             self.job.calls += 1
+            stage = {
+                "discovery": "游戏识别",
+                "metadata": "资料与分类",
+                "patch": "补丁配置",
+            }.get(skill, "分析")
+            self.job.message = f"正在调用模型：{stage}（第 {self.job.calls} 次请求）"
             await self.session.commit()
             result, tokens = await self.client.turn(messages, specs)
             self.job.tokens += max(

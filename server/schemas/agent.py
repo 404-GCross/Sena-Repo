@@ -18,8 +18,8 @@ class AgentSettings(BaseModel):
     proxy_password: str | None = Field(default=None, max_length=4096)
     vision: bool = False
     timeout: int = Field(default=90, ge=10, le=300)
-    max_calls: int = Field(default=200, ge=1, le=2000)
-    max_tokens: int = Field(default=200000, ge=1000, le=2000000)
+    max_calls: int = Field(default=0, ge=0)
+    max_tokens: int = Field(default=0, ge=0)
     rounds: int = Field(default=8, ge=2, le=20)
     cover_language: Literal["zh", "original", "source"] = "zh"
     cover_fallback: Literal["original", "keep", "review"] = "original"
