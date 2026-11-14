@@ -37,6 +37,7 @@ from cli.common import (
     short_sha,
     uninstaller_path,
 )
+from cli.versions import installed_project_version, remote_project_version, version_label
 from config import Config
 from models.file_source import FileSource
 from models.game import Game, GameTag, GameVersion
@@ -462,7 +463,12 @@ async def cmd_status(args) -> int:
             ("CPU", cpu),
             ("Memory", memory),
             ("Uptime", uptime),
-            ("Version", _reported_version(metadata)),
+            ("Version", version_label(
+                installed_project_version(metadata),
+                metadata.get("SOURCE_REF") or os.environ.get("SENA_VERSION", ""),
+            )),
+            ("Build", _reported_version(metadata)),
+            ("Update channel", metadata.get("SOURCE_CHANNEL", "-")),
             ("Source ref", metadata.get("SOURCE_REF", "-")),
             ("Source SHA", short_sha(metadata.get("SOURCE_SHA", ""))),
             ("Scan state", scan_state),
@@ -703,14 +709,24 @@ def cmd_update(args) -> int:
     if active_url != repo_url:
         echo(f"直连不可用，已改用镜像源: {active_url}")
         repo_url = active_url
-    echo(f"当前版本: {short_sha(current_sha)}")
-    echo(f"远程版本: {short_sha(remote_sha)} ({repo_ref})")
+    current_version = version_label(
+        installed_project_version(metadata, allow_remote=True),
+        stored_ref or os.environ.get("SENA_VERSION", ""),
+    )
+    target_version = version_label(
+        remote_project_version(repo_url, remote_sha, repo_ref), repo_ref
+    )
+    echo(f"当前版本: {current_version}")
+    echo(f"目标版本: {target_version}")
+    echo(f"更新通道: {channel or channel_from_ref(repo_ref) or '指定来源'} / {repo_ref}")
+    echo(f"当前提交: {short_sha(current_sha) or '未知'}")
+    echo(f"目标提交: {short_sha(remote_sha)}")
 
     if getattr(args, "check", False):
         if current_sha and current_sha == remote_sha:
             echo("已经是最新版本")
             return 0
-        echo(f"有新版本可用: {short_sha(current_sha) or '未知'} -> {short_sha(remote_sha)}")
+        echo(f"有新构建可用: {current_version} -> {target_version}")
         return 1
 
     if current_sha == remote_sha and not args.force:
@@ -723,7 +739,7 @@ def cmd_update(args) -> int:
         else:
             echo("已经是最新版本")
         return 0
-    if not args.yes and not confirm(f"确认更新到 {repo_ref}@{short_sha(remote_sha)}？"):
+    if not args.yes and not confirm(f"确认更新到 {target_version}，提交 {short_sha(remote_sha)}？"):
         echo("已取消")
         return 130
     env = {

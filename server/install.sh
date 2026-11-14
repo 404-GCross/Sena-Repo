@@ -495,6 +495,19 @@ prompt_for_channel() {
   esac
 }
 
+source_project_version() {
+  local source_dir="$1" value="" version_file
+  for version_file in "$source_dir/../VERSION" "$source_dir/VERSION"; do
+    [ -f "$version_file" ] || continue
+    value="$(head -c 256 "$version_file" | tr -d '\r\n')"
+    value="${value#v}"
+    if [ "${#value}" -le 128 ] && [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+}
+
 installed_version_value() {
   local source_dir="$1" sha
   case "$REPO_REF" in
@@ -889,8 +902,7 @@ remote_server_dir() {
     log "updating cached source from $REPO_URL ($REPO_REF)"
     for attempt in 1 2 3; do
       git -C "$REPO_CACHE_DIR" remote set-url origin "$REPO_URL"
-      if run_git_source_fetch; then
-        git -C "$REPO_CACHE_DIR" checkout --force FETCH_HEAD
+      if run_git_source_fetch && git -C "$REPO_CACHE_DIR" -c advice.detachedHead=false checkout --quiet --force FETCH_HEAD; then
         source_ok="true"
         break
       fi
@@ -947,6 +959,11 @@ prepare_next_tree() {
   rm -rf "$NEXT_SERVER" "$NEXT_VENV"
   mkdir -p "$NEXT_SERVER"
   cp -a "$source_dir/." "$NEXT_SERVER/"
+  local project_version
+  project_version="$(source_project_version "$source_dir")"
+  if [ -n "$project_version" ]; then
+    printf '%s\n' "$project_version" > "$NEXT_SERVER/VERSION"
+  fi
 
   log "installing Python dependencies into the new environment (service keeps running)"
   "$PYTHON_BIN" -m venv "$NEXT_VENV"
@@ -1099,7 +1116,8 @@ remove_cli_command() {
 
 write_version_metadata() {
   local source_dir="$1"
-  local source_sha metadata_tmp channel
+  local source_sha metadata_tmp channel project_version
+  project_version="$(source_project_version "$source_dir")"
   source_sha="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
   if [ -z "$source_sha" ] && [ -f "$REPO_CACHE_DIR/.sena-source-sha" ]; then
     source_sha="$(head -n 1 "$REPO_CACHE_DIR/.sena-source-sha" 2>/dev/null || true)"
@@ -1115,6 +1133,7 @@ write_version_metadata() {
   umask 022
   {
     printf 'SOURCE_SHA=%s\n' "$source_sha"
+    printf 'SOURCE_VERSION=%s\n' "$project_version"
     printf 'SOURCE_URL=%s\n' "$REPO_URL"
     printf 'SOURCE_REF=%s\n' "$REPO_REF"
     printf 'SOURCE_CHANNEL=%s\n' "$channel"
