@@ -1,7 +1,7 @@
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AgentSettings(BaseModel):
@@ -71,6 +71,15 @@ class AgentRequest(BaseModel):
     game_ids: list[int] = Field(default_factory=list, max_length=10000)
     patch_keys: list[str] = Field(default_factory=list, max_length=10000)
     retry: bool = False
+    clear_existing: bool = False
+
+    @model_validator(mode="after")
+    def validate_clear_scope(self):
+        if self.clear_existing and (
+            self.kind != "game" or self.game_ids or self.patch_keys
+        ):
+            raise ValueError("清空重扫仅支持游戏库范围")
+        return self
 
 
 class IgnoreResults(BaseModel):

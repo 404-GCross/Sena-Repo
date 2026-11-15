@@ -33,7 +33,11 @@ from services.agent.runtime import (
 )
 from services.agent.settings import load_settings
 from services.file_source import canonical_source_path, adapter_from_source
-from services.importer import import_from_root, scanner_ignore_paths
+from services.importer import (
+    clear_scanned_games,
+    import_from_root,
+    scanner_ignore_paths,
+)
 from services.scanner import (
     ArchiveFile,
     CompanyFolder,
@@ -891,6 +895,42 @@ async def run_job(job_id):
                 await runtime.check()
                 job.status = "running"
                 await session.commit()
+                if job.request.get("clear_existing"):
+                    await runtime.check(model=True)
+                    if not settings.model.strip():
+                        raise ValueError("模型尚未配置，未执行清空")
+                    root_query = select(RootDirectory.id)
+                    if job.request.get("root_ids"):
+                        root_query = root_query.where(
+                            RootDirectory.id.in_(job.request["root_ids"])
+                        )
+                    found_roots = set((await session.execute(root_query)).scalars())
+                    if not found_roots or (
+                        job.request.get("root_ids")
+                        and found_roots != set(job.request["root_ids"])
+                    ):
+                        raise ValueError("游戏库目录已变化，未执行清空")
+                    cleared = await clear_scanned_games(
+                        session, job.request.get("root_ids") or None
+                    )
+                    # Commit the clear and its consumed flag together: retries must not clear twice.
+                    job.request = {
+                        **job.request,
+                        "clear_existing": False,
+                        "retry": True,
+                    }
+                    job.message = f"已清理 {cleared} 个可重建条目，开始智能重扫；手动和锁定条目已保留"
+                    session.add(
+                        AgentResult(
+                            job_id=job_id,
+                            key="library",
+                            fingerprint="",
+                            status="cleared",
+                            summary=job.message,
+                            data={"cleared_games": cleared},
+                        )
+                    )
+                    await session.commit()
                 if job.kind == "patch":
                     await patch_scan(runtime)
                 else:

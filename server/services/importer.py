@@ -6,7 +6,7 @@ import asyncio, logging
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
@@ -14,6 +14,7 @@ from models.game import Company, Game, GameVersion, GameTag
 from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from models.tag import Tag
+from models.scrape_job import JobStatus, ScrapeJob
 from services.cleaner import normalize_company_name, _clean_name
 from services.platforms import load_platform_rules
 from utils.regex_patterns import UNCATEGORIZED, match_platform
@@ -21,6 +22,34 @@ from services.file_source import adapter_from_source, canonical_source_path
 from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
 
 logger = logging.getLogger(__name__)
+
+
+async def clear_scanned_games(
+    session: AsyncSession, root_ids: list[int] | None = None
+) -> int:
+    active = (
+        await session.execute(
+            select(ScrapeJob.id)
+            .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+            .limit(1)
+        )
+    ).first()
+    if active:
+        raise ValueError("刮削任务正在运行，请结束后再清空重扫")
+    query = select(Game.id).where(
+        Game.entry_source == "library",
+        Game.metadata_locked.is_(False),
+        Game.name_locked.is_(False),
+    )
+    if root_ids is not None:
+        query = query.where(Game.root_id.in_(root_ids))
+    ids = list((await session.execute(query)).scalars())
+    if ids:
+        await session.execute(delete(GameTag).where(GameTag.game_id.in_(ids)))
+        await session.execute(delete(GameVersion).where(GameVersion.game_id.in_(ids)))
+        await session.execute(delete(Game).where(Game.id.in_(ids)))
+    await cleanup_empty_companies(session)
+    return len(ids)
 
 
 def scanner_ignore_paths(

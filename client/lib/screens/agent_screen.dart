@@ -621,6 +621,7 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
         'partial': '部分识别',
         'unmatched': '匹配待核实',
         'skipped': '保留已有记录',
+        'cleared': '清理完成',
         'identified': '智能识别',
         'applied': '已自动应用',
         'cached': '复用结果',

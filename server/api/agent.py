@@ -127,6 +127,29 @@ def job_out(job):
 
 async def create_job(body, actor_id, session):
     await configured(session)
+    from api.roots import _scan_active
+
+    if _scan_active():
+        raise HTTPException(409, "扫描正在运行，请结束后再启动智能体任务")
+    if body.clear_existing:
+        from models.scrape_job import JobStatus, ScrapeJob
+        from models.root_directory import RootDirectory
+
+        roots = select(RootDirectory.id)
+        if body.root_ids:
+            roots = roots.where(RootDirectory.id.in_(body.root_ids))
+        found = set((await session.execute(roots)).scalars())
+        if not found or (body.root_ids and found != set(body.root_ids)):
+            raise HTTPException(400, "请先配置有效的游戏库目录")
+        scraping = (
+            await session.execute(
+                select(ScrapeJob.id)
+                .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+                .limit(1)
+            )
+        ).first()
+        if scraping:
+            raise HTTPException(409, "刮削正在运行，请结束后再清空重扫")
     with process_lock(
         Path(load_config().data_path) / ".agent-jobs.lock", blocking=False
     ) as acquired:
@@ -144,6 +167,9 @@ async def create_job(body, actor_id, session):
             actor_id=actor_id,
             request=body.model_dump(),
             status="pending",
+            message="等待清理可重建条目并智能重扫"
+            if body.clear_existing
+            else "任务正在排队",
         )
         session.add(job)
         await session.commit()

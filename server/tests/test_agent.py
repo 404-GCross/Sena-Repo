@@ -14,13 +14,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import config
 import database
-from api import agent, auth
+from api import agent, auth, roots
 from database import Base, get_session
 from models.agent import AgentConfig, AgentJob, AgentResult
 from models.game import Game, GameVersion
 from models.root_directory import RootDirectory
 from models.file_source import SteamPatchRoot
 from models.user import User
+from models.scrape_job import JobStatus, ScrapeJob
+from utils.process_lock import process_lock, scan_lock_path
 from schemas.agent import AgentSettings
 from services.agent.inventory import (
     archive_evidence,
@@ -665,6 +667,204 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             await session.commit()
             settings, revision = await load_settings(session)
             await Runtime(session, job, settings, revision).check(model=True)
+
+    async def seed_clear_records(self):
+        folder = Path(self.tmp.name) / "clear-library"
+        folder.mkdir()
+        ids = {}
+        async with self.sessions() as session:
+            root = RootDirectory(
+                path=str(folder), source_path=str(folder), source_type="local"
+            )
+            session.add(root)
+            await session.flush()
+            for name, values in {
+                "scanned": {},
+                "manual": {"entry_source": "manual"},
+                "name_locked": {"name_locked": True},
+                "metadata_locked": {"metadata_locked": True},
+            }.items():
+                path = folder / (name + ".zip")
+                path.write_bytes(b"fixture")
+                game = Game(name=name, root_id=root.id, folder_path=str(path), **values)
+                session.add(game)
+                await session.flush()
+                ids[name] = game.id
+                session.add(
+                    GameVersion(
+                        game_id=game.id,
+                        platform="PC",
+                        filename=path.name,
+                        file_path=str(path),
+                    )
+                )
+            await session.commit()
+            return root.id, ids, folder
+
+    async def test_agent_clear_preserves_protected_rows_and_retry_does_not_clear_twice(
+        self,
+    ):
+        await self.configure()
+        root_id, ids, folder = await self.seed_clear_records()
+        with patch("api.agent.launch"):
+            response = await self.client.post(
+                "/api/agent/jobs",
+                headers=self.headers,
+                json={
+                    "kind": "game",
+                    "root_ids": [root_id],
+                    "clear_existing": True,
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        job_id = response.json()["id"]
+        with (
+            patch("services.agent.jobs.discover_root", new_callable=AsyncMock),
+            patch("services.agent.jobs.scrape_game", new_callable=AsyncMock),
+        ):
+            await run_job(job_id)
+        async with self.sessions() as session:
+            job = await session.get(AgentJob, job_id)
+            self.assertEqual(job.status, "completed", job.message)
+            self.assertFalse(job.request["clear_existing"])
+            self.assertTrue(job.request["retry"])
+            self.assertIsNone(await session.get(Game, ids["scanned"]))
+            for key in ("manual", "name_locked", "metadata_locked"):
+                self.assertIsNotNone(await session.get(Game, ids[key]))
+            self.assertEqual(
+                len((await session.execute(select(GameVersion))).scalars().all()), 3
+            )
+            unlocked = await session.get(Game, ids["name_locked"])
+            unlocked.name_locked = False
+            await session.commit()
+        self.assertTrue((folder / "scanned.zip").is_file())
+        with patch("api.agent.launch"):
+            retry = await self.client.post(
+                f"/api/agent/jobs/{job_id}/retry", headers=self.headers
+            )
+        self.assertEqual(retry.status_code, 200, retry.text)
+        with (
+            patch("services.agent.jobs.discover_root", new_callable=AsyncMock),
+            patch("services.agent.jobs.scrape_game", new_callable=AsyncMock),
+        ):
+            await run_job(retry.json()["id"])
+        async with self.sessions() as session:
+            self.assertIsNotNone(await session.get(Game, ids["name_locked"]))
+
+    async def test_clear_cancelled_or_unconfigured_before_start_keeps_all_records(self):
+        root_id, ids, _ = await self.seed_clear_records()
+        for case in ("cancelled", "disabled", "missing_model"):
+            await self.configure()
+            async with self.sessions() as session:
+                if case != "cancelled":
+                    settings, _ = await load_settings(session)
+                    if case == "disabled":
+                        settings.enabled = False
+                    else:
+                        settings.model = ""
+                    await save_settings(session, settings)
+                job = AgentJob(
+                    kind="game",
+                    actor_id=self.user_id,
+                    cancel_requested=case == "cancelled",
+                    request={
+                        "kind": "game",
+                        "root_ids": [root_id],
+                        "clear_existing": True,
+                    },
+                )
+                session.add(job)
+                await session.commit()
+                job_id = job.id
+            await run_job(job_id)
+            async with self.sessions() as session:
+                self.assertEqual(
+                    (await session.get(AgentJob, job_id)).status,
+                    "failed" if case == "missing_model" else "cancelled",
+                )
+                self.assertEqual(
+                    set((await session.execute(select(Game.id))).scalars()),
+                    set(ids.values()),
+                )
+
+    async def test_clear_rejects_wrong_scope_and_running_scrape(self):
+        await self.configure()
+        root_id, ids, _ = await self.seed_clear_records()
+        response = await self.client.post(
+            "/api/agent/jobs",
+            headers=self.headers,
+            json={"kind": "patch", "clear_existing": True},
+        )
+        self.assertEqual(response.status_code, 422)
+        async with self.sessions() as session:
+            session.add(ScrapeJob(status=JobStatus.RUNNING))
+            await session.commit()
+        response = await self.client.post(
+            "/api/agent/jobs",
+            headers=self.headers,
+            json={"kind": "game", "root_ids": [root_id], "clear_existing": True},
+        )
+        self.assertEqual(response.status_code, 409)
+        async with self.sessions() as session:
+            self.assertEqual(
+                set((await session.execute(select(Game.id))).scalars()),
+                set(ids.values()),
+            )
+
+    async def test_clear_does_not_delete_when_scan_lock_is_busy(self):
+        await self.configure()
+        root_id, ids, _ = await self.seed_clear_records()
+        async with self.sessions() as session:
+            job = AgentJob(
+                kind="game",
+                request={"kind": "game", "root_ids": [root_id], "clear_existing": True},
+            )
+            session.add(job)
+            await session.commit()
+            job_id = job.id
+        with process_lock(scan_lock_path(self.tmp.name), blocking=False) as acquired:
+            self.assertTrue(acquired)
+            await run_job(job_id)
+        async with self.sessions() as session:
+            self.assertEqual((await session.get(AgentJob, job_id)).status, "failed")
+            self.assertEqual(
+                set((await session.execute(select(Game.id))).scalars()),
+                set(ids.values()),
+            )
+
+    async def test_regular_clear_rejects_pending_agent_task(self):
+        _, ids, _ = await self.seed_clear_records()
+        self.app.include_router(roots.router)
+        async with self.sessions() as session:
+            session.add(AgentJob(kind="game", request={}, status="pending"))
+            await session.commit()
+        with patch("api.roots._bg_scan") as launch:
+            response = await self.client.post(
+                "/api/roots/clear-and-refresh", headers=self.headers
+            )
+            self.assertEqual(response.status_code, 409, response.text)
+            launch.assert_not_called()
+        async with self.sessions() as session:
+            self.assertEqual(
+                set((await session.execute(select(Game.id))).scalars()),
+                set(ids.values()),
+            )
+
+    async def test_skipped_regular_scan_does_not_remain_pending(self):
+        with (
+            patch.dict(roots._scan_state, {"status": "pending"}),
+            patch.object(roots, "_background_tasks", set()),
+            patch.object(
+                roots,
+                "_run_scan",
+                new_callable=AsyncMock,
+                return_value={"skipped": True},
+            ),
+        ):
+            roots._bg_scan(self.config, [])
+            await next(iter(roots._background_tasks))
+            self.assertEqual(roots._scan_state["status"], "failed")
+            self.assertIn("未启动", roots._scan_state["message"])
 
     async def test_explicit_budget_fallback_is_not_reported_as_model_failure(self):
         await self.configure(max_calls=1)

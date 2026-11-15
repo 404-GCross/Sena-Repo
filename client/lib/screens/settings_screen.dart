@@ -17,6 +17,9 @@ import "../services/api_client.dart";
 import "../services/download_service.dart";
 import "backup_screen.dart";
 import "agent_screen.dart";
+import "../services/agent_service.dart";
+import "../widgets/agent_scan_progress.dart";
+import "../widgets/feedback_dialog.dart";
 import "platform_categories_screen.dart";
 import "../services/profile_service.dart";
 import "../services/shortcut_service.dart";
@@ -1206,6 +1209,8 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   Map<String, dynamic>? _scanStatus;
   Timer? _scanStatusTimer;
   bool _scanStatusRequestInFlight = false;
+  bool _agentScanActive = false;
+  int _agentProgressRevision = 0;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
   bool _scrapeAfterScan = false;
@@ -1242,6 +1247,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _loadRoots() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final resp = await http.get(
@@ -1249,10 +1255,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         headers: widget.api.headers,
       );
       if (resp.statusCode == 200) {
+        if (!mounted) return;
         _roots = (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
       }
     } catch (_) {}
-    setState(() => _loading = false);
+    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _loadPatchRoots() async {
@@ -1522,7 +1529,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       final mode = await chooseScanMode(context, widget.api, 'game');
       if (mode == null || !mounted) return;
       if (mode == 'agent') {
-        await startAgentTask(context, widget.api, 'game');
+        await _startAgentScan();
         return;
       }
     } catch (e) {
@@ -1559,13 +1566,22 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _clearAndRescan() async {
+    String? mode;
+    try {
+      mode = await chooseScanMode(context, widget.api, 'game');
+    } catch (e) {
+      if (mounted) await showFeedbackDialog(context, '$e', error: true);
+      return;
+    }
+    if (mode == null || !mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("清空游戏库并重新扫描？"),
-        content: const Text(
-          "此操作会清除数据库中已扫描出的游戏条目、版本、分类关联和刮削数据，然后重新扫描所有游戏库目录。\n\n"
-          "不会删除本地文件、网盘文件、游戏库目录设置或 Steam 补丁库设置。",
+        title: Text(mode == 'agent' ? "清空并使用智能体重扫？" : "清空游戏库并重新扫描？"),
+        content: Text(
+          "将清理可重建的扫描条目、版本、分类关联和刮削数据，保留手动条目、名称锁定和元数据锁定条目。\n\n"
+          "不会删除本地或网盘文件、游戏库目录设置和 Steam 补丁库设置。\n\n"
+          "本次方式：${mode == 'agent' ? '智能体优先，常规扫描兜底' : '常规扫描'}。",
         ),
         actions: [
           TextButton(
@@ -1580,9 +1596,13 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     try {
+      if (mode == 'agent') {
+        await _startAgentScan(clearExisting: true);
+        return;
+      }
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/roots/clear-and-refresh"),
         headers: widget.api.headers,
@@ -1592,7 +1612,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       }
       await _loadRoots();
       _startScanStatusPolling();
-      if (mounted) _toast(context, "游戏库已清空，重新扫描已触发");
+      if (mounted) _toast(context, "已清理可重建条目，常规扫描已启动");
     } catch (e) {
       if (!mounted) return;
       showDialog(
@@ -1608,6 +1628,24 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
           ],
         ),
       );
+    }
+  }
+
+  Future<void> _startAgentScan({bool clearExisting = false}) async {
+    setState(() => _loading = true);
+    try {
+      await AgentService(widget.api).request('POST', '/jobs', {
+        'kind': 'game',
+        if (clearExisting) 'clear_existing': true,
+      });
+      if (!mounted) return;
+      setState(() {
+        _scrapeAfterScan = false;
+        _agentScanActive = true;
+        _agentProgressRevision++;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -1984,9 +2022,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                       final scrapeActive = _scraping ||
                           scrapeStatus == "pending" ||
                           scrapeStatus == "running";
-                      final actionActive = _loading || scanActive || scrapeActive;
+                      final actionActive = _loading || scanActive || scrapeActive || _agentScanActive;
                       final hasScrapers = _enabledScraperSources().isNotEmpty;
-                      final actionLabel = scanActive
+                      final actionLabel = _agentScanActive ? "智能体扫描中..." : scanActive
                           ? "扫描中..."
                           : (scrapeActive ? "刮削中..." : "扫描并刮削");
                       return Wrap(
@@ -2023,25 +2061,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           SizedBox(
                             width: width,
                             child: OutlinedButton.icon(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => AgentJobsScreen(api: widget.api),
-                                ),
-                              ),
-                              icon: const Icon(Icons.history, size: 18),
-                              label: const Text("智能体任务"),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: OutlinedButton.icon(
                               onPressed: actionActive ? null : _clearAndRescan,
                               icon: const Icon(Icons.delete_sweep, size: 18),
                               label: const Text("清空并重扫"),
@@ -2062,14 +2081,33 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   ),
 
                   // ── Scan progress ──
-                  if (_scanStatus != null &&
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    Expanded(child: _sectionHeader("扫描进度", Icons.sync)),
+                    TextButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => AgentJobsScreen(api: widget.api),
+                      )),
+                      icon: const Icon(Icons.history, size: 16),
+                      label: const Text("智能体历史"),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  AgentScanProgress(
+                    key: ValueKey(_agentProgressRevision),
+                    api: widget.api,
+                    showCompleted: !['pending', 'running'].contains(_scanStatus?['status']),
+                    onActivityChanged: (active) {
+                      if (mounted && active != _agentScanActive) {
+                        setState(() => _agentScanActive = active);
+                      }
+                    },
+                  ),
+                  if (!_agentScanActive && _scanStatus != null &&
                       (_scanStatus!["status"] == "pending" ||
                           _scanStatus!["status"] == "running" ||
                           _scanStatus!["status"] == "completed" ||
                           _scanStatus!["status"] == "failed")) ...[
-                    const SizedBox(height: 20),
-                    _sectionHeader("扫描进度", Icons.sync),
-                    const SizedBox(height: 8),
                     _buildScanStatusCard(),
                   ],
 
@@ -2439,10 +2477,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         : null;
     final isActive = status == "pending" || status == "running";
     final title = switch (status) {
-      "pending" => "扫描排队中...",
-      "running" => "正在扫描...",
-      "completed" => "扫描完成",
-      "failed" => "扫描失败",
+      "pending" => "常规扫描排队中...",
+      "running" => "常规扫描中...",
+      "completed" => "常规扫描完成",
+      "failed" => "常规扫描失败",
       _ => "扫描状态未知",
     };
 

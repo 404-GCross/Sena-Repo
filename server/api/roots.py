@@ -8,19 +8,18 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user, require_admin
 from config import load_config
 from database import get_session
-from models.game import Game, GameTag, GameVersion
 from models.user import User
 from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
-from services.importer import cleanup_empty_companies, import_from_root
+from services.importer import clear_scanned_games, import_from_root
 from utils.log_redaction import redact_exception
 from utils.secrets import encrypt_secret, redact_url
 from utils.process_lock import process_lock, scan_lock_path
@@ -279,6 +278,13 @@ def _bg_scan(config, root_ids: list[int], update_last: bool = False):
             result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
             if result.get("skipped"):
                 logger.info("Background scan skipped: scan already running")
+                if _scan_state["status"] == "pending":
+                    _set_scan_state(
+                        status="failed",
+                        current_root=None,
+                        finished_at=time.time(),
+                        message="其他扫描或恢复任务正在运行，本次扫描未启动，请稍后重试",
+                    )
         except Exception as exc:
             logger.error("Background scan failed: %s", redact_exception(exc))
             _set_scan_state(
@@ -339,27 +345,20 @@ async def clear_and_refresh_roots(
         if not locked:
             raise HTTPException(status_code=409, detail="扫描正在运行，请等待当前扫描完成后再清空重扫")
 
-        removable_ids = list(
-            (
-                await session.execute(
-                    select(Game.id).where(
-                        Game.entry_source == "library",
-                        Game.metadata_locked == False,  # noqa: E712
-                        Game.name_locked == False,  # noqa: E712
-                    )
-                )
-            ).scalars()
-        )
-        cleared_games = len(removable_ids)
-        if removable_ids:
+        from models.agent import AgentJob
+        pending_agent = (
             await session.execute(
-                delete(GameTag).where(GameTag.game_id.in_(removable_ids))
+                select(AgentJob.id)
+                .where(AgentJob.status.in_(["pending", "running"]))
+                .limit(1)
             )
-            await session.execute(
-                delete(GameVersion).where(GameVersion.game_id.in_(removable_ids))
-            )
-            await session.execute(delete(Game).where(Game.id.in_(removable_ids)))
-        await cleanup_empty_companies(session)
+        ).first()
+        if pending_agent:
+            raise HTTPException(status_code=409, detail="智能体任务正在运行，请结束后再清空重扫")
+        try:
+            cleared_games = await clear_scanned_games(session)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         await session.commit()
 
         result = await session.execute(select(RootDirectory))
