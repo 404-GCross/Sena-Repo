@@ -12,6 +12,7 @@ import "../services/logged_http.dart" as http;
 import "package:path_provider/path_provider.dart";
 
 import "../models/game.dart";
+import "../utils/description_markdown.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "../providers/game_provider.dart";
@@ -19,6 +20,7 @@ import "../services/api_client.dart";
 import "../services/api_response_utils.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/game_description.dart";
 import "../widgets/new_game_dialog.dart";
 import "../widgets/nsfw_image.dart";
 import "profile_edit_screen.dart";
@@ -4094,7 +4096,7 @@ class _MetadataResultTile extends StatelessWidget {
                     if (description.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
-                        _metadataPreview(description, 88),
+                        descriptionPreview(description, maxLength: 88),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.bodySmall.copyWith(
@@ -5189,7 +5191,9 @@ class _MetadataTextPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = text.trim().isEmpty ? emptyText : text.trim();
-    final preview = isDescription ? _metadataPreview(value, 120) : value;
+    final preview = isDescription
+        ? descriptionPreview(value, maxLength: 120)
+        : value;
     final baseColor = highlighted ? Colors.green : hintColor(context);
     return Container(
       padding: const EdgeInsets.all(AppGap.md),
@@ -5490,8 +5494,9 @@ class _MetadataDescriptionSurface extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
-                child: SelectableText(
-                  description.trim().isEmpty ? "(空)" : description.trim(),
+                child: GameDescription(
+                  description: description,
+                  emptyText: "(空)",
                   style: AppText.body.copyWith(height: 1.65),
                 ),
               ),
@@ -5501,12 +5506,6 @@ class _MetadataDescriptionSurface extends StatelessWidget {
       ),
     );
   }
-}
-
-String _metadataPreview(String text, int maxLength) {
-  final normalized = text.trim().replaceAll(RegExp(r"\s+"), " ");
-  if (normalized.length <= maxLength) return normalized;
-  return "${normalized.substring(0, maxLength)}...";
 }
 
 class _CoverPickerHeader extends StatelessWidget {

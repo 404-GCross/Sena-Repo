@@ -23,6 +23,7 @@ import "../providers/game_provider.dart";
 import "../utils/local_dirs.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
+import "../widgets/game_description.dart";
 import "../widgets/nsfw_image.dart";
 import "game_edit_screen.dart";
 
@@ -474,10 +475,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                             color: cardBorder(context),
                                           ),
                                         ),
-                                        child: Text(
-                                          game.description?.isNotEmpty == true
-                                              ? game.description!
-                                              : "暂无简介",
+                                        child: GameDescription(
+                                          description: game.description,
                                           style: AppText.body.copyWith(
                                             height: 1.7,
                                             color:
@@ -679,10 +678,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
                                       color: cardBorder(context),
                                     ),
                                   ),
-                                  child: Text(
-                                    game.description?.isNotEmpty == true
-                                        ? game.description!
-                                        : "暂无简介",
+                                  child: GameDescription(
+                                    description: game.description,
                                     style: AppText.body.copyWith(
                                       height: 1.7,
                                       color: game.description?.isNotEmpty == true
@@ -1156,8 +1153,8 @@ class _GameDetailScreenState extends State<GameDetailScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _desktopSectionTitle("简介", Icons.subject_outlined),
-        Text(
-          game.description?.isNotEmpty == true ? game.description! : "暂无简介",
+        GameDescription(
+          description: game.description,
           style: AppText.body.copyWith(
             height: 1.75,
             color: game.description?.isNotEmpty == true

@@ -3,6 +3,7 @@ import "dart:math" as math;
 import "package:flutter/material.dart";
 
 import "../services/api_client.dart";
+import "../utils/description_markdown.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "app_shell.dart";
@@ -862,7 +863,7 @@ class _MetadataCandidateTile extends StatelessWidget {
                     if (description.isNotEmpty) ...[
                       const SizedBox(height: AppGap.sm),
                       Text(
-                        description,
+                        descriptionPreview(description),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.bodySmall.copyWith(
