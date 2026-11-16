@@ -23,6 +23,7 @@ from models.game import Game, GameVersion, PlatformCategory
 from models.root_directory import RootDirectory
 from services.agent.inventory import inventory, inspect_file, relative_path
 from services.agent.metadata import Catalog, select_metadata
+from services.agent.nsfw import inspect_game_images
 from services.agent.providers import ModelError, tool_spec
 from services.agent.runtime import (
     AgentBudget,
@@ -467,6 +468,25 @@ async def discover_root(runtime, root):
         await catalog.close()
 
 
+async def check_game_nsfw(runtime, game, client, config):
+    result = await inspect_game_images(runtime, game, client, config)
+    if result is not None:
+        await record(
+            runtime,
+            game.id,
+            result.fingerprint,
+            result.status,
+            result.summary,
+            result.data,
+        )
+        logger.info(
+            "Agent image NSFW check: job=%s game=%s status=%s",
+            runtime.job.id,
+            game.id,
+            result.status,
+        )
+
+
 async def scrape_game(runtime, game, client):
     session, config = runtime.session, load_config()
     if game.metadata_locked:
@@ -484,6 +504,9 @@ async def scrape_game(runtime, game, client):
         game.id,
         game.name,
         game.cover_path,
+        game.bg_path,
+        game.is_nsfw,
+        game.nsfw_manual,
         game.description,
         game.developer,
         game.alias,
@@ -498,6 +521,7 @@ async def scrape_game(runtime, game, client):
         runtime, digest
     ):
         await record(runtime, game.id, digest, "cached", "复用未变化条目的已应用结果")
+        await check_game_nsfw(runtime, game, client, config)
         return
     catalog = Catalog(config, runtime.job.actor_id, runtime)
     platforms = set((await session.execute(select(PlatformCategory.name))).scalars())
@@ -551,6 +575,7 @@ async def scrape_game(runtime, game, client):
                 session,
                 config,
                 runtime.settings.update_mode,
+                nsfw_enable_only=runtime.settings.image_nsfw,
             )
             if not game.name_locked:
                 game.name = result.title or game.name
@@ -579,6 +604,7 @@ async def scrape_game(runtime, game, client):
                     config,
                     "missing",
                 )
+            await check_game_nsfw(runtime, game, client, config)
             digest = fingerprint(state(), runtime.settings)
             await record(
                 runtime,
@@ -600,6 +626,7 @@ async def scrape_game(runtime, game, client):
                 config,
                 "missing",
             )
+            await check_game_nsfw(runtime, game, client, config)
             await record(
                 runtime,
                 game.id,

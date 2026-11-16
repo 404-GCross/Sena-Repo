@@ -55,6 +55,7 @@ class GameDetail(BaseModel):
     cover_path: str | None = None
     bg_path: str | None = None
     is_nsfw: bool = False
+    nsfw_manual: bool = False
     developer: str | None = None
     alias: str | None = None
     description: str | None = None

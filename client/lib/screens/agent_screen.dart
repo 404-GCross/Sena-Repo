@@ -179,7 +179,12 @@ class _AgentScreenState extends State<AgentScreen> {
         title: Text(title),
         subtitle: subtitle == null ? null : Text(subtitle),
         value: value![key] == true,
-        onChanged: busy ? null : (v) => setState(() => value![key] = v),
+        onChanged: busy
+            ? null
+            : (v) => setState(() {
+                  value![key] = v;
+                  if (key == 'vision' && !v) value!['image_nsfw'] = false;
+                }),
       );
 
   Widget card(String title, List<Widget> children) => Padding(
@@ -235,7 +240,7 @@ class _AgentScreenState extends State<AgentScreen> {
 
   List<Widget> modelPage() => [
         card('统一模型', [
-          const Text('游戏识别、分类和补丁分析共用一个模型。'),
+          const Text('游戏识别、分类、图片 NSFW 检测和补丁分析共用一个模型。'),
           select('provider', '提供商预设',
               {for (final e in agentPresets.entries) e.value[0]: e.key}),
           TextButton(
@@ -283,7 +288,7 @@ class _AgentScreenState extends State<AgentScreen> {
               },
               child: const Text('清除已保存密钥')),
           field('model', '模型 ID'),
-          toggle('vision', '允许图片分析', '仅在所选模型支持图片输入时开启；候选封面会发送到模型服务。'),
+          toggle('vision', '允许图片分析', '仅在所选模型支持图片输入时开启；候选封面及启用检测后的封面、背景会发送到模型服务。'),
           Wrap(spacing: 12, children: [
             TextButton(
                 onPressed: busy || value!['enabled'] != true
@@ -344,6 +349,17 @@ class _AgentScreenState extends State<AgentScreen> {
             'source': '跟随来源默认'
           }),
           toggle('translate_description', '允许翻译简介为中文'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('自动识别图片 NSFW'),
+            subtitle: Text(value!['vision'] == true
+                ? '检查实际使用的封面和背景；明确检出裸露时自动开启 NSFW，保留手动设置。'
+                : '请先在模型设置中开启图片分析，并使用支持图片输入的模型。'),
+            value: value!['image_nsfw'] == true,
+            onChanged: busy || value!['vision'] != true
+                ? null
+                : (v) => setState(() => value!['image_nsfw'] = v),
+          ),
           select('update_mode', '资料更新策略',
               const {'missing': '仅补全缺失', 'overwrite': '更新未锁定资料'}),
           field('preferences', '补充偏好', lines: 3),
@@ -536,6 +552,7 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
   static const reviewStatuses = {
     'review', 'fallback', 'partial', 'unmatched', 'budget_fallback',
     'model_fallback', 'validation_fallback', 'config_fallback', 'source_fallback',
+    'nsfw_unknown',
   };
   late final service = AgentService(widget.api);
   List<dynamic> rows = [];
@@ -612,6 +629,10 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
         'failed': '失败',
         'interrupted': '已中断',
         'review': '待处理',
+        'nsfw_enabled': '已自动开启 NSFW',
+        'nsfw_checked': '图片检测完成',
+        'nsfw_unknown': '图片尺度未确定',
+        'nsfw_skipped': '保留 NSFW 设置',
         'fallback': '常规兜底',
         'budget_fallback': '预算回退',
         'model_fallback': '模型异常回退',

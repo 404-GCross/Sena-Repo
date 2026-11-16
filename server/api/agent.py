@@ -30,6 +30,7 @@ REVIEW_STATUSES = (
     "validation_fallback",
     "config_fallback",
     "source_fallback",
+    "nsfw_unknown",
 )
 
 

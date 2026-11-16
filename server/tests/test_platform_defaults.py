@@ -343,7 +343,7 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
                 )
                 return ScraperResult(title=game.name), "Verified files"
 
-            async def apply(*args):
+            async def apply(*args, **kwargs):
                 async with self.sessions() as other:
                     await games.update_version(
                         game.id,

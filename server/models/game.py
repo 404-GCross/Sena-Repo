@@ -76,6 +76,7 @@ class Game(Base):
     cover_path = Column(String(1024), nullable=True)
     bg_path = Column(String(1024), nullable=True)
     is_nsfw = Column(Boolean, nullable=False, default=False)
+    nsfw_manual = Column(Boolean, nullable=False, default=False)
     developer = Column(String(512), nullable=True)
     alias = Column(String(512), nullable=True)
     description = Column(Text, nullable=True)

@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -357,8 +357,17 @@ async def _reuse_existing_metadata(
                 setattr(game, attr, value)
                 changed = True
         if candidate.is_nsfw and not game.is_nsfw:
-            game.is_nsfw = True
-            changed = True
+            applied = await session.execute(
+                update(Game)
+                .where(
+                    Game.id == game.id,
+                    Game.nsfw_manual.is_(False),
+                    Game.metadata_locked.is_(False),
+                )
+                .values(is_nsfw=True)
+                .execution_options(synchronize_session="fetch")
+            )
+            changed = changed or bool(applied.rowcount)
 
         for assoc in candidate.tags:
             if (assoc.source or "") == "user":
@@ -683,6 +692,7 @@ async def _apply_result(
     mode: str = "missing",
     job: ScrapeJob | None = None,
     replace_tags: bool | None = None,
+    nsfw_enable_only: bool = False,
 ):
     """Apply a scraper result to a game, respecting the scrape mode."""
     if game.metadata_locked:
@@ -745,9 +755,21 @@ async def _apply_result(
     )
     # Only an explicit overwrite run may infer NSFW: the flag changes how
     # covers render, and a fill-missing run cannot tell "unset" from "false".
-    if overwrite and result.is_nsfw is not None:
-        game.is_nsfw = result.is_nsfw
-        session.add(game)
+    if (
+        overwrite
+        and result.is_nsfw is not None
+        and (not nsfw_enable_only or result.is_nsfw)
+    ):
+        await session.execute(
+            update(Game)
+            .where(
+                Game.id == game.id,
+                Game.nsfw_manual.is_(False),
+                Game.metadata_locked.is_(False),
+            )
+            .values(is_nsfw=result.is_nsfw)
+            .execution_options(synchronize_session="fetch")
+        )
 
     if not images_only:
         if result.developer and (overwrite or not game.developer):

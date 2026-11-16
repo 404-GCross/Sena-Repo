@@ -17,6 +17,7 @@ class AgentSettings(BaseModel):
     proxy_username: str = Field(default="", max_length=256)
     proxy_password: str | None = Field(default=None, max_length=4096)
     vision: bool = False
+    image_nsfw: bool = False
     timeout: int = Field(default=90, ge=10, le=300)
     max_calls: int = Field(default=0, ge=0)
     max_tokens: int = Field(default=0, ge=0)
@@ -38,6 +39,14 @@ class AgentSettings(BaseModel):
     scheduled_game: Literal["regular", "agent"] = "regular"
     scheduled_patch: Literal["regular", "agent"] = "regular"
     remote_archive_mb: int = Field(default=64, ge=0, le=512)
+
+    @model_validator(mode="after")
+    def validate_image_nsfw(self):
+        if self.image_nsfw and not self.vision:
+            raise ValueError(
+                "自动识别图片 NSFW 需要先开启图片分析，并使用支持图片输入的模型"
+            )
+        return self
 
     @field_validator("base_url", "proxy_url")
     @classmethod

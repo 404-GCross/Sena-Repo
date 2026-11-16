@@ -252,6 +252,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
                 "cover": _basename(game.cover_path),
                 "background": _basename(game.bg_path),
                 "is_nsfw": bool(game.is_nsfw),
+                "nsfw_manual": bool(game.nsfw_manual),
                 "developer": game.developer,
                 "alias": game.alias,
                 "description": game.description,
@@ -1311,6 +1312,7 @@ async def import_library(
             "bg_path": str(directories["backgrounds"] / background_key)
             if background_key in available_media["backgrounds"] else None,
             "is_nsfw": bool(entry.get("is_nsfw", False)),
+            "nsfw_manual": entry.get("nsfw_manual") is True,
             "developer": entry.get("developer"),
             "alias": entry.get("alias"),
             "description": entry.get("description"),

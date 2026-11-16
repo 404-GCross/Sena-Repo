@@ -370,6 +370,7 @@ async def scrape_apply(
         game.release_date = release_date
     if is_nsfw is not None:
         game.is_nsfw = bool(is_nsfw)
+        game.nsfw_manual = True
     sfx = ""
     sf = {
         "vndb_kana": "vndb_id",

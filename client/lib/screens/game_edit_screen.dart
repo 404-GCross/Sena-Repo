@@ -50,6 +50,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
   bool _locked = false;
   bool _nameLocked = false;
   bool _isNsfw = false;
+  bool _nsfwManual = false;
+  bool _nsfwDirty = false;
+  bool _nsfwPolicyDirty = false;
   int _lengthMinutes = 0;
   int _lengthCategory = 0;
   bool _tagsDirty = false;
@@ -112,6 +115,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     _tagNames = _normalizeTagNames(g.tags.map((tag) => tag.name));
     _coverPath = g.coverPath;
     _isNsfw = g.isNsfw;
+    _nsfwManual = g.nsfwManual;
     _lengthMinutes = g.lengthMinutes;
     _lengthCategory = g.length;
     _coverVersion = DateTime.now().millisecondsSinceEpoch;
@@ -288,7 +292,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         "bangumi_id": _bgm.text.trim(),
         "hikarinagi_id": _hikarinagi.text.trim(),
         "nextmoe_id": _nextmoe.text.trim(),
-        "is_nsfw": _isNsfw,
+        if (_nsfwDirty) "is_nsfw": _isNsfw,
+        if (_nsfwPolicyDirty) "nsfw_manual": _nsfwManual,
         "length": _lengthCategory,
         "length_minutes": _lengthMinutes,
       };
@@ -307,6 +312,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
         _showError("保存失败 (${resp.statusCode}): ${resp.body}");
         return;
       }
+      _nsfwDirty = false;
+      _nsfwPolicyDirty = false;
       if (mounted) Navigator.pop(context); // close loading dialog
       if (popOnSave && mounted) Navigator.pop(context, true);
     } catch (e) {
@@ -1669,14 +1676,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         ),
         const SizedBox(height: 12),
         _mobilePanel(
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.visibility_off_outlined),
-            title: const Text("NSFW 内容"),
-            subtitle: const Text("启用后封面和背景默认模糊"),
-            value: _isNsfw,
-            onChanged: _locked ? null : (value) => setState(() => _isNsfw = value),
-          ),
+          child: _nsfwControls(),
         ),
       ],
     );
@@ -2353,18 +2353,47 @@ class _GameEditScreenState extends State<GameEditScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.visibility_off_outlined),
-            title: const Text("NSFW 内容"),
-            subtitle: const Text("启用后封面和背景默认模糊"),
-            value: _isNsfw,
-            onChanged: _locked ? null : (value) => setState(() => _isNsfw = value),
-          ),
+          _nsfwControls(),
         ],
       ),
     );
   }
+
+  Widget _nsfwControls() => Material(
+        type: MaterialType.transparency,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.visibility_off_outlined),
+              title: const Text("NSFW 内容"),
+              subtitle: const Text("启用后封面和背景默认模糊"),
+              value: _isNsfw,
+              onChanged: _locked
+                  ? null
+                  : (value) => setState(() {
+                        _isNsfw = value;
+                        _nsfwManual = true;
+                        _nsfwDirty = true;
+                        _nsfwPolicyDirty = true;
+                      }),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text("允许智能体自动标记"),
+              subtitle: const Text("需同时开启智能体图片 NSFW 检测；关闭后保留手动设置。"),
+              value: !_nsfwManual,
+              onChanged: _locked
+                  ? null
+                  : (value) => setState(() {
+                        _nsfwManual = !value;
+                        _nsfwPolicyDirty = true;
+                      }),
+            ),
+          ],
+        ),
+      );
 
   Widget _desktopTitlePanel(GameDetail g) {
     final company = g.companyName?.trim();
@@ -3249,6 +3278,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
       }
       if (apply["NSFW"] == true && scrapedNsfw != null) {
         _isNsfw = scrapedNsfw == true;
+        _nsfwManual = true;
+        _nsfwDirty = true;
+        _nsfwPolicyDirty = true;
       }
       if (scrapedLengthMinutes is int && scrapedLengthMinutes > 0) {
         _lengthMinutes = scrapedLengthMinutes;

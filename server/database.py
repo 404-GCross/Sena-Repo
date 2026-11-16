@@ -181,6 +181,10 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN is_nsfw BOOLEAN NOT NULL DEFAULT 0"
             )
+        if "nsfw_manual" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN nsfw_manual BOOLEAN NOT NULL DEFAULT 0"
+            )
         if "hikarinagi_id" not in game_columns:
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN hikarinagi_id VARCHAR(64)"

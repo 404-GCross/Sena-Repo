@@ -149,6 +149,7 @@ class GameDetail {
   final String? coverPath;
   final String? bgPath;
   final bool isNsfw;
+  final bool nsfwManual;
   final String? developer;
   final String? alias;
   final String? description;
@@ -178,6 +179,7 @@ class GameDetail {
     this.coverPath,
     this.bgPath,
     this.isNsfw = false,
+    this.nsfwManual = false,
     this.developer,
     this.alias,
     this.description,
@@ -209,6 +211,7 @@ class GameDetail {
       coverPath: json["cover_path"],
       bgPath: json["bg_path"],
       isNsfw: json["is_nsfw"] == true,
+      nsfwManual: json["nsfw_manual"] == true,
       developer: json["developer"],
       alias: json["alias"],
       description: json["description"],

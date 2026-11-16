@@ -270,6 +270,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
                 async def handler(method, path, payload=None):
                     calls.append((path, payload))
+                    self.assertIn("cGl4ZWxz", json.dumps(payload))
                     if protocol == "chat":
                         return {
                             "choices": [
@@ -344,7 +345,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(client, "request", side_effect=handler):
                     messages = [
                         {"role": "system", "content": "test"},
-                        {"role": "user", "content": "probe"},
+                        {"role": "user", "content": "probe", "images": ["data:image/png;base64,cGl4ZWxz"]},
                     ]
                     result, _ = await client.turn(messages, [tool])
                     self.assertTrue(result["calls"][0]["arguments"]["ok"])

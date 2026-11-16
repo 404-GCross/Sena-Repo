@@ -268,6 +268,7 @@ async def get_game(
         cover_path=game.cover_path,
         bg_path=game.bg_path,
         is_nsfw=bool(game.is_nsfw),
+        nsfw_manual=bool(game.nsfw_manual),
         developer=game.developer,
         alias=game.alias,
         description=game.description,
@@ -502,6 +503,7 @@ async def _apply_create_payload(
         game.release_date = _clean_create_text(body.release_date, 64)
     if body.is_nsfw is not None:
         game.is_nsfw = bool(body.is_nsfw)
+        game.nsfw_manual = True
     if body.length is not None:
         game.length = max(0, body.length)
     if body.length_minutes is not None:
@@ -653,6 +655,7 @@ class GameUpdate(BaseModel):
     hikarinagi_id: str | None = None
     nextmoe_id: str | None = None
     is_nsfw: bool | None = None
+    nsfw_manual: bool | None = None
     length: int | None = Field(default=None, ge=0)
     length_minutes: int | None = Field(default=None, ge=0)
     tag_names: list[str] | None = None
@@ -679,6 +682,10 @@ async def update_game(
     ensure_game_unlocked(game)
 
     data = body.model_dump(exclude_unset=True)
+    if data.get("is_nsfw") is not None and data.get("nsfw_manual") is None:
+        data["nsfw_manual"] = True
+    if data.get("nsfw_manual", False) is None:
+        data.pop("nsfw_manual", None)
     name_changed = "name" in data and data["name"] != game.name
     company_changed = "company_id" in data and data["company_id"] != game.company_id
     tag_names = data.pop("tag_names", None)
