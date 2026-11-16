@@ -18,6 +18,7 @@ class AgentSettings(BaseModel):
     proxy_password: str | None = Field(default=None, max_length=4096)
     vision: bool = False
     image_nsfw: bool = False
+    image_nsfw_recheck: bool = False
     timeout: int = Field(default=90, ge=10, le=300)
     max_calls: int = Field(default=0, ge=0)
     max_tokens: int = Field(default=0, ge=0)

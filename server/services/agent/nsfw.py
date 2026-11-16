@@ -103,6 +103,12 @@ async def inspect_game_images(runtime, game, client, config) -> ImageCheck | Non
         return ImageCheck(
             "nsfw_skipped", "保留手动、锁定或已开启的 NSFW 设置", {"game_id": game.id}
         )
+    if game.nsfw_image_checked and not runtime.settings.image_nsfw_recheck:
+        return ImageCheck(
+            "nsfw_skipped",
+            "已完成首次图片检测，自动复检未开启，保留当前 NSFW 设置",
+            {"game_id": game.id},
+        )
 
     original = (game.cover_path, game.bg_path, game.updated_at)
     images, failures = [], []
@@ -248,7 +254,14 @@ async def inspect_game_images(runtime, game, client, config) -> ImageCheck | Non
     reasons = "；".join(
         f"{images[row.image]['kind']}：{row.reason}" for row in answer.images
     )
-    if any(row.nudity is True for row in answer.images):
+    detected = any(row.nudity is True for row in answer.images)
+    complete = detected or (
+        not failures and all(row.nudity is False for row in answer.images)
+    )
+    if complete and (detected or not game.nsfw_image_checked):
+        values = {"nsfw_image_checked": True}
+        if detected:
+            values["is_nsfw"] = True
         applied = await runtime.session.execute(
             update(Game)
             .where(
@@ -260,7 +273,7 @@ async def inspect_game_images(runtime, game, client, config) -> ImageCheck | Non
                 Game.cover_path == original[0],
                 Game.bg_path == original[1],
             )
-            .values(is_nsfw=True)
+            .values(**values)
             .execution_options(synchronize_session="fetch")
         )
         await runtime.session.commit()
@@ -268,6 +281,7 @@ async def inspect_game_images(runtime, game, client, config) -> ImageCheck | Non
             return ImageCheck(
                 "nsfw_skipped", "条目状态已变化，保留最新 NSFW 设置", details
             )
+    if detected:
         return ImageCheck(
             "nsfw_enabled", "已自动开启 NSFW；" + reasons, details, fingerprint
         )

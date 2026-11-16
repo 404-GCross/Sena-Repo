@@ -686,6 +686,8 @@ async def update_game(
         data["nsfw_manual"] = True
     if data.get("nsfw_manual", False) is None:
         data.pop("nsfw_manual", None)
+    if data.get("nsfw_manual") is False:
+        game.nsfw_image_checked = False
     name_changed = "name" in data and data["name"] != game.name
     company_changed = "company_id" in data and data["company_id"] != game.company_id
     tag_names = data.pop("tag_names", None)

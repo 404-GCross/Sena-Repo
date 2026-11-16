@@ -185,6 +185,18 @@ async def create_tables():
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN nsfw_manual BOOLEAN NOT NULL DEFAULT 0"
             )
+        if "nsfw_image_checked" not in game_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games ADD COLUMN nsfw_image_checked BOOLEAN NOT NULL DEFAULT 0"
+            )
+            # Completed checks from the previous version count as the first assessment.
+            await conn.exec_driver_sql(
+                "UPDATE games SET nsfw_image_checked = 1 WHERE EXISTS ("
+                "SELECT 1 FROM agent_results r JOIN agent_jobs j ON j.id = r.job_id "
+                "WHERE r.key = CAST(games.id AS TEXT) "
+                "AND r.status IN ('nsfw_checked', 'nsfw_enabled') "
+                "AND j.finished_at >= games.imported_at)"
+            )
         if "hikarinagi_id" not in game_columns:
             await conn.exec_driver_sql(
                 "ALTER TABLE games ADD COLUMN hikarinagi_id VARCHAR(64)"

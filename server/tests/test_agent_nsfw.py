@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -10,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from PIL import Image
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import config
@@ -114,6 +115,7 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_feature_defaults_off_and_requires_vision(self):
         self.assertFalse(AgentSettings().image_nsfw)
+        self.assertFalse(AgentSettings().image_nsfw_recheck)
         with self.assertRaises(ValidationError):
             AgentSettings(image_nsfw=True)
         self.runtime.settings = AgentSettings()
@@ -200,6 +202,9 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.game.is_nsfw)
 
     async def test_cached_metadata_still_checks_changed_image_contents(self):
+        self.settings.image_nsfw_recheck = True
+        self.runtime.revision = await save_settings(self.session, self.settings)
+
         async def metadata(runtime, catalog, context):
             catalog.selection = SimpleNamespace(platforms={})
             return ScraperResult(
@@ -344,9 +349,12 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
         await self.session.commit()
         await self.session.refresh(self.game)
         self.assertFalse(self.game.is_nsfw)
+        self.game.nsfw_image_checked = True
+        await self.session.commit()
         await games.update_game(
             self.game.id, games.GameUpdate(nsfw_manual=False), self.user, self.session
         )
+        self.assertFalse(self.game.nsfw_image_checked)
         self.game.is_nsfw = True
         await self.session.commit()
         await _apply_result(
@@ -378,7 +386,12 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
         )
         library = await backup._export_library(self.session)
         self.assertTrue(library["games"][0]["nsfw_manual"])
+        self.game.nsfw_image_checked = True
+        await self.session.commit()
+        library = await backup._export_library(self.session)
+        self.assertTrue(library["games"][0]["nsfw_image_checked"])
         self.game.nsfw_manual = False
+        self.game.nsfw_image_checked = False
         await self.session.commit()
         await backup.import_library(
             self.config,
@@ -393,7 +406,75 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
         await database.create_tables()
         await self.session.refresh(self.game)
         self.assertTrue(self.game.nsfw_manual)
+        self.assertTrue(self.game.nsfw_image_checked)
         self.assertFalse(self.game.is_nsfw)
+
+    async def test_image_changes_do_not_recheck_by_default_even_without_task_history(
+        self,
+    ):
+        with patch.object(
+            ModelClient, "turn", return_value=response(False, False)
+        ) as model:
+            self.assertEqual((await self.check()).status, "nsfw_checked")
+            self.assertTrue(self.game.nsfw_image_checked)
+            Image.new("RGB", (64, 64), "green").save(self.background)
+            await self.session.execute(delete(AgentResult))
+            await self.session.commit()
+            with patch(
+                "services.agent.nsfw._local_bytes",
+                side_effect=AssertionError("Unexpected image read"),
+            ):
+                self.assertEqual((await self.check()).status, "nsfw_skipped")
+            self.assertEqual(model.await_count, 1)
+        self.assertFalse(self.game.is_nsfw)
+
+    async def test_inconclusive_first_assessment_can_still_retry(self):
+        with patch.object(
+            ModelClient,
+            "turn",
+            side_effect=[response(None, False), response(False, True)],
+        ) as model:
+            self.assertEqual((await self.check()).status, "nsfw_unknown")
+            self.assertFalse(self.game.nsfw_image_checked)
+            Image.new("RGB", (64, 64), "green").save(self.background)
+            self.assertEqual((await self.check()).status, "nsfw_enabled")
+            self.assertEqual(model.await_count, 2)
+        self.assertTrue(self.game.nsfw_image_checked)
+
+    async def test_migration_remembers_completed_checks_without_matching_reused_ids(
+        self,
+    ):
+        with patch.object(ModelClient, "turn", return_value=response(False, False)):
+            await self.check()
+        self.job.finished_at = datetime.utcnow()
+        self.session.add(
+            Game(
+                id=999,
+                name="New entry",
+                root_id=self.game.root_id,
+                folder_path=str(Path(self.temp.name) / "new-entry"),
+                imported_at=self.job.finished_at + timedelta(seconds=1),
+            )
+        )
+        self.session.add(
+            AgentResult(
+                job_id=self.job.id,
+                key="999",
+                fingerprint="",
+                status="nsfw_checked",
+                data={},
+            )
+        )
+        await self.session.commit()
+        async with self.engine.begin() as conn:
+            await conn.exec_driver_sql(
+                "ALTER TABLE games DROP COLUMN nsfw_image_checked"
+            )
+        await database.create_tables()
+        await database.create_tables()
+        await self.session.refresh(self.game)
+        self.assertTrue(self.game.nsfw_image_checked)
+        self.assertFalse((await self.session.get(Game, 999)).nsfw_image_checked)
 
     async def test_reused_metadata_respects_manual_nsfw_off(self):
         self.game.nsfw_manual = True

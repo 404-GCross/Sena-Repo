@@ -360,6 +360,15 @@ class _AgentScreenState extends State<AgentScreen> {
                 ? null
                 : (v) => setState(() => value!['image_nsfw'] = v),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('换图后重新检测'),
+            subtitle: const Text('默认关闭。首次成功检测后由用户维护 NSFW；开启后才自动复检变化的图片。'),
+            value: value!['image_nsfw_recheck'] == true,
+            onChanged: busy || value!['vision'] != true || value!['image_nsfw'] != true
+                ? null
+                : (v) => setState(() => value!['image_nsfw_recheck'] = v),
+          ),
           select('update_mode', '资料更新策略',
               const {'missing': '仅补全缺失', 'overwrite': '更新未锁定资料'}),
           field('preferences', '补充偏好', lines: 3),

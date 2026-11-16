@@ -48,6 +48,14 @@ void main() {
           tester.widget<SwitchListTile>(switchFor("自动识别图片 NSFW")).onChanged,
           isNull,
         );
+        expect(
+          tester.widget<SwitchListTile>(switchFor("换图后重新检测")).value,
+          isFalse,
+        );
+        expect(
+          tester.widget<SwitchListTile>(switchFor("换图后重新检测")).onChanged,
+          isNull,
+        );
         await tester.tap(find.text("模型与代理"));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text("允许图片分析"));
@@ -61,6 +69,13 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           tester.widget<SwitchListTile>(switchFor("自动识别图片 NSFW")).value,
+          isTrue,
+        );
+        await tester.ensureVisible(find.text("换图后重新检测"));
+        await tester.tap(find.text("换图后重新检测"));
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<SwitchListTile>(switchFor("换图后重新检测")).value,
           isTrue,
         );
         await tester.ensureVisible(find.text("模型与代理"));
@@ -81,6 +96,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(settings["image_nsfw"], isFalse);
         expect(settings["vision"], isFalse);
+        expect(settings["image_nsfw_recheck"], isTrue);
         await tester.tap(find.text("确定"));
         await tester.pumpAndSettle();
       },

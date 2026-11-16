@@ -507,6 +507,7 @@ async def scrape_game(runtime, game, client):
         game.bg_path,
         game.is_nsfw,
         game.nsfw_manual,
+        game.nsfw_image_checked,
         game.description,
         game.developer,
         game.alias,
