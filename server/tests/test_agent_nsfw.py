@@ -304,7 +304,7 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
         ) as client:
             with (
                 patch(
-                    "services.agent.nsfw._is_public_http_url",
+                    "services.agent.images._is_public_http_url",
                     new_callable=AsyncMock,
                     return_value=True,
                 ) as validate,

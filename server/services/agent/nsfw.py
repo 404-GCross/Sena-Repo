@@ -1,28 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
-import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
-from PIL import Image, ImageOps
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select, update
 
 from models.agent import AgentResult
 from models.game import Game
+from services.agent.images import (
+    MAX_IMAGE_BYTES,
+    image_data as _image_data,
+    remote_image_bytes as _remote_bytes,
+)
 from services.agent.providers import ModelError
 from services.agent.settings import load_settings
-from services.scraper.orchestrator import _is_public_http_url
 from utils.log_redaction import redact_text
-
-MAX_IMAGE_BYTES = 8 * 1024 * 1024
-MAX_IMAGE_PIXELS = 20_000_000
 
 
 class ImageAssessment(BaseModel):
@@ -53,45 +52,6 @@ def _local_bytes(reference: str, directory: Path) -> bytes:
     if not data or len(data) > MAX_IMAGE_BYTES:
         raise ValueError("Image size limit")
     return data
-
-
-async def _remote_bytes(client, reference):
-    current = reference
-    for _ in range(6):
-        if not await _is_public_http_url(current):
-            raise ValueError("Image address unavailable")
-        async with client.stream(
-            "GET", current, follow_redirects=False, timeout=30
-        ) as response:
-            if response.is_redirect:
-                location = response.headers.get("location")
-                if not location:
-                    raise ValueError("Missing image redirect")
-                current = urljoin(current, location)
-                continue
-            response.raise_for_status()
-            data = bytearray()
-            async for chunk in response.aiter_bytes():
-                data.extend(chunk)
-                if len(data) > MAX_IMAGE_BYTES:
-                    raise ValueError("Image size limit")
-            if not data:
-                raise ValueError("Empty image")
-            return bytes(data)
-    raise ValueError("Too many image redirects")
-
-
-def _image_data(data):
-    with Image.open(io.BytesIO(data)) as image:
-        if image.width * image.height > MAX_IMAGE_PIXELS or getattr(
-            image, "is_animated", False
-        ):
-            raise ValueError("Unsupported image dimensions or animation")
-        image = ImageOps.exif_transpose(image)
-        image.thumbnail((1536, 1536))
-        output = io.BytesIO()
-        image.convert("RGB").save(output, format="JPEG", quality=85)
-    return "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode()
 
 
 async def inspect_game_images(runtime, game, client, config) -> ImageCheck | None:

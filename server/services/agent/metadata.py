@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import dataclasses
 
-import httpx
 from pydantic import BaseModel, Field
 
+from services.agent.covers import CoverChecker
 from services.agent.providers import tool_spec
 from services.agent.runtime import object_schema
 from services.scraper.orchestrator import _build_scrapers
@@ -29,10 +28,17 @@ class Catalog:
         self.queries = {}
         self.inspected = set()
         self.config = config
+        self.cover_checker = CoverChecker(config, runtime)
+        self.cover_data = None
+        self.cover_review = ""
+        self.cover_checks = []
 
     async def close(self):
-        for scraper in self.scrapers:
-            await scraper.close()
+        try:
+            for scraper in self.scrapers:
+                await scraper.close()
+        finally:
+            await self.cover_checker.close()
 
     def describe(self, index, result):
         return {
@@ -101,32 +107,30 @@ class Catalog:
         if type(index) is not int or not 0 <= index < len(self.results):
             return {"error": "Unknown candidate"}
         urls = self.covers(self.results[index])
-        images, indexes = [], []
-        async with httpx.AsyncClient(
-            timeout=15, proxy=self.config.proxy or None, trust_env=False
-        ) as client:
-            for i in args.get("covers", [])[:4]:
-                if type(i) is not int or not 0 <= i < len(urls):
-                    continue
-                try:
-                    async with client.stream("GET", urls[i]) as response:
-                        response.raise_for_status()
-                        mime = response.headers.get("content-type", "").split(";")[0]
-                        if mime not in {"image/jpeg", "image/png", "image/webp"}:
-                            continue
-                        data = bytearray()
-                        async for chunk in response.aiter_bytes():
-                            data.extend(chunk)
-                            if len(data) > 2 * 1024 * 1024:
-                                raise ValueError()
-                        images.append(
-                            f"data:{mime};base64," + base64.b64encode(data).decode()
-                        )
-                        indexes.append(i)
-                        self.inspected.add((index, i))
-                except (httpx.HTTPError, ValueError):
-                    continue
-        return {"candidate": index, "covers": indexes, "_images": images}
+        images, indexes, dimensions = [], [], []
+        for i in args.get("covers", [])[:4]:
+            if type(i) is not int or not 0 <= i < len(urls):
+                continue
+            await self.runtime.check()
+            asset = await self.cover_checker.load(urls[i])
+            if asset is None:
+                continue
+            images.append(asset.preview.uri)
+            indexes.append(i)
+            dimensions.append(
+                {
+                    "cover": i,
+                    "width": asset.preview.width,
+                    "height": asset.preview.height,
+                }
+            )
+            self.inspected.add((index, i))
+        return {
+            "candidate": index,
+            "covers": indexes,
+            "dimensions": dimensions,
+            "_images": images,
+        }
 
     def tools(self):
         return {
@@ -226,4 +230,16 @@ async def select_metadata(runtime, catalog, context):
         Selection.model_json_schema(),
         catalog.tools(),
     )
-    return catalog.selected(data)
+    result, evidence = catalog.selected(data)
+    if not context.get("replace_cover", True):
+        result.cover_url = ""
+    elif runtime.settings.portrait:
+        original = catalog.results[catalog.selection.candidate]
+        decision = await catalog.cover_checker.choose(
+            catalog.covers(original), original.cover_metadata, catalog.selection.cover
+        )
+        catalog.cover_checks = decision.checks
+        catalog.cover_review = decision.reason
+        result.cover_url = decision.asset.url if decision.asset else ""
+        catalog.cover_data = decision.asset.data if decision.asset else None
+    return result, evidence

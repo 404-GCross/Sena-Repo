@@ -23,6 +23,7 @@ from models.game import Game, GameVersion, PlatformCategory
 from models.root_directory import RootDirectory
 from services.agent.inventory import inventory, inspect_file, relative_path
 from services.agent.metadata import Catalog, select_metadata
+from services.agent.covers import COVER_POLICY_VERSION
 from services.agent.nsfw import inspect_game_images
 from services.agent.providers import ModelError, tool_spec
 from services.agent.runtime import (
@@ -501,6 +502,7 @@ async def scrape_game(runtime, game, client):
         .all()
     )
     state = lambda: [
+        COVER_POLICY_VERSION,
         game.id,
         game.name,
         game.cover_path,
@@ -518,8 +520,10 @@ async def scrape_game(runtime, game, client):
     ]
     snapshot = state()
     digest = fingerprint(snapshot, runtime.settings)
-    if not any(v.platform_is_fallback for v in versions) and await cached(
-        runtime, digest
+    if (
+        not (runtime.settings.portrait and not game.cover_path)
+        and not any(v.platform_is_fallback for v in versions)
+        and await cached(runtime, digest)
     ):
         await record(runtime, game.id, digest, "cached", "复用未变化条目的已应用结果")
         await check_game_nsfw(runtime, game, client, config)
@@ -533,6 +537,8 @@ async def scrape_game(runtime, game, client):
                 catalog,
                 {
                     "game": game.name,
+                    "replace_cover": not game.cover_path
+                    or runtime.settings.update_mode == "overwrite",
                     "files": [
                         {
                             "id": v.id,
@@ -577,6 +583,9 @@ async def scrape_game(runtime, game, client):
                 config,
                 runtime.settings.update_mode,
                 nsfw_enable_only=runtime.settings.image_nsfw,
+                allow_cover=not runtime.settings.portrait
+                or catalog.cover_data is not None,
+                cover_data=catalog.cover_data,
             )
             if not game.name_locked:
                 game.name = result.title or game.name
@@ -604,6 +613,7 @@ async def scrape_game(runtime, game, client):
                     session,
                     config,
                     "missing",
+                    allow_cover=not runtime.settings.portrait,
                 )
             await check_game_nsfw(runtime, game, client, config)
             digest = fingerprint(state(), runtime.settings)
@@ -611,12 +621,20 @@ async def scrape_game(runtime, game, client):
                 runtime,
                 game.id,
                 digest,
-                "applied",
-                evidence,
-                {"game_id": game.id, "name": game.name, "source": result.source_name},
+                "partial" if catalog.cover_review else "applied",
+                evidence
+                + ("；" + catalog.cover_review if catalog.cover_review else ""),
+                {
+                    "game_id": game.id,
+                    "name": game.name,
+                    "source": result.source_name,
+                    "cover_checks": catalog.cover_checks,
+                },
             )
         except (ModelError, ValueError) as exc:
             outcome, summary = fallback_details(exc)
+            if runtime.settings.portrait:
+                summary += "；竖版封面需通过构图校验，已保留现有封面"
             await runtime.check()
             await scrape_single_game(
                 game,
@@ -626,6 +644,7 @@ async def scrape_game(runtime, game, client):
                 session,
                 config,
                 "missing",
+                allow_cover=not runtime.settings.portrait,
             )
             await check_game_nsfw(runtime, game, client, config)
             await record(

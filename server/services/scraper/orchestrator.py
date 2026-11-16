@@ -9,6 +9,7 @@ import asyncio
 import ipaddress
 import re
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -265,6 +266,14 @@ async def _download_cover(
         return False
 
 
+def _save_verified_cover(destination: Path, data: bytes) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".verified-cover-", dir=destination.parent) as temporary:
+        image = Path(temporary) / "image"
+        image.write_bytes(data)
+        image.replace(destination)
+
+
 def _copy_local_asset(source_path: str | None, dest_dir: Path, dest_stem: str) -> str | None:
     if not source_path:
         return None
@@ -289,6 +298,7 @@ async def _reuse_existing_metadata(
     covers_dir: Path,
     config: Config | None,
     mode: str,
+    allow_cover: bool = True,
 ) -> bool:
     if mode == "overwrite":
         return False
@@ -323,7 +333,11 @@ async def _reuse_existing_metadata(
     metadata_only = mode == "metadata"
 
     if not metadata_only:
-        copied_cover = _copy_local_asset(candidate.cover_path, covers_dir, f"{game.id}_reused")
+        copied_cover = (
+            _copy_local_asset(candidate.cover_path, covers_dir, f"{game.id}_reused")
+            if allow_cover
+            else None
+        )
         if copied_cover and not game.cover_path:
             game.cover_path = copied_cover
             changed = True
@@ -418,6 +432,7 @@ async def scrape_single_game(
     config: "Config | None" = None,
     mode: str = "missing",
     job: ScrapeJob | None = None,
+    allow_cover: bool = True,
 ) -> dict:
     """Scrape a single game across all available sources.
 
@@ -447,7 +462,9 @@ async def scrape_single_game(
         query=None,
         stage="reuse_metadata",
     )
-    if await _reuse_existing_metadata(session, game, covers_dir, config, mode):
+    if await _reuse_existing_metadata(
+        session, game, covers_dir, config, mode, allow_cover=allow_cover
+    ):
         results["metadata_cache"] = ScraperResult(
             title=game.name,
             source_name="metadata_cache",
@@ -673,6 +690,7 @@ async def scrape_single_game(
             mode,
             job=job,
             replace_tags=replace_tags,
+            allow_cover=allow_cover,
         )
         if replace_tags:
             replaced_tags = True
@@ -693,6 +711,8 @@ async def _apply_result(
     job: ScrapeJob | None = None,
     replace_tags: bool | None = None,
     nsfw_enable_only: bool = False,
+    allow_cover: bool = True,
+    cover_data: bytes | None = None,
 ):
     """Apply a scraper result to a game, respecting the scrape mode."""
     if game.metadata_locked:
@@ -706,7 +726,11 @@ async def _apply_result(
     # ── Images ──
     if not metadata_only:
         # Cover
-        if result.cover_url and (overwrite or images_only or not game.cover_path):
+        if (
+            allow_cover
+            and result.cover_url
+            and (overwrite or images_only or not game.cover_path)
+        ):
             await _update_job_progress(
                 session,
                 job,
@@ -717,7 +741,15 @@ async def _apply_result(
             )
             ext = ".jpg"
             cover_path = covers_dir / f"{game.id}_{source_name}{ext}"
-            success = await _download_cover(client, result.cover_url, cover_path)
+            if cover_data is None:
+                success = await _download_cover(client, result.cover_url, cover_path)
+            else:
+                try:
+                    await asyncio.to_thread(_save_verified_cover, cover_path, cover_data)
+                    success = True
+                except OSError:
+                    logger.warning("Failed to save verified cover for game %s", game.id)
+                    success = False
             if success:
                 game.cover_path = str(cover_path)
                 session.add(game)

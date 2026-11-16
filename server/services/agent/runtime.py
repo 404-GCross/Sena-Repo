@@ -107,6 +107,7 @@ class Runtime:
                 "metadata": "资料与分类",
                 "patch": "补丁配置",
                 "image_nsfw": "封面与背景 NSFW 检测",
+                "cover_quality": "单张竖版封面校验",
             }.get(skill, "分析")
             self.job.message = f"正在调用模型：{stage}（第 {self.job.calls} 次请求）"
             await self.session.commit()
