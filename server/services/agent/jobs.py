@@ -487,11 +487,16 @@ async def scrape_game(runtime, game, client):
         game.description,
         game.developer,
         game.alias,
-        [(v.file_path, v.file_size, v.platform) for v in versions],
+        [
+            (v.file_path, v.file_size, v.platform, v.platform_is_fallback)
+            for v in versions
+        ],
     ]
     snapshot = state()
     digest = fingerprint(snapshot, runtime.settings)
-    if await cached(runtime, digest):
+    if not any(v.platform_is_fallback for v in versions) and await cached(
+        runtime, digest
+    ):
         await record(runtime, game.id, digest, "cached", "复用未变化条目的已应用结果")
         return
     catalog = Catalog(config, runtime.job.actor_id, runtime)
@@ -504,7 +509,12 @@ async def scrape_game(runtime, game, client):
                 {
                     "game": game.name,
                     "files": [
-                        {"id": v.id, "filename": v.filename, "platform": v.platform}
+                        {
+                            "id": v.id,
+                            "filename": v.filename,
+                            "platform": v.platform,
+                            "platform_is_fallback": v.platform_is_fallback,
+                        }
                         for v in versions
                     ][:100],
                     "allowed_platforms": sorted(platforms),
@@ -545,9 +555,11 @@ async def scrape_game(runtime, game, client):
             if not game.name_locked:
                 game.name = result.title or game.name
             for version in versions:
+                await session.refresh(version)
                 platform = catalog.selection.platforms.get(str(version.id))
-                if platform in platforms and version.platform == "未分类":
+                if platform in platforms and version.platform_is_fallback:
                     version.platform = platform
+                    version.platform_is_fallback = False
             await session.commit()
             # Fill only missing fields so fallback cannot replace the selected cover.
             if (

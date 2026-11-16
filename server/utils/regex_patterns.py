@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Sequence
 
-UNCATEGORIZED = "未分类"
+DEFAULT_PLATFORM = "PC"
+LEGACY_UNCATEGORIZED = "未分类"
 RULE_KINDS = ("keyword", "regex")
 
 
@@ -28,10 +29,15 @@ def rule_matches(rule: PlatformRule, filename: str, lowered: str | None = None) 
         return False
 
 
-def match_platform(filename: str, rules: Sequence[PlatformRule]) -> str:
-    """Return the first matching category name, or 未分类 when nothing matches."""
+def match_platform_rule(filename: str, rules: Sequence[PlatformRule]) -> str | None:
     lowered = filename.lower()
     for rule in rules:
-        if rule_matches(rule, filename, lowered):
+        if rule.category != LEGACY_UNCATEGORIZED and rule_matches(
+            rule, filename, lowered
+        ):
             return rule.category
-    return UNCATEGORIZED
+    return None
+
+
+def match_platform(filename: str, rules: Sequence[PlatformRule]) -> str:
+    return match_platform_rule(filename, rules) or DEFAULT_PLATFORM

@@ -497,8 +497,9 @@ class _GameEditScreenState extends State<GameEditScreen> {
               return RadioListTile<String>(
                 value: value,
                 groupValue: version.platform,
+                toggleable: true,
                 title: Text(item["label"]!),
-                onChanged: (v) => Navigator.pop(ctx, v),
+                onChanged: (v) => Navigator.pop(ctx, v ?? value),
               );
             }).toList(),
           ),
@@ -511,7 +512,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         ],
       ),
     );
-    if (selected == null || selected == version.platform) return;
+    if (selected == null) return;
     await _updateVersion(version, {"platform": selected});
   }
 

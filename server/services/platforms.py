@@ -10,24 +10,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
 from models.game import PlatformCategory, PlatformCategoryRule
-from utils.regex_patterns import PlatformRule, RULE_KINDS, UNCATEGORIZED
+from utils.regex_patterns import (
+    DEFAULT_PLATFORM,
+    LEGACY_UNCATEGORIZED,
+    PlatformRule,
+    RULE_KINDS,
+)
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_CATEGORY_NAME = UNCATEGORIZED
-SYSTEM_CATEGORY_ORDER = 100000
+SYSTEM_CATEGORY_NAME = DEFAULT_PLATFORM
 MAX_CATEGORY_NAME_LENGTH = 32
 MAX_RULE_PATTERN_LENGTH = 256
 
 
 def normalize_category_name(name: str) -> str:
-    return (name or "").strip()
+    value = (name or "").strip()
+    return DEFAULT_PLATFORM if value.lower() == "pc" else value
 
 
 def validate_category_name(name: str) -> str:
     value = normalize_category_name(name)
     if not value:
         raise ValueError("分类名不能为空")
+    if value == LEGACY_UNCATEGORIZED:
+        raise ValueError("未匹配的平台默认归入 PC，请使用其他分类名")
     if len(value) > MAX_CATEGORY_NAME_LENGTH:
         raise ValueError(f"分类名不能超过 {MAX_CATEGORY_NAME_LENGTH} 个字符")
     if "," in value:
@@ -62,7 +69,7 @@ async def load_platform_rules(
             PlatformCategoryRule,
             PlatformCategoryRule.category_id == PlatformCategory.id,
         )
-        .where(PlatformCategory.is_system == False)  # noqa: E712
+        .where(PlatformCategory.name != LEGACY_UNCATEGORIZED)
         .order_by(
             PlatformCategory.sort_order,
             PlatformCategory.id,
@@ -77,13 +84,12 @@ async def load_platform_rules(
     if config is None or not config.custom_regex:
         return rules
     known = {
-        row[0]
-        for row in (await session.execute(select(PlatformCategory.name))).all()
+        row[0] for row in (await session.execute(select(PlatformCategory.name))).all()
     }
     for item in config.custom_regex:
         pattern = (item.pattern or "").strip()
         category = normalize_category_name(item.platform)
-        if not pattern or not category or category == SYSTEM_CATEGORY_NAME:
+        if not pattern or not category or category == LEGACY_UNCATEGORIZED:
             continue
         if category not in known:
             logger.warning(
@@ -94,11 +100,11 @@ async def load_platform_rules(
     return rules
 
 
-async def ensure_category(
-    session: AsyncSession, name: str
-) -> PlatformCategory | None:
+async def ensure_category(session: AsyncSession, name: str) -> PlatformCategory | None:
     """Return an existing category by name, creating it when missing."""
     value = normalize_category_name(name) or SYSTEM_CATEGORY_NAME
+    if value == LEGACY_UNCATEGORIZED:
+        value = DEFAULT_PLATFORM
     existing = (
         await session.execute(
             select(PlatformCategory).where(PlatformCategory.name == value)
@@ -108,9 +114,7 @@ async def ensure_category(
         return existing
     max_order = (
         await session.execute(
-            select(func.max(PlatformCategory.sort_order)).where(
-                PlatformCategory.is_system == False  # noqa: E712
-            )
+            select(func.max(PlatformCategory.sort_order))
         )
     ).scalar() or 0
     category = PlatformCategory(

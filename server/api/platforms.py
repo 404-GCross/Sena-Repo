@@ -22,7 +22,7 @@ from services.platforms import (
     validate_category_name,
     validate_rule,
 )
-from utils.regex_patterns import match_platform
+from utils.regex_patterns import DEFAULT_PLATFORM, match_platform, match_platform_rule
 
 logger = logging.getLogger(__name__)
 
@@ -132,9 +132,7 @@ async def _name_taken(
 async def _next_sort_order(session: AsyncSession) -> int:
     current = (
         await session.execute(
-            select(func.max(PlatformCategory.sort_order)).where(
-                PlatformCategory.is_system == False  # noqa: E712
-            )
+            select(func.max(PlatformCategory.sort_order))
         )
     ).scalar()
     return (current or 0) + 1
@@ -150,7 +148,6 @@ async def list_platforms(
         select(PlatformCategory)
         .options(selectinload(PlatformCategory.rules))
         .order_by(
-            PlatformCategory.is_system,
             PlatformCategory.sort_order,
             PlatformCategory.id,
         )
@@ -199,7 +196,7 @@ async def reorder_platforms(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Persist the category order; system categories stay last (admin only)."""
+    """Persist the category matching order (admin only)."""
     if not body.ids:
         return MessageResponse(message="顺序未变化")
     result = await session.execute(
@@ -208,7 +205,7 @@ async def reorder_platforms(
     categories = {category.id: category for category in result.scalars().all()}
     for index, category_id in enumerate(body.ids):
         category = categories.get(category_id)
-        if category is None or category.is_system:
+        if category is None:
             continue
         category.sort_order = index
     await session.commit()
@@ -249,10 +246,12 @@ async def reidentify_platforms(
     versions = result.scalars().all()
     changed = 0
     for version in versions:
-        detected = match_platform(version.filename or "", rules)
+        matched = match_platform_rule(version.filename or "", rules)
+        detected = matched or DEFAULT_PLATFORM
         if version.platform != detected:
             version.platform = detected
             changed += 1
+        version.platform_is_fallback = matched is None
     await session.commit()
     logger.info(
         "Platform categories reidentified: actor_id=%s changed=%s total=%s",
@@ -276,7 +275,7 @@ async def update_platform(
 ):
     """Rename or reorder a category; renames cascade to versions (admin only)."""
     category = await _load_category(session, category_id)
-    if category.is_system:
+    if category.is_system and body.name is not None and body.name != category.name:
         raise HTTPException(status_code=400, detail="系统分类不能修改")
     if body.name is not None:
         try:
@@ -337,7 +336,7 @@ async def delete_platform(
         await session.execute(
             update(GameVersion)
             .where(GameVersion.platform == category.name)
-            .values(platform=target.name)
+            .values(platform=target.name, platform_is_fallback=False)
         )
     name = category.name
     await session.delete(category)
@@ -373,8 +372,6 @@ async def create_rule(
 ):
     """Add a detection rule to a category (admin only)."""
     category = await _load_category(session, category_id)
-    if category.is_system:
-        raise HTTPException(status_code=400, detail="未分类不支持匹配规则")
     try:
         kind, pattern = validate_rule(body.kind, body.pattern)
     except ValueError as exc:
@@ -403,8 +400,6 @@ async def reorder_rules(
     session: AsyncSession = Depends(get_session),
 ):
     category = await _load_category(session, category_id)
-    if category.is_system:
-        raise HTTPException(status_code=400, detail="未分类不支持匹配规则")
     rules = {rule.id: rule for rule in category.rules}
     for index, rule_id in enumerate(body.ids):
         rule = rules.get(rule_id)
@@ -429,8 +424,6 @@ async def update_rule(
     session: AsyncSession = Depends(get_session),
 ):
     category = await _load_category(session, category_id)
-    if category.is_system:
-        raise HTTPException(status_code=400, detail="未分类不支持匹配规则")
     rule = next((item for item in category.rules if item.id == rule_id), None)
     if rule is None:
         raise HTTPException(status_code=404, detail="规则不存在")
@@ -462,8 +455,6 @@ async def delete_rule(
     session: AsyncSession = Depends(get_session),
 ):
     category = await _load_category(session, category_id)
-    if category.is_system:
-        raise HTTPException(status_code=400, detail="未分类不支持匹配规则")
     rule = next((item for item in category.rules if item.id == rule_id), None)
     if rule is None:
         raise HTTPException(status_code=404, detail="规则不存在")

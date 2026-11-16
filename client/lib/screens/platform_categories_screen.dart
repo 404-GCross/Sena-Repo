@@ -32,12 +32,6 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
     _load();
   }
 
-  List<PlatformCategory> get _custom =>
-      _categories.where((category) => !category.isSystem).toList();
-
-  List<PlatformCategory> get _system =>
-      _categories.where((category) => category.isSystem).toList();
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -198,11 +192,11 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
   }
 
   Future<void> _reorder(int oldIndex, int newIndex) async {
-    final list = List<PlatformCategory>.from(_custom);
+    final list = List<PlatformCategory>.from(_categories);
     if (newIndex > oldIndex) newIndex -= 1;
     final moved = list.removeAt(oldIndex);
     list.insert(newIndex, moved);
-    setState(() => _categories = [...list, ..._system]);
+    setState(() => _categories = list);
     try {
       await widget.api.reorderPlatformCategories(
           list.map((category) => category.id).toList());
@@ -309,16 +303,16 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(
           "列表顺序就是扫描匹配优先级：从上到下，首个命中的规则决定分类。"
-          "点分类可编辑匹配规则。",
+          "未命中规则时默认归入 PC。点分类可编辑匹配规则。",
           style: AppText.bodySmall.copyWith(color: subTextColor(context)),
         ),
       ),
       footer: _footer(),
       onReorder: _reorder,
       children: [
-        for (var index = 0; index < _custom.length; index++)
-          _categoryCard(_custom[index], index,
-              key: ValueKey(_custom[index].id)),
+        for (var index = 0; index < _categories.length; index++)
+          _categoryCard(_categories[index], index,
+              key: ValueKey(_categories[index].id)),
       ],
     );
   }
@@ -329,7 +323,6 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final category in _system) _systemCard(category),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: _reidentify,
@@ -361,7 +354,8 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
           style: AppText.body.copyWith(fontWeight: FontWeight.w700),
         ),
         subtitle: Text(
-          "${category.versionCount} 个版本 · ${category.rules.length} 条规则",
+          "${category.versionCount} 个版本 · ${category.rules.length} 条规则"
+          "${category.isSystem ? ' · 默认分类' : ''}",
           style: AppText.bodySmall.copyWith(color: subTextColor(context)),
         ),
         onTap: () => _openRules(category),
@@ -376,32 +370,16 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
               _deleteCategory(category);
             }
           },
-          itemBuilder: (ctx) => const [
-            PopupMenuItem(value: "rules", child: Text("匹配规则")),
-            PopupMenuItem(value: "rename", child: Text("重命名")),
-            PopupMenuItem(
-              value: "delete",
-              child: Text("删除", style: TextStyle(color: Colors.red)),
-            ),
+          itemBuilder: (ctx) => [
+            const PopupMenuItem(value: "rules", child: Text("匹配规则")),
+            if (!category.isSystem) ...[
+              const PopupMenuItem(value: "rename", child: Text("重命名")),
+              const PopupMenuItem(
+                value: "delete",
+                child: Text("删除", style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _systemCard(PlatformCategory category) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(Icons.help_outline, color: hintColor(context)),
-        title: Text(category.name),
-        subtitle: Text(
-          "${category.versionCount} 个版本 · 未命中任何规则的文件会归到这里",
-          style: AppText.bodySmall.copyWith(color: subTextColor(context)),
-        ),
-        trailing: Chip(
-          label: const Text("系统"),
-          visualDensity: VisualDensity.compact,
         ),
       ),
     );
@@ -703,7 +681,7 @@ class _PlatformRulesScreenState extends State<PlatformRulesScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Text(
-            "还没有规则，点右下角添加；不匹配任何规则的文件会归到「未分类」。",
+            "还没有规则，点右下角添加；不匹配任何规则的文件会默认归到 PC。",
             textAlign: TextAlign.center,
             style: AppText.bodySmall.copyWith(color: subTextColor(context)),
           ),

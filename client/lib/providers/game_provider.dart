@@ -67,14 +67,14 @@ class GameProvider extends ChangeNotifier {
 
   /// Fallback categories for older servers without the platforms API.
   static List<PlatformCategory> _fallbackPlatforms() {
-    const names = ["PC", "KRKR", "ONS", "Ty", "直装", "未分类"];
+    const names = ["PC", "KRKR", "ONS", "Ty", "直装"];
     return [
       for (var index = 0; index < names.length; index++)
         PlatformCategory(
           id: -1 - index,
           name: names[index],
           sortOrder: index,
-          isSystem: names[index] == "未分类",
+          isSystem: names[index] == "PC",
         ),
     ];
   }

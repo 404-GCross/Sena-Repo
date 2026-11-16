@@ -107,6 +107,7 @@ class GameVersion(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
     platform = Column(String(64), nullable=False)
+    platform_is_fallback = Column(Boolean, nullable=False, default=False)
     filename = Column(String(512), nullable=False)
     file_path = Column(String(1024), nullable=False)
     source_type = Column(String(32), nullable=False, default="local")

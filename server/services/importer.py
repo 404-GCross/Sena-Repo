@@ -17,7 +17,7 @@ from models.tag import Tag
 from models.scrape_job import JobStatus, ScrapeJob
 from services.cleaner import normalize_company_name, _clean_name
 from services.platforms import load_platform_rules
-from utils.regex_patterns import UNCATEGORIZED, match_platform
+from utils.regex_patterns import DEFAULT_PLATFORM, match_platform_rule
 from services.file_source import adapter_from_source, canonical_source_path
 from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
 
@@ -155,13 +155,15 @@ async def import_from_root(
 
             version_count = 0
             for archive in game_folder.archives:
-                platform = match_platform(archive.filename, platform_rules)
+                matched_platform = match_platform_rule(archive.filename, platform_rules)
 
                 # Upsert version
                 created = await _upsert_version(
                     session,
                     game_id=game.id,
-                    platform=platform,
+                    platform=matched_platform or DEFAULT_PLATFORM,
+                    platform_is_fallback=matched_platform is None,
+                    allow_platform_update=not game.metadata_locked,
                     filename=archive.filename,
                     file_path=canonical_source_path(source_type, root.source_id, archive.filepath),
                     file_size=archive.file_size,
@@ -312,6 +314,8 @@ async def _upsert_version(
     source_type: str = "local",
     source_id: int | None = None,
     source_path: str | None = None,
+    platform_is_fallback: bool = False,
+    allow_platform_update: bool = True,
 ) -> bool:
     """Create a GameVersion if one with same file_path doesn't exist.
     Returns True if a new version was created.
@@ -331,9 +335,13 @@ async def _upsert_version(
             existing.checksum_algo = None
             existing.checksum = None
             existing.checksum_updated_at = None
-        # Re-evaluate only uncategorized versions so manual edits stay intact.
-        if existing.platform == UNCATEGORIZED and platform != UNCATEGORIZED:
+        if (
+            allow_platform_update
+            and existing.platform_is_fallback
+            and not platform_is_fallback
+        ):
             existing.platform = platform
+            existing.platform_is_fallback = False
         # Update size if changed
         existing.file_size = file_size
         existing.source_type = source_type
@@ -344,6 +352,7 @@ async def _upsert_version(
     version = GameVersion(
         game_id=game_id,
         platform=platform,
+        platform_is_fallback=platform_is_fallback,
         filename=filename,
         file_path=file_path,
         source_type=source_type,

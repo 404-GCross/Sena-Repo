@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from config import Config
+from utils.regex_patterns import DEFAULT_PLATFORM, LEGACY_UNCATEGORIZED
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,6 @@ _sync_session_factory: Session | None = None
 class Base(DeclarativeBase):
     pass
 
-
-SYSTEM_PLATFORM_CATEGORY = "未分类"
-SYSTEM_PLATFORM_CATEGORY_ORDER = 100000
 
 # Initial platform categories and their detection rules (first match wins).
 DEFAULT_PLATFORM_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
@@ -63,8 +61,8 @@ async def _seed_platform_categories(conn) -> None:
     """Insert the default platform categories and rules on first run."""
     for index, (name, rules) in enumerate(DEFAULT_PLATFORM_CATEGORIES):
         await conn.exec_driver_sql(
-            "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, 0)",
-            (name, index),
+            "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, ?)",
+            (name, index, name == DEFAULT_PLATFORM),
         )
         category_id = (
             await conn.exec_driver_sql(
@@ -76,9 +74,46 @@ async def _seed_platform_categories(conn) -> None:
                 "INSERT INTO platform_category_rules (category_id, kind, pattern, sort_order) VALUES (?, ?, ?, ?)",
                 (category_id, kind, pattern, rule_index),
             )
+
+
+async def _migrate_default_platform(conn) -> None:
+    existing = (
+        await conn.exec_driver_sql(
+            "SELECT id, name FROM platform_categories WHERE lower(name) = lower(?) "
+            "ORDER BY name = ? DESC, id LIMIT 1",
+            (DEFAULT_PLATFORM, DEFAULT_PLATFORM),
+        )
+    ).first()
+    if existing is None:
+        await conn.exec_driver_sql(
+            "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, 0, 1)",
+            (DEFAULT_PLATFORM,),
+        )
+    else:
+        await conn.exec_driver_sql(
+            "UPDATE platform_categories SET name = ?, is_system = 1 WHERE id = ?",
+            (DEFAULT_PLATFORM, existing[0]),
+        )
+        if existing[1] != DEFAULT_PLATFORM:
+            await conn.exec_driver_sql(
+                "UPDATE game_versions SET platform = ? WHERE platform = ?",
+                (DEFAULT_PLATFORM, existing[1]),
+            )
+    # Existing PC choices stay protected; only legacy unknowns become reclassifiable.
+    migrated = await conn.exec_driver_sql(
+        "UPDATE game_versions SET platform = ?, platform_is_fallback = 1 "
+        "WHERE platform = ? OR trim(platform) = '' OR platform IS NULL",
+        (DEFAULT_PLATFORM, LEGACY_UNCATEGORIZED),
+    )
+    if migrated.rowcount:
+        logger.info("Migrated %s legacy platform assignments to PC", migrated.rowcount)
     await conn.exec_driver_sql(
-        "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, 1)",
-        (SYSTEM_PLATFORM_CATEGORY, SYSTEM_PLATFORM_CATEGORY_ORDER),
+        "DELETE FROM platform_category_rules WHERE category_id IN "
+        "(SELECT id FROM platform_categories WHERE name = ?)",
+        (LEGACY_UNCATEGORIZED,),
+    )
+    await conn.exec_driver_sql(
+        "DELETE FROM platform_categories WHERE name = ?", (LEGACY_UNCATEGORIZED,)
     )
 
 
@@ -212,6 +247,10 @@ async def create_tables():
                 logger.info("Backfilled name_locked for %s games", locked)
         columns = await conn.exec_driver_sql("PRAGMA table_info(game_versions)")
         version_columns = {row[1] for row in columns}
+        if "platform_is_fallback" not in version_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE game_versions ADD COLUMN platform_is_fallback BOOLEAN NOT NULL DEFAULT 0"
+            )
         if "extract_password" not in version_columns:
             await conn.exec_driver_sql("ALTER TABLE game_versions ADD COLUMN extract_password VARCHAR(256)")
         if "source_type" not in version_columns:
@@ -424,17 +463,7 @@ async def create_tables():
         ).scalar() or 0
         if category_count == 0:
             await _seed_platform_categories(conn)
-        else:
-            system_count = (
-                await conn.exec_driver_sql(
-                    "SELECT COUNT(*) FROM platform_categories WHERE is_system = 1"
-                )
-            ).scalar() or 0
-            if system_count == 0:
-                await conn.exec_driver_sql(
-                    "INSERT INTO platform_categories (name, sort_order, is_system) VALUES (?, ?, 1)",
-                    (SYSTEM_PLATFORM_CATEGORY, SYSTEM_PLATFORM_CATEGORY_ORDER),
-                )
+        await _migrate_default_platform(conn)
 
 
 async def get_engine():

@@ -903,6 +903,8 @@ async def update_version(
                 detail=f"Invalid platform. Allowed: {', '.join(allowed)}",
             )
         version.platform = platform_value
+        version.platform_is_fallback = False
+        game.updated_at = datetime.utcnow()
 
     if body.extract_password is not None:
         password = body.extract_password.strip()

@@ -55,6 +55,7 @@ from models.tag import Tag
 from models.user import User, UserOAuthBinding, UserSession
 from services.file_source import canonical_source_path
 from services.platforms import SYSTEM_CATEGORY_NAME, ensure_category
+from utils.regex_patterns import DEFAULT_PLATFORM, LEGACY_UNCATEGORIZED
 from utils.process_lock import process_lock, scan_lock_path
 from utils import backup_limits
 from utils.log_redaction import redact_exception
@@ -275,6 +276,7 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
                 "game_key": game_keys.get(version.game_id),
                 "game": None,
                 "platform": version.platform or SYSTEM_CATEGORY_NAME,
+                "platform_is_fallback": bool(version.platform_is_fallback),
                 "filename": version.filename,
                 "file_path": version.file_path,
                 "source_type": version.source_type,
@@ -310,7 +312,6 @@ async def _export_platform_categories(session) -> list[dict[str, Any]]:
         select(PlatformCategory)
         .options(selectinload(PlatformCategory.rules))
         .order_by(
-            PlatformCategory.is_system,
             PlatformCategory.sort_order,
             PlatformCategory.id,
         )
@@ -981,7 +982,9 @@ def normalise_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def _platform_name(value: Any) -> str:
     name = str(value or "").strip()
-    return name or SYSTEM_CATEGORY_NAME
+    if not name or name == LEGACY_UNCATEGORIZED or name.lower() == "pc":
+        return DEFAULT_PLATFORM
+    return name
 
 
 async def import_file_sources(
@@ -1077,13 +1080,7 @@ async def import_platform_categories(
         return stats, notes
 
     if replace:
-        await session.execute(
-            delete(PlatformCategoryRule).where(
-                PlatformCategoryRule.category_id.in_(
-                    select(PlatformCategory.id).where(PlatformCategory.is_system == False)  # noqa: E712
-                )
-            )
-        )
+        await session.execute(delete(PlatformCategoryRule))
         await session.execute(
             delete(PlatformCategory).where(PlatformCategory.is_system == False)  # noqa: E712
         )
@@ -1098,8 +1095,9 @@ async def import_platform_categories(
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("name") or "").strip()
-        if not name or name == SYSTEM_CATEGORY_NAME:
+        if not name or name == LEGACY_UNCATEGORIZED:
             continue
+        name = _platform_name(name)
         category = existing.get(name)
         sort_order = int(entry.get("sort_order") or 0)
         created = category is None
@@ -1112,7 +1110,7 @@ async def import_platform_categories(
         rules_added = 0
 
         rules = entry.get("rules")
-        if not isinstance(rules, list) or not rules or category.is_system:
+        if not isinstance(rules, list) or not rules:
             if not created and previous_order != sort_order:
                 stats["categories_updated"] += 1
             continue
@@ -1383,6 +1381,13 @@ async def import_library(
         data = {
             "game_id": game_id,
             "platform": platform,
+            "platform_is_fallback": (
+                platform == DEFAULT_PLATFORM
+                and (
+                    entry.get("platform_is_fallback") is True
+                    or str(entry.get("platform") or "").strip() in {"", LEGACY_UNCATEGORIZED}
+                )
+            ),
             "filename": entry.get("filename") or _basename(file_path) or file_path,
             "file_path": file_path,
             "source_type": entry.get("source_type") or "local",
