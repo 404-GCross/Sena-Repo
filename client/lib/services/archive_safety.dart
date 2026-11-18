@@ -40,7 +40,7 @@ String safeArchiveRelativePath(String value) {
   return parts.join("/");
 }
 
-void validateArchiveListing(String listing, {bool? caseInsensitive}) {
+void validateArchiveListing(String listing, {bool? caseInsensitive, void Function(String path, bool directory)? onEntry}) {
   final insensitive = caseInsensitive ?? Platform.isWindows;
   final entries = <String, bool>{};
   var fields = <String, String>{};
@@ -92,6 +92,7 @@ void validateArchiveListing(String listing, {bool? caseInsensitive}) {
                 mode.startsWith("d") ||
                 RegExp(r"(?:^|\s)d[rwxstST-]{9}(?:\s|$)")
                     .hasMatch(attributes)));
+    onEntry?.call(path, entries[key]!);
     fields = {};
   }
 
@@ -190,7 +191,7 @@ class SafeFileTree {
     }
   }
 
-  Future<List<SafeTreeEntry>> entries() async {
+  Future<List<SafeTreeEntry>> entries({int limit = maxArchiveEntries}) async {
     await checkRoot();
     final result = <SafeTreeEntry>[];
     final pending = <String>[root];
@@ -206,7 +207,7 @@ class SafeFileTree {
             type != FileSystemEntityType.directory) {
           throw const ArchiveSafetyException("拒绝包含链接或特殊文件的目录");
         }
-        if (result.length >= maxArchiveEntries) {
+        if (result.length >= limit) {
           throw const ArchiveSafetyException("解压文件数量超过限制");
         }
         result.add(

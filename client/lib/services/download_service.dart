@@ -8,6 +8,7 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 import "dart:typed_data";
+import 'package:crypto/crypto.dart';
 
 import "package:flutter/services.dart" show MethodChannel, rootBundle;
 import "package:flutter/widgets.dart"
@@ -552,6 +553,8 @@ class DownloadService with WidgetsBindingObserver {
 
   // ── Patch download (reuses the same pipeline as game downloads) ──
 
+  static final _preparedPatches = <String, String>{};
+
   /// Download a patch file to temp, extract to installDir, return (error, outputDir) tuple.
   /// [onProgress] receives (progress 0-1, receivedBytes, totalBytes, speed, stage).
   /// Patch injection can be cancelled/paused via [cancelPatchInjection]/[pausePatchInjection].
@@ -566,6 +569,8 @@ class DownloadService with WidgetsBindingObserver {
     String sourceType = "local",
     int expiresAt = 0,
     String? serverBaseUrl,
+    String expectedSha256 = '',
+    Future<void> Function(String digest, List<String> files)? inspectOnly,
     void Function(
       double progress,
       int received,
@@ -578,11 +583,13 @@ class DownloadService with WidgetsBindingObserver {
     final taskToken = tokenForServer(serverBaseUrl);
     final taskUserId = userIdForServer(serverBaseUrl);
     final dir = await downloadDir;
-    final safeAppId = appId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), "_");
+    if (_patchInjections.containsKey(appId)) return ('此游戏已有补丁任务', null);
+    final cacheKey = sha256.convert(utf8.encode(jsonEncode([serverBaseUrl, taskUserId, appId, patchLookupKey, patchFilename]))).toString();
     final ext = patchFilename.contains(".")
         ? patchFilename.substring(patchFilename.lastIndexOf("."))
         : "";
-    final tmpPath = "${dir}${Platform.pathSeparator}.patch_$safeAppId$ext";
+    if (!RegExp(r'^\.[A-Za-z0-9]{1,8}$').hasMatch(ext)) return ('补丁扩展名无效', null);
+    final tmpPath = "${dir}${Platform.pathSeparator}.patch_$cacheKey$ext";
     final tmp = File(tmpPath);
     // Track injection state for cross-instance cancellation
     final task = DownloadTask(
@@ -635,9 +642,23 @@ class DownloadService with WidgetsBindingObserver {
         final existingSize = await tmp.length();
         if (existingSize > 0) task.receivedBytes = existingSize;
       }
+      String? verifiedDigest;
       try {
+        final known = _preparedPatches[cacheKey];
+        final wanted = expectedSha256.isEmpty ? known : expectedSha256;
+        if (wanted != null && await tmp.exists()) {
+          final hash = (await sha256.bind(tmp.openRead()).first).toString();
+          if (hash == wanted) verifiedDigest = hash;
+        }
         task.status = "downloading";
-        await _download(task, tmp);
+        if (verifiedDigest == null) {
+          if (known != null && await tmp.exists()) {
+            await tmp.delete();
+            task.receivedBytes = 0;
+          }
+          _preparedPatches.remove(cacheKey);
+          await _download(task, tmp);
+        }
       } finally {
         await sub?.cancel();
       }
@@ -652,6 +673,23 @@ class DownloadService with WidgetsBindingObserver {
       }
       if (task.status == "failed") return (task.error ?? "下载失败", null);
 
+      final exe = await _getSevenZipPath();
+      final files = <String>[];
+      await _inspectArchive(exe, tmp.path, injectionAppId: appId, onEntry: inspectOnly == null ? null : (path, directory) {
+        if (!directory) files.add(path);
+        if (files.length > 30000) throw const ArchiveSafetyException('补丁清单过大，请手动配置');
+      });
+      if (inspectOnly != null || expectedSha256.isNotEmpty) {
+        final digest = verifiedDigest ?? (await sha256.bind(tmp.openRead()).first).toString();
+        if (expectedSha256.isNotEmpty && digest != expectedSha256) {
+          throw const ArchiveSafetyException('补丁文件与配置时不同，请管理员重新核对规则');
+        }
+        if (inspectOnly != null) {
+          _preparedPatches[cacheKey] = digest;
+          await inspectOnly(digest, files);
+          return (null, null);
+        }
+      }
       final installTree = await SafeFileTree.open(installDir);
       String destDir = installTree.root;
       if (targetDir != null && targetDir.isNotEmpty) {
@@ -659,8 +697,6 @@ class DownloadService with WidgetsBindingObserver {
         destDir = await installTree.checkedPath(targetDir);
       }
 
-      final exe = await _getSevenZipPath();
-      await _inspectArchive(exe, tmp.path, injectionAppId: appId);
       task.status = "extracting";
       if (onProgress != null) onProgress(-1, 0, 0, 0, "extracting");
 
@@ -738,6 +774,7 @@ class DownloadService with WidgetsBindingObserver {
       LoggerService().info("patch merge done");
       try {
         await tmp.delete();
+        _preparedPatches.remove(cacheKey);
       } catch (_) {}
       return (null, destDir);
     } catch (e) {
@@ -755,9 +792,9 @@ class DownloadService with WidgetsBindingObserver {
         await cleanupPatchTempDirs();
         return (task.status == "paused" ? "已暂停" : "已取消", null);
       }
-      try {
-        await tmp.delete();
-      } catch (_) {}
+      if (inspectOnly == null || !_preparedPatches.containsKey(cacheKey)) {
+        try { await tmp.delete(); } catch (_) {}
+      }
       await cleanupPatchTempDirs();
       return ("$e", null);
     } finally {
@@ -3651,6 +3688,7 @@ class DownloadService with WidgetsBindingObserver {
     String filePath, {
     String? password,
     String? injectionAppId,
+    void Function(String, bool)? onEntry,
   }) async {
     final listing = await _runTool(
       exe,
@@ -3660,7 +3698,7 @@ class DownloadService with WidgetsBindingObserver {
       tolerateWarnings: false,
       completeListing: true,
     );
-    validateArchiveListing(listing.output);
+    validateArchiveListing(listing.output, onEntry: onEntry);
   }
 
   Future<void> _extract(

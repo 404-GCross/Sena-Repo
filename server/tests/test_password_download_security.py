@@ -258,7 +258,7 @@ class PasswordAndSignedDownloadTests(unittest.IsolatedAsyncioTestCase):
             response = await self.api.post("/api/download/7/11/manager-install-link", headers=self.headers(self.token_a), json={"target": target})
             self.assertEqual(response.status_code, 200, response.text)
             urls.append(parse_qs(urlsplit(response.json()["install_url"]).query)["url"][0])
-        with patch.object(steam_patch, "_find_patch_entry", return_value={"size": 42}), patch.object(steam_patch, "serve_patch_file", new=AsyncMock(return_value={"fixture": True})):
+        with patch.object(steam_patch, "_find_patch_entry", return_value={"size": 42, "manifest_status": "confirmed"}), patch.object(steam_patch, "serve_patch_file", new=AsyncMock(return_value={"fixture": True})):
             response = await self.api.post("/api/steam/patches/123/link", headers=self.headers(self.token_a))
             self.assertEqual(response.status_code, 200, response.text)
             urls.append(response.json()["url"])
@@ -267,6 +267,16 @@ class PasswordAndSignedDownloadTests(unittest.IsolatedAsyncioTestCase):
             await self.api.post("/api/auth/logout", headers=self.headers(self.token_a))
             for url in urls:
                 self.assertEqual((await self.api.get(url)).status_code, 403)
+
+    async def test_pending_patch_blocked_at_link_direct_and_signed_download(self):
+        entry = {'manifest_status': 'confirmed', 'size': 42}
+        with patch.object(steam_patch, '_find_patch_entry', return_value=entry):
+            url = (await self.api.post('/api/steam/patches/42/link', headers=self.headers(self.token_a))).json()['url']
+            entry['manifest_status'] = 'pending'
+            self.assertEqual((await self.api.get(url)).status_code, 403)
+            self.assertEqual((await self.api.get('/api/steam/patches/42/download', headers=self.headers(self.token_a))).status_code, 403)
+            self.assertEqual((await self.api.post('/api/steam/patches/42/link', headers=self.headers(self.token_a))).status_code, 403)
+            self.assertEqual((await self.api.post('/api/steam/patches/42/link', headers=self.headers(self.admin_token))).status_code, 200)
 
     async def test_openlist_direct_redirect_is_preserved_but_sena_link_revokes(self):
         self.version.source_type = "openlist"

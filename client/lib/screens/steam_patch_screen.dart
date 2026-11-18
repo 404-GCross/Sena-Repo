@@ -15,6 +15,10 @@ import "../utils/local_dirs.dart";
 import "../utils/theme_utils.dart";
 import "../services/file_open_service.dart";
 import "../services/steam_service.dart";
+import '../services/agent_service.dart';
+import '../services/archive_safety.dart';
+import '../widgets/steam_patch_layout.dart';
+import '../widgets/patch_configuration_dialog.dart';
 import "../widgets/app_shell.dart";
 import "../widgets/feedback_dialog.dart";
 
@@ -44,6 +48,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   String? _status;
   bool _showNoPatch = false;
   final Map<String, String> _injectState = {}; // appId → status
+  final Map<String,String> _configuring = {};
 
   // Server tab
   List<Map<String, dynamic>> _serverPatches = [];
@@ -615,15 +620,62 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     }
   }
 
+  Future<String> _checkedGamePath(PatchMatch m) async {
+    final lib = _commonDir;
+    if (lib == null || m.installDir.isEmpty) throw StateError('未找到本地游戏');
+    final common = await SafeFileTree.open('$lib${Platform.pathSeparator}common');
+    final path = await common.checkedPath(m.installDir);
+    final tree = await SafeFileTree.open(path);
+    await Directory(tree.root).list(followLinks: false).isEmpty;
+    return tree.root;
+  }
+
+  Future<void> _configurePatch(PatchMatch m) async {
+    if (!_isAdmin || _configuring.containsKey(m.appId)) return;
+    final agent = AgentService(context.read<GameProvider>().api);
+    Future<String?> check() async {
+      try { await _checkedGamePath(m); } catch (_) { return '本地游戏目录不存在或不可读，请检查 Steam 库。'; }
+      try {
+        final settings = await agent.settings();
+        if (settings['enabled'] != true || '${settings['model'] ?? ''}'.trim().isEmpty) return '请先在智能体设置中启用并选择模型。';
+      } catch (_) { return '无法读取智能体设置，仍可手动配置。'; }
+      return null;
+    }
+    final availability = check();
+    final mode = await showDialog<PatchConfigurationMode>(context: context, builder: (_) =>
+      PatchConfigurationDialog(game: m.gameName, appId: m.appId, filename: m.patchFilename ?? '', unavailableReason: availability, remote: m.sourceType == 'openlist'));
+    if (!mounted || mode == null) return;
+    if (mode == PatchConfigurationMode.manual) { await _showEditDialog(m, rulesOnly: true); return; }
+    setState(() => _configuring[m.appId] = '准备分析');
+    try {
+      final result = await SteamService.configureLocalPatch(agent, m, await _checkedGamePath(m), (stage) {
+        if (mounted) setState(() => _configuring[m.appId] = stage);
+      });
+      if (!mounted) return;
+      if (result['status'] == 'confirmed') {
+        await showFeedbackDialog(context, '${m.gameName}\n${result['patch_dir'] == '' ? '补丁根目录' : result['patch_dir']} → ${result['target_dir'] == '' ? '游戏根目录' : result['target_dir']}', title: '补丁规则已保存');
+        if (mounted) { await _loadServerPatches(); if (mounted) await _scanAndCheck(); }
+      } else {
+        final edit = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(scrollable: true,
+          title: const Text('需要手动确认'), content: Text(result['message']?.toString() ?? '未能确定唯一的复制规则。'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('关闭')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('转手动配置'))]));
+        if (mounted && edit == true) await _showEditDialog(m, rulesOnly: true);
+      }
+    } catch (e) {
+      if (mounted) await showFeedbackDialog(context, '$e', error: true);
+    } finally { if (mounted) setState(() => _configuring.remove(m.appId)); }
+  }
+
   Future<void> _startInjection(
     PatchMatch m, {
     String? patchDirOverride,
     String? targetDirOverride,
   }) async {
+    if (!m.manifestReady || _configuring.containsKey(m.appId)) return;
     final steamapps = await LocalDirs.ensureSteamappsDir(context);
     if (steamapps == null || !mounted) return;
     final api = context.read<GameProvider>().api;
-    final fullPath = _gameInstallPath(m);
     final lookupKey = SteamService.patchLookupKey(
       appId: m.appId,
       file: m.patchFilename,
@@ -632,12 +684,14 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     setState(() =>
         _injectState[m.appId] = "0|0|0|0"); // progress|received|total|speed
     try {
+      final fullPath = await _checkedGamePath(m);
       // Signed URL first: it carries no token, so aria2 can fetch the patch too.
       final link = await SteamService.patchDownloadLink(api, lookupKey);
       final result = await SteamService.injectPatch(
         appId: m.appId,
         downloadUrl: link.url,
         expiresAt: link.expiresAt,
+        expectedSha256: link.sha256,
         serverBaseUrl: api.baseUrl,
         patchLookupKey: lookupKey,
         sourceType: m.sourceType ?? "local",
@@ -668,7 +722,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         _showMsg("注入完成\n${result["output"] ?? fullPath}");
       }
     } catch (e) {
-      if (mounted) setState(() => _injectState[m.appId] = "error:$e");
+      if (mounted) {
+        setState(() => _injectState.remove(m.appId));
+        await showFeedbackDialog(context, '$e', title: '注入失败', error: true);
+      }
     }
   }
 
@@ -741,33 +798,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   // ── Client tab ──
 
   Widget _buildClientTab() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 860;
-          final control = _buildClientControlPanel();
-          final content = _buildClientResultPanel();
-          if (!wide) {
-            return Column(
-              children: [
-                control,
-                const SizedBox(height: AppGap.lg),
-                Expanded(child: content),
-              ],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(width: 320, child: control),
-              const SizedBox(width: AppGap.lg),
-              Expanded(child: content),
-            ],
-          );
-        },
-      ),
-    );
+    return SteamPatchLayout(controls: _buildClientControlPanel(), results: _buildClientResultPanel);
   }
 
   Widget _buildClientControlPanel() {
@@ -827,7 +858,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ),
             ],
           ),
-          const Spacer(),
+          const SizedBox(height: AppGap.lg),
           Text(
             "提示：页面打开会自动读取上次 Steam 库并匹配补丁。需要重新同步时手动点击“刷新扫描”。",
             style: AppText.caption
@@ -838,7 +869,24 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
-  Widget _buildClientResultPanel() {
+  Widget _resultsHeading(String title, Widget search, Widget? badge) {
+    return LayoutBuilder(builder: (_, constraints) {
+      final text = Text(title, style: AppText.title);
+      if (constraints.maxWidth < 480) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Wrap(spacing: AppGap.sm, runSpacing: AppGap.sm, children: [text, ?badge]),
+          const SizedBox(height: AppGap.sm), search,
+        ]);
+      }
+      return Row(children: [text, const SizedBox(width: AppGap.sm),
+        Expanded(child: Align(alignment: Alignment.centerRight, child: SizedBox(width: 220, child: search))),
+        if (badge != null) ...[const SizedBox(width: AppGap.sm), badge],
+      ]);
+    });
+  }
+
+  Widget _buildClientResultPanel(bool stacked) {
+    Widget area({required Widget child}) => stacked ? child : Expanded(child: child);
     final query = _clientQuery.trim().toLowerCase();
     final available = query.isEmpty
         ? _availablePatches
@@ -853,44 +901,26 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-            child: Row(
-              children: [
-                Text("补丁匹配结果", style: AppText.title),
-                const SizedBox(width: AppGap.sm),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: _buildSearchField(
+            child: _resultsHeading('补丁匹配结果', _buildSearchField(
                         controller: _clientSearchCtrl,
                         hint: "搜索游戏 / 补丁",
                         onChanged: (value) =>
                             setState(() => _clientQuery = value),
-                      ),
-                    ),
-                  ),
-                ),
-                if (_matches.isNotEmpty) ...[
-                  const SizedBox(width: AppGap.sm),
-                  AppStatusPill(
+                      ), _matches.isNotEmpty ? AppStatusPill(
                     icon: Icons.check_circle_outline,
                     label: "${_readyPatches.length}/${_availablePatches.length} 可直接注入",
                     color: _readyPatches.isNotEmpty
                         ? Colors.green
                         : Colors.grey,
-                  ),
-                ],
-              ],
-            ),
+                  ) : null),
           ),
           Divider(height: 1, color: cardBorder(context)),
           if (_loading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
+            area(child: const Center(child: CircularProgressIndicator()))
           else if (_matches.isEmpty)
-            Expanded(child: _emptyClientState())
+            area(child: _emptyClientState())
           else if (available.isEmpty && noPatch.isEmpty)
-            Expanded(
+            area(
               child: Center(
                 child: Text("没有匹配的补丁",
                     style:
@@ -898,8 +928,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ),
             )
           else
-            Expanded(
+            area(
               child: ListView(
+                primary: false,
+                shrinkWrap: stacked,
+                physics: stacked ? const NeverScrollableScrollPhysics() : null,
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                 children: [
                   if (available.isNotEmpty) ...[
@@ -1003,8 +1036,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       padding: const EdgeInsets.all(14),
       radius: AppRadius.md,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
+        LayoutBuilder(builder: (_, box) {
+          final identity = Row(children: [Container(
               width: 36,
               height: 36,
               decoration: BoxDecoration(
@@ -1025,7 +1058,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                     style: AppText.bodySmall
                         .copyWith(color: subTextColor(context), fontSize: 11)),
               ])),
-          if (state == null)
+          ]);
+          final actions = <Widget>[
+          if (_configuring.containsKey(m.appId)) Text(_configuring[m.appId]!)
+          else if (state == null)
             Wrap(
                 spacing: 8,
                 runSpacing: 6,
@@ -1064,11 +1100,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                             minimumSize: Size.zero))
                   else
                     Tooltip(
-                      message: "前往补丁配置设置规则",
+                       message: _isAdmin ? "选择智能配置或手动配置" : "请联系管理员配置此补丁",
                       child: FilledButton.tonalIcon(
-                          onPressed: () => _jumpToServerPatch(m),
+                           onPressed: _isAdmin ? () => _configurePatch(m) : null,
                           icon: const Icon(Icons.auto_fix_high, size: 16),
-                          label: Text("规则待配置",
+                           label: Text(_isAdmin ? "规则待配置" : "待管理员配置",
                               style: AppText.bodySmall
                                   .copyWith(fontWeight: FontWeight.w600)),
                           style: FilledButton.styleFrom(
@@ -1152,7 +1188,11 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints()),
             ]),
-        ]),
+          ];
+          return box.maxWidth < 550 || state?.startsWith('error') == true
+              ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [identity, const SizedBox(height: 6), ...actions])
+              : Row(children: [Expanded(child: identity), ...actions]);
+        }),
         if (m.patchFilename != null && state == null)
           Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -1225,33 +1265,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   // ── Server tab ──
 
   Widget _buildServerTab() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 860;
-          final control = _buildServerControlPanel();
-          final content = _buildServerResultPanel();
-          if (!wide) {
-            return Column(
-              children: [
-                control,
-                const SizedBox(height: AppGap.lg),
-                Expanded(child: content),
-              ],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(width: 320, child: control),
-              const SizedBox(width: AppGap.lg),
-              Expanded(child: content),
-            ],
-          );
-        },
-      ),
-    );
+    return SteamPatchLayout(controls: _buildServerControlPanel(), results: _buildServerResultPanel);
   }
 
   Widget _buildServerControlPanel() {
@@ -1329,7 +1343,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ),
             ],
           ),
-          const Spacer(),
+          const SizedBox(height: AppGap.lg),
           Text(
             "服务端负责扫描补丁、匹配 AppID、配置注入规则；客户端只负责选择本地库并注入。",
             style: AppText.caption
@@ -1340,7 +1354,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     );
   }
 
-  Widget _buildServerResultPanel() {
+  Widget _buildServerResultPanel(bool stacked) {
+    Widget area({required Widget child}) => stacked ? child : Expanded(child: child);
     final query = _serverQuery.trim().toLowerCase();
     final patches = query.isEmpty
         ? _serverPatches
@@ -1352,40 +1367,22 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-            child: Row(
-              children: [
-                Text("补丁配置", style: AppText.title),
-                const SizedBox(width: AppGap.sm),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: _buildSearchField(
+            child: _resultsHeading('补丁配置', _buildSearchField(
                         controller: _serverSearchCtrl,
                         hint: "搜索补丁 / AppID",
                         onChanged: (value) =>
                             setState(() => _serverQuery = value),
-                      ),
-                    ),
-                  ),
-                ),
-                if (_serverLoaded) ...[
-                  const SizedBox(width: AppGap.sm),
-                  AppStatusPill(
+                      ), _serverLoaded ? AppStatusPill(
                     icon: Icons.inventory_2_outlined,
                     label: "${_serverPatches.length} 个补丁",
                     color: Theme.of(context).colorScheme.primary,
-                  ),
-                ],
-              ],
-            ),
+                  ) : null),
           ),
           Divider(height: 1, color: cardBorder(context)),
           if (_serverLoading)
-            Expanded(child: _buildScanProgressPanel())
+            area(child: _buildScanProgressPanel())
           else if (_serverPatches.isEmpty)
-            Expanded(
+            area(
               child: Center(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.archive_outlined,
@@ -1402,7 +1399,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ),
             )
           else if (patches.isEmpty)
-            Expanded(
+            area(
               child: Center(
                 child: Text("没有匹配的补丁",
                     style:
@@ -1410,8 +1407,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
               ),
             )
           else
-            Expanded(
+            area(
               child: SingleChildScrollView(
+                physics: stacked ? const NeverScrollableScrollPhysics() : null,
                 controller: _serverListCtrl,
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                 child: Column(
@@ -1689,14 +1687,20 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     return null;
   }
 
-  Future<void> _showEditDialog(PatchMatch m) async {
+  Future<void> _showEditDialog(PatchMatch m, {bool rulesOnly = false}) async {
+    if (!_isAdmin) return;
     final api = context.read<GameProvider>().api;
-    final installPath = _localInstallPath(m.appId);
+    final localPath = _localInstallPath(m.appId);
+    String? installPath;
+    if (localPath != null) {
+      try { installPath = await _checkedGamePath(_matches.firstWhere((game) => game.appId == m.appId)); } catch (_) {}
+    }
+    if (!mounted) return;
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (_) =>
-          _PatchEditDialog(api: api, match: m, installPath: installPath),
+          _PatchEditDialog(api: api, match: m, installPath: installPath, rulesOnly: rulesOnly),
     );
     if (saved != true || !mounted) return;
     _loadServerPatches();
@@ -1865,6 +1869,7 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
 
 
 class _PatchEditDialog extends StatefulWidget {
+  final bool rulesOnly;
   final dynamic api;
   final PatchMatch match;
   final String? installPath;
@@ -1873,6 +1878,7 @@ class _PatchEditDialog extends StatefulWidget {
     required this.api,
     required this.match,
     this.installPath,
+    this.rulesOnly = false,
   });
 
   @override
@@ -1896,6 +1902,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
   void initState() {
     super.initState();
     final m = widget.match;
+    if (widget.rulesOnly) _tabIndex = 1;
     _appIdCtrl.text =
         (m.appId != "null" && m.appId != "None" && m.appId.isNotEmpty)
             ? m.appId
@@ -2066,7 +2073,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
     try {
       await SteamService.updatePatchManifest(
         api: widget.api,
-        appId: "",
+        appId: widget.rulesOnly ? widget.match.appId : '',
         file: widget.match.patchFilename,
         lookupKey: widget.match.patchLookupKey,
         patchDir: patchDir,
@@ -2111,7 +2118,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              "编辑补丁数据 — ${widget.match.gameName}",
+              "${widget.rulesOnly ? '手动配置' : '编辑补丁数据'} — ${widget.match.gameName}",
               style: const TextStyle(fontSize: 16),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -2119,13 +2126,15 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
           ),
         ],
       ),
+      scrollable: true,
       content: SizedBox(
         width: 560,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AppSegmentedTabs(
+            if (widget.rulesOnly) Text('AppID ${widget.match.appId} · ${widget.match.patchFilename ?? ''}', style: AppText.caption),
+            if (!widget.rulesOnly) AppSegmentedTabs(
               selectedIndex: _tabIndex,
               tabs: const [
                 AppSegmentedTab(0, Icons.edit_note_rounded, "元数据"),
@@ -2138,12 +2147,14 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
               _buildMetadataFields()
             else
               SizedBox(
-                height: 420,
+                height: (MediaQuery.sizeOf(context).height * .46).clamp(160.0, 420.0).toDouble(),
                 child: _PatchTreeDialog(
                   key: _rulesKey,
                   api: widget.api,
                   match: widget.match,
-                  embedded: true,
+                   embedded: true,
+                   installPath: widget.installPath,
+                   manualEntry: widget.rulesOnly,
                 ),
               ),
           ],
@@ -2151,7 +2162,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       ),
       actionsAlignment: MainAxisAlignment.spaceBetween,
       actions: [
-        Row(
+        if (!widget.rulesOnly) Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextButton.icon(
@@ -2260,6 +2271,7 @@ class _PatchManifestDialogResult {
 }
 
 class _PatchTreeDialog extends StatefulWidget {
+  final bool manualEntry;
   final dynamic api;
   final PatchMatch match;
   final String? installPath;
@@ -2271,6 +2283,7 @@ class _PatchTreeDialog extends StatefulWidget {
     required this.match,
     this.installPath,
     this.embedded = false,
+    this.manualEntry = false,
   });
 
   @override
@@ -2285,7 +2298,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
   bool _loading = true;
   bool _saving = false;
 
-  bool get _manualRules => widget.match.analysisMode == "manual";
+  bool get _manualRules => widget.manualEntry || widget.match.analysisMode == "manual";
 
   bool get _canSave => !_loading && !_saving && (_manualRules || _data != null);
 

@@ -267,6 +267,7 @@ def _normalize_patch_records(patches: list[dict]) -> list[dict]:
 
 
 _METADATA_RESET_KEEP_KEYS = (
+    "manifest_sha256",
     "patch_dir",
     "target_dir",
     "manifest_status",
@@ -698,7 +699,8 @@ def _parse_7z_slt(output: str, archive_path: Path) -> tuple[list[dict], list[dic
             size = int(size_text) if size_text else 0
         except ValueError:
             size = 0
-        is_dir = current.get("Folder") == "+" or path.endswith("/")
+        attributes = current.get("Attributes", "").partition(" ")[0]
+        is_dir = current.get("Folder") == "+" or "D" in attributes or current.get("Path", "").endswith("/")
         raw_entries.append({"path": path, "type": "dir" if is_dir else "file", "size": size})
         current.clear()
 
@@ -930,6 +932,12 @@ class PatchManifestUpdate(BaseModel):
     app_id: str | None = None
     file: str | None = None
 
+    @field_validator('patch_dir', 'target_dir')
+    @classmethod
+    def safe_directory(cls, value):
+        from services.agent.inventory import relative_path
+        return relative_path(value.strip(), allow_empty=True)
+
 
 # Endpoints
 
@@ -1100,6 +1108,7 @@ async def update_patch_manifest(
         "target_dir": body.target_dir.strip().strip("/"),
         "app_id": body.app_id,
         "manifest_status": "confirmed",
+        "manifest_sha256": "",
         "manifest_updated_at": datetime.now(timezone.utc).isoformat(),
     }
     values.update(
@@ -1123,13 +1132,19 @@ async def update_patch_manifest(
     return {"message": "Manifest updated", "lookup_key": lookup_key, "patch": _enrich_patch_record(updated)}
 
 
-async def serve_patch_file(lookup_key: str, request: Request, session: AsyncSession):
+def _check_patch_access(entry, is_admin):
+    if not is_admin and (not entry or _manifest_status(entry) != 'confirmed'):
+        raise HTTPException(403, '补丁规则尚未配置，请联系管理员')
+
+
+async def serve_patch_file(lookup_key: str, request: Request, session: AsyncSession, *, is_admin=False):
     """Serve a patch archive: 302 to the OpenList raw URL, or the local file."""
     config = load_config()
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
 
     entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
+    _check_patch_access(entry, is_admin)
     if entry is not None:
         entry = _enrich_patch_record(entry)
         if entry.get("source_type") == "openlist":
@@ -1156,7 +1171,7 @@ async def serve_patch_file(lookup_key: str, request: Request, session: AsyncSess
                 headers={"Accept-Ranges": "bytes"},
             )
 
-    if not patches_dir.exists():
+    if not is_admin or not patches_dir.exists():
         raise HTTPException(status_code=404, detail="Patch directory not found")
     patch_file = _find_patch_fallback(patches_dir, lookup_key)
     if patch_file is None:
@@ -1178,7 +1193,7 @@ async def download_patch(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    return await serve_patch_file(lookup_key, request, session)
+    return await serve_patch_file(lookup_key, request, session, is_admin=user.role == 'admin')
 
 
 @router.post("/patches/{lookup_key}/link")
@@ -1193,6 +1208,7 @@ async def create_patch_download_link(
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     entry = _find_patch_entry(index_dir, lookup_key, fallback_dir=patches_dir)
+    _check_patch_access(entry, user.role == 'admin')
     size = int((entry or {}).get("size") or 0)
     expires_at = int(time.time()) + patch_download_ttl(size)
     url = build_signed_patch_url(request, lookup_key, expires_at, require_request_session(request, user))
@@ -1203,7 +1219,7 @@ async def create_patch_download_link(
         size,
         expires_at,
     )
-    return {"url": url, "expires_at": expires_at}
+    return {"url": url, "expires_at": expires_at, 'sha256': (entry or {}).get('manifest_sha256') or ''}
 
 
 signed_router = APIRouter(prefix="/api/download", tags=["steam-patch"])
@@ -1223,7 +1239,8 @@ async def download_signed_patch(
     auth_session = await signed_download_session(session, uid, sid)
     if not verify_patch_download_signature(lookup_key, expires_at, signature, auth_session):
         raise HTTPException(status_code=403, detail="下载链接无效或已过期")
-    return await serve_patch_file(lookup_key, request, session)
+    user = await session.get(User, uid)
+    return await serve_patch_file(lookup_key, request, session, is_admin=user is not None and user.role == 'admin')
 
 
 class PatchUpdate(BaseModel):

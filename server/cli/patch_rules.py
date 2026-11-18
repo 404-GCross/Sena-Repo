@@ -19,6 +19,7 @@ RULE_FIELDS = (
     "patch_dir",
     "target_dir",
     "manifest_status",
+    "manifest_sha256",
     "manifest_updated_at",
     "locked",
 )
@@ -31,6 +32,7 @@ RULE_DEFAULTS = {
     "patch_dir": "",
     "target_dir": "",
     "manifest_status": "pending",
+    "manifest_sha256": "",
     "manifest_updated_at": None,
     "locked": None,
 }

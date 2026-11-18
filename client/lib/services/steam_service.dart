@@ -9,6 +9,8 @@ import "logged_http.dart" as http;
 
 import "api_client.dart";
 import "download_service.dart";
+import 'archive_safety.dart';
+import 'agent_service.dart';
 
 class SteamGameInfo {
   final String appId;
@@ -260,7 +262,7 @@ class SteamService {
 
   /// Ask the server for a short-lived signed URL so aria2 can fetch the patch
   /// without an Authorization header.
-  static Future<({String url, int expiresAt})> patchDownloadLink(
+  static Future<({String url, int expiresAt, String sha256})> patchDownloadLink(
     ApiClient api,
     String lookupKey,
   ) async {
@@ -279,6 +281,7 @@ class SteamService {
     }
     return (
       url: url,
+      sha256: payload['sha256']?.toString() ?? '',
       expiresAt: int.tryParse("${payload["expires_at"] ?? 0}") ?? 0,
     );
   }
@@ -335,6 +338,44 @@ class SteamService {
 
   // ── Injection (delegates to DownloadService's proven pipeline) ──
 
+  static Future<Map<String, dynamic>> configureLocalPatch(AgentService agent, PatchMatch match,
+      String installPath, void Function(String) onStage) async {
+    agent.checkSession();
+    final tree = await SafeFileTree.open(installPath);
+    final key = match.patchLookupKey;
+    if (key == null || !key.startsWith('sp_')) throw StateError('请先建立补丁索引');
+    onStage('读取本地游戏目录');
+    final game = await tree.entries(limit: 30000);
+    agent.checkSession();
+    final payload = {
+      'app_id': match.appId,
+      'game_files': game.where((e) => !e.directory).map((e) => e.relative).toList(),
+      'game_dirs': game.where((e) => e.directory).map((e) => e.relative).toList(),
+    };
+    final endpoint = '/patches/${Uri.encodeComponent(key)}/configure';
+    if ((match.sourceType ?? 'local') == 'local') {
+      onStage('服务端正在读取本地补丁并分析目录');
+      return Map<String, dynamic>.from(await agent.request('POST', endpoint, payload));
+    }
+    final link = await patchDownloadLink(agent.api, key);
+    agent.checkSession();
+    Map<String,dynamic>? result;
+    onStage('下载或复用补丁并读取目录');
+    final (error, _) = await DownloadService().downloadPatch(appId: match.appId, downloadUrl: link.url,
+        expiresAt: link.expiresAt, serverBaseUrl: agent.origin, patchLookupKey: key,
+        patchFilename: match.patchFilename ?? 'patch.zip', installDir: installPath,
+        sourceType: match.sourceType ?? 'local', inspectOnly: (digest, files) async {
+          agent.checkSession();
+          await tree.checkRoot();
+          onStage('服务端正在分析目录');
+          result = Map<String,dynamic>.from(await agent.request('POST',endpoint,{
+            ...payload, 'sha256':digest,'archive_files':files,
+          }));
+        });
+    if (error != null) throw Exception(error);
+    return result!;
+  }
+
   /// Active injection DownloadService instances, keyed by appId.
   /// Kept here so pause/cancel can reach the same instance that is running the extraction.
   static final Map<String, DownloadService> _activeInjections = {};
@@ -379,6 +420,7 @@ class SteamService {
     String sourceType = "local",
     int expiresAt = 0,
     String? serverBaseUrl,
+    String expectedSha256 = '',
     void Function(double progress, int received, int total, int speed, String stage)? onProgress,
   }) async {
     final svc = DownloadService();
@@ -395,6 +437,7 @@ class SteamService {
         sourceType: sourceType,
         expiresAt: expiresAt,
         serverBaseUrl: serverBaseUrl,
+        expectedSha256: expectedSha256,
         onProgress: onProgress,
       );
       if (error != null) return {"error": error};

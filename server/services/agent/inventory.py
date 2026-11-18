@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import posixpath
+import re
 import stat
 import subprocess
 import threading
@@ -95,12 +96,12 @@ def inventory(
     return files
 
 
-def archive_evidence(path: Path) -> dict:
+def archive_inventory(path: Path, limit=2500) -> list[dict]:
     from api.steam_patch import _list_zip_entries, _parse_7z_slt, _seven_zip_executable
 
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as archive:
-            if len(archive.infolist()) > 2500:
+            if len(archive.infolist()) > limit:
                 raise ValueError("压缩包条目过多")
             for entry in archive.infolist():
                 if stat.S_IFMT(entry.external_attr >> 16) not in (
@@ -118,21 +119,25 @@ def archive_evidence(path: Path) -> dict:
         listing = bounded_tool(
             [exe, "l", "-slt", "-p-", "--", str(path)], 4 * 1024 * 1024
         ).decode("utf-8", "replace")
-        if any(
-            marker in listing
-            for marker in (
-                "Symbolic Link =",
-                "Hard Link =",
-                "Reparse =",
-                "Mode = l",
-                "Mode = b",
-                "Mode = c",
-            )
-        ):
-            raise ValueError("压缩包包含链接或特殊文件")
+        # RAR listings include empty link fields even for ordinary files.
+        for line in listing.splitlines():
+            field, sep, value = line.partition(' = ')
+            if not sep:
+                continue
+            if field in {'Symbolic Link', 'Hard Link', 'Copy Link', 'Link', 'Reparse', 'Reparse Point', 'Alternate Stream'} and value.strip() not in {'', '-'}:
+                raise ValueError('压缩包包含链接或特殊文件')
+            if field in {'Mode', 'Attributes'} and re.search(r'(?:^|\s)[lbcpso][rwxstST-]{9}(?:\s|$)', value):
+                raise ValueError('压缩包包含链接或特殊文件')
+            if field == 'Attributes' and ('Reparse' in value or 'L' in value.partition(' ')[0]):
+                raise ValueError('压缩包包含链接或特殊文件')
         tree, risks = _parse_7z_slt(listing, path)
-    if len(tree) >= 2500 or any(r.get("level") == "error" for r in risks):
+    if len(tree) >= limit or any(r.get("level") in {"danger", "error"} for r in risks):
         raise ValueError("压缩包清单不完整或不安全")
+    return tree
+
+
+def archive_evidence(path: Path) -> dict:
+    tree = archive_inventory(path)
     text = []
     # Read bounded text only; never extract an archive into the filesystem.
     if zipfile.is_zipfile(path):
