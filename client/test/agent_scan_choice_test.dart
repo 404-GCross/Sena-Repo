@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sena_repo/screens/agent_screen.dart';
+import 'package:sena_repo/widgets/app_dialog.dart';
 import 'package:sena_repo/services/api_client.dart';
 import 'package:sena_repo/services/agent_service.dart';
 
@@ -94,7 +95,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(chosen, isNull);
       expect(find.text('智能体已关闭或未配置，本次使用常规扫描'), findsOneWidget);
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byType(AppDialog), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
       await tester.tap(find.text('确定'));
       await tester.pumpAndSettle();

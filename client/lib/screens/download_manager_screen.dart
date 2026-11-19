@@ -6,6 +6,10 @@ import "dart:io" show Platform;
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
+import '../widgets/dialog_picker.dart';
+import '../widgets/app_dialog.dart';
+import '../widgets/dialog_text_input.dart';
+import '../widgets/feedback_dialog.dart';
 import "package:flutter/services.dart";
 
 import "dart:convert";
@@ -540,34 +544,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     final exes = ShortcutService.findAllExecutables(dir);
     if (exes.isEmpty) return null;
     if (exes.length == 1) return exes.first;
-    return await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("选择启动程序"),
-        content: SizedBox(
-          width: 400,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: exes.length,
-            itemBuilder: (_, i) {
-              final name = exes[i].split(RegExp(r"[/\\]")).last;
-              return ListTile(
-                leading: const Icon(Icons.insert_drive_file, size: 20),
-                title: Text(name, style: const TextStyle(fontSize: 13)),
-                subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
-                onTap: () => Navigator.pop(ctx, exes[i]),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-        ],
-      ),
-    );
+    return chooseExecutable(context, exes, dir);
   }
 
   Future<void> _addToSteam(DownloadTask t, String dir) async {
@@ -625,44 +602,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
       }
     }
     if (!result.success && result.message.contains("Steam 用户 ID")) {
-      final ctrl = TextEditingController();
-      final input = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("设置 Steam 用户 ID"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Steam 用户 ID 就是你的 Steam 好友代码", style: AppText.bodySmall),
-                  Text(
-                    "在 Steam 客户端里点好友 → 添加好友就能看到",
-                    style: AppText.bodySmall.copyWith(color: Colors.grey),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: ctrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(hintText: "例如: 12345678"),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text("保存"),
-            ),
-          ],
-        ),
-      );
+      if (!mounted) return;
+      final input = await promptSteamUserId(context);
       if (input != null && input.isNotEmpty) {
         await SteamIntegrationService().setSteamUserId(input);
         result = await _addToSteamWithSteamPrompt(
@@ -695,26 +636,8 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     );
     if (!mounted || !result.needsSteamShutdown) return result;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("关闭 Steam 后导入？"),
-        content: Text(
-          "Steam 正在运行。Sena-Repo 需要先关闭 Steam，安全写入 shortcuts.vdf，"
-          "完成后会自动重新启动 Steam。\n\n${result.message}",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("关闭并导入"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmAppAction(context, section: '游戏启动　/　导入 Steam', title: '关闭 Steam 后导入？',
+      message: 'Steam 正在运行。需要先关闭 Steam 以安全写入 shortcuts.vdf，完成后会自动重新启动 Steam。\n\n${result.message}', action: '关闭并导入');
     if (confirmed != true) {
       return SteamIntegrationResult(false, "已取消导入 Steam。");
     }
@@ -744,21 +667,7 @@ class _DownloadManagerScreenState extends State<DownloadManagerScreen> {
     }
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        content: Text(msg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<void> _toast(String msg) => mounted ? showFeedbackDialog(context, msg) : Future.value();
 
   String _fmtSize(int bytes) {
     if (bytes < 1024) return "$bytes B";

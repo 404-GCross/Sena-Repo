@@ -7,6 +7,7 @@ import "dart:typed_data";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
 import "package:flutter/services.dart";
 import "package:provider/provider.dart";
 
@@ -217,23 +218,8 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _cleanOldLogs() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("清理旧日志"),
-        content: const Text("删除 7 天前的客户端日志，当前日志不会受到影响。"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text("清理"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmDestructiveAction(context, section: '日志管理', title: '清理旧日志？',
+        message: '删除 7 天前的客户端日志，当前日志不会受到影响。', action: '清理日志');
     if (confirmed != true) return;
     await _logger.cleanOldLogs();
     await _load();

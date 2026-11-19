@@ -6,6 +6,10 @@ import "dart:io" show Platform;
 import "dart:ui" show ImageFilter;
 
 import "package:flutter/material.dart";
+import '../widgets/dialog_picker.dart';
+import '../widgets/app_dialog.dart';
+import '../widgets/dialog_text_input.dart';
+import '../widgets/feedback_dialog.dart';
 import "package:provider/provider.dart";
 import "package:file_picker/file_picker.dart";
 import "../services/logged_http.dart" as http;
@@ -27,21 +31,9 @@ import "../widgets/game_description.dart";
 import "../widgets/nsfw_image.dart";
 import "game_edit_screen.dart";
 
-void _showDialog(BuildContext ctx, String title, String msg) {
-  showDialog(
-    context: ctx,
-    builder: (c) => AlertDialog(
-      title: Text(title),
-      content: Text(msg),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text("确定"),
-        ),
-      ],
-    ),
-  );
-}
+Future<void> _showDialog(BuildContext ctx, String title, String msg) =>
+    showFeedbackDialog(ctx, msg, title: title, error: title.endsWith('失败') || title == '错误',
+        icon: title == '完成' ? Icons.check_circle_outline : null);
 
 class GameDetailScreen extends StatefulWidget {
   final int gameId;
@@ -186,7 +178,7 @@ class _GameDetailScreenState extends State<GameDetailScreen>
           onPressed: () async {
             final isAdmin = await _refreshIsAdmin();
             if (!isAdmin) {
-              if (mounted) _showDialog(context, "权限不足", "仅限管理员可操作");
+              if (mounted) await showPermissionFeedback(context, '编辑游戏');
               return;
             }
             final changed = await Navigator.push<bool>(
@@ -2803,34 +2795,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     }
     String exe = exes.first;
     if (exes.length > 1) {
-      final picked = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("选择启动程序"),
-          content: SizedBox(
-            width: 400,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: exes.length,
-              itemBuilder: (_, i) => ListTile(
-                leading: const Icon(Icons.insert_drive_file, size: 20),
-                title: Text(
-                  exes[i].split(RegExp(r"[/\\]")).last,
-                  style: const TextStyle(fontSize: 13),
-                ),
-                subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
-                onTap: () => Navigator.pop(ctx, exes[i]),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
-            ),
-          ],
-        ),
-      );
+      final picked = await chooseExecutable(context, exes, task.outputPath!);
       if (picked != null)
         exe = picked;
       else
@@ -2886,40 +2851,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       }
     }
     if (!result.success && result.message.contains("Steam 用户 ID")) {
-      final ctrl = TextEditingController();
-      final input = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("设置 Steam 用户 ID"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Steam 用户 ID 就是你的 Steam 好友代码", style: AppText.bodySmall),
-              Text(
-                "在 Steam 客户端里点好友 → 添加好友就能看到",
-                style: AppText.bodySmall.copyWith(color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: ctrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(hintText: "例如: 12345678"),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text("保存"),
-            ),
-          ],
-        ),
-      );
+      if (!mounted) return;
+      final input = await promptSteamUserId(context);
       if (input != null && input.isNotEmpty) {
         await SteamIntegrationService().setSteamUserId(input);
         result = await _addToSteamWithSteamPrompt(
@@ -2952,26 +2885,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     );
     if (!mounted || !result.needsSteamShutdown) return result;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("关闭 Steam 后导入？"),
-        content: Text(
-          "Steam 正在运行。Sena-Repo 需要先关闭 Steam，安全写入 shortcuts.vdf，"
-          "完成后会自动重新启动 Steam。\n\n${result.message}",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("关闭并导入"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmAppAction(context, section: '游戏启动　/　导入 Steam', title: '关闭 Steam 后导入？',
+      message: 'Steam 正在运行。需要先关闭 Steam 以安全写入 shortcuts.vdf，完成后会自动重新启动 Steam。\n\n${result.message}', action: '关闭并导入');
     if (confirmed != true) {
       return SteamIntegrationResult(false, "已取消导入 Steam。");
     }
@@ -2997,34 +2912,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     }
     String exe = exes.first;
     if (exes.length > 1) {
-      final picked = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("选择启动程序"),
-          content: SizedBox(
-            width: 400,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: exes.length,
-              itemBuilder: (_, i) => ListTile(
-                leading: const Icon(Icons.insert_drive_file, size: 20),
-                title: Text(
-                  exes[i].split(RegExp(r"[/\\]")).last,
-                  style: const TextStyle(fontSize: 13),
-                ),
-                subtitle: Text(exes[i], style: const TextStyle(fontSize: 11)),
-                onTap: () => Navigator.pop(ctx, exes[i]),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
-            ),
-          ],
-        ),
-      );
+      final picked = await chooseExecutable(context, exes, task.outputPath!);
       if (picked != null)
         exe = picked;
       else

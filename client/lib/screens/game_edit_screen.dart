@@ -20,6 +20,9 @@ import "../services/api_client.dart";
 import "../services/api_response_utils.dart";
 import "../services/scrape_service.dart";
 import "../widgets/app_shell.dart";
+import '../widgets/app_dialog.dart';
+import '../widgets/dialog_text_input.dart';
+import '../widgets/feedback_dialog.dart';
 import "../widgets/game_description.dart";
 import "../widgets/new_game_dialog.dart";
 import "../widgets/nsfw_image.dart";
@@ -165,86 +168,26 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Future<void> _showAddTagDialog() async {
-    final controller = TextEditingController();
-    try {
-      final value = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("新增标签"),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            minLines: 1,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: "标签",
-              hintText: "可用逗号或换行一次添加多个标签",
-            ),
-            onSubmitted: (_) => Navigator.pop(ctx, controller.text),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
-              child: const Text("添加"),
-            ),
-          ],
-        ),
-      );
-      final tags = value == null ? const <String>[] : _parseTagInput(value);
-      if (tags.isEmpty) return;
-      if (!mounted) return;
-      _setManualTags([..._tagNames, ...tags]);
-    } finally {
-      controller.dispose();
-    }
+    final value = await showDialogTextInput(context, title: '新增标签', section: '游戏编辑　/　标签', label: '标签名称',
+      hint: '例如：视觉小说，已通关', help: '可用逗号或换行一次添加多个标签。', action: '添加标签', maxLines: 4);
+    if (value == null || !mounted) return;
+    final tags = _parseTagInput(value);
+    if (tags.isNotEmpty) _setManualTags([..._tagNames, ...tags]);
   }
 
   Future<void> _showEditTagDialog(int index) async {
     if (index < 0 || index >= _tagNames.length) return;
-    final controller = TextEditingController(text: _tagNames[index]);
-    try {
-      final value = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("编辑标签"),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: "标签名称",
-              hintText: "留空会删除这个标签",
-            ),
-            onSubmitted: (_) => Navigator.pop(ctx, controller.text),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("取消"),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
-              child: const Text("保存"),
-            ),
-          ],
-        ),
-      );
-      if (value == null) return;
-      final next = List<String>.from(_tagNames);
-      final name = value.trim();
-      if (name.isEmpty) {
-        next.removeAt(index);
-      } else {
-        next[index] = name;
-      }
-      if (!mounted) return;
-      _setManualTags(next);
-    } finally {
-      controller.dispose();
+    final value = await showDialogTextInput(context, title: '编辑标签', section: '游戏编辑　/　标签', label: '标签名称',
+      initial: _tagNames[index], allowEmpty: true, hint: '例如：已通关', help: '留空并保存会删除这个标签。');
+    if (value == null || !mounted) return;
+    final next = List<String>.from(_tagNames);
+    final name = value.trim();
+    if (name.isEmpty) {
+      next.removeAt(index);
+    } else {
+      next[index] = name;
     }
+    _setManualTags(next);
   }
 
   void _removeTagAt(int index) {
@@ -725,37 +668,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
     }
   }
 
-  void _showMsg(String m) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("提示"),
-        content: Text(m),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showError(String m) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("错误"),
-        content: Text(m),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("关闭"),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<void> _showMsg(String m) async { if (mounted) await showFeedbackDialog(context, m); }
+  Future<void> _showError(String m) async { if (mounted) await showFeedbackDialog(context, m, error: true); }
 
   Future<void> _toggleLock() async {
     final target = !_locked;
@@ -1335,23 +1249,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("确认删除"),
-        content: Text("确定删除「" + widget.game.name + "」吗？\n不会删除本地文件。"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("删除"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmDestructiveAction(context, section: '游戏编辑', title: '删除游戏？', item: widget.game.name,
+      message: '此条目将从游戏库移除，不会删除本地文件。', action: '删除游戏');
     if (confirmed != true || !mounted) return;
     await context.read<GameProvider>().deleteGame(widget.game.id);
     if (mounted) Navigator.pop(context, true);

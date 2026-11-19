@@ -13,6 +13,7 @@ import "../utils/version.dart";
 import "../services/api_client.dart";
 import "../services/oauth_token_store.dart";
 import "../widgets/app_shell.dart";
+import '../widgets/app_dialog.dart';
 import "../widgets/server_address_text.dart";
 import "about_screen.dart";
 import "settings_screen.dart";
@@ -325,23 +326,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("退出登录"),
-        content: const Text("确定退出登录吗？"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmAppAction(context, section: '我的　/　账号', title: '退出登录？',
+        message: '将退出当前服务器账号并返回连接页。', action: '退出登录');
     if (confirmed == true && context.mounted) {
       final api = context.read<GameProvider>().api;
       await OAuthTokenStore.clear(api);

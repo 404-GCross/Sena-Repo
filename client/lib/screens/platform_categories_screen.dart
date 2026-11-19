@@ -1,6 +1,8 @@
 /// Platform category management (admin) — custom categories and detection rules.
 
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
+import '../widgets/dialog_text_input.dart';
 
 import "../models/game.dart";
 import "../services/api_client.dart";
@@ -54,32 +56,8 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
   }
 
   Future<String?> _promptName({required String title, String? initial}) {
-    final controller = TextEditingController(text: initial ?? "");
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 32,
-          decoration: const InputDecoration(
-            labelText: "分类名",
-            hintText: "例如 Switch、PSP、模拟器",
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text("保存"),
-          ),
-        ],
-      ),
-    );
+    return showDialogTextInput(context, section: '设置　/　平台分类', title: title,
+        label: '分类名', hint: '例如：Switch、PSP、模拟器', initial: initial ?? '', maxLength: 32);
   }
 
   Future<void> _addCategory() async {
@@ -117,9 +95,8 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
         builder: (ctx) {
           int? selected = targets.isEmpty ? null : targets.first.id;
           return StatefulBuilder(
-            builder: (ctx, setDialogState) => AlertDialog(
-              title: const Text("删除分类"),
-              content: Column(
+            builder: (ctx, setDialogState) => AppDialog(section: '设置　/　平台分类',
+              title: '删除并转移分类？', tone: Theme.of(ctx).colorScheme.error, child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -148,7 +125,7 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
                   child: const Text("取消"),
                 ),
                 FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error, foregroundColor: Theme.of(ctx).colorScheme.onError),
                   onPressed: selected == null
                       ? null
                       : () => Navigator.pop(ctx, selected),
@@ -161,24 +138,8 @@ class _PlatformCategoriesScreenState extends State<PlatformCategoriesScreen> {
       );
       if (reassignTo == null) return;
     } else {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("删除分类"),
-          content: Text("确定删除分类「${category.name}」？"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("取消"),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text("删除"),
-            ),
-          ],
-        ),
-      );
+      final confirmed = await confirmDestructiveAction(context, section: '设置　/　平台分类', title: '删除分类？',
+        message: '当前没有版本使用这个分类。', item: category.name, action: '删除分类');
       if (confirmed != true) return;
     }
     try {
@@ -446,14 +407,13 @@ class _PlatformRulesScreenState extends State<PlatformRulesScreen> {
 
   Future<(String, String)?> _ruleDialog({PlatformCategoryRule? rule}) {
     var kind = rule?.kind ?? "keyword";
-    final controller = TextEditingController(text: rule?.pattern ?? "");
+    var input = rule?.pattern ?? '';
     return showDialog<(String, String)>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(rule == null ? "添加匹配规则" : "编辑匹配规则"),
-          content: SingleChildScrollView(
-            child: Column(
+        builder: (ctx, setDialogState) => AppDialog(section: '平台分类　/　匹配规则',
+          title: rule == null ? '添加匹配规则' : '编辑匹配规则',
+          child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -467,10 +427,12 @@ class _PlatformRulesScreenState extends State<PlatformRulesScreen> {
                       setDialogState(() => kind = selection.first),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: controller,
+                TextFormField(
+                  initialValue: rule?.pattern ?? '',
+                  onChanged: (s) => setDialogState(() => input = s),
                   autofocus: true,
                   decoration: InputDecoration(
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
                     labelText: kind == "keyword" ? "包含的关键词" : "正则表达式",
                     hintText:
                         kind == "keyword" ? "例如 switch" : r"例如 \[Switch\]",
@@ -485,7 +447,6 @@ class _PlatformRulesScreenState extends State<PlatformRulesScreen> {
                       AppText.bodySmall.copyWith(color: subTextColor(context)),
                 ),
               ],
-            ),
           ),
           actions: [
             TextButton(
@@ -493,11 +454,7 @@ class _PlatformRulesScreenState extends State<PlatformRulesScreen> {
               child: const Text("取消"),
             ),
             FilledButton(
-              onPressed: () {
-                final pattern = controller.text.trim();
-                if (pattern.isEmpty) return;
-                Navigator.pop(ctx, (kind, pattern));
-              },
+              onPressed: input.trim().isEmpty ? null : () => Navigator.pop(ctx, (kind, input.trim())),
               child: const Text("保存"),
             ),
           ],
@@ -537,24 +494,8 @@ class _PlatformRulesScreenState extends State<PlatformRulesScreen> {
   }
 
   Future<void> _deleteRule(PlatformCategoryRule rule) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("删除规则"),
-        content: Text("确定删除规则「${rule.pattern}」？"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("删除"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmDestructiveAction(context, section: '平台分类　/　匹配规则', title: '删除规则？',
+      item: rule.pattern, message: '后续识别将不再使用这条规则。', action: '删除规则');
     if (confirmed != true) return;
     try {
       await widget.api.deletePlatformRule(widget.category.id, rule.id);

@@ -2,6 +2,7 @@
 
 import "dart:async";
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
 import "package:file_picker/file_picker.dart";
 import "package:provider/provider.dart";
 import "../services/logged_http.dart" as http;
@@ -200,19 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       "根目录、刮削源、扫描选项",
                       () {
                         if (!_isAdmin) {
-                          showDialog(
-                            context: context,
-                            builder: (c) => AlertDialog(
-                              title: const Text("权限不足"),
-                              content: const Text("扫描设置仅限管理员使用"),
-                              actions: [
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(c),
-                                  child: const Text("确定"),
-                                ),
-                              ],
-                            ),
-                          );
+                          showPermissionFeedback(context, '扫描设置');
                           return;
                         }
                         Navigator.push(
@@ -229,19 +218,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       "自定义平台分类与识别规则",
                       () {
                         if (!_isAdmin) {
-                          showDialog(
-                            context: context,
-                            builder: (c) => AlertDialog(
-                              title: const Text("权限不足"),
-                              content: const Text("分类管理仅限管理员使用"),
-                              actions: [
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(c),
-                                  child: const Text("确定"),
-                                ),
-                              ],
-                            ),
-                          );
+                          showPermissionFeedback(context, '分类管理');
                           return;
                         }
                         Navigator.push(
@@ -255,19 +232,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _menuItem(Icons.people, Colors.purple, "用户管理", "管理全部用户",
                         () {
                       if (!_isAdmin) {
-                        showDialog(
-                          context: context,
-                          builder: (c) => AlertDialog(
-                            title: const Text("权限不足"),
-                            content: const Text("用户管理仅限管理员使用"),
-                            actions: [
-                              FilledButton(
-                                onPressed: () => Navigator.pop(c),
-                                child: const Text("确定"),
-                              ),
-                            ],
-                          ),
-                        );
+                        showPermissionFeedback(context, '用户管理');
                         return;
                       }
                       Navigator.push(
@@ -283,19 +248,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       "导出、下载与恢复服务端备份",
                       () {
                         if (!_isAdmin) {
-                          showDialog(
-                            context: context,
-                            builder: (c) => AlertDialog(
-                              title: const Text("权限不足"),
-                              content: const Text("备份与恢复仅限管理员使用"),
-                              actions: [
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(c),
-                                  child: const Text("确定"),
-                                ),
-                              ],
-                            ),
-                          );
+                          showPermissionFeedback(context, '备份与恢复');
                           return;
                         }
                         Navigator.push(
@@ -1574,27 +1527,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       return;
     }
     if (mode == null || !mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(mode == 'agent' ? "清空并使用智能体重扫？" : "清空游戏库并重新扫描？"),
-        content: Text(
+    final confirmed = await confirmDestructiveAction(context, section: '游戏库　/　扫描',
+        title: mode == 'agent' ? "清空并使用智能体重扫？" : "清空游戏库并重新扫描？",
+        action: '清空并重扫', message:
           "将清理可重建的扫描条目、版本、分类关联和刮削数据，保留手动条目、名称锁定和元数据锁定条目。\n\n"
           "不会删除本地或网盘文件、游戏库目录设置和 Steam 补丁库设置。\n\n"
           "本次方式：${mode == 'agent' ? '智能体优先，常规扫描兜底' : '常规扫描'}。",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("清空并重扫"),
-          ),
-        ],
-      ),
     );
     if (confirmed != true || !mounted) return;
 
@@ -1615,19 +1553,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       if (mounted) _toast(context, "已清理可重建条目，常规扫描已启动");
     } catch (e) {
       if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("操作失败"),
-          content: Text("$e"),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("确定"),
-            ),
-          ],
-        ),
-      );
+      await showFeedbackDialog(context, '$e', error: true);
     }
   }
 
@@ -3720,22 +3646,7 @@ class _UserManagePageState extends State<_UserManagePage> {
   }
 
   Future<void> _deleteUser(int userId, String username) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("删除用户"),
-        content: Text("确定删除用户「$username」吗？此操作不可撤销。"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("取消")),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("删除", style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmDestructiveAction(context, section: '设置　/　用户管理', title: '删除用户？', item: username, message: '此用户将无法再登录。此操作不可撤销。', action: '删除用户');
     if (confirmed != true) return;
     try {
       final resp = await http.delete(
@@ -4185,17 +4096,4 @@ class _UserManagePageState extends State<_UserManagePage> {
   }
 }
 
-void _toast(BuildContext ctx, String msg) {
-  showDialog(
-    context: ctx,
-    builder: (c) => AlertDialog(
-      content: Text(msg),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text("确定"),
-        ),
-      ],
-    ),
-  );
-}
+Future<void> _toast(BuildContext ctx, String msg) => showFeedbackDialog(ctx, msg);

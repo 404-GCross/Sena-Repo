@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sena_repo/screens/agent_screen.dart';
+import 'package:sena_repo/widgets/app_dialog.dart';
 import 'package:sena_repo/services/api_client.dart';
 
 const settings = {
@@ -58,14 +59,14 @@ void main() {
       await tester.ensureVisible(find.text('保存并测试连接与工具调用'));
       await tester.tap(find.text('保存并测试连接与工具调用'));
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byType(AppDialog), findsOneWidget);
       expect(find.text('操作失败'), findsOneWidget);
       expect(find.text(detail), findsOneWidget);
       expect(find.text('Exception: $detail'), findsNothing);
       expect(find.byType(SnackBar), findsNothing);
       await tester.tap(find.text('确定'));
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(AppDialog), findsNothing);
       final button = tester.widget<TextButton>(find.widgetWithText(
           TextButton, '保存并测试连接与工具调用'));
       expect(button.onPressed, isNotNull);

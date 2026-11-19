@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sena_repo/widgets/feedback_dialog.dart';
+import 'package:sena_repo/widgets/app_dialog.dart';
 
 void main() {
   testWidgets('long feedback remains readable and waits for dismissal', (tester) async {
@@ -18,16 +19,21 @@ void main() {
     ))));
     await tester.tap(find.text('执行'));
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(AppDialog), findsOneWidget);
     expect(find.text('操作失败'), findsOneWidget);
     expect(find.byType(SelectableText), findsOneWidget);
-    expect(find.text(message), findsOneWidget);
+    expect(find.text(message.split('\n').first), findsOneWidget);
+    final detail = message.split('\n').skip(1).join('\n');
+    expect(find.text(detail), findsNothing);
+    await tester.tap(find.text('查看详情'));
+    await tester.pumpAndSettle();
+    expect(find.text(detail), findsOneWidget);
     expect(tester.takeException(), isNull);
     expect(finished, false);
     await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
     expect(finished, true);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(AppDialog), findsNothing);
   });
 
   testWidgets('feedback from a disposed screen is ignored', (tester) async {
@@ -40,6 +46,6 @@ void main() {
     await showFeedbackDialog(oldContext, '已完成');
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(AppDialog), findsNothing);
   });
 }

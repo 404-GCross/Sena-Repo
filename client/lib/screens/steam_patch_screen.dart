@@ -19,6 +19,7 @@ import '../services/agent_service.dart';
 import '../services/archive_safety.dart';
 import '../widgets/steam_patch_layout.dart';
 import '../widgets/patch_configuration_dialog.dart';
+import '../widgets/app_dialog.dart';
 import "../widgets/app_shell.dart";
 import "../widgets/feedback_dialog.dart";
 
@@ -409,51 +410,23 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final mode = await showDialog<String>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text("扫描补丁"),
-          content: Column(
+        builder: (ctx, setDialogState) => AppDialog(
+          section: 'Steam 补丁　/　扫描任务', title: '扫描补丁',
+          child: RadioGroup<String>(groupValue: selected, onChanged: (v) => setDialogState(() => selected = v ?? selected), child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              RadioListTile<String>(
-                value: "merge",
-                groupValue: selected,
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text("合并刷新"),
-                subtitle: const Text("保留已配置的规则、名称和锁定，补新文件、删丢失文件"),
-                onChanged: (value) =>
-                    setDialogState(() => selected = value ?? "merge"),
-              ),
-              RadioListTile<String>(
-                value: "metadata",
-                groupValue: selected,
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text("仅清空元数据"),
-                subtitle: const Text("保留规则、状态与锁定，重新解析 AppID / 名称 / 标签 / 类型"),
-                onChanged: (value) =>
-                    setDialogState(() => selected = value ?? "merge"),
-              ),
-              RadioListTile<String>(
-                value: "reset",
-                groupValue: selected,
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text("清空重扫"),
-                subtitle: const Text("丢弃全部已配置信息，完全按磁盘重建"),
-                onChanged: (value) =>
-                    setDialogState(() => selected = value ?? "merge"),
-              ),
+              DialogRadioCard(value: 'merge', selected: selected == 'merge', title: '合并刷新', description: '保留规则、名称与锁定，新增文件入库，移除已丢失的条目。'),
+              DialogRadioCard(value: 'metadata', selected: selected == 'metadata', title: '仅清空元数据', description: '保留规则、状态与锁定，重新解析 AppID、名称、标签和类型。'),
+              DialogRadioCard(value: 'reset', selected: selected == 'reset', danger: true, title: '清空重扫', description: '丢弃全部已配置信息，按磁盘文件重建补丁索引。'),
             ],
-          ),
+          )),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
             FilledButton(
                 onPressed: () => Navigator.pop(ctx, selected),
-                child: const Text("开始扫描")),
+                style: selected == 'reset' ? FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error, foregroundColor: Theme.of(ctx).colorScheme.onError) : null,
+                child: Text(selected == 'reset' ? '清空并重扫' : '开始扫描')),
           ],
         ),
       ),
@@ -583,20 +556,8 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       });
   }
 
-  void _showMsg(String msg, {bool error = false}) {
-    if (!mounted) return;
-    showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-              icon: Icon(error ? Icons.error_outline : Icons.check_circle,
-                  size: 28, color: error ? Colors.red[300] : Colors.green[300]),
-              content: Text(msg, style: const TextStyle(fontSize: 14)),
-              actions: [
-                FilledButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("确定"))
-              ],
-            ));
+  Future<void> _showMsg(String msg, {bool error = false}) async {
+    if (mounted) await showFeedbackDialog(context, msg, error: error);
   }
 
   // ── Inject ──
@@ -653,17 +614,17 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       });
       if (!mounted) return;
       if (result['status'] == 'confirmed') {
-        await showFeedbackDialog(context, '${m.gameName}\n${result['patch_dir'] == '' ? '补丁根目录' : result['patch_dir']} → ${result['target_dir'] == '' ? '游戏根目录' : result['target_dir']}', title: '补丁规则已保存');
+        await showFeedbackDialog(context, '${m.gameName}\n${result['patch_dir'] == '' ? '补丁根目录' : result['patch_dir']} → ${result['target_dir'] == '' ? '游戏根目录' : result['target_dir']}', title: '补丁规则已保存', icon: Icons.check_circle_outline);
         if (mounted) { await _loadServerPatches(); if (mounted) await _scanAndCheck(); }
       } else {
-        final edit = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(scrollable: true,
-          title: const Text('需要手动确认'), content: Text(result['message']?.toString() ?? '未能确定唯一的复制规则。'),
+        final edit = await showDialog<bool>(context: context, builder: (ctx) => AppDialog(section: 'Steam 补丁　/　智能配置',
+          title: '需要手动确认', child: Text(result['message']?.toString() ?? '未能确定唯一的复制规则。'),
           actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('关闭')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('转手动配置'))]));
         if (mounted && edit == true) await _showEditDialog(m, rulesOnly: true);
       }
     } catch (e) {
-      if (mounted) await showFeedbackDialog(context, '$e', error: true);
+      if (mounted) await showFeedbackDialog(context, '请核对游戏目录和服务端连接后重试，或改用手动配置。', title: '智能配置未完成', error: true, details: '$e');
     } finally { if (mounted) setState(() => _configuring.remove(m.appId)); }
   }
 
@@ -1929,20 +1890,8 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       barrierDismissible: false,
       builder: (_) => PopScope(
         canPop: false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5)),
-              SizedBox(width: 16),
-              Text("正在重新刮削 ..."),
-            ],
-          ),
-        ),
+        child: const AppDialog(section: 'Steam 补丁　/　元数据', title: '正在重新刮削', showClose: false, width: 400,
+          child: LinearProgressIndicator(semanticsLabel: '等待刮削结果')),
       ),
     ).then((_) => _loadingDialogOpen = false);
   }
@@ -1954,19 +1903,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
   }
 
   Future<void> _showResultDialog(String message, {bool error = false}) {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        icon: Icon(error ? Icons.error_outline : Icons.check_circle,
-            size: 28, color: error ? Colors.red[300] : Colors.green[300]),
-        content: Text(message, style: const TextStyle(fontSize: 14)),
-        actions: [
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text("确定")),
-        ],
-      ),
-    );
+    return showFeedbackDialog(context, message, error: error, icon: error ? Icons.error_outline : Icons.check_circle_outline);
   }
 
   Future<void> _rescrape() async {
@@ -2065,10 +2002,11 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
 
   Future<void> _saveManifest() async {
     final rules = _rulesKey.currentState;
+    if (rules == null || !rules.validateDirectories()) return;
     final patchDir =
-        (rules?.patchDirValue ?? widget.match.patchDir ?? "").trim();
+        rules.patchDirValue;
     final targetDir =
-        (rules?.targetDirValue ?? widget.match.targetDir ?? "").trim();
+        rules.targetDirValue;
     setState(() => _saving = true);
     try {
       await SteamService.updatePatchManifest(
@@ -2109,31 +2047,15 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Row(
-        children: [
-          Icon(Icons.edit_note_rounded, size: 22, color: cs.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              "${widget.rulesOnly ? '手动配置' : '编辑补丁数据'} — ${widget.match.gameName}",
-              style: const TextStyle(fontSize: 16),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-      scrollable: true,
-      content: SizedBox(
+    return AppDialog(section: 'Steam 补丁　/　注入规则', showClose: false, width: 560,
+      title: widget.rulesOnly ? '手动配置' : '编辑补丁数据 — ${widget.match.gameName}',
+      child: SizedBox(
         width: 560,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.rulesOnly) Text('AppID ${widget.match.appId} · ${widget.match.patchFilename ?? ''}', style: AppText.caption),
+            if (widget.rulesOnly) PatchIdentityHeader(game: widget.match.gameName, appId: widget.match.appId, filename: widget.match.patchFilename ?? ''),
             if (!widget.rulesOnly) AppSegmentedTabs(
               selectedIndex: _tabIndex,
               tabs: const [
@@ -2145,6 +2067,8 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
             const SizedBox(height: AppGap.md),
             if (_tabIndex == 0)
               _buildMetadataFields()
+            else if (widget.rulesOnly)
+              _PatchTreeDialog(key: _rulesKey, api: widget.api, match: widget.match, embedded: true, installPath: widget.installPath, manualEntry: true)
             else
               SizedBox(
                 height: (MediaQuery.sizeOf(context).height * .46).clamp(160.0, 420.0).toDouble(),
@@ -2154,13 +2078,11 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
                   match: widget.match,
                    embedded: true,
                    installPath: widget.installPath,
-                   manualEntry: widget.rulesOnly,
                 ),
               ),
           ],
         ),
       ),
-      actionsAlignment: MainAxisAlignment.spaceBetween,
       actions: [
         if (!widget.rulesOnly) Row(
           mainAxisSize: MainAxisSize.min,
@@ -2291,6 +2213,15 @@ class _PatchTreeDialog extends StatefulWidget {
 }
 
 class _PatchTreeDialogState extends State<_PatchTreeDialog> {
+  String? _sourceError, _targetError;
+  bool validateDirectories() {
+    String? invalid(String value) {
+      if (value.isEmpty) return null;
+      try { safeArchiveRelativePath(value); return null; } on ArchiveSafetyException { return '请填写安全的相对目录，不要使用绝对路径或上级跳转。'; }
+    }
+    setState(() { _sourceError = invalid(patchDirValue); _targetError = invalid(targetDirValue); });
+    return _sourceError == null && _targetError == null;
+  }
   final _patchDir = TextEditingController();
   final _targetDir = TextEditingController();
   Map<String, dynamic>? _data;
@@ -2439,6 +2370,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded && widget.manualEntry) return _directoryFields();
     if (widget.embedded) {
       return _buildBody(context);
     }
@@ -2771,30 +2703,7 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
                 ),
               ),
             const SizedBox(height: AppGap.md),
-            TextField(
-              controller: _patchDir,
-              decoration: InputDecoration(
-                labelText: "补丁源目录 (patch_dir)",
-                hintText: _manualRules ? "按补丁说明填写；留空表示压缩包根目录" : "例如 Kinkoi_R18DLC；留空则直接解压",
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: AppGap.md),
-            TextField(
-              controller: _targetDir,
-              decoration: InputDecoration(
-                labelText: "目标子目录 (target_dir)",
-                hintText: "留空表示游戏根目录",
-                isDense: true,
-                suffixIcon: widget.installPath == null
-                    ? null
-                    : IconButton(
-                        tooltip: "从游戏目录选择",
-                        icon: const Icon(Icons.folder_open_rounded),
-                        onPressed: _pickTargetDir,
-                      ),
-              ),
-            ),
+            _directoryFields(),
             if (widget.installPath != null) ...[
               const SizedBox(height: AppGap.md),
               AppSurface(
@@ -2825,6 +2734,19 @@ class _PatchTreeDialogState extends State<_PatchTreeDialog> {
       ),
     );
   }
+  Widget _directoryFields() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    TextField(controller: _patchDir, decoration: InputDecoration(
+      labelText: '补丁源目录', floatingLabelBehavior: FloatingLabelBehavior.always,
+      hintText: '留空表示压缩包根目录', errorText: _sourceError, errorMaxLines: 3)),
+    const SizedBox(height: AppGap.lg),
+    TextField(controller: _targetDir, decoration: InputDecoration(
+      labelText: '游戏内目标目录', floatingLabelBehavior: FloatingLabelBehavior.always,
+      hintText: '留空表示游戏根目录', errorText: _targetError, errorMaxLines: 3,
+      suffixIcon: widget.installPath == null ? null : IconButton(tooltip: '从游戏目录选择',
+        icon: const Icon(Icons.folder_open_rounded), onPressed: _pickTargetDir))),
+    if (widget.manualEntry) Padding(padding: const EdgeInsets.only(top: 8),
+      child: Text(widget.installPath == null ? '本地目录不可读，仍可填写相对目录。' : '填写相对目录，或从本地游戏目录中选择目标。', style: AppText.label)),
+  ]);
 }
 
 class _TargetDirectoryEntry {

@@ -5,6 +5,7 @@ import "dart:ui";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
+import '../widgets/dialog_text_input.dart';
 import "package:provider/provider.dart";
 
 import "../providers/theme_provider.dart";
@@ -72,46 +73,13 @@ class _BeautifyScreenState extends State<BeautifyScreen> {
 
   Future<void> _promptImageUrl(ThemeProvider theme) async {
     final current = theme.backgroundFor(_mobile).path ?? "";
-    final controller = TextEditingController(
-      text: current.startsWith("http") ? current : "",
-    );
-    final url = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          "使用图片网址",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: "图片网址",
-            hintText: "https://example.com/background.jpg",
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              final uri = Uri.tryParse(value);
-              if (uri == null ||
-                  !(uri.scheme == "http" || uri.scheme == "https") ||
-                  uri.host.isEmpty) {
-                return;
-              }
-              Navigator.pop(ctx, value);
-            },
-            child: const Text("使用"),
-          ),
-        ],
-      ),
-    );
+    final input = await showDialogTextInput(context, section: '美化　/　背景图片', title: '使用图片网址', label: '图片网址',
+      hint: 'https://example.com/background.jpg', initial: current.startsWith('http') ? current : '', action: '使用',
+      keyboardType: TextInputType.url, validate: (v) {
+        final uri = Uri.tryParse(v);
+        return uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty ? null : '请输入完整的 HTTP 或 HTTPS 图片网址。';
+      });
+    final url = input?.trim();
     if (url == null || !mounted) return;
     setState(() => _backgroundBusy = true);
     try {

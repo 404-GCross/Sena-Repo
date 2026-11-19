@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../widgets/app_dialog.dart';
+import '../widgets/dialog_picker.dart';
 
 import '../services/agent_service.dart';
 import '../services/api_client.dart';
@@ -211,17 +213,8 @@ class _AgentScreenState extends State<AgentScreen> {
           models ? 'GET' : 'POST', models ? '/models' : '/test');
       if (!mounted) return;
       if (models) {
-        final chosen = await showDialog<String>(
-            context: context,
-            builder: (ctx) => SimpleDialog(
-                  title: const Text('选择模型'),
-                  children: [
-                    for (final model in result['models'] as List)
-                      SimpleDialogOption(
-                          onPressed: () => Navigator.pop(ctx, '$model'),
-                          child: Text('$model'))
-                  ],
-                ));
+        final chosen = await showStringPicker(context, title: '选择模型', section: '智能体　/　模型与代理',
+          items: (result['models'] as List).map((model) => '$model').toList(), selected: value!['model']?.toString());
         if (chosen != null && mounted) {
           setState(() {
             value!['model'] = chosen;
@@ -489,27 +482,27 @@ Future<String?> chooseScanMode(
   final result = await showDialog<String>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-          builder: (ctx, update) => AlertDialog(
-                scrollable: true,
-                title: Text('选择${kind == 'patch' ? '补丁' : '游戏'}扫描方式'),
-                content: SizedBox(
+           builder: (ctx, update) => AppDialog(
+                 section: kind == 'patch' ? 'Steam 补丁　/　扫描任务' : '游戏库　/　扫描任务',
+                 title: '选择${kind == 'patch' ? '补丁' : '游戏'}扫描方式',
+                 child: SizedBox(
                     width: 420,
                     child: RadioGroup<String>(
                         groupValue: mode,
                         onChanged: (v) => update(() => mode = v!),
                         child:
                             Column(mainAxisSize: MainAxisSize.min, children: [
-                           const RadioListTile<String>(
-                               value: 'regular',
-                               title: Text('常规扫描'),
-                               subtitle: Text('使用现有流程，不调用模型')),
-                          RadioListTile<String>(
-                              value: 'agent',
-                              enabled: available,
-                              title: const Text('智能体扫描'),
-                              subtitle: Text(available
-                                  ? '智能体优先，常规兜底；明确结果自动应用'
-                                  : '智能体尚未开启或未配置')),
+                            DialogRadioCard<String>(
+                                value: 'regular',
+                                selected: mode == 'regular', title: '常规扫描',
+                                description: '使用现有流程，不调用模型。'),
+                           DialogRadioCard<String>(
+                               value: 'agent',
+                               enabled: available, selected: mode == 'agent',
+                               title: '智能体扫描',
+                               description: available
+                                   ? '智能体优先，常规兜底；明确结果自动应用'
+                                   : '智能体尚未开启或未配置'),
                           CheckboxListTile(
                               value: remember,
                               title: const Text('记住此选择，下次不再询问'),

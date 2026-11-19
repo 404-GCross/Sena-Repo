@@ -7,6 +7,7 @@ import "dart:io" show Platform;
 
 import "package:flutter/gestures.dart";
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
@@ -958,21 +959,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchDelete() async {
-    final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(
-              title: const Text("批量删除"),
-              content: Text("确定删除 ${_selectedIds.length} 个游戏？不会删除本地文件。"),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(c, false),
-                    child: const Text("取消")),
-                TextButton(
-                    onPressed: () => Navigator.pop(c, true),
-                    child:
-                        const Text("删除", style: TextStyle(color: Colors.red))),
-              ],
-            ));
+    final confirmed = await confirmDestructiveAction(context, section: '游戏库　/　批量操作', title: '删除 ${_selectedIds.length} 个游戏？',
+      message: '所选条目将从游戏库移除，不会删除本地文件。', action: '删除游戏');
     if (confirmed != true || !mounted) return;
     try {
       final api = context.read<GameProvider>().api;
@@ -989,16 +977,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } catch (e) {
       if (mounted)
-        showDialog(
-            context: context,
-            builder: (d) => AlertDialog(
-                    title: const Text("错误"),
-                    content: Text("删除失败: $e"),
-                    actions: [
-                      FilledButton(
-                          onPressed: () => Navigator.pop(d),
-                          child: const Text("确定"))
-                    ]));
+        await showFeedbackDialog(context, '删除失败: $e', error: true);
     }
   }
 
@@ -1177,34 +1156,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _multiSelect = false;
       });
       if (mounted) {
-        showDialog(
-            context: context,
-            builder: (c) => AlertDialog(
-                  title: const Text("批量刮削"),
-                  content: Text(
-                    skipped > 0
+        await showFeedbackDialog(context, skipped > 0
                         ? "已触发 $count 个游戏的刮削任务，$skipped 个已锁定条目已跳过"
-                        : "已触发 $count 个游戏的刮削任务",
-                  ),
-                  actions: [
-                    FilledButton(
-                        onPressed: () => Navigator.pop(c),
-                        child: const Text("确定"))
-                  ],
-                ));
+                        : "已触发 $count 个游戏的刮削任务", title: '批量刮削');
       }
     } catch (e) {
       if (mounted)
-        showDialog(
-            context: context,
-            builder: (d) => AlertDialog(
-                    title: const Text("错误"),
-                    content: Text("刮削失败: $e"),
-                    actions: [
-                      FilledButton(
-                          onPressed: () => Navigator.pop(d),
-                          child: const Text("确定"))
-                    ]));
+        await showFeedbackDialog(context, '刮削失败: $e', error: true);
     }
   }
 

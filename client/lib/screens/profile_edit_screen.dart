@@ -4,6 +4,7 @@ import "dart:convert";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
 import "../services/logged_http.dart" as http;
 import "package:provider/provider.dart";
 
@@ -202,32 +203,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     if (_bindingBusy) return;
     final binding = _bindingFor(provider);
     final name = binding?["name"]?.toString() ?? "";
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          "解除 $label 绑定？",
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
-        content: Text(
-          "解绑后${name.isEmpty ? "该 $label 账号" : "「$name」"}将无法再登录本服务器；"
-          "你需要改用用户名和密码登录。",
-          style: const TextStyle(fontSize: 13, height: 1.6),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text("解除绑定"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmDestructiveAction(context, section: '个人资料　/　账号绑定', title: '解除 $label 绑定？',
+      item: name.isEmpty ? label : name, message: '解绑后，此 $label 账号将无法再登录本服务器；你需要改用用户名和密码登录。', action: '解除绑定');
     if (confirmed != true || !mounted) return;
     setState(() {
       _bindingBusy = true;

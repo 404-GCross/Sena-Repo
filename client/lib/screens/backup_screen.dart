@@ -6,6 +6,7 @@ import "dart:io";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
 import "package:path_provider/path_provider.dart";
 import "package:provider/provider.dart";
 import "package:shared_preferences/shared_preferences.dart";
@@ -122,19 +123,7 @@ class _BackupScreenState extends State<BackupScreen> {
   bool get _isAdmin => _currentRole == "admin";
 
   void _showPermissionDenied(String action) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("权限不足"),
-        content: Text("$action仅限管理员使用"),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
+    showPermissionFeedback(context, action);
   }
 
   Future<void> _toast(String message, {bool error = false}) async {
@@ -1159,23 +1148,8 @@ class _BackupScreenState extends State<BackupScreen> {
   Future<void> _delete(Map<String, dynamic> entry) async {
     final name = entry["name"]?.toString() ?? "";
     if (name.isEmpty) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("删除备份？"),
-        content: Text(name),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text("取消"),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text("删除"),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmDestructiveAction(context, section: '备份与恢复', title: '删除这份备份？',
+      message: '将从服务端移除此备份文件。删除后无法再用它恢复数据。', item: name, action: '删除备份');
     if (confirmed != true) return;
 
     setState(() => _busy = true);
@@ -1655,40 +1629,15 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   Widget build(BuildContext context) {
     // Images only exist in the library part of a backup.
     final mediaAvailable = _scope != "patch";
-    return AlertDialog(
-      title: const Text("导出备份"),
-      content: SingleChildScrollView(
+    return AppDialog(section: '备份与恢复', title: '导出备份',
+      child: RadioGroup<String>(groupValue: _scope, onChanged: (v) => setState(() => _scope = v ?? _scope),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RadioListTile<String>(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: "library",
-              groupValue: _scope,
-              onChanged: (value) => setState(() => _scope = value ?? "library"),
-              title: const Text("仅游戏库"),
-              subtitle: const Text("游戏、版本、标签、账号与扫描/刮削设置"),
-            ),
-            RadioListTile<String>(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: "patch",
-              groupValue: _scope,
-              onChanged: (value) => setState(() => _scope = value ?? "patch"),
-              title: const Text("仅补丁"),
-              subtitle: const Text("补丁匹配规则与类型关键词"),
-            ),
-            RadioListTile<String>(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: "all",
-              groupValue: _scope,
-              onChanged: (value) => setState(() => _scope = value ?? "all"),
-              title: const Text("两个都备份"),
-              subtitle: const Text("游戏库 + 补丁规则（含扫描/刮削设置）"),
-            ),
+            DialogRadioCard(value: 'library', selected: _scope == 'library', title: '仅游戏库', description: '游戏、版本、标签、账号与扫描/刮削设置'),
+            DialogRadioCard(value: 'patch', selected: _scope == 'patch', title: '仅补丁', description: '补丁匹配规则与类型关键词'),
+            DialogRadioCard(value: 'all', selected: _scope == 'all', title: '两个都备份', description: '游戏库 + 补丁规则（含扫描/刮削设置）'),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
@@ -1733,14 +1682,13 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text("导入备份"),
-      content: SingleChildScrollView(
-        child: Column(
+    return AppDialog(section: '备份与恢复', title: '导入备份',
+      child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _scope,
               decoration: const InputDecoration(labelText: "恢复范围"),
               items: const [
@@ -1752,6 +1700,7 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _mode,
               decoration: const InputDecoration(labelText: "已存在的条目"),
               items: const [
@@ -1762,6 +1711,7 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _mediaPolicy,
               decoration: const InputDecoration(labelText: "已有图片"),
               items: const [
@@ -1772,7 +1722,6 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
                   setState(() => _mediaPolicy = value ?? "skip"),
             ),
           ],
-        ),
       ),
       actions: [
         TextButton(
@@ -1780,6 +1729,7 @@ class _ImportOptionsDialogState extends State<_ImportOptionsDialog> {
           child: const Text("取消"),
         ),
         FilledButton(
+          style: _mode == 'replace' ? FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error, foregroundColor: Theme.of(context).colorScheme.onError) : null,
           onPressed: () => Navigator.pop(context, {
             "scope": _scope,
             "mode": _mode,

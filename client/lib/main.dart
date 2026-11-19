@@ -342,6 +342,14 @@ class _SenaRepoAppState extends State<SenaRepoApp> with WindowListener {
             useMaterial3: true,
             visualDensity: VisualDensity.standard,
             scaffoldBackgroundColor: const Color(0xFFECEFF5),
+            dialogTheme: DialogThemeData(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18),
+                  side: const BorderSide(color: Color(0xFFE3E7EE))),
+              titleTextStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600,
+                  color: Color(0xFF111827), fontFamilyFallback: appFontFamilyFallback),
+            ),
             fontFamilyFallback: appFontFamilyFallback,
             appBarTheme: const AppBarTheme(
               centerTitle: false,

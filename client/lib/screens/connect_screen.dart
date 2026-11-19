@@ -4,6 +4,8 @@ import "dart:convert";
 import "dart:io" show Platform;
 
 import "package:flutter/material.dart";
+import '../widgets/app_dialog.dart';
+import '../widgets/feedback_dialog.dart';
 import "package:provider/provider.dart";
 import "../services/logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -180,7 +182,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (!success) {
         hideLoading();
         if (mounted) {
-          _showToast(settings.errorMessage ?? "连接服务器失败");
+          showFeedbackDialog(context, settings.errorMessage ?? '请确认服务器地址和端口后重试。', title: '连接服务器失败', error: true);
           setState(() => _error = settings.errorMessage ?? "连接服务器失败");
         }
         return;
@@ -286,9 +288,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (cancelled || attempt != _connectionAttempt) return;
       hideLoading();
       if (mounted)
-        _showToast(
-          "连接失败: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}",
-        );
+        await showFeedbackDialog(context, '请检查服务器连接后重试。', title: '连接失败', error: true, details: '$e');
     }
   }
 
@@ -388,7 +388,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
         if (!mounted) return;
         final text = e.toString();
         final msg =
-            "初始化成功，但加载游戏库失败: ${text.length > 80 ? text.substring(0, 80) : text}";
+          "初始化成功，但加载游戏库失败: $text";
         _showToast(msg);
         setState(() => _error = msg);
       }
@@ -396,26 +396,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
       if (!mounted) return;
       final text = e.toString();
       final msg =
-          "初始化后登录失败: ${text.length > 80 ? text.substring(0, 80) : text}";
+          "初始化后登录失败: $text";
       _showToast(msg);
       setState(() => _error = msg);
     }
   }
 
-  void _showToast(String msg) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        content: Text(msg, maxLines: 3, overflow: TextOverflow.ellipsis),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
+  Future<void> _showToast(String msg) async {
+    if (mounted) await showFeedbackDialog(context, msg);
   }
 
   void _showConnectingDialog(UserProfile profile, VoidCallback onCancel) {
@@ -423,21 +411,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text("正在连接服务器"),
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Text("${profile.host}:${profile.port}")),
-          ],
-        ),
-        actions: [TextButton(onPressed: onCancel, child: const Text("取消"))],
-      ),
+      builder: (ctx) => PopScope(canPop: false, child: AppDialog(section: '服务器连接', title: '正在连接服务器', showClose: false, width: 420,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(ctx.watch<SettingsProvider>().hideServerAddress ? '服务器：********' : '服务器：${profile.host}:${profile.port}'),
+          const SizedBox(height: 14), const LinearProgressIndicator(semanticsLabel: '等待服务器响应'),
+        ]),
+        actions: [OutlinedButton(onPressed: onCancel, child: const Text("取消连接"))],
+      )),
     );
   }
 
@@ -609,20 +589,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
     }
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        content: Text(msg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
+  Future<void> _toast(String msg) async {
+    if (mounted) await showFeedbackDialog(context, msg);
   }
 
   Future<void> _goHome({required GameProvider games}) async {
