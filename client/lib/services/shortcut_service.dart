@@ -60,7 +60,7 @@ class ShortcutService {
           .whereType<File>()
           .where((f) {
         final name = f.uri.pathSegments.last.toLowerCase();
-        if (Platform.isWindows) return name.endsWith(".exe");
+        if (Platform.isWindows || Platform.isLinux) return name.endsWith(".exe");
         if (name.endsWith(".exe")) return true;
         if (name.endsWith(".sh")) return true;
         return !name.contains(".") || name.endsWith(".x86_64") || name.endsWith(".bin");
