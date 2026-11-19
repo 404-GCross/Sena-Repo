@@ -73,9 +73,10 @@ Version channels:
 
 Update behavior:
   --update      Fetch the latest source from SENA_REPO_URL/SENA_REPO_REF,
-                prepare the new code and Python environment first, then stop the
+                reuse a verified Python environment for code-only updates, then stop the
                 service, switch, and run a health check. A failed update restores
-                the previous release and restarts it.
+                the previous release and restarts it. Use senacli update --force
+                to rebuild the environment even when dependencies are unchanged.
   --check       Check the remote source revision without installing or updating.
 
 Supported Linux package managers:
@@ -150,6 +151,9 @@ PREV_SERVER=""
 PREV_VENV=""
 ENV_BACKUP=""
 PERSIST_CHANNEL=""
+REUSE_VENV=false
+EXPECTED_SHA="${SENA_EXPECTED_SHA:-}"
+STAGING=false
 
 log() {
   printf '[sena-repo] %s\n' "$*" >&2
@@ -165,11 +169,8 @@ cleanup() {
     rm -rf "$TEMP_DIR"
   fi
   # Staged files only exist when the update aborted before the switch-over.
-  if [ -n "${NEXT_SERVER:-}" ]; then
-    rm -rf "$NEXT_SERVER"
-  fi
-  if [ -n "${NEXT_VENV:-}" ]; then
-    rm -rf "$NEXT_VENV"
+  if [ "$STAGING" = true ]; then
+    rm -rf "$NEXT_SERVER" "$NEXT_VENV"
   fi
 }
 trap cleanup EXIT
@@ -237,6 +238,19 @@ load_existing_data_path() {
   saved_data_path="$(sed -n 's/^SENA_DATA_PATH=//p' "$ENV_FILE" | head -n 1)"
   if [ -n "$saved_data_path" ]; then
     DATA_PATH="$saved_data_path"
+  fi
+}
+
+load_service_port() {
+  [ -f "$ENV_FILE" ] || return 0
+  local port
+  port="$(sed -nE 's/^[[:space:]]*SENA_PORT[[:space:]]*=[[:space:]]*(.*)$/\1/p' "$ENV_FILE" | tail -n 1)"
+  [ -n "$port" ] || return 0
+  port="$(printf '%s' "$port" | sed -E "s/[[:space:]]+$//; s/^\"(.*)\"$/\\1/; s/^'(.*)'$/\\1/")"
+  if [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )); then
+    PORT_VALUE="$((10#$port))"
+  else
+    die "invalid SENA_PORT in the service environment: $ENV_FILE"
   fi
 }
 
@@ -865,9 +879,22 @@ fetch_source_via_archive() {
   local ref="$1" url tmp sha
   command -v curl >/dev/null 2>&1 || return 1
   command -v tar >/dev/null 2>&1 || return 1
-  url="$(archive_url_for_ref "$ref")" || return 1
+  url="$(archive_url_for_ref "${EXPECTED_SHA:-$ref}")" || return 1
   tmp="$(mktemp -d)"
   if ! curl -fsSL --retry 2 --max-time 600 "$url" -o "$tmp/source.tar.gz"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  if [ -n "$EXPECTED_SHA" ] && ! "$PYTHON_BIN" - "$tmp/source.tar.gz" "$EXPECTED_SHA" <<'PY'
+import sys, tarfile
+with tarfile.open(sys.argv[1], 'r:gz') as archive:
+    root = archive.next()
+    commit = archive.pax_headers.get('comment')
+    matches = commit == sys.argv[2] if commit else root and root.isdir() and root.name.endswith('-' + sys.argv[2])
+    sys.exit(0 if matches else 1)
+PY
+  then
+    log "archive does not identify the confirmed commit; running server unchanged"
     rm -rf "$tmp"
     return 1
   fi
@@ -878,7 +905,7 @@ fetch_source_via_archive() {
     return 1
   fi
   rm -rf "$tmp"
-  sha="$(remote_ref_sha_via_http "$ref" || true)"
+  sha="${EXPECTED_SHA:-$(remote_ref_sha_via_http "$ref" || true)}"
   if [ -n "$sha" ]; then
     printf '%s\n' "$sha" > "$REPO_CACHE_DIR/.sena-source-sha"
   fi
@@ -894,7 +921,7 @@ remote_server_dir() {
       # Keep the archive fallback on the same mirror the git path would use.
       switch_to_gh_mirror >/dev/null 2>&1 || true
     fi
-  elif ! ensure_repo_url; then
+  elif [ -z "$EXPECTED_SHA" ] && ! ensure_repo_url; then
     log "warning: git cannot reach $REPO_URL; using the archive download"
   else
   # git transport is usable; fetch or clone the source.
@@ -932,6 +959,10 @@ remote_server_dir() {
   fi
 
   [ -f "$REPO_CACHE_DIR/server/requirements.txt" ] || die "server requirements not found in the fetched source"
+  if [ -n "$EXPECTED_SHA" ] && [ "$source_ok" = true ]; then
+    [ "$(git -C "$REPO_CACHE_DIR" rev-parse HEAD)" = "$EXPECTED_SHA" ] \
+      || die "the remote ref changed after confirmation; running server unchanged, rerun senacli update"
+  fi
   printf '%s\n' "$REPO_CACHE_DIR/server"
 }
 
@@ -952,22 +983,44 @@ stop_service_if_exists() {
   fi
 }
 
+can_reuse_venv() {
+  [ "$ACTION" = update ] && [ "${SENA_REBUILD_VENV:-0}" != 1 ] || return 1
+  [ -x "$VENV_DIR/bin/python" ] && cmp -s "$APP_DIR/requirements.txt" "$NEXT_SERVER/requirements.txt" || return 1
+  local runtime version
+  runtime="$(realpath "$PYTHON_BIN")" && [ "$(realpath "$VENV_DIR/bin/python")" = "$runtime" ] || return 1
+  version="$("$PYTHON_BIN" -c 'import platform; print(platform.python_version())')" || return 1
+  grep -Fxq "version = $version" "$VENV_DIR/pyvenv.cfg" || return 1
+  "$VENV_DIR/bin/python" -m pip --isolated check >/dev/null 2>&1 &&
+    "$VENV_DIR/bin/python" -m pip --isolated install --dry-run --no-index --disable-pip-version-check \
+      -r "$NEXT_SERVER/requirements.txt" >/dev/null 2>&1 &&
+    "$VENV_DIR/bin/python" -I -c 'import fastapi, uvicorn, sqlalchemy, aiosqlite, bcrypt, cryptography, PIL.Image, lxml.etree' >/dev/null 2>&1
+}
+
 prepare_next_tree() {
   local source_dir="$1"
 
   log "staging the next release in $NEXT_SERVER"
-  rm -rf "$NEXT_SERVER" "$NEXT_VENV"
-  mkdir -p "$NEXT_SERVER"
-  cp -a "$source_dir/." "$NEXT_SERVER/"
+  STAGING=true
+  rm -rf "$NEXT_SERVER" "$NEXT_VENV" || return 1
+  mkdir -p "$NEXT_SERVER" || return 1
+  cp -a "$source_dir/." "$NEXT_SERVER/" || return 1
   local project_version
   project_version="$(source_project_version "$source_dir")"
   if [ -n "$project_version" ]; then
-    printf '%s\n' "$project_version" > "$NEXT_SERVER/VERSION"
+    printf '%s\n' "$project_version" > "$NEXT_SERVER/VERSION" || return 1
   fi
 
-  log "installing Python dependencies into the new environment (service keeps running)"
-  "$PYTHON_BIN" -m venv "$NEXT_VENV"
-  local pip_log="$INSTALL_ROOT/pip-install.log"
+  local started=$SECONDS pip_log="$INSTALL_ROOT/pip-install.log"
+  if [ "$ACTION" = update ]; then
+    log "checking the existing Python environment (service keeps running)"
+    if can_reuse_venv; then
+      REUSE_VENV=true
+      log "Python environment verified in $((SECONDS - started))s; skipping dependency installation"
+      return 0
+    fi
+  fi
+  log "preparing a new Python environment (service keeps running); dependency log: $pip_log"
+  "$PYTHON_BIN" -m venv "$NEXT_VENV" || return 1
   : >"$pip_log"
   chmod 600 "$pip_log" 2>/dev/null || true
   if ! "$NEXT_VENV/bin/python" -m pip install --upgrade pip setuptools wheel \
@@ -982,7 +1035,7 @@ prepare_next_tree() {
     tail -n 40 "$pip_log" >&2
     return 1
   fi
-  log "Python dependencies installed (log: $pip_log)"
+  log "Python environment ready in $((SECONDS - started))s (log: $pip_log)"
 }
 
 activate_next_tree() {
@@ -991,11 +1044,13 @@ activate_next_tree() {
   if [ -e "$APP_DIR" ]; then
     mv "$APP_DIR" "$PREV_SERVER"
   fi
-  if [ -e "$VENV_DIR" ]; then
-    mv "$VENV_DIR" "$PREV_VENV"
+  if [ "$REUSE_VENV" != true ]; then
+    if [ -e "$VENV_DIR" ]; then
+      mv "$VENV_DIR" "$PREV_VENV"
+    fi
+    mv "$NEXT_VENV" "$VENV_DIR"
   fi
   mv "$NEXT_SERVER" "$APP_DIR"
-  mv "$NEXT_VENV" "$VENV_DIR"
 }
 
 backup_environment_file() {
@@ -1024,21 +1079,20 @@ rollback_update() {
   [ -e "$PREV_SERVER" ] || return 1
   log "restoring the previous release"
   systemctl stop "$SERVICE_NAME.service" >/dev/null 2>&1 || true
-  rm -rf "$APP_DIR" "$VENV_DIR"
+  rm -rf "$APP_DIR"
   mv "$PREV_SERVER" "$APP_DIR"
-  if [ -e "$PREV_VENV" ]; then
+  if [ "$REUSE_VENV" != true ] && [ -e "$PREV_VENV" ]; then
+    rm -rf "$VENV_DIR"
     mv "$PREV_VENV" "$VENV_DIR"
   fi
   restore_environment_file
-  write_systemd_service
-  install_cli_command
-  start_service
-  return 0
+  write_systemd_service && install_control_scripts && install_cli_command && start_service && wait_for_health
 }
 
 wait_for_health() {
   local deadline url
   url="http://127.0.0.1:$PORT_VALUE/api/health"
+  log "waiting for service health on port $PORT_VALUE"
   if ! command -v curl >/dev/null 2>&1; then
     deadline=$((SECONDS + 30))
     while [ "$SECONDS" -lt "$deadline" ]; do
@@ -1212,8 +1266,8 @@ EOF
 
 start_service() {
   log "starting $SERVICE_NAME"
-  systemctl daemon-reload
-  systemctl enable --now "$SERVICE_NAME.service"
+  systemctl daemon-reload || return 1
+  systemctl enable --now "$SERVICE_NAME.service" || return 1
   systemctl --no-pager --full status "$SERVICE_NAME.service" || true
 }
 
@@ -1245,9 +1299,7 @@ install_or_update() {
   install_control_scripts
   install_cli_command
   write_systemd_service
-  start_service
-
-  if wait_for_health; then
+  if start_service && wait_for_health; then
     ensure_firewall_port
     write_version_metadata "$source_dir"
     cleanup_previous_release
@@ -1261,7 +1313,7 @@ install_or_update() {
   if rollback_update; then
     die "health check failed; the previous release was restored and restarted. See: journalctl -u $SERVICE_NAME -n 100"
   fi
-  die "health check failed and there is no previous release to restore. See: journalctl -u $SERVICE_NAME -n 100"
+  die "update failed and the previous service could not be verified. See: journalctl -u $SERVICE_NAME -n 100"
 }
 
 uninstall_service() {
@@ -1346,12 +1398,17 @@ case "$ACTION" in
     require_root
     load_existing_data_path
     load_existing_source_config
+    load_service_port
     validate_paths
     if [ -n "$REQUESTED_CHANNEL" ]; then
       validate_channel "$REQUESTED_CHANNEL"
       REQUESTED_CHANNEL="$(normalize_channel "$REQUESTED_CHANNEL")"
     fi
-    ensure_repo_url || true
+    if [ -n "$EXPECTED_SHA" ]; then
+      [[ "$ACTION" = update && "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || die "invalid expected update commit"
+    else
+      ensure_repo_url || true
+    fi
     selected_channel=""
     if [ -n "$REQUESTED_CHANNEL" ]; then
       selected_channel="$REQUESTED_CHANNEL"

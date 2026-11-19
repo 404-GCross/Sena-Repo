@@ -8,16 +8,12 @@ import subprocess
 import stat
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 import database as db
 from cli.common import (
-    REMOTE_CHECK_ATTEMPTS,
     audit,
-    REMOTE_CHECK_DELAY,
     choose,
     confirm,
     confirm_phrase,
@@ -32,7 +28,8 @@ from cli.common import (
     print_kv,
     print_table,
     read_version_metadata,
-    remote_source_sha,
+    remote_refs_via_git,
+    remote_refs_via_http,
     run_command,
     short_sha,
     uninstaller_path,
@@ -53,10 +50,9 @@ from utils.process_lock import process_lock, scan_lock_path
 
 
 DEFAULT_REPO_URL = "https://github.com/404-GCross/Sena-Repo.git"
-# The repository only has main; dev builds are the rolling dev-release tag.
-CHANNEL_REFS = {"dev": "main"}
 CHANNELS = ("dev", "beta", "release")
 CHANNEL_ALIASES = {"stable": "release"}
+SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
 
 
 def normalize_channel(value: str) -> str:
@@ -76,117 +72,8 @@ def channel_from_ref(ref: str) -> str:
     return ""
 
 
-def _remote_tags(repo_url: str) -> list[str]:
-    """Remote v* tags, newest first (version order); [] when unavailable."""
-    tags = _remote_tags_via_git(repo_url)
-    if tags:
-        return tags
-    for candidate in dict.fromkeys([repo_url, *mirror_candidates(repo_url)]):
-        tags = _remote_tags_via_http(candidate)
-        if tags:
-            return tags
-    return []
-
-
-def _remote_tags_via_git(repo_url: str) -> list[str]:
-    try:
-        proc = subprocess.run(
-            [
-                "git",
-                "ls-remote",
-                "--tags",
-                "--refs",
-                "--sort=-v:refname",
-                repo_url,
-                "v*",
-            ],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if proc.returncode != 0:
-        return []
-    tags = []
-    for line in proc.stdout.splitlines():
-        parts = line.split()
-        if len(parts) != 2:
-            continue
-        tags.append(parts[1].rsplit("/", 1)[-1])
-    return tags
-
-
-def _remote_tags_via_http(repo_url: str) -> list[str]:
-    """Tag list from the smart-HTTP refs advertisement; [] when unavailable."""
-    if not repo_url.startswith(("http://", "https://")):
-        return []
-    url = f"{repo_url.rstrip('/')}/info/refs?service=git-upload-pack"
-    try:
-        request = urllib.request.Request(
-            url, headers={"User-Agent": "git/2.43.0", "Accept": "*/*"}
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read().decode("utf-8", errors="replace")
-    except (OSError, ValueError):
-        return []
-    names = set(re.findall(r"refs/tags/(v[^\s^]+)", raw))
-    return sorted(names, key=_version_sort_key, reverse=True)
-
-
 def _version_sort_key(tag: str) -> tuple:
-    parts: list[tuple[int, int, str]] = []
-    for part in re.split(r"[.\-]", tag.lstrip("v")):
-        if part.isdigit():
-            parts.append((0, int(part), ""))
-        else:
-            parts.append((1, 0, part))
-    return tuple(parts)
-
-
-def latest_release_tag(repo_url: str) -> str:
-    """Newest non-prerelease v* tag on the remote; "" when there is none."""
-    for tag in _remote_tags(repo_url):
-        if "-" not in tag:
-            return tag
-    return ""
-
-
-def latest_prerelease_tag(repo_url: str) -> str:
-    """Newest v* tag when it is a pre-release; "" otherwise."""
-    tags = _remote_tags(repo_url)
-    if tags and "-" in tags[0]:
-        return tags[0]
-    return ""
-
-
-def channel_ref(channel: str, repo_url: str) -> str:
-    """Git ref for a release channel; exits when the channel has no usable ref."""
-    channel = normalize_channel(channel) or channel
-    if channel in CHANNEL_REFS:
-        return CHANNEL_REFS[channel]
-    if channel == "release":
-        tag = latest_release_tag(repo_url)
-        if not tag:
-            fail(
-                "还没有已发布的正式版（没有 v* tag）；"
-                "请使用 --channel dev，或用 --ref 指定一个分支/tag",
-                2,
-            )
-        return tag
-    if channel == "beta":
-        tag = latest_prerelease_tag(repo_url)
-        if not tag:
-            fail(
-                "当前没有可用的测试版（最新 tag 不是预发布，或还没有任何 v* tag）；"
-                "请使用 --channel dev / release，或用 --ref 指定",
-                2,
-            )
-        return tag
-    fail(f"未知通道：{channel}", 2)
-SCRAPE_MODES = ("none", "missing", "overwrite", "metadata", "images")
+    return tuple(int(part) if i % 2 else part for i, part in enumerate(re.split(r"([0-9]+)", tag)))
 
 
 def _status_value(value) -> str:
@@ -548,23 +435,36 @@ async def cmd_clear(args) -> int:
     )
 
 
-def resolve_remote_source(
-    repo_url: str, repo_ref: str
-) -> tuple[str, str, list[str]]:
-    """Try the configured git URL and its mirror.
-
-    Returns (sha, working url, tried urls); sha is empty when nothing worked.
-    """
-    candidates = [repo_url, *mirror_candidates(repo_url)]
-    tried: list[str] = []
-    for candidate in candidates:
-        for _ in range(REMOTE_CHECK_ATTEMPTS):
-            sha = remote_source_sha(candidate, repo_ref)
-            if sha:
-                return sha, candidate, tried
-            tried.append(candidate)
-            time.sleep(REMOTE_CHECK_DELAY)
-    return "", repo_url, tried or candidates
+def resolve_remote_source(repo_url: str, channel: str, ref: str) -> tuple[str, str, str]:
+    tags_only = channel in ("beta", "release")
+    names = [f"refs/tags/{ref}^{{}}", f"refs/tags/{ref}", f"refs/heads/{ref}"]
+    if ref == "HEAD" or ref.startswith("refs/"):
+        names = [f"{ref}^{{}}", ref]
+    patterns = ["refs/tags/v*"] if tags_only else names
+    sources = [repo_url, *mirror_candidates(repo_url)]
+    echo(f"正在检查远程版本（{channel or ref}）…", err=True)
+    for http in (False, True):
+        if http:
+            echo("Git 查询失败，正在通过 HTTP 检查版本…", err=True)
+        for i, url in enumerate(sources):
+            if i:
+                echo("当前源不可用，正在尝试备用源…", err=True)
+            refs = remote_refs_via_http(url) if http else remote_refs_via_git(url, patterns)
+            if refs is None:
+                continue
+            if tags_only:
+                tags = (key.removeprefix("refs/tags/") for key in refs
+                        if key.startswith("refs/tags/v") and not key.endswith("^{}"))
+                ref = max((tag for tag in tags if channel == "beta" or "-" not in tag),
+                          key=_version_sort_key, default="")
+                if not ref or (channel == "beta" and "-" not in ref):
+                    fail(f"当前通道 {channel} 没有可用版本；可用 --channel 切换通道或 --ref 指定版本", 2)
+                names = [f"refs/tags/{ref}^{{}}", f"refs/tags/{ref}"]
+            for name in names:
+                if name in refs:
+                    return ref, refs[name], url
+            fail(f"远程不存在指定的分支或标签：{ref}", 2)
+    fail("无法连接更新源；请检查网络后重试 senacli update --check，或用 --repo-url 指定来源", 2)
 
 
 def docker_channel_tag() -> str:
@@ -666,36 +566,12 @@ def cmd_update(args) -> int:
         or channel_from_ref(stored_ref)
     )
 
-    channel = ""
-    if args.ref:
-        repo_ref = args.ref
-    elif args.channel:
-        channel = normalize_channel(args.channel)
-        repo_ref = channel_ref(channel, repo_url)
-    elif stored_channel:
-        # Follow the channel the install chose, so release/beta users keep
-        # receiving updates instead of staying pinned to the stored tag.
-        channel = stored_channel
-        repo_ref = channel_ref(channel, repo_url)
-    else:
-        repo_ref = stored_ref or channel_ref("dev", repo_url)
-
+    channel = "" if args.ref else normalize_channel(args.channel) or stored_channel
+    repo_ref = args.ref or ("main" if channel else stored_ref or "main")
     current_sha = metadata.get("SOURCE_SHA", "")
-    remote_sha, active_url, tried = resolve_remote_source(repo_url, repo_ref)
-    if not remote_sha:
-        detail = "\n".join(f"  - {url}" for url in dict.fromkeys(tried))
-        fail(
-            "无法检查远程版本（"
-            f"{repo_ref}）；已重试 {REMOTE_CHECK_ATTEMPTS} 次，尝试过的源：\n"
-            f"{detail}\n"
-            "可以：① 稍后重试 senacli update --check；"
-            "② 用 sudo bash /opt/sena-repo/install.sh --update 跳过检查直接更新；"
-            "③ 用 --repo-url 换镜像源、--ref 指定 ref",
-            2,
-        )
+    repo_ref, remote_sha, active_url = resolve_remote_source(repo_url, channel, repo_ref)
     if active_url != repo_url:
-        echo(f"直连不可用，已改用镜像源: {active_url}")
-        repo_url = active_url
+        echo("已通过备用源找到目标版本")
     current_version = _reported_version(metadata)
     target_version = source_version(repo_ref, remote_sha)
     echo(f"当前版本: {current_version}")
@@ -725,14 +601,12 @@ def cmd_update(args) -> int:
         echo("已取消")
         return 130
     env = {
-        "SENA_REPO_URL": repo_url,
+        "SENA_REPO_URL": active_url,
         "SENA_REPO_REF": repo_ref,
-        "SENA_CHANNEL": "" if args.ref else channel,
+        "SENA_EXPECTED_SHA": remote_sha,
+        "SENA_REBUILD_VENV": "1" if args.force else "0",
+        "SENA_CHANNEL": channel,
     }
-    if channel and not args.ref:
-        # Persist the channel so the next `senacli update` resolves the newest
-        # tag of this channel instead of reusing today's tag.
-        env["SENA_CHANNEL"] = channel
     return run_command(["bash", str(installer_path()), "--update"], env=env)
 
 

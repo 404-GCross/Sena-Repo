@@ -96,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="只检查是否有新版本：0=已最新，1=有更新，2=检查失败",
     )
-    update.add_argument("--force", action="store_true", help="即使版本相同也强制执行更新")
+    update.add_argument("--force", action="store_true", help="即使版本相同也重新安装，并重建 Python 环境")
     update.add_argument("-y", "--yes", action="store_true", help="跳过确认")
 
     uninstall = sub.add_parser("uninstall", help="卸载裸机部署的服务端")

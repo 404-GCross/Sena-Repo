@@ -327,8 +327,6 @@ def read_version_metadata() -> dict[str, str]:
 
 DEFAULT_GH_MIRROR = "https://gh-proxy.com/"
 REMOTE_CHECK_TIMEOUT = 20
-REMOTE_CHECK_ATTEMPTS = 2
-REMOTE_CHECK_DELAY = 1.5
 
 
 def gh_mirror_base() -> str:
@@ -351,10 +349,10 @@ def mirror_candidates(repo_url: str) -> list[str]:
     return []
 
 
-def _ref_sha_via_http(repo_url: str, repo_ref: str) -> str:
-    """Resolve a ref through the smart-HTTP refs advertisement; "" when unavailable."""
+def remote_refs_via_http(repo_url: str) -> dict[str, str] | None:
+    """Read the advertised refs, including peeled annotated tags."""
     if not repo_url.startswith(("http://", "https://")):
-        return ""
+        return None
     url = f"{repo_url.rstrip('/')}/info/refs?service=git-upload-pack"
     try:
         request = urllib.request.Request(
@@ -363,35 +361,23 @@ def _ref_sha_via_http(repo_url: str, repo_ref: str) -> str:
         with urllib.request.urlopen(request, timeout=REMOTE_CHECK_TIMEOUT) as response:
             raw = response.read().decode("utf-8", errors="replace")
     except (OSError, ValueError):
-        return ""
-    refs = re.findall(r"([0-9a-f]{40}) refs/(?:heads|tags)/(\S+)", raw)
-    peeled = {name[:-3]: sha for sha, name in refs if name.endswith("^{}")}
-    plain = {name: sha for sha, name in refs}
-    return peeled.get(repo_ref) or plain.get(repo_ref, "")
+        return None
+    refs = re.findall(r"([0-9a-f]{40}) (HEAD|refs/[^\x00\s]+)(?=[\x00\s])", raw)
+    return {name: sha for sha, name in refs} if refs else None
 
 
-def remote_source_sha(repo_url: str, repo_ref: str) -> str:
-    # Annotated tags need the peeled ref to match the installed commit sha.
-    for ref in (f"{repo_ref}^{{}}", repo_ref):
-        proc = None
-        try:
-            proc = subprocess.run(
-                ["git", "ls-remote", repo_url, ref],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=REMOTE_CHECK_TIMEOUT,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            proc = None
-        if proc is not None and proc.returncode == 0:
-            lines = proc.stdout.splitlines()
-            if lines:
-                first = lines[0].split()[0]
-                if first:
-                    return first
-    return _ref_sha_via_http(repo_url, repo_ref)
+def remote_refs_via_git(repo_url: str, patterns: Sequence[str]) -> dict[str, str] | None:
+    try:
+        proc = subprocess.run(
+            ["git", "ls-remote", "--", repo_url, *patterns], check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=REMOTE_CHECK_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return {name: sha for sha, name in re.findall(r"^([0-9a-f]{40})\t(\S+)$", proc.stdout, re.M)}
 
 
 def short_sha(value: str) -> str:

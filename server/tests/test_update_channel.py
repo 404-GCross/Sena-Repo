@@ -21,8 +21,7 @@ class UpdateChannelTests(unittest.TestCase):
         self.patches = [
             patch.dict(os.environ, {"SENA_INSTALL_ROOT": str(self.root)}),
             patch.object(operations, "in_docker", return_value=False),
-            patch.object(operations, "channel_ref", return_value="v1.0.0-beta.2"),
-            patch.object(operations, "resolve_remote_source", return_value=("abc123", "https://example.invalid/repo.git", [])),
+            patch.object(operations, "resolve_remote_source", return_value=("v1.0.0-beta.2", "abc123", "https://example.invalid/repo.git")),
             patch.object(operations, "installer_path", return_value=self.root / "install.sh"),
             patch.object(operations, "run_command", return_value=0),
             patch.object(operations, "confirm", return_value=True),
@@ -31,9 +30,9 @@ class UpdateChannelTests(unittest.TestCase):
         self.mocks = [item.start() for item in self.patches]
         for item in self.patches:
             self.addCleanup(item.stop)
-        self.installer = self.mocks[5]
-        self.confirm = self.mocks[6]
-        self.remote = self.mocks[3]
+        self.installer = self.mocks[4]
+        self.confirm = self.mocks[5]
+        self.remote = self.mocks[2]
 
     def tearDown(self):
         self.assertEqual(self.root, Path(self.temp.name).resolve())
@@ -87,15 +86,19 @@ class UpdateChannelTests(unittest.TestCase):
 
     def test_force_and_new_versions_use_installer_without_prewrite(self):
         for force, remote in ((True, "abc123"), (False, "new-sha")):
-            self.remote.return_value = (remote, "https://example.invalid/repo.git", [])
+            self.remote.return_value = ("v1.0.0-beta.2", remote, "https://example.invalid/repo.git")
             self.installer.return_value = 17
             self.assertEqual(operations.cmd_update(self.args(force=force)), 17)
             self.assertEqual(self.installer.call_args.kwargs["env"]["SENA_CHANNEL"], "beta")
+            self.assertEqual(self.installer.call_args.kwargs["env"]["SENA_EXPECTED_SHA"], remote)
+            self.assertEqual(self.installer.call_args.kwargs["env"]["SENA_REBUILD_VENV"], "1" if force else "0")
             self.assertEqual(self.metadata.read_text(), self.original)
 
     def test_explicit_ref_clears_inherited_channel(self):
+        self.remote.return_value = ("exact-ref", "abc123", "https://example.invalid/repo.git")
         with patch.dict(os.environ, {"SENA_CHANNEL": "beta"}):
             self.assertEqual(operations.cmd_update(self.args(ref="exact-ref", force=True)), 0)
+        self.remote.assert_called_once_with("https://example.invalid/repo.git", "", "exact-ref")
         env = self.installer.call_args.kwargs["env"]
         self.assertEqual(env["SENA_CHANNEL"], "")
         self.assertEqual(env["SENA_REPO_REF"], "exact-ref")

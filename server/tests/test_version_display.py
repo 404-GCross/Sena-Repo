@@ -95,11 +95,10 @@ class VersionDisplayTests(unittest.TestCase):
         with (
             patch.object(operations, "in_docker", return_value=False),
             patch.object(operations, "read_version_metadata", return_value=metadata),
-            patch.object(operations, "channel_ref", return_value=ref),
             patch.object(
                 operations,
                 "resolve_remote_source",
-                return_value=(remote_sha, "https://github.com/owner/repo.git", []),
+                return_value=(ref, remote_sha, "https://github.com/owner/repo.git"),
             ),
             patch.object(
                 operations, "installer_path", return_value=self.root / "install.sh"
