@@ -55,7 +55,11 @@ def _local_bytes(reference: str, directory: Path) -> bytes:
 
 
 async def inspect_game_images(runtime, game, client, config) -> ImageCheck | None:
-    if not runtime.settings.image_nsfw or not runtime.settings.vision:
+    if (
+        runtime.job.kind != "game"
+        or not runtime.settings.image_nsfw
+        or not runtime.settings.vision
+    ):
         return None
     await runtime.check()
     await runtime.session.refresh(game)

@@ -91,7 +91,7 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
             cover_path=str(self.cover),
             bg_path=str(self.background),
         )
-        self.job = AgentJob(kind="scrape", request={})
+        self.job = AgentJob(kind="game", request={})
         self.session.add_all([self.game, self.job])
         await self.session.commit()
         self.runtime = Runtime(self.session, self.job, self.settings, revision)
@@ -126,6 +126,34 @@ class AgentNsfwTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
             model.assert_not_awaited()
+
+    async def test_only_enabled_library_scans_create_image_checks(self):
+        self.settings.image_nsfw_recheck = True
+        self.game.bg_path = "https://public.example/changed-background.png"
+        for kind, ids, enabled, checked in [
+            ("game", [], False, False),
+            ("scrape", [self.game.id], True, False),
+            ("scrape", [self.game.id, self.game.id + 1], True, True),
+            ("patch", [], True, False),
+        ]:
+            with self.subTest(kind=kind, ids=ids):
+                self.job.kind, self.job.request = kind, {"game_ids": ids}
+                self.settings.image_nsfw = enabled
+                self.game.nsfw_image_checked = checked
+                await self.session.commit()
+                with (
+                    patch("services.agent.nsfw._local_bytes") as local,
+                    patch("services.agent.nsfw._remote_bytes", new_callable=AsyncMock) as remote,
+                    patch.object(ModelClient, "turn", new_callable=AsyncMock) as model,
+                ):
+                    await check_game_nsfw(self.runtime, self.game, self.client, self.config)
+                    local.assert_not_called()
+                    remote.assert_not_awaited()
+                    model.assert_not_awaited()
+                self.assertIsNone((await self.session.scalars(select(AgentResult.id))).first())
+                await self.session.refresh(self.game)
+                self.assertEqual(self.game.nsfw_image_checked, checked)
+                self.assertFalse(self.game.is_nsfw)
 
     async def test_actual_background_detection_enables_nsfw_and_records_evidence(self):
         with patch.object(

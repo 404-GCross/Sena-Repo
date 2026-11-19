@@ -351,9 +351,9 @@ class _AgentScreenState extends State<AgentScreen> {
           toggle('translate_description', '允许翻译简介为中文'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('自动识别图片 NSFW'),
+            title: const Text('批量扫描时自动识别图片 NSFW'),
             subtitle: Text(value!['vision'] == true
-                ? '检查实际使用的封面和背景；明确检出裸露时自动开启 NSFW，保留手动设置。'
+                ? '仅在智能游戏库扫描时检查实际使用的封面和背景。单款或多选刮削不触发。'
                 : '请先在模型设置中开启图片分析，并使用支持图片输入的模型。'),
             value: value!['image_nsfw'] == true,
             onChanged: busy || value!['vision'] != true
@@ -363,7 +363,7 @@ class _AgentScreenState extends State<AgentScreen> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('换图后重新检测'),
-            subtitle: const Text('默认关闭。首次成功检测后由用户维护 NSFW；开启后才自动复检变化的图片。'),
+            subtitle: const Text('首次成功检测后默认不再检查。开启后，在下次智能游戏库扫描时复检已更换的图片。'),
             value: value!['image_nsfw_recheck'] == true,
             onChanged: busy || value!['vision'] != true || value!['image_nsfw'] != true
                 ? null

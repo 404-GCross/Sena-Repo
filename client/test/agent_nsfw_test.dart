@@ -36,6 +36,7 @@ void main() {
       "proxy_mode": "direct",
       "vision": false,
     };
+    const scanNsfw = "批量扫描时自动识别图片 NSFW";
     await http.runWithClient(
       () async {
         final api = ApiClient();
@@ -45,7 +46,7 @@ void main() {
         await tester.tap(find.text("游戏偏好"));
         await tester.pumpAndSettle();
         expect(
-          tester.widget<SwitchListTile>(switchFor("自动识别图片 NSFW")).onChanged,
+          tester.widget<SwitchListTile>(switchFor(scanNsfw)).onChanged,
           isNull,
         );
         expect(
@@ -64,11 +65,13 @@ void main() {
         await tester.ensureVisible(find.text("游戏偏好"));
         await tester.tap(find.text("游戏偏好"));
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text("自动识别图片 NSFW"));
-        await tester.tap(find.text("自动识别图片 NSFW"));
+        expect(tester.widget<SwitchListTile>(switchFor(scanNsfw)).value, isFalse);
+        expect(tester.widget<SwitchListTile>(switchFor("换图后重新检测")).onChanged, isNull);
+        await tester.ensureVisible(find.text(scanNsfw));
+        await tester.tap(find.text(scanNsfw));
         await tester.pumpAndSettle();
         expect(
-          tester.widget<SwitchListTile>(switchFor("自动识别图片 NSFW")).value,
+          tester.widget<SwitchListTile>(switchFor(scanNsfw)).value,
           isTrue,
         );
         await tester.ensureVisible(find.text("换图后重新检测"));
@@ -88,7 +91,7 @@ void main() {
         await tester.tap(find.text("游戏偏好"));
         await tester.pumpAndSettle();
         expect(
-          tester.widget<SwitchListTile>(switchFor("自动识别图片 NSFW")).value,
+          tester.widget<SwitchListTile>(switchFor(scanNsfw)).value,
           isFalse,
         );
         await tester.ensureVisible(find.text("保存设置"));
