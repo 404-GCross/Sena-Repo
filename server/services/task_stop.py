@@ -7,8 +7,8 @@ from contextvars import ContextVar
 from uuid import uuid4
 
 
-class TaskStopped(asyncio.CancelledError):
-    pass
+class TaskStopped(BaseException):
+    """Bypass per-item error fallbacks without 3.10 wait_for erasing a CancelledError subtype."""
 
 
 _signal = ContextVar("task_stop_signal", default=None)
