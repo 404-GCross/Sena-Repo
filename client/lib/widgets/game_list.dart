@@ -1,12 +1,10 @@
 /// List view for game library — compact row design with poster thumbnail.
 
 import "package:flutter/material.dart";
-import "package:cached_network_image/cached_network_image.dart";
 
 import "../models/game.dart";
-import "../services/api_client.dart";
 import "../utils/theme_utils.dart";
-import "nsfw_image.dart";
+import "library_cover.dart";
 
 class GameList extends StatelessWidget {
   final List<GameSummary> games;
@@ -42,34 +40,45 @@ class GameList extends StatelessWidget {
             : available > 1000
                 ? 2
                 : 1;
-        // Floor keeps float rounding from wrapping the last column to a new row.
         final tileWidth =
             ((available - spacing * (columns - 1)) / columns).floorToDouble();
 
-        return SingleChildScrollView(
+        return ListView.separated(
           controller: controller,
           padding: const EdgeInsets.fromLTRB(padding, 8, padding, 20),
-          child: Wrap(
+          itemCount: (games.length + columns - 1) ~/ columns,
+          separatorBuilder: (_, __) => const SizedBox(height: AppGap.sm),
+          itemBuilder: (context, row) => Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             spacing: spacing,
-            runSpacing: AppGap.sm,
-            children: games
-                .map((game) => Stack(children: [
-                      SizedBox(
-                        width: tileWidth,
-                        child: _GameListTile(
-                            game: game,
-                            onTap: () => onTap(game),
-                            coverBaseUrl: coverBaseUrl),
+            children: [
+              for (final game in games.getRange(
+                row * columns,
+                ((row + 1) * columns).clamp(0, games.length),
+              ))
+                Stack(
+                  key: ValueKey(game.id),
+                  children: [
+                    SizedBox(
+                      width: tileWidth,
+                      child: _GameListTile(
+                        game: game,
+                        onTap: () => onTap(game),
+                        coverBaseUrl: coverBaseUrl,
                       ),
-                      if (multiSelect)
-                        Positioned(
-                          top: 10,
-                          left: 6,
-                          child: _selectCircle(
-                              selectedIds.contains(game.id), context),
+                    ),
+                    if (multiSelect)
+                      Positioned(
+                        top: 10,
+                        left: 6,
+                        child: _selectCircle(
+                          selectedIds.contains(game.id),
+                          context,
                         ),
-                    ]))
-                .toList(),
+                      ),
+                  ],
+                ),
+            ],
           ),
         );
       },
@@ -98,8 +107,11 @@ class _GameListTile extends StatefulWidget {
   final VoidCallback onTap;
   final String coverBaseUrl;
 
-  const _GameListTile(
-      {required this.game, required this.onTap, this.coverBaseUrl = ""});
+  const _GameListTile({
+    required this.game,
+    required this.onTap,
+    this.coverBaseUrl = "",
+  });
 
   @override
   State<_GameListTile> createState() => _GameListTileState();
@@ -111,7 +123,6 @@ class _GameListTileState extends State<_GameListTile> {
   @override
   Widget build(BuildContext context) {
     final game = widget.game;
-    final hasCover = game.coverPath != null && widget.coverBaseUrl.isNotEmpty;
     final cs = Theme.of(context).colorScheme;
 
     return MouseRegion(
@@ -136,103 +147,113 @@ class _GameListTileState extends State<_GameListTile> {
             boxShadow: _hovered
                 ? [
                     BoxShadow(
-                        color: cs.primary.withValues(alpha: 0.12),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8)),
+                      color: cs.primary.withValues(alpha: 0.12),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
                   ]
                 : [
                     BoxShadow(
-                        color: softShadowColor(context),
-                        blurRadius: 14,
-                        offset: const Offset(0, 6)),
-                  ],
-          ),
-          child: Row(children: [
-            // Cover thumbnail — proper aspect ratio
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: 64,
-                height: 90,
-                child: hasCover
-                    ? NsfwImage(
-                        isNsfw: game.isNsfw,
-                        child: CachedNetworkImage(
-                          key: ValueKey(game.coverPath),
-                          imageUrl:
-                              "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
-                          httpHeaders: mediaHeadersFor(widget.coverBaseUrl),
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => _placeholder(cs),
-                          placeholder: (_, __) => _placeholder(cs),
-                        ),
-                      )
-                    : _placeholder(cs),
-              ),
-            ),
-            const SizedBox(width: AppGap.md),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(game.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          AppText.body.copyWith(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 3),
-                  Text(game.developer ?? game.companyName ?? "",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.bodySmall
-                          .copyWith(color: hintColor(context))),
-                  if (game.tagNames.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 2,
-                      children: game.tagNames
-                          .take(3)
-                          .map((t) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: cs.primaryContainer
-                                      .withValues(alpha: 0.5),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(t,
-                                    style: AppText.caption.copyWith(
-                                      color: cs.onPrimaryContainer
-                                          .withValues(alpha: 0.8),
-                                    )),
-                              ))
-                          .toList(),
+                      color: softShadowColor(context),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
                     ),
                   ],
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 5,
-                    runSpacing: 4,
-                    children: [
-                      _smallPill(
-                        context,
-                        game.platformSummary.isNotEmpty
-                            ? game.platformSummary
-                            : "条目",
-                      ),
-                      if (game.coverPath != null) _smallPill(context, "有封面"),
-                    ],
+          ),
+          child: Row(
+            children: [
+              // Cover thumbnail — proper aspect ratio
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 64,
+                  height: 90,
+                  child: LibraryCover(
+                    game: game,
+                    baseUrl: widget.coverBaseUrl,
+                    placeholder: (_) => _placeholder(cs),
                   ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(width: AppGap.sm),
-            Icon(Icons.chevron_right_rounded,
-                color: cs.onSurface.withValues(alpha: 0.34), size: 24),
-          ]),
+              const SizedBox(width: AppGap.md),
+              // Info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      game.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      game.developer ?? game.companyName ?? "",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.bodySmall.copyWith(
+                        color: hintColor(context),
+                      ),
+                    ),
+                    if (game.tagNames.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: game.tagNames
+                            .take(3)
+                            .map(
+                              (t) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cs.primaryContainer.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  t,
+                                  style: AppText.caption.copyWith(
+                                    color: cs.onPrimaryContainer.withValues(
+                                      alpha: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 4,
+                      children: [
+                        _smallPill(
+                          context,
+                          game.platformSummary.isNotEmpty
+                              ? game.platformSummary
+                              : "条目",
+                        ),
+                        if (game.coverPath != null) _smallPill(context, "有封面"),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppGap.sm),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: cs.onSurface.withValues(alpha: 0.34),
+                size: 24,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -248,8 +269,11 @@ class _GameListTileState extends State<_GameListTile> {
         ),
       ),
       child: Center(
-        child: Icon(Icons.videogame_asset_rounded,
-            color: cs.onSurface.withValues(alpha: 0.3), size: 28),
+        child: Icon(
+          Icons.videogame_asset_rounded,
+          color: cs.onSurface.withValues(alpha: 0.3),
+          size: 28,
+        ),
       ),
     );
   }

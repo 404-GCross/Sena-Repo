@@ -33,6 +33,7 @@ class GameSummary(BaseModel):
     folder_path: str
     entry_source: str = "library"
     cover_path: str | None = None
+    cover_revision: str | None = None
     is_nsfw: bool = False
     platform_summary: str = ""  # e.g. "PC, KRKR"
     tag_names: list[str] = []

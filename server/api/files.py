@@ -61,7 +61,7 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
 @router.get("/covers/{filename:path}")
-async def serve_cover(filename: str, user: User = Depends(get_current_user)):
+def serve_cover(filename: str, user: User = Depends(get_current_user)):
     """Serve a cover image file. Accepts both full path and filename only."""
     # Extract just the filename in case a full path was passed
     name = Path(filename).name
@@ -72,13 +72,16 @@ async def serve_cover(filename: str, user: User = Depends(get_current_user)):
     config = load_config()
     file_path = config.covers_path / name
 
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Cover not found")
+    try:
+        with file_path.open('rb') as cover:
+            prefix = cover.read(12)
+    except (FileNotFoundError, IsADirectoryError):
+        raise HTTPException(status_code=404, detail="Cover not found") from None
 
     return FileResponse(
         file_path,
-        media_type=_media_type(ext),
-        headers={"Cache-Control": "public, max-age=86400"},
+        media_type=_cover_media_type(prefix, ext),
+        headers={"Cache-Control": "private, max-age=86400"},
     )
 
 
@@ -118,6 +121,22 @@ async def serve_avatar(filename: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Avatar not found")
     return FileResponse(file_path, media_type=_media_type(ext),
         headers={"Cache-Control": "public, max-age=3600"})
+
+
+def _cover_media_type(prefix: bytes, ext: str) -> str:
+    # Scrapers can store upstream bytes under a legacy .jpg name.
+    if prefix.startswith(b"RIFF") and prefix[8:12] == b"WEBP":
+        return "image/webp"
+    for signature, media_type in (
+        (b"\xff\xd8\xff", "image/jpeg"),
+        (b"\x89PNG\r\n\x1a\n", "image/png"),
+        (b"GIF87a", "image/gif"),
+        (b"GIF89a", "image/gif"),
+        (b"BM", "image/bmp"),
+    ):
+        if prefix.startswith(signature):
+            return media_type
+    return _media_type(ext)
 
 
 def _media_type(ext: str) -> str:

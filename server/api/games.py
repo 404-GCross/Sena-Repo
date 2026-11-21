@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 import logging
+from pathlib import Path, PureWindowsPath
 import re
 from uuid import uuid4
 
@@ -100,6 +102,28 @@ def _game_to_summary(game: Game) -> GameSummary:
     )
 
 
+def _set_cover_revisions(summaries: list[GameSummary]) -> None:
+    directory = Path(load_config().data_path) / 'covers'
+    for summary in summaries:
+        if not summary.cover_path:
+            continue
+        name = PureWindowsPath(summary.cover_path).name
+        if not name or name == '..':
+            continue
+        try:
+            stat = (directory / name).stat()
+        except OSError:
+            continue
+        summary.cover_revision = f'{stat.st_mtime_ns:x}-{stat.st_size:x}'
+
+
+async def _summaries(games) -> list[GameSummary]:
+    summaries = [_game_to_summary(g) for g in games]
+    if any(g.cover_path for g in summaries):
+        await asyncio.to_thread(_set_cover_revisions, summaries)
+    return summaries
+
+
 @router.get("", response_model=list[GameSummary])
 async def list_games(
     page: int = Query(default=1, ge=1),
@@ -181,7 +205,7 @@ async def list_games(
 
     result = await session.execute(query)
     games = result.unique().scalars().all()
-    return [_game_to_summary(g) for g in games]
+    return await _summaries(games)
 
 
 @router.get("/search", response_model=list[GameSummary])
@@ -235,7 +259,7 @@ async def search_games(
 
     result = await session.execute(query)
     games = result.unique().scalars().all()
-    return [_game_to_summary(g) for g in games]
+    return await _summaries(games)
 
 
 @router.get("/{game_id}", response_model=GameDetail)

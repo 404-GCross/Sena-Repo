@@ -92,6 +92,7 @@ class GameSummary {
   final String folderPath;
   final String entrySource;
   final String? coverPath;
+  final String? coverRevision;
   final bool isNsfw;
   final String platformSummary;
   final List<String> tagNames;
@@ -109,6 +110,7 @@ class GameSummary {
     required this.folderPath,
     this.entrySource = "library",
     this.coverPath,
+    this.coverRevision,
     this.isNsfw = false,
     required this.platformSummary,
     required this.tagNames,
@@ -128,6 +130,7 @@ class GameSummary {
       folderPath: json["folder_path"] ?? "",
       entrySource: json["entry_source"]?.toString() ?? "library",
       coverPath: json["cover_path"],
+      coverRevision: json["cover_revision"] as String?,
       isNsfw: json["is_nsfw"] == true,
       platformSummary: json["platform_summary"] ?? "",
       tagNames: List<String>.from(json["tag_names"] ?? []),

@@ -1,14 +1,12 @@
 /// Grid view for game library — poster-style cards with hover effects.
 
 import "package:flutter/material.dart";
-import "package:cached_network_image/cached_network_image.dart";
 import "package:provider/provider.dart";
 
 import "../models/game.dart";
-import "../services/api_client.dart";
 import "../providers/settings_provider.dart";
 import "../utils/theme_utils.dart";
-import "nsfw_image.dart";
+import "library_cover.dart";
 
 class GameGrid extends StatefulWidget {
   final List<GameSummary> games;
@@ -126,7 +124,6 @@ class _PosterCardState extends State<_PosterCard>
   @override
   Widget build(BuildContext context) {
     final game = widget.game;
-    final hasCover = game.coverPath != null && widget.coverBaseUrl.isNotEmpty;
     final cs = Theme.of(context).colorScheme;
 
     return MouseRegion(
@@ -162,21 +159,11 @@ class _PosterCardState extends State<_PosterCard>
                 fit: StackFit.expand,
                 children: [
                   // Cover image
-                  if (hasCover)
-                    NsfwImage(
-                      isNsfw: game.isNsfw,
-                      child: CachedNetworkImage(
-                        key: ValueKey(game.coverPath),
-                        imageUrl:
-                            "${widget.coverBaseUrl}/api/files/covers${game.coverPath!}?t=${game.importedAt}",
-                        httpHeaders: mediaHeadersFor(widget.coverBaseUrl),
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => _placeholder(),
-                        placeholder: (_, __) => _placeholder(),
-                      ),
-                    )
-                  else
-                    _placeholder(),
+                  LibraryCover(
+                    game: game,
+                    baseUrl: widget.coverBaseUrl,
+                    placeholder: (_) => _placeholder(),
+                  ),
 
                   // Bottom gradient + metadata
                   Positioned(
