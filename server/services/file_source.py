@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from models.file_source import FileSource
 from utils.secrets import decrypt_secret
+from services.task_stop import checkpoint
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,7 @@ class OpenListFileSource:
         per_page = 100
         total: int | None = None
         while True:
+            checkpoint()
             data = self._post(
                 "/api/fs/list",
                 {"path": remote_path, "password": "", "page": page, "per_page": per_page, "refresh": False},

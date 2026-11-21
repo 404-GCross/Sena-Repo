@@ -20,6 +20,7 @@ from models.root_directory import RootDirectory
 from schemas.common import MessageResponse
 from services.file_source import adapter_from_source, canonical_source_path, normalize_base_url, normalize_remote_path
 from services.importer import clear_scanned_games, import_from_root
+from services.task_stop import TaskStopped, checkpoint, run_id, signal_stop, stop_scope
 from utils.log_redaction import redact_exception
 from utils.secrets import encrypt_secret, redact_url
 from utils.process_lock import process_lock, scan_lock_path
@@ -41,6 +42,10 @@ _scan_state = {
 
 
 def _set_scan_state(**updates):
+    if updates.get("status") == "pending":
+        if _scan_active():
+            raise HTTPException(409, "已有扫描任务")
+        updates['run_id'] = run_id()
     _scan_state.update(updates)
 
 
@@ -54,7 +59,7 @@ def _scan_state_response(user: User | None = None):
 
 def _scan_active() -> bool:
     """Return whether a scan is queued or currently holding the scan lock."""
-    return _scan_state["status"] in {"pending", "running"} or _scan_lock.locked()
+    return _scan_state["status"] in {"pending", "running", "stopping"} or _scan_lock.locked()
 
 
 class RootCreate(BaseModel):
@@ -273,9 +278,10 @@ async def delete_root(
 
 def _bg_scan(config, root_ids: list[int], update_last: bool = False):
     """Background scan: runs in its own async task with independent session."""
+    key = _scan_state.get('run_id')
     async def _run():
         try:
-            result = await _run_scan(config, root_ids=root_ids, update_last=update_last)
+            result = await _run_scan(config, root_ids=root_ids, update_last=update_last, key=key)
             if result.get("skipped"):
                 logger.info("Background scan skipped: scan already running")
                 if _scan_state["status"] == "pending":
@@ -322,12 +328,22 @@ async def refresh_all_roots(
     )
     _bg_scan(config, [r.id for r in roots], update_last=True)
     logger.info("Full library scan started: actor_id=%s roots=%s", user.id, len(roots))
-    return {"message": "扫描已在后台启动", "roots": len(roots)}
+    return {"message": "扫描已在后台启动", "roots": len(roots), 'run_id': _scan_state['run_id']}
 
 
 @router.get("/scan-status")
 async def get_scan_status(user: User = Depends(get_current_user)):
     """Return the current background game-library scan state."""
+    return _scan_state_response(user)
+
+
+@router.post("/scan-status/{key}/stop")
+async def stop_root_scan(key: str, user: User = Depends(require_admin)):
+    if key != _scan_state.get("run_id"):
+        raise HTTPException(409, "任务已更换，请刷新进度")
+    if _scan_state["status"] in {"pending", "running", "stopping"}:
+        _set_scan_state(status="stopping", message="正在停止任务")
+        signal_stop(key)
     return _scan_state_response(user)
 
 
@@ -355,18 +371,35 @@ async def clear_and_refresh_roots(
         ).first()
         if pending_agent:
             raise HTTPException(status_code=409, detail="智能体任务正在运行，请结束后再清空重扫")
+        _set_scan_state(status='pending', roots_total=0, roots_completed=0, current_root=None,
+                        started_at=time.time(), finished_at=None, message='准备清理可重建条目')
         try:
             cleared_games = await clear_scanned_games(session)
+            if _scan_state["status"] == "stopping":
+                await session.rollback()
+                _set_scan_state(
+                    status="cancelled",
+                    finished_at=time.time(),
+                    message="已停止，未提交清理",
+                )
+                return {
+                    "status": "cancelled",
+                    "run_id": _scan_state["run_id"],
+                    "message": _scan_state["message"],
+                }
+            await session.commit()
         except ValueError as exc:
+            _set_scan_state(status='failed', finished_at=time.time(), message='未能开始清空重扫')
             raise HTTPException(status_code=409, detail=str(exc)) from None
-        await session.commit()
+        except BaseException:
+            _set_scan_state(status='failed', finished_at=time.time(), message='清理未完成')
+            raise
 
         result = await session.execute(select(RootDirectory))
         roots = result.scalars().all()
         from api.settings import _load_scan_settings
         _load_scan_settings(config)
         _set_scan_state(
-            status="pending",
             roots_total=len(roots),
             roots_completed=0,
             current_root=None,
@@ -384,6 +417,7 @@ async def clear_and_refresh_roots(
     return {
         "message": "已清理可重建的游戏记录，重新扫描已在后台启动；手动与锁定条目已保留",
         "cleared_games": cleared_games,
+        'run_id': _scan_state['run_id'],
         "roots": len(roots),
     }
 
@@ -423,10 +457,64 @@ async def refresh_root(
         root_id,
         root.source_path or root.path,
     )
-    return {"message": "扫描已在后台启动", "root_id": root_id}
+    return {
+        "message": "扫描已在后台启动",
+        "root_id": root_id,
+        "run_id": _scan_state["run_id"],
+    }
 
 
-async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool = False):
+async def _run_scan(
+    config, root_ids: list[int] | None = None, update_last: bool = False, key=None
+):
+    if key is None:
+        if _scan_active():
+            return {"skipped": True}
+        _set_scan_state(
+            status="pending",
+            started_at=time.time(),
+            finished_at=None,
+            current_root=None,
+            roots_total=0,
+            roots_completed=0,
+            message=None,
+        )
+        key = _scan_state["run_id"]
+    with stop_scope(key):
+        try:
+            if _scan_state["status"] == "stopping":
+                raise TaskStopped()
+            result = await _run_root_worker(config, root_ids, update_last)
+            if result.get("skipped"):
+                _set_scan_state(
+                    status="failed",
+                    finished_at=time.time(),
+                    message="其他扫描或恢复任务正在运行，本次扫描未启动",
+                )
+            return result
+        except TaskStopped:
+            _set_scan_state(
+                status="cancelled",
+                current_root=None,
+                finished_at=time.time(),
+                message="任务已停止，已完成目录的结果保留",
+            )
+            if update_last:
+                from api.settings import _mark_auto_scan
+
+                _mark_auto_scan(config, time.time())
+            return {"status": "cancelled", "run_id": key}
+        except BaseException:
+            _set_scan_state(
+                status="failed",
+                current_root=None,
+                finished_at=time.time(),
+                message="扫描未完成",
+            )
+            raise
+
+
+async def _run_root_worker(config, root_ids, update_last):
     """Internal helper for auto-scan. Runs refresh-all without HTTP."""
     if _scan_lock.locked():
         return {"skipped": True, "reason": "scan already running"}
@@ -445,6 +533,7 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                     query = query.where(RootDirectory.id.in_(root_ids))
                 result = await session.execute(query)
                 roots = result.scalars().all()
+                checkpoint()
                 _set_scan_state(
                     status="running",
                     roots_total=len(roots),
@@ -456,6 +545,7 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                 )
                 failed_roots: list[int] = []
                 for root in roots:
+                    checkpoint()
                     _set_scan_state(
                         current_root=root.source_path or root.path,
                         roots_completed=_scan_state["roots_completed"],
@@ -470,8 +560,8 @@ async def _run_scan(config, root_ids: list[int] | None = None, update_last: bool
                             redact_exception(exc),
                         )
                         failed_roots.append(root.id)
-                    finally:
-                        _set_scan_state(roots_completed=_scan_state["roots_completed"] + 1)
+                    _set_scan_state(roots_completed=_scan_state['roots_completed'] + 1)
+            checkpoint()
             if update_last:
                 try:
                     _mark_auto_scan(config, time.time())

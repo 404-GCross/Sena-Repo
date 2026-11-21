@@ -25,17 +25,23 @@ async def _fail_interrupted_scrape_jobs(logger):
     from sqlalchemy import select
 
     from database import get_session
-    from models.scrape_job import JobStatus, ScrapeJob
+    from models.scrape_job import ACTIVE_SCRAPE, JobStatus, ScrapeJob
 
     async for session in get_session():
         result = await session.execute(
             select(ScrapeJob).where(
-                ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+                ScrapeJob.status.in_(ACTIVE_SCRAPE)
             )
         )
         jobs = result.scalars().all()
         now = datetime.utcnow()
         for job in jobs:
+            if job.status == JobStatus.STOPPING:
+                job.status = JobStatus.CANCELLED
+                job.current_stage = 'cancelled'
+                job.last_error = None
+                job.updated_at = now
+                continue
             job.status = JobStatus.FAILED
             job.current_stage = "interrupted"
             job.last_error = "服务重启或后台任务中断，已停止旧刮削任务"
@@ -46,7 +52,7 @@ async def _fail_interrupted_scrape_jobs(logger):
             )
         if jobs:
             await session.commit()
-            logger.warning("Marked %s interrupted scrape job(s) as failed", len(jobs))
+            logger.warning("Closed %s interrupted scrape job(s)", len(jobs))
         break
 
 

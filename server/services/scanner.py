@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.ignore_list import IgnoreList
 from services.file_source import FileEntry, FileSourceAdapter
+from services.task_stop import checkpoint
 from utils.file_utils import is_archive
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,7 @@ def scan_source(
     depth = normalize_game_depth(structure, game_depth)
 
     def children(path: str) -> list[FileEntry]:
+        checkpoint()
         try:
             return source.list(path)
         except Exception as exc:
@@ -233,13 +235,14 @@ def _archive_from_local(path: Path) -> ArchiveFile:
 
 def _local_archives_recursive(path: Path, ignore_paths: set[str]) -> list[ArchiveFile]:
     archives: list[ArchiveFile] = []
-    for file_entry in sorted(path.rglob("*"), key=lambda p: str(p).lower()):
+    for file_entry in path.rglob("*"):
+        checkpoint()
         file_path = str(file_entry)
         if file_path in ignore_paths:
             continue
         if file_entry.is_file() and is_archive(file_entry.name):
             archives.append(_archive_from_local(file_entry))
-    return archives
+    return sorted(archives, key=lambda a: a.filepath.lower())
 
 
 def _local_dirs_at_depth(root: Path, depth: int, ignore_paths: set[str]) -> list[Path]:
@@ -249,6 +252,7 @@ def _local_dirs_at_depth(root: Path, depth: int, ignore_paths: set[str]) -> list
     for _ in range(depth):
         next_dirs: list[Path] = []
         for directory in current:
+            checkpoint()
             try:
                 entries = sorted(directory.iterdir(), key=lambda p: p.name.lower())
             except OSError:

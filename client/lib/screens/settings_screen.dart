@@ -20,6 +20,7 @@ import "backup_screen.dart";
 import "agent_screen.dart";
 import "../services/agent_service.dart";
 import "../widgets/agent_scan_progress.dart";
+import '../widgets/task_progress_actions.dart';
 import "../widgets/feedback_dialog.dart";
 import "platform_categories_screen.dart";
 import "../services/profile_service.dart";
@@ -1166,7 +1167,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   int _agentProgressRevision = 0;
   Map<String, dynamic>? _scrapeJob;
   bool _scraping = false;
+  int? _polledJobId;
+  DateTime? _lastScrapeLookup;
   bool _scrapeAfterScan = false;
+  String? _chainScanId;
   bool _testingHikarinagi = false;
   bool _testingNextMoe = false;
   final Set<int> _testingOpenListSources = {};
@@ -1195,7 +1199,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadFileSources();
     _loadScanSettings();
     _loadScraperSettings();
-    _checkActiveJob();
     _startScanStatusPolling();
   }
 
@@ -1507,6 +1510,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         throw Exception(_responseMessage(resp));
       }
       await _loadRoots();
+      _chainScanId = (jsonDecode(resp.body) as Map)['run_id'] as String?;
       _scrapeAfterScan = true;
       _startScanStatusPolling();
       if (mounted) _toast(context, "扫描已触发，完成后会自动刮削");
@@ -1531,7 +1535,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         title: mode == 'agent' ? "清空并使用智能体重扫？" : "清空游戏库并重新扫描？",
         action: '清空并重扫', message:
           "将清理可重建的扫描条目、版本、分类关联和刮削数据，保留手动条目、名称锁定和元数据锁定条目。\n\n"
-          "不会删除本地或网盘文件、游戏库目录设置和 Steam 补丁库设置。\n\n"
+          "不会删除本地或网盘文件、游戏库目录设置和 Steam 补丁库设置。清理提交后，停止任务只会停止重建，不会撤销清理。\n\n"
           "本次方式：${mode == 'agent' ? '智能体优先，常规扫描兜底' : '常规扫描'}。",
     );
     if (confirmed != true || !mounted) return;
@@ -1547,6 +1551,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       );
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         throw Exception(_responseMessage(resp));
+      }
+      if ((jsonDecode(resp.body) as Map)['status'] == 'cancelled') {
+        if (mounted) await showFeedbackDialog(context, '扫描已停止，未提交清理');
+        return;
       }
       await _loadRoots();
       _startScanStatusPolling();
@@ -1602,14 +1610,17 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       final status = jsonDecode(resp.body) as Map<String, dynamic>;
       setState(() => _scanStatus = status);
       final state = status["status"]?.toString();
-      if (state != "pending" && state != "running") {
-        _scanStatusTimer?.cancel();
-        _scanStatusTimer = null;
+      final lastLookup = _lastScrapeLookup;
+      if (!_scraping && _polledJobId == null && (lastLookup == null || DateTime.now().difference(lastLookup).inSeconds >= 10)) {
+        _lastScrapeLookup = DateTime.now();
+        unawaited(_checkActiveJob());
+      }
+      if (!taskActive(state)) {
         final wasWaitingForScrape = _scrapeAfterScan;
-        final shouldScrape = wasWaitingForScrape && state == "completed";
+        final shouldScrape = wasWaitingForScrape && state == "completed" && _chainScanId == status['run_id'];
         _scrapeAfterScan = false;
         if (shouldScrape) {
-          unawaited(_startBatchScrape());
+          unawaited(_startBatchScrape(afterScan: _chainScanId));
         } else if (wasWaitingForScrape && state == "failed" && mounted) {
           _toast(context, "扫描失败，已停止自动刮削");
         }
@@ -1631,7 +1642,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         final jobs =
             (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
         final running = jobs.cast<Map<String, dynamic>?>().firstWhere(
-              (j) => j?["status"] == "running" || j?["status"] == "pending",
+              (j) => taskActive(j?['status']),
               orElse: () => null,
             );
         if (running != null && mounted) {
@@ -1645,7 +1656,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     } catch (_) {}
   }
 
-  Future<void> _startBatchScrape() async {
+  Future<void> _startBatchScrape({String? afterScan}) async {
     final sources = _enabledScraperSources();
     if (sources.isEmpty) {
       _toast(context, "请先启用至少一个刮削源");
@@ -1659,6 +1670,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         body: jsonEncode({
           "sources": sources,
           "mode": "missing",
+          if (afterScan != null) 'after_scan_id': afterScan,
         }),
       );
       if (resp.statusCode == 200) {
@@ -1685,7 +1697,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _pollJob(int jobId) async {
-    while (mounted) {
+    if (_polledJobId == jobId) return;
+    _polledJobId = jobId;
+    while (mounted && _polledJobId == jobId) {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
       try {
@@ -1695,8 +1709,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         );
         if (resp.statusCode == 200) {
           final job = jsonDecode(resp.body) as Map<String, dynamic>;
+          if (_polledJobId != jobId) return;
           if (mounted) setState(() => _scrapeJob = job);
-          if (job["status"] == "completed" || job["status"] == "failed") {
+          if (!taskActive(job['status'])) {
+            _polledJobId = null;
             if (mounted) setState(() => _scraping = false);
             return;
           }
@@ -1942,12 +1958,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                       final width = narrow
                           ? constraints.maxWidth
                           : (constraints.maxWidth - 12) / 2;
-                      final scanActive = _scanStatus?["status"] == "pending" ||
-                          _scanStatus?["status"] == "running";
+                      final scanActive = taskActive(_scanStatus?['status']);
                       final scrapeStatus = _scrapeJob?["status"]?.toString();
-                      final scrapeActive = _scraping ||
-                          scrapeStatus == "pending" ||
-                          scrapeStatus == "running";
+                      final scrapeActive = _scraping || taskActive(scrapeStatus);
                       final actionActive = _loading || scanActive || scrapeActive || _agentScanActive;
                       final hasScrapers = _enabledScraperSources().isNotEmpty;
                       final actionLabel = _agentScanActive ? "智能体扫描中..." : scanActive
@@ -2022,7 +2035,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   AgentScanProgress(
                     key: ValueKey(_agentProgressRevision),
                     api: widget.api,
-                    showCompleted: !['pending', 'running'].contains(_scanStatus?['status']),
+                    showCompleted: !taskActive(_scanStatus?['status']),
                     onActivityChanged: (active) {
                       if (mounted && active != _agentScanActive) {
                         setState(() => _agentScanActive = active);
@@ -2030,8 +2043,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                     },
                   ),
                   if (!_agentScanActive && _scanStatus != null &&
-                      (_scanStatus!["status"] == "pending" ||
-                          _scanStatus!["status"] == "running" ||
+                      (taskActive(_scanStatus!['status']) || _scanStatus!['status']=='cancelled' ||
                           _scanStatus!["status"] == "completed" ||
                           _scanStatus!["status"] == "failed")) ...[
                     _buildScanStatusCard(),
@@ -2401,10 +2413,14 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     final progress = total > 0
         ? (completed / total).clamp(0.0, 1.0).toDouble()
         : null;
-    final isActive = status == "pending" || status == "running";
+    final isActive = taskActive(status);
+    final id = _scanStatus!['run_id'];
+    final control = id is String ? TaskControl(widget.api,'/api/roots/scan-status','/api/roots/scan-status/$id/stop',id,idField:'run_id') : null;
     final title = switch (status) {
       "pending" => "常规扫描排队中...",
       "running" => "常规扫描中...",
+      'stopping' => '正在停止…',
+      'cancelled' => '常规扫描已停止',
       "completed" => "常规扫描完成",
       "failed" => "常规扫描失败",
       _ => "扫描状态未知",
@@ -2417,10 +2433,11 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder(context)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: TaskProgressCardBody(
+          actions: [if(control!=null) ...[
+            TextButton(onPressed:()=>showTaskDetails(context,'常规游戏库扫描',control,_scanStatus!),child:const Text('查看详情')),
+            if(isActive) TaskStopButton(key:ValueKey(id),control:control,status:status,onChanged:(next){setState((){_scrapeAfterScan=false;_scanStatus=next;});}),
+          ]],header:Row(
             children: [
               Icon(
                 isActive
@@ -2440,7 +2457,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               ),
             ],
           ),
-          if (_scanStatus!["current_root"] != null) ...[
+          progress:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[if (_scanStatus!["current_root"] != null) ...[
             const SizedBox(height: 4),
             Text(
               "正在处理: ${_scanStatus!["current_root"]}",
@@ -2472,7 +2489,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
               style: AppText.label.copyWith(color: hintColor(context)),
             ),
           ],
-        ],
+        ]),
       ),
     );
   }
@@ -2565,7 +2582,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     final heartbeat = _formatScrapeTime(_jobText("heartbeat_at"));
     final progress =
         total > 0 ? (processed / total).clamp(0.0, 1.0).toDouble() : null;
-    final active = status == "running" || status == "pending";
+    final active = taskActive(status);
+    final id=job['id'] as int;
+    final control=TaskControl(widget.api,'/api/scrape/jobs/$id','/api/scrape/jobs/$id/cancel',id);
     final chips = <Widget>[];
     if (currentSource.isNotEmpty) {
       chips.add(_scrapeMetaChip("来源", currentSource));
@@ -2581,10 +2600,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder(context)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: TaskProgressCardBody(
+          actions:[TextButton(onPressed:()=>showTaskDetails(context, '刮削任务',control,job),child:const Text('查看详情')),
+            if(active) TaskStopButton(key:ValueKey(id),control:control,status:status,onChanged:(next)=>setState(()=>_scrapeJob={...job,...next})),
+          ],header:Row(
             children: [
               _jobStatusIcon(status),
               const SizedBox(width: 10),
@@ -2608,17 +2627,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                   ],
                 ),
               ),
-              if (active)
-                TextButton(
-                  onPressed: () => _cancelJob((job["id"] as num).toInt()),
-                  child: Text(
-                    "取消",
-                    style: AppText.label.copyWith(color: Colors.red),
-                  ),
-                ),
             ],
           ),
-          if (progress != null) ...[
+          progress:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[if (progress != null) ...[
             const SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -2669,19 +2680,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
             ),
           ],
           if (status == "completed") _buildCompletedSummary(),
-        ],
+        ]),
       ),
     );
-  }
-
-  Future<void> _cancelJob(int jobId) async {
-    try {
-      await http.post(
-        Uri.parse("${widget.api.baseUrl}/api/scrape/jobs/$jobId/cancel"),
-        headers: widget.api.headers,
-      );
-      setState(() => _scraping = false);
-    } catch (_) {}
   }
 
   Widget _buildCompletedSummary() {
@@ -2711,6 +2712,10 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         return "正在刮削...";
       case "completed":
         return "刮削完成";
+      case 'stopping':
+        return '正在停止…';
+      case 'cancelled':
+        return '刮削已停止';
       case "failed":
         return "刮削失败";
       default:

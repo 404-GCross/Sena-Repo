@@ -14,12 +14,13 @@ from models.game import Company, Game, GameVersion, GameTag
 from models.file_source import FileSource
 from models.root_directory import RootDirectory
 from models.tag import Tag
-from models.scrape_job import JobStatus, ScrapeJob
+from models.scrape_job import ACTIVE_SCRAPE, ScrapeJob
 from services.cleaner import normalize_company_name, _clean_name
 from services.platforms import load_platform_rules
 from utils.regex_patterns import DEFAULT_PLATFORM, match_platform_rule
 from services.file_source import adapter_from_source, canonical_source_path
 from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
+from services.task_stop import checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ async def clear_scanned_games(
     active = (
         await session.execute(
             select(ScrapeJob.id)
-            .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+            .where(ScrapeJob.status.in_(ACTIVE_SCRAPE))
             .limit(1)
         )
     ).first()
@@ -142,6 +143,7 @@ async def import_from_root(
         company_tag = await _upsert_tag(session, company_name)
 
         for game_folder in company_folder.games:
+            checkpoint()
             # Upsert game
             canonical_game_path = canonical_source_path(source_type, root.source_id, game_folder.path)
             game = await _upsert_game(
@@ -155,6 +157,7 @@ async def import_from_root(
 
             version_count = 0
             for archive in game_folder.archives:
+                checkpoint()
                 matched_platform = match_platform_rule(archive.filename, platform_rules)
 
                 # Upsert version
@@ -181,6 +184,7 @@ async def import_from_root(
             stats["total"] += 1
 
     # Detect orphaned games (exist in DB but folder no longer on disk)
+    checkpoint()
     scanned_paths = {
         canonical_source_path(source_type, root.source_id, g.path)
         for c in scan_result.companies for g in c.games
@@ -202,6 +206,7 @@ async def import_from_root(
     if orphans:
         await session.flush()
 
+    checkpoint()
     await session.commit()
 
     # Count total games from this root

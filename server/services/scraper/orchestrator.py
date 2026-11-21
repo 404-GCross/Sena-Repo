@@ -16,6 +16,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from sqlalchemy import select, update
+from services.task_stop import checkpoint, stoppable_request, stop_scope, TaskStopped
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -97,11 +98,28 @@ async def _update_job_progress(
     last_error: object = _UNSET,
     log: str | None = None,
 ) -> None:
+    checkpoint()
     if job is None:
         return
     now = datetime.utcnow()
+    current = await session.scalar(select(ScrapeJob.status).where(ScrapeJob.id == job.id))
+    if current in (JobStatus.STOPPING, JobStatus.CANCELLED):
+        raise TaskStopped()
     if status is not None:
-        job.status = status
+        changed = await session.execute(
+            update(ScrapeJob)
+            .where(
+                ScrapeJob.id == job.id,
+                ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]),
+            )
+            .values(status=status)
+        )
+        if not changed.rowcount:
+            if await session.scalar(
+                select(ScrapeJob.status).where(ScrapeJob.id == job.id)
+            ) in (JobStatus.STOPPING, JobStatus.CANCELLED):
+                raise TaskStopped()
+            raise RuntimeError('刮削任务已结束')
     if total_games is not None:
         job.total_games = total_games
     if processed_games is not None:
@@ -249,7 +267,7 @@ async def _download_cover(
         return True
 
     try:
-        return await asyncio.wait_for(_download(), timeout=_IMAGE_DOWNLOAD_TIMEOUT)
+        return await stoppable_request(asyncio.wait_for(_download(), timeout=_IMAGE_DOWNLOAD_TIMEOUT))
     except asyncio.TimeoutError:
         logger.warning(
             "Cover download timed out after %ss for host: %s",
@@ -502,7 +520,7 @@ async def scrape_single_game(
         )
         try:
             result = await asyncio.wait_for(
-                scraper.search_best(query, company_hint, refs_hint=refs_hint),
+                stoppable_request(scraper.search_best(query, company_hint, refs_hint=refs_hint)),
                 timeout=_SCRAPER_SEARCH_TIMEOUT,
             )
             if result is not None:
@@ -925,6 +943,51 @@ async def _apply_scraped_tags(
 
 
 async def run_batch_scrape(
+    config,
+    game_ids,
+    session,
+    job,
+    sources=None,
+    mode="missing",
+    hikarinagi_user_id=None,
+) -> dict:
+    job_id = job.id
+    with stop_scope(("scrape", job_id)):
+        try:
+            return await _run_batch_scrape(
+                config, game_ids, session, job, sources, mode, hikarinagi_user_id
+            )
+        except TaskStopped:
+            await finish_stopped_scrape(session, job_id)
+            return {"status": "cancelled"}
+
+
+async def finish_stopped_scrape(session, job_id):
+    await session.rollback()
+    await session.execute(
+        update(ScrapeJob)
+        .where(
+            ScrapeJob.id == job_id,
+            ScrapeJob.status.in_(
+                [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.STOPPING]
+            ),
+        )
+        .values(
+            status=JobStatus.CANCELLED,
+            current_stage="cancelled",
+            current_game=None,
+            current_game_id=None,
+            current_source=None,
+            current_query=None,
+            last_error=None,
+            updated_at=datetime.utcnow(),
+            log="任务已停止，已提交的结果保留",
+        )
+    )
+    await session.commit()
+
+
+async def _run_batch_scrape(
     config: Config,
     game_ids: list[int] | None,
     session: AsyncSession,
@@ -945,7 +1008,9 @@ async def run_batch_scrape(
         Dict with stats: {total, completed, failed}
     """
     # Re-attach job to this session (it may come from a different session)
-    job = await session.merge(job)
+    job = await session.get(ScrapeJob, job.id, populate_existing=True)
+    if job.status in (JobStatus.CANCELLED, JobStatus.STOPPING):
+        raise TaskStopped()
 
     # Get games to scrape
     if game_ids:

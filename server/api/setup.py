@@ -465,6 +465,8 @@ async def _background_scan(config):
     try:
         from api.roots import _run_scan
         stats = await _run_scan(config)
+        if stats and stats.get('status') == 'cancelled':
+            return
         games = stats.get("total_games", 0) if stats else 0
         logger.info(f"Background scan complete: {games} games")
     except Exception as e:

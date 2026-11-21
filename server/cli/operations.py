@@ -191,7 +191,7 @@ def _resolve_scrape_mode(requested: str | None) -> str:
 async def _active_scrape_job(session: AsyncSession) -> ScrapeJob | None:
     result = await session.execute(
         select(ScrapeJob)
-        .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+        .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING, JobStatus.STOPPING]))
         .order_by(ScrapeJob.created_at.desc())
     )
     return result.scalars().first()
@@ -280,6 +280,9 @@ async def _run_scan(
                 sources=sources,
                 mode=scrape_mode,
             )
+            if stats.get('status') == 'cancelled':
+                echo('刮削任务已停止，已提交的结果保留')
+                return 0
             echo(
                 "刮削完成: "
                 f"total={stats.get('total', 0)}, "

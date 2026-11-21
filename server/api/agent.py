@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import require_admin
@@ -20,6 +20,7 @@ from services.agent.inventory import archive_inventory
 from services.agent.patch_alignment import PatchInventories, copy_candidate, file_digest
 from services.agent.runtime import object_schema
 from services.agent.settings import load_settings, public_settings, save_settings
+from services.task_stop import signal_stop
 from utils.process_lock import process_lock
 
 router = APIRouter(
@@ -245,7 +246,7 @@ def job_out(job):
     return {
         "id": job.id,
         "kind": job.kind,
-        "status": job.status,
+        "status": 'stopping' if job.cancel_requested and job.status in {'pending', 'running'} else job.status,
         "calls": job.calls,
         "tokens": job.tokens,
         "message": job.message,
@@ -261,7 +262,7 @@ async def create_job(body, actor_id, session):
     if _scan_active():
         raise HTTPException(409, "扫描正在运行，请结束后再启动智能体任务")
     if body.clear_existing:
-        from models.scrape_job import JobStatus, ScrapeJob
+        from models.scrape_job import ACTIVE_SCRAPE, ScrapeJob
         from models.root_directory import RootDirectory
 
         roots = select(RootDirectory.id)
@@ -273,7 +274,7 @@ async def create_job(body, actor_id, session):
         scraping = (
             await session.execute(
                 select(ScrapeJob.id)
-                .where(ScrapeJob.status.in_([JobStatus.PENDING, JobStatus.RUNNING]))
+                .where(ScrapeJob.status.in_(ACTIVE_SCRAPE))
                 .limit(1)
             )
         ).first()
@@ -371,12 +372,28 @@ async def job_detail(
 
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: int, session: AsyncSession = Depends(get_session)):
-    job = await session.get(AgentJob, job_id)
+    signal_stop(("agent", job_id))
+    await session.execute(
+        update(AgentJob)
+        .where(AgentJob.id == job_id, AgentJob.status == "pending")
+        .values(
+            cancel_requested=True,
+            status="cancelled",
+            finished_at=datetime.utcnow(),
+            message="任务已停止，未开始执行",
+        )
+    )
+    await session.execute(
+        update(AgentJob)
+        .where(AgentJob.id == job_id, AgentJob.status == "running")
+        .values(cancel_requested=True)
+    )
+    await session.commit()
+    signal_stop(("agent", job_id))
+    job = await session.get(AgentJob, job_id, populate_existing=True)
     if job is None:
         raise HTTPException(404, "任务不存在")
-    job.cancel_requested = True
-    await session.commit()
-    return {"message": "已请求取消，停止后续调用并保留已完成结果"}
+    return job_out(job)
 
 
 @router.post("/jobs/{job_id}/retry")
@@ -433,7 +450,7 @@ async def interrupt_jobs():
                 select(AgentJob).where(AgentJob.status.in_(["pending", "running"]))
             )
         ).scalars():
-            job.status = "interrupted"
-            job.message = "服务重启，任务已中断；可重试未完成内容"
+            job.status = 'cancelled' if job.cancel_requested else 'interrupted'
+            job.message = '任务已停止，已完成结果保留' if job.cancel_requested else '服务重启，任务已中断；可重试未完成内容'
             job.finished_at = datetime.utcnow()
         await session.commit()

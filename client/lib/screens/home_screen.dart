@@ -24,6 +24,7 @@ import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
 import "../widgets/new_game_dialog.dart";
+import '../widgets/task_progress_actions.dart';
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
 import "profile_screen.dart";
@@ -63,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentTab = 0;
   bool _isGridView = true;
   int _scrapeProgress = -1; // -1 = none, 0-100 = %
+  Map<String,dynamic>? _activeScrape;
   bool _multiSelect = false;
   bool _isAdmin = false;
   final _selectedIds = <int>{};
@@ -117,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _pollBackground() {
     Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 30));
+      await Future.delayed(Duration(seconds: _activeScrape == null ? 10 : 2));
       if (!mounted) return false;
       try {
         // Poll scrape jobs
@@ -129,15 +131,15 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted && jResp.statusCode == 200) {
           final jobs = jsonDecode(jResp.body) as List;
           final running =
-              jobs.cast<Map>().where((j) => j["status"] == "running").toList();
+              jobs.cast<Map<String,dynamic>>().where((j) => taskActive(j['status'])).toList();
           if (running.isNotEmpty) {
             final j = running.first;
             final total = (j["total_games"] as int?) ?? 1;
             final done = (j["completed_games"] as int?) ?? 0;
-            setState(() => _scrapeProgress =
-                total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0);
+            setState(() { _activeScrape=j; _scrapeProgress =
+                total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0; });
           } else {
-            setState(() => _scrapeProgress = -1);
+            setState(() { _scrapeProgress = -1; _activeScrape=null; });
           }
         }
       } catch (_) {}
@@ -1152,6 +1154,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final skipped = (data["skipped_locked"] as num?)?.toInt() ?? 0;
       final count = _selectedIds.length;
       setState(() {
+        _activeScrape={'id':data['job_id'],'status':'pending','total_games':count,'processed_games':0};
+        _scrapeProgress=0;
         _selectedIds.clear();
         _multiSelect = false;
       });
@@ -1164,6 +1168,18 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted)
         await showFeedbackDialog(context, '刮削失败: $e', error: true);
     }
+  }
+
+  Widget _homeScrapeProgress(){
+    final job=_activeScrape;
+    final bar=LinearProgressIndicator(value:_scrapeProgress/100);
+    if(!_isAdmin || job==null || job['id'] is! int) return bar;
+    final id=job['id'] as int;
+    final control=TaskControl(context.read<GameProvider>().api,'/api/scrape/jobs/$id','/api/scrape/jobs/$id/cancel',id);
+    return Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:TaskProgressCardBody(
+      header:Text('刮削任务 · ${taskStateLabel(job['status'])}'),progress:bar,
+      actions:[TextButton(onPressed:()=>showTaskDetails(context,'刮削任务',control,job),child:const Text('查看详情')),
+        TaskStopButton(key:ValueKey(id),control:control,status:job['status'],onChanged:(next)=>setState(()=>_activeScrape=next))]));
   }
 
   bool _scrapeSourceLocked(String source, Set<String> selected) {
@@ -1519,12 +1535,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(children: [
                 if (_scrapeProgress >= 0)
-                  SizedBox(
-                    height: 4,
-                    child: LinearProgressIndicator(
-                        value: _scrapeProgress / 100.0,
-                        backgroundColor: Colors.white10),
-                  ),
+                  _homeScrapeProgress(),
                 Expanded(
                     child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),

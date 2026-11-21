@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
 import database
@@ -34,6 +34,7 @@ from services.agent.runtime import (
     object_schema,
 )
 from services.agent.settings import load_settings
+from services.task_stop import TaskStopped, stop_scope
 from services.file_source import canonical_source_path, adapter_from_source
 from services.importer import (
     clear_scanned_games,
@@ -940,8 +941,15 @@ async def patch_scan(runtime):
 
 
 async def run_job(job_id):
+    with stop_scope(("agent", job_id)):
+        return await _run_job(job_id)
+
+
+async def _run_job(job_id):
     async with database._session_factory() as session:
         job = await session.get(AgentJob, job_id)
+        if job is None or job.status not in {'pending', 'running'}:
+            return job.status if job else None
         config = load_config()
         try:
             with process_lock(
@@ -952,7 +960,17 @@ async def run_job(job_id):
                 settings, revision = await load_settings(session)
                 runtime = Runtime(session, job, settings, revision)
                 await runtime.check()
-                job.status = "running"
+                started = await session.execute(
+                    update(AgentJob)
+                    .where(
+                        AgentJob.id == job_id,
+                        AgentJob.status.in_(["pending", "running"]),
+                        AgentJob.cancel_requested.is_(False),
+                    )
+                    .values(status="running")
+                )
+                if not started.rowcount:
+                    raise AgentStopped()
                 await session.commit()
                 if job.request.get("clear_existing"):
                     await runtime.check(model=True)
@@ -1053,7 +1071,6 @@ async def run_job(job_id):
                                     "review",
                                     f"条目处理失败（{type(exc).__name__}），可单独重试",
                                 )
-                job.status = "completed"
                 job.message = "任务完成，明确结果已自动应用，请查看待处理项"
                 budget_fallbacks = (
                     await session.execute(
@@ -1067,7 +1084,14 @@ async def run_job(job_id):
                 ).scalar_one()
                 if budget_fallbacks:
                     job.message = f"任务完成；{budget_fallbacks} 项因预算限制转入常规流程，不代表资料无法识别"
-        except AgentStopped:
+                finished = await session.execute(
+                    update(AgentJob)
+                    .where(AgentJob.id == job_id, AgentJob.cancel_requested.is_(False))
+                    .values(status="completed")
+                )
+                if not finished.rowcount:
+                    raise AgentStopped()
+        except (AgentStopped, TaskStopped):
             await session.rollback()
             job.status = "cancelled"
             job.message = "任务已停止，已应用结果保留"
@@ -1080,6 +1104,7 @@ async def run_job(job_id):
             )
         job.finished_at = datetime.utcnow()
         await session.commit()
+        return job.status
 
 
 def launch(job_id):
@@ -1112,22 +1137,24 @@ async def scheduled_scan(config):
             ).first()
             if active:
                 return {"skipped": True}
-            job = AgentJob(kind="game", request={}, status="pending")
+            job = AgentJob(kind="game", request={'kind': 'game'}, status="pending")
             session.add(job)
             await session.commit()
-            await run_job(job.id)
+            final = await run_job(job.id)
             _mark_auto_scan(config, time.time())
+            if final != 'completed':
+                return {'status': final}
             result = {"agent": True}
         else:
             result = await _run_scan(config, update_last=True)
-        if result.get("skipped"):
+        if result.get("skipped") or result.get('status') == 'cancelled':
             return result
         if (
             settings.enabled
             and settings.model.strip()
             and settings.scheduled_patch == "agent"
         ):
-            job = AgentJob(kind="patch", request={}, status="pending")
+            job = AgentJob(kind="patch", request={'kind': 'patch'}, status="pending")
             session.add(job)
             await session.commit()
             await run_job(job.id)

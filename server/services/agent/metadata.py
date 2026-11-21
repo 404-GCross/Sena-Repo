@@ -9,6 +9,7 @@ from services.agent.covers import CoverChecker
 from services.agent.providers import tool_spec
 from services.agent.runtime import object_schema
 from services.scraper.orchestrator import _build_scrapers
+from services.task_stop import stoppable_request
 
 
 class Selection(BaseModel):
@@ -81,7 +82,7 @@ class Catalog:
                 continue
             await self.runtime.check()
             try:
-                rows = await asyncio.wait_for(scraper.search(query), timeout=35)
+                rows = await asyncio.wait_for(stoppable_request(scraper.search(query)), timeout=35)
             except Exception:
                 continue
             for result in rows[:5]:

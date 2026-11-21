@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 import httpx
+from services.task_stop import checkpoint
 
 from utils.log_redaction import redact_exception
 
@@ -120,6 +121,7 @@ def _steam_proxy() -> str:
 
 
 def _steam_request_kwargs() -> dict:
+    checkpoint()
     kwargs: dict = {"timeout": httpx.Timeout(10.0)}
     proxy = _steam_proxy()
     if proxy:
@@ -173,6 +175,7 @@ def _nextmoe_api_key() -> str:
 
 
 def _nextmoe_get(path: str, params: dict) -> dict:
+    checkpoint()
     global _NEXTMOE_LAST_CALL
     key = _nextmoe_api_key()
     if not key:
@@ -183,6 +186,7 @@ def _nextmoe_get(path: str, params: dict) -> dict:
         wait = _NEXTMOE_THROTTLE_SECONDS - (time.monotonic() - _NEXTMOE_LAST_CALL)
         if wait > 0:
             time.sleep(wait)
+        checkpoint()
         try:
             with httpx.Client(**_steam_request_kwargs()) as client:
                 resp = client.get(
@@ -740,12 +744,14 @@ def scan_patches_dir(
     archives = []
     exts = (".zip", ".ZIP", ".rar", ".RAR", ".7z", ".7Z", ".tar", ".TAR", ".gz", ".GZ", ".xz", ".XZ")
     files: dict[Path, None] = {}
-    for ext in exts:
-        for f in sorted(base_dir.rglob(f"*{ext}")):
+    for f in base_dir.rglob('*'):
+        checkpoint()
+        if f.suffix.lower() in exts and f.is_file():
             files[f] = None
     ordered = sorted(files.keys())
     total = len(ordered)
     for index, f in enumerate(ordered, start=1):
+        checkpoint()
         rel = str(f.relative_to(base_dir)).replace("\\", "/")
         app_id = _guess_app_id(rel, f.name)
         app_id, game_name = _enrich_identity(app_id, f.name)
@@ -788,6 +794,7 @@ def scan_patches_source(
     stack = [root_path]
     entries = []
     while stack:
+        checkpoint()
         current = stack.pop()
         for entry in source.list(current):
             if entry.is_dir:
@@ -799,6 +806,7 @@ def scan_patches_source(
     entries.sort(key=lambda e: e.path)
     total = len(entries)
     for index, entry in enumerate(entries, start=1):
+        checkpoint()
         rel = entry.path[len(root):].lstrip("/") if entry.path.startswith(root) else entry.name
         app_id = _guess_app_id(rel, entry.name)
         app_id, game_name = _enrich_identity(app_id, entry.name)

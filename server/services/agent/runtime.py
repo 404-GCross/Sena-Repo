@@ -7,6 +7,7 @@ from pathlib import Path
 from models.user import User
 from services.agent.providers import ModelClient, ModelError, tool_spec
 from services.agent.settings import load_settings
+from services.task_stop import checkpoint, stoppable_request
 
 
 class AgentStopped(Exception):
@@ -32,6 +33,7 @@ class Runtime:
         self.client = ModelClient(settings)
 
     async def check(self, *, model=False):
+        checkpoint()
         await self.session.refresh(self.job)
         if self.job.cancel_requested:
             raise AgentStopped()
@@ -111,7 +113,7 @@ class Runtime:
             }.get(skill, "分析")
             self.job.message = f"正在调用模型：{stage}（第 {self.job.calls} 次请求）"
             await self.session.commit()
-            result, tokens = await self.client.turn(messages, specs)
+            result, tokens = await stoppable_request(self.client.turn(messages, specs))
             self.job.tokens += max(
                 tokens,
                 (len(messages[-1].get("content", "")) + len(result.get("content", "")))

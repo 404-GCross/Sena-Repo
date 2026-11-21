@@ -19,6 +19,8 @@ import '../services/agent_service.dart';
 import '../services/archive_safety.dart';
 import '../widgets/steam_patch_layout.dart';
 import '../widgets/patch_configuration_dialog.dart';
+import '../widgets/patch_task_progress.dart';
+import '../widgets/agent_scan_progress.dart';
 import '../widgets/app_dialog.dart';
 import "../widgets/app_shell.dart";
 import "../widgets/feedback_dialog.dart";
@@ -58,7 +60,6 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
   bool _rescraping = false;
   String? _serverStatus;
   Future<void>? _serverLoadFuture;
-  Map<String, dynamic>? _scanProgress;
   // Optimistic lock state so the button flips immediately; cleared once the
   // server list is reloaded (or reverted when the request fails).
   final Map<String, bool> _lockedOverrides = {};
@@ -439,38 +440,22 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     final api = context.read<GameProvider>().api;
     setState(() {
       _serverLoading = true;
-      _scanProgress = null;
       _serverStatus = switch (mode) {
         "reset" => "正在清空重扫...",
         "metadata" => "正在清空元数据...",
         _ => "正在扫描...",
       };
     });
-    var scanning = true;
-    Future<void> poll() async {
-      while (mounted && scanning) {
-        try {
-          final status = await SteamService.patchScanStatus(api);
-          if (!mounted || !scanning) return;
-          setState(() => _scanProgress = status);
-        } catch (_) {}
-        await Future.delayed(const Duration(milliseconds: 800));
-      }
-    }
-
-    final pollFuture = poll();
     try {
       final result = await SteamService.scanPatches(api, mode: mode);
-      scanning = false;
-      await pollFuture;
       if (!mounted) return;
       final scanned = (result["scanned"] as int?) ?? 0;
       setState(() {
         _serverLoading = false;
-        _scanProgress = null;
       });
       await _loadServerPatches();
       if (!mounted) return;
+      if(result['status']=='cancelled') {setState(()=>_serverStatus='扫描已停止，原补丁索引已保留');return;}
       if (_commonDir != null && _commonDir!.isNotEmpty) {
         setState(() => _tabIndex = 0);
         _scanAndCheck();
@@ -479,56 +464,12 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
         _showMsg("扫描完成，找到 $scanned 个补丁文件");
       }
     } catch (e) {
-      scanning = false;
-      await pollFuture;
       if (!mounted) return;
       setState(() {
         _serverLoading = false;
-        _scanProgress = null;
         _serverStatus = "扫描失败: $e";
       });
     }
-  }
-
-  Widget _buildScanProgressPanel() {
-    final progress = _scanProgress;
-    final processed = (progress?["processed"] as num?)?.toInt() ?? 0;
-    final total = (progress?["total"] as num?)?.toInt() ?? 0;
-    final stage = (progress?["stage"] ?? "准备扫描").toString();
-    final current = (progress?["current"] ?? "").toString();
-    final value = total > 0 ? (processed / total).clamp(0.0, 1.0) : null;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              LinearProgressIndicator(value: value),
-              const SizedBox(height: 14),
-              Text(stage, style: AppText.title.copyWith(fontSize: 15)),
-              const SizedBox(height: 6),
-              Text(
-                total > 0 ? "$processed / $total 个文件" : "正在列举文件 ...",
-                style: AppText.bodySmall.copyWith(color: subTextColor(context)),
-              ),
-              if (current.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  current,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppText.bodySmall.copyWith(color: hintColor(context)),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _rescrapeAll() async {
@@ -540,6 +481,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     try {
       final result = await SteamService.rescrapeAllPatches(api);
       if (!mounted) return;
+      if (result['status']=='cancelled') {
+        setState((){_rescraping=false;_serverStatus='刮削已停止，原补丁索引已保留';});
+        return;
+      }
       final updated = result["updated"] ?? 0;
       final total = result["total"] ?? 0;
       final lockedCount = (result["locked"] as num?)?.toInt() ?? 0;
@@ -1340,8 +1285,10 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
                   ) : null),
           ),
           Divider(height: 1, color: cardBorder(context)),
+          if (_isAdmin) AgentScanProgress(api:context.read<GameProvider>().api, kind:'patch',showCompleted:false),
+          PatchTaskProgress(api:context.read<GameProvider>().api,admin:_isAdmin),
           if (_serverLoading)
-            area(child: _buildScanProgressPanel())
+            area(child: const Center(child: CircularProgressIndicator()))
           else if (_serverPatches.isEmpty)
             area(
               child: Center(
@@ -1882,7 +1829,7 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
     super.dispose();
   }
 
-  void _showLoadingDialog() {
+  void _showLoadingDialog(String requestKey) {
     if (_loadingDialogOpen) return;
     _loadingDialogOpen = true;
     showDialog<void>(
@@ -1890,8 +1837,8 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
       barrierDismissible: false,
       builder: (_) => PopScope(
         canPop: false,
-        child: const AppDialog(section: 'Steam 补丁　/　元数据', title: '正在重新刮削', showClose: false, width: 400,
-          child: LinearProgressIndicator(semanticsLabel: '等待刮削结果')),
+        child: AppDialog(section: 'Steam 补丁　/　元数据', title: '正在重新刮削', showClose: false, width: 400,
+          child: PatchTaskProgress(api:widget.api,admin:true,requestKey:requestKey)),
       ),
     ).then((_) => _loadingDialogOpen = false);
   }
@@ -1908,7 +1855,8 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
 
   Future<void> _rescrape() async {
     setState(() => _rescraping = true);
-    _showLoadingDialog();
+    final requestKey=DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    _showLoadingDialog(requestKey);
     try {
       final m = widget.match;
       final key = SteamService.patchLookupKey(
@@ -1917,10 +1865,11 @@ class _PatchEditDialogState extends State<_PatchEditDialog> {
         lookupKey: m.patchLookupKey,
       );
       final result =
-          await SteamService.rescrapePatch(widget.api, key, preview: true);
+          await SteamService.rescrapePatch(widget.api, key, preview: true,requestKey:requestKey);
       if (!mounted) return;
       _closeLoadingDialog();
       final status = (result["status"] ?? "").toString();
+      if(status=='cancelled'){await _showResultDialog('任务已停止，原配置已保留');return;}
       final oldId = (result["old_app_id"] ?? "").toString();
       final newId = (result["new_app_id"] ?? "").toString();
       final name = (result["game_name"] ?? "").toString();

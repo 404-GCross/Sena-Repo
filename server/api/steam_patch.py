@@ -21,6 +21,7 @@ from api.auth import get_current_user, require_admin, require_request_session
 from api.download import build_signed_patch_url, patch_download_ttl, verify_patch_download_signature, signed_download_session
 from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
 from utils.log_redaction import redact_exception
+from services.task_stop import TaskStopped, checkpoint, run_id, signal_stop, stop_scope
 from utils.secrets import encrypt_secret
 from services.steam_names import (
     MAX_APP_ID, MAX_BATCH_IDS, MAX_BODY_BYTES,
@@ -1320,7 +1321,7 @@ async def patch_scan_status(user: User = Depends(get_current_user)):
         state = dict(_patch_scan_state)
     if user.role != "admin":
         # File names, stage text and upstream errors are management detail.
-        for key in ("current", "stage", "error"):
+        for key in ("current", "stage", "error", "request_key"):
             state.pop(key, None)
     return state
 
@@ -1335,7 +1336,64 @@ async def scan_patches_endpoint(
     with process_lock(scan_lock_path(load_config().data_path), blocking=False) as acquired:
         if not acquired:
             raise HTTPException(status_code=409, detail="扫描或恢复正在运行，请稍后重试")
-        return await _scan_patches_locked(mode, user, session)
+        return await _patch_operation(
+            "扫描补丁", lambda: _scan_patches_locked(mode, user, session)
+        )
+
+
+@router.post("/scan-patches/{key}/stop")
+async def stop_patch_scan(key: str, user: User = Depends(require_admin)):
+    with _patch_scan_state_lock:
+        if key != _patch_scan_state.get("run_id"):
+            raise HTTPException(409, "任务已更换，请刷新进度")
+        if _patch_scan_state["status"] in {"running", "stopping"}:
+            _patch_scan_state.update(status="stopping", stage="正在停止任务")
+            signal_stop(key)
+        return dict(_patch_scan_state)
+
+
+async def _patch_operation(label, work, request_key=None):
+    key = run_id()
+    with _patch_scan_state_lock:
+        if _patch_scan_state.get("status") in {"running", "stopping"}:
+            raise HTTPException(409, "已有补丁任务正在运行")
+        _patch_scan_state.update(
+            run_id=key,
+            request_key=request_key,
+            operation=label,
+            status="running",
+            processed=0,
+            total=0,
+            current="",
+            stage=label,
+            scanned=0,
+            error="",
+            started_at=time.time(),
+            finished_at=0,
+        )
+    with stop_scope(key):
+        try:
+            result = await work()
+            _set_patch_scan_state(
+                status="completed", stage="完成", finished_at=time.time()
+            )
+            return result
+        except TaskStopped:
+            _set_patch_scan_state(
+                status="cancelled",
+                stage="已停止",
+                current="",
+                error="",
+                finished_at=time.time(),
+            )
+            return {
+                "status": "cancelled",
+                "run_id": key,
+                "message": "任务已停止，原补丁索引已保留",
+            }
+        except BaseException:
+            _set_patch_scan_state(status="failed", finished_at=time.time())
+            raise
 
 
 async def _scan_patches_locked(mode, user, session):
@@ -1352,22 +1410,9 @@ async def _scan_patches_locked(mode, user, session):
     patches_dir = _get_patches_dir(config)
     index_dir = _get_patch_index_dir(config)
     index_dir.mkdir(parents=True, exist_ok=True)
-    with _patch_scan_state_lock:
-        if _patch_scan_state.get("status") == "running":
-            raise HTTPException(status_code=409, detail="补丁扫描已在进行中")
-        _patch_scan_state.update({
-            "status": "running",
-            "processed": 0,
-            "total": 0,
-            "current": "",
-            "stage": "列举文件",
-            "scanned": 0,
-            "error": "",
-            "started_at": time.time(),
-            "finished_at": 0.0,
-        })
 
     def on_progress(index: int, total: int, name: str) -> None:
+        checkpoint()
         _set_patch_scan_state(processed=index, total=total, current=name)
 
     try:
@@ -1377,6 +1422,7 @@ async def _scan_patches_locked(mode, user, session):
         roots = await _patch_roots(session)
         stage_suffix = "（含 NextMoe 补全）" if _nextmoe_mode_enabled() else ""
         for root_index, root in enumerate(roots, start=1):
+            checkpoint()
             analysis_mode = _normalize_analysis_mode(
                 getattr(root, "analysis_mode", None),
                 root.source_type,
@@ -1429,8 +1475,8 @@ async def _scan_patches_locked(mode, user, session):
             )
         else:
             merged_patches = _normalize_patch_records(merge(existing_list, scanned))
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump({"patches": merged_patches}, f, ensure_ascii=False, indent=2)
+        checkpoint()
+        _publish_patch_index(json_path, {'patches': merged_patches})
         logger.info(
             "Patch scan finished: roots=%d scanned=%d indexed=%d index=%s",
             len(roots),
@@ -1446,6 +1492,8 @@ async def _scan_patches_locked(mode, user, session):
             finished_at=time.time(),
         )
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}
+    except TaskStopped:
+        raise
     except asyncio.CancelledError:
         logger.warning("Patch scan cancelled")
         _set_patch_scan_state(
@@ -1464,6 +1512,17 @@ async def _scan_patches_locked(mode, user, session):
             finished_at=time.time(),
         )
         raise HTTPException(status_code=500, detail="Patch scan failed; check server logs")
+
+def _publish_patch_index(path, data):
+    temp = path.with_suffix(".scan.tmp")
+    try:
+        temp.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
 
 # Patch type keywords API
 
@@ -1524,7 +1583,17 @@ async def rescrape_patch(
     lookup_key: str,
     preview: bool = Query(default=False),
     user: User = Depends(require_admin),
+    request_key: str | None = Query(None, max_length=80),
 ):
+    result = await _patch_operation(
+        "重新刮削补丁", lambda: _rescrape_patch(lookup_key, preview), request_key
+    )
+    if isinstance(result, dict) and result.get("status") == "cancelled":
+        return RescrapeResult(lookup_key=lookup_key, status="cancelled")
+    return result
+
+
+async def _rescrape_patch(lookup_key, preview):
     """Re-search a patch's app_id; preview mode returns the result without saving."""
     import asyncio as _asyncio
     config = load_config()
@@ -1629,9 +1698,9 @@ async def rescrape_patch(
         elif old_app_id:
             result.new_app_id = old_app_id
 
+    checkpoint()
     if not preview:
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        _publish_patch_index(json_path, data)
 
     logger.info(
         "Patch rescrape: lookup_key=%s status=%s app_id=%s preview=%s",
@@ -1645,6 +1714,10 @@ async def rescrape_patch(
 
 @router.post("/patches/rescrape-all")
 async def rescrape_all_patches(user: User = Depends(require_admin)):
+    return await _patch_operation("批量刮削补丁", _rescrape_all_patches)
+
+
+async def _rescrape_all_patches():
     """Re-search Steam for all patches' app_ids (batch)."""
     import asyncio as _asyncio
     config = load_config()
@@ -1748,15 +1821,22 @@ async def rescrape_all_patches(user: User = Depends(require_admin)):
 
     async def rescrape_limited(patch):
         async with semaphore:
-            return await rescrape_one(patch)
+            checkpoint()
+            result = await rescrape_one(patch)
+            _set_patch_scan_state(processed=_patch_scan_state["processed"] + 1)
+            return result
 
+    _set_patch_scan_state(total=len(patches))
     tasks = [rescrape_limited(p) for p in patches]
-    results = await _asyncio.gather(*tasks)
+    results = await _asyncio.gather(*tasks, return_exceptions=True)
+    checkpoint()
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
     updated = sum(1 for r in results if r.status == "updated")
     locked = sum(1 for r in results if r.status == "locked")
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _publish_patch_index(json_path, data)
 
     logger.info(
         "Batch patch rescrape finished: updated=%d locked=%d total=%d",

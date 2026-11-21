@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../widgets/app_dialog.dart';
+import '../widgets/task_progress_actions.dart';
 import '../widgets/dialog_picker.dart';
 
 import '../services/agent_service.dart';
@@ -592,7 +593,7 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
           } else {
             job = Map<String, dynamic>.from(data);
             rows = job!['results'] as List;
-            if (!['pending', 'running'].contains(job!['status'])) {
+            if (!taskActive(job!['status'])) {
               timer?.cancel();
             }
           }
@@ -625,7 +626,8 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
   String label(dynamic value) =>
       const {
         'pending': '排队中',
-        'running': '运行中',
+         'running': '运行中',
+         'stopping': '正在停止…',
         'completed': '已完成',
         'cancelled': '已停止',
         'failed': '失败',
@@ -707,10 +709,13 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
       body: ListView(padding: const EdgeInsets.all(18), children: [
         if (error != null) Text(error!),
         if (job != null) ...[
-          Text(
+          TaskProgressCardBody(header:Text(
               '${label(job!['status'])} · 模型请求 ${job!['calls']} · Token ${job!['tokens']}',
               style: AppText.title),
-          Text('${job!['message']}'),
+            progress:Text('${job!['message']}'),
+            actions:[if (taskActive(job!['status']))
+              TaskStopButton(control:TaskControl(widget.api,'/api/agent/jobs/${widget.jobId}','/api/agent/jobs/${widget.jobId}/cancel',widget.jobId!),status:job!['status'],
+                onChanged:(next){setState(()=>job={...job!,...next});load();})]),
           if (job!['calls'] == 0 && ['pending', 'running'].contains(job!['status']))
             const Padding(
               padding: EdgeInsets.only(top: 8),
@@ -721,11 +726,7 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
               Chip(label: Text('${label(entry.key)} ${entry.value}'))
           ]),
           Wrap(spacing: 10, children: [
-            if (['pending', 'running'].contains(job!['status']))
-              TextButton(
-                  onPressed: () => action('/jobs/${widget.jobId}/cancel'),
-                  child: const Text('停止后续调用'))
-            else
+            if (!taskActive(job!['status']))
               TextButton(
                   onPressed: () => action('/jobs/${widget.jobId}/retry'),
                   child: const Text('重试未完成内容')),

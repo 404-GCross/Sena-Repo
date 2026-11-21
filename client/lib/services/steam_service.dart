@@ -291,11 +291,12 @@ class SteamService {
     ApiClient api,
     String lookupKey, {
     bool preview = false,
+    String? requestKey,
   }) async {
-    final query = preview ? "?preview=true" : "";
+    final uri = Uri.parse('${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/rescrape')
+        .replace(queryParameters:{if(preview)'preview':'true',if(requestKey!=null)'request_key':requestKey});
     final resp = await http.post(
-      Uri.parse(
-          "${api.baseUrl}/api/steam/patches/${Uri.encodeComponent(lookupKey)}/rescrape$query"),
+      uri,
       headers: api.headers,
     );
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;

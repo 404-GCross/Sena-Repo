@@ -13,8 +13,13 @@ from database import Base
 class JobStatus(str, enum.Enum):
     PENDING = "pending"
     RUNNING = "running"
+    STOPPING = "stopping"
+    CANCELLED = "cancelled"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+ACTIVE_SCRAPE = (JobStatus.PENDING, JobStatus.RUNNING, JobStatus.STOPPING)
 
 
 class ScrapeJob(Base):

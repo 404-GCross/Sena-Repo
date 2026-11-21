@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -866,6 +867,217 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             await next(iter(roots._background_tasks))
             self.assertEqual(roots._scan_state["status"], "failed")
             self.assertIn("未启动", roots._scan_state["message"])
+
+    async def test_pending_agent_stop_is_idempotent_and_never_starts_model(self):
+        async with self.sessions() as s:
+            row = AgentJob(kind="game", request={}, status="pending")
+            s.add(row)
+            await s.commit()
+            key = row.id
+        for _ in range(2):
+            r = await self.client.post(
+                f"/api/agent/jobs/{key}/cancel", headers=self.headers
+            )
+            self.assertEqual(r.json()["status"], "cancelled")
+        with patch.object(ModelClient, "turn", new_callable=AsyncMock) as model:
+            self.assertEqual(await run_job(key), "cancelled")
+            model.assert_not_awaited()
+
+    async def test_nonadmins_cannot_stop_any_task_type(self):
+        from api import scraper, steam_patch
+
+        self.app.include_router(roots.router)
+        self.app.include_router(scraper.router)
+        self.app.include_router(steam_patch.router)
+        async with self.sessions() as s:
+            user = User(
+                username="viewer",
+                role="user",
+                status="active",
+                password_hash="unused",
+                salt="unused",
+            )
+            s.add(user)
+            await s.flush()
+            token = await auth._issue_session_token(user, s)
+            await s.commit()
+        for path in [
+            "/api/agent/jobs/1/cancel",
+            "/api/scrape/jobs/1/cancel",
+            "/api/roots/scan-status/old/stop",
+            "/api/steam/scan-patches/old/stop",
+        ]:
+            with self.subTest(path=path):
+                r = await self.client.post(
+                    path, headers={"Authorization": "Bearer " + token}
+                )
+                self.assertEqual(r.status_code, 403, r.text)
+
+    async def test_stopped_scan_cannot_start_follow_up_scrape(self):
+        from api import scraper
+
+        self.app.include_router(scraper.router)
+        for status, key in [("cancelled", "same"), ("completed", "different")]:
+            with (
+                self.subTest(status=status),
+                patch.dict(roots._scan_state, {"status": status, "run_id": key}),
+            ):
+                r = await self.client.post(
+                    "/api/scrape/batch",
+                    headers=self.headers,
+                    json={"after_scan_id": "same"},
+                )
+                self.assertEqual(r.status_code, 409, r.text)
+        async with self.sessions() as s:
+            self.assertIsNone(await s.scalar(select(ScrapeJob.id).limit(1)))
+
+    async def test_stopping_root_mid_enumeration_preserves_unseen_records(self):
+        import threading
+        from services.scanner import ScanResult
+        from services.task_stop import checkpoint
+
+        self.app.include_router(roots.router)
+        async with self.sessions() as s:
+            root = RootDirectory(path=self.tmp.name)
+            s.add(root)
+            await s.flush()
+            game = Game(
+                name="Keep", root_id=root.id, folder_path=self.tmp.name + "/unseen"
+            )
+            s.add(game)
+            await s.commit()
+            game_id = game.id
+        entered, release = threading.Event(), threading.Event()
+
+        def scan(*args):
+            entered.set()
+            release.wait(4)
+            checkpoint()
+            return ScanResult(self.tmp.name)
+
+        with (
+            patch.dict(roots._scan_state, {"status": "idle"}),
+            patch("services.importer.scan_root", side_effect=scan),
+        ):
+            run = asyncio.create_task(roots._run_scan(self.config))
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait, 3))
+                key = roots._scan_state["run_id"]
+                url = "/api/roots/scan-status/"
+                self.assertEqual(
+                    (
+                        await self.client.post(url + "stale/stop", headers=self.headers)
+                    ).status_code,
+                    409,
+                )
+                self.assertEqual(
+                    (
+                        await self.client.post(
+                            url + key + "/stop", headers=self.headers
+                        )
+                    ).json()["status"],
+                    "stopping",
+                )
+            finally:
+                release.set()
+                result = await run
+            self.assertEqual(result["status"], "cancelled")
+            self.assertEqual(roots._scan_state["roots_completed"], 0)
+            async with self.sessions() as s:
+                self.assertFalse((await s.get(Game, game_id)).is_deleted)
+
+    async def test_stop_patch_reset_never_publishes_partial_index(self):
+        import threading
+        from api import steam_patch
+
+        self.app.include_router(steam_patch.router)
+        entered, release = threading.Event(), threading.Event()
+
+        def scan(*args):
+            entered.set()
+            release.wait(4)
+            return []
+
+        index = steam_patch._get_patch_index_dir(self.config)
+        index.mkdir(parents=True, exist_ok=True)
+        path = index / "patches.json"
+        path.write_text('{"patches":[{"file":"keep.zip","locked":true}]}')
+        old = path.read_bytes()
+        with (
+            patch.dict(steam_patch._patch_scan_state, {"status": "idle"}),
+            patch("scan_patches.scan_patches_dir", side_effect=scan),
+        ):
+            task = asyncio.create_task(
+                self.client.post(
+                    "/api/steam/scan-patches?mode=reset", headers=self.headers
+                )
+            )
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait, 3))
+                key = steam_patch._patch_scan_state["run_id"]
+                r = await self.client.post(
+                    f"/api/steam/scan-patches/{key}/stop", headers=self.headers
+                )
+                self.assertEqual(r.json()["status"], "stopping")
+            finally:
+                release.set()
+                response = await task
+            self.assertEqual(response.json()["status"], "cancelled")
+            self.assertEqual(path.read_bytes(), old)
+
+    async def test_running_scrape_cancels_inflight_search_and_does_not_start_next_game(
+        self,
+    ):
+        from api import scraper
+        from services.scraper.orchestrator import run_batch_scrape
+
+        self.app.include_router(scraper.router)
+        entered = asyncio.Event()
+
+        async def search(*args, **kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+
+        async with self.sessions() as s:
+            root = RootDirectory(path=self.tmp.name)
+            s.add(root)
+            await s.flush()
+            s.add_all(
+                [
+                    Game(name=n, root_id=root.id, folder_path=self.tmp.name + "/" + n)
+                    for n in ("First", "Second")
+                ]
+            )
+            job = ScrapeJob(status=JobStatus.PENDING)
+            s.add(job)
+            await s.commit()
+            key = job.id
+        with (
+            patch(
+                "services.scraper.orchestrator._build_scrapers",
+                return_value=[FakeScraper()],
+            ),
+            patch.object(FakeScraper, "search_best", side_effect=search) as model,
+        ):
+            async with self.sessions() as worker:
+                task = asyncio.create_task(
+                    run_batch_scrape(self.config, None, worker, job)
+                )
+                try:
+                    await asyncio.wait_for(entered.wait(), 3)
+                    r = await self.client.post(
+                        f"/api/scrape/jobs/{key}/cancel", headers=self.headers
+                    )
+                    self.assertIn(r.json()["status"], ("stopping", "cancelled"))
+                    await asyncio.wait_for(task, 3)
+                finally:
+                    if not task.done():
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                model.assert_awaited_once()
+        r = await self.client.get(f"/api/scrape/jobs/{key}", headers=self.headers)
+        self.assertEqual(r.json()["status"], "cancelled")
+        self.assertEqual(r.json()["failed_games"], 0)
 
     async def test_explicit_budget_fallback_is_not_reported_as_model_failure(self):
         await self.configure(max_calls=1)

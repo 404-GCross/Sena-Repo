@@ -19,6 +19,7 @@ import "../providers/game_provider.dart";
 import "../services/api_client.dart";
 import "../services/api_response_utils.dart";
 import "../services/scrape_service.dart";
+import '../services/task_http_scope.dart';
 import "../widgets/app_shell.dart";
 import '../widgets/app_dialog.dart';
 import '../widgets/dialog_text_input.dart';
@@ -3535,6 +3536,7 @@ class _MetadataSearchDialog extends StatefulWidget {
 }
 
 class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
+  final _requests = TaskHttpScope();
   late final TextEditingController _controller;
   List<Map<String, dynamic>> _results = const [];
   bool _loading = false;
@@ -3555,6 +3557,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
 
   @override
   void dispose() {
+    _requests.stop();
     _controller.dispose();
     super.dispose();
   }
@@ -3580,7 +3583,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
     });
 
     try {
-      final results = await widget.onSearch(query);
+      final results = await _requests.run(() => widget.onSearch(query));
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _results = results;
@@ -3599,6 +3602,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
   }
 
   Future<void> _pick(Map<String, dynamic> result) async {
+    final requestId = ++_requestId;
     final onPick = widget.onPick;
     if (onPick == null) {
       Navigator.pop<Object?>(context, result);
@@ -3609,12 +3613,12 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
       _error = null;
     });
     try {
-      final prepared = await onPick(result);
-      if (!mounted) return;
+      final prepared = await _requests.run(() => onPick(result));
+      if (!mounted || requestId != _requestId) return;
       Navigator.pop<Object?>(context, prepared);
     } catch (_) {
       // Keep the list-lane candidate when preparation fails.
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       Navigator.pop<Object?>(context, result);
     }
   }
@@ -3731,10 +3735,10 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     AppActionButton(
-                      icon: Icons.close_rounded,
-                      label: "取消",
+                      icon: busy ? Icons.stop_circle_outlined : Icons.close_rounded,
+                      label: busy ? '停止任务' : '取消',
                       color: hintColor(context),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () { ++_requestId; _requests.stop(); Navigator.pop(context); },
                     ),
                     const SizedBox(width: AppGap.sm),
                     AppActionButton(
