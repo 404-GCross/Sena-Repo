@@ -9,6 +9,7 @@ import "package:shared_preferences/shared_preferences.dart";
 
 import "../models/game.dart";
 import "../models/log_models.dart";
+import "../models/scraper_sources.dart";
 import "api_response_utils.dart";
 import "logger_service.dart";
 import "secure_store.dart";
@@ -160,6 +161,7 @@ class AuthException implements Exception {
 class ApiClient {
   final http.Client _client = http.Client();
   String? _baseUrl;
+  int _connectionGeneration = 0;
   int? _oauthGeneration;
   String? _oauthOrigin;
   String? _oauthRequestId;
@@ -173,6 +175,7 @@ class ApiClient {
   bool? get cachedIsAdmin => accessToken == null ? null : _cachedIsAdmin;
   String? get cachedRole => accessToken == null ? null : _cachedRole;
   static int get sessionGeneration => _sessionGeneration;
+  (int, int) get sessionScope => (_connectionGeneration, _sessionGeneration);
   static void invalidatePendingSession() => _sessionGeneration++;
 
   /// Scope the log viewer may read for the current verified account.
@@ -311,7 +314,9 @@ class ApiClient {
     int port = 11451,
     bool useHttps = false,
   }) async {
-    _baseUrl = serverEndpoint(host, port, useHttps);
+    final base = serverEndpoint(host, port, useHttps);
+    if (base != _baseUrl) _connectionGeneration++;
+    _baseUrl = base;
     await _restoreLogContextFromPrefs();
   }
 
@@ -544,67 +549,20 @@ class ApiClient {
     return GameDetail.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
-  static const String _enabledScrapersCachePrefix = "enabled_scrapers::";
-  static String? _enabledScrapersCacheKey;
-  static List<String>? _enabledScrapersCacheValue;
-
-  String get _enabledScrapersKey => "$_enabledScrapersCachePrefix$baseUrl";
-
-  /// Locally cached enabled scrapers, or null when this device never fetched
-  /// them. Used to open the metadata dialog without waiting on the network.
-  Future<List<String>?> cachedEnabledScraperSources() async {
-    final key = _enabledScrapersKey;
-    if (_enabledScrapersCacheKey == key && _enabledScrapersCacheValue != null) {
-      return List<String>.from(_enabledScrapersCacheValue!);
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(key);
-    if (raw == null || raw.isEmpty) return null;
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) return null;
-    final values = decoded.map((value) => value.toString()).toList();
-    _enabledScrapersCacheKey = key;
-    _enabledScrapersCacheValue = values;
-    return List<String>.from(values);
-  }
-
-  Future<void> rememberEnabledScraperSources(List<String> sources) async {
-    final key = _enabledScrapersKey;
-    final values = List<String>.from(sources);
-    _enabledScrapersCacheKey = key;
-    _enabledScrapersCacheValue = values;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, jsonEncode(values));
-  }
-
-  /// Enabled scrapers for the current server. Cached values are returned
-  /// immediately while a background refresh keeps them current.
-  Future<List<String>> getEnabledScraperSources() async {
-    final cached = await cachedEnabledScraperSources();
-    if (cached != null) {
-      unawaited(_fetchEnabledScraperSources());
-      return cached;
-    }
-    final fetched = await _fetchEnabledScraperSources();
-    return fetched ?? const [];
-  }
-
-  Future<List<String>?> _fetchEnabledScraperSources() async {
+  Future<ScraperSources> getScraperSources() async {
     final uri = Uri.parse("$baseUrl/api/settings/scraper");
-    try {
-      final resp = await _client.get(uri, headers: headers).timeout(
-            const Duration(seconds: 10),
-          );
-      if (resp.statusCode != 200) return null;
-      final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      final enabled = data["enabled_scrapers"];
-      if (enabled is! List) return null;
-      final sources = enabled.map((value) => value.toString()).toList();
-      await rememberEnabledScraperSources(sources);
-      return sources;
-    } catch (_) {
-      return null;
-    }
+    if (!isConnected) throw const ApiResponseException('尚未连接服务端');
+    final resp = await _execute(
+      () => _client.get(uri, headers: {...headers, 'Cache-Control': 'no-cache'})
+          .timeout(const Duration(seconds: 10)),
+      method: 'GET',
+      uri: uri,
+      label: 'read scraper mode',
+      allowRetry: false,
+    );
+    if (resp.statusCode == 401) throw AuthException('登录已失效，请重新登录');
+    if (resp.statusCode != 200) throw HttpException('HTTP ${resp.statusCode}');
+    return ScraperSources.fromConfig(tryDecodeJsonMap(resp.body));
   }
 
   Future<List<Map<String, dynamic>>> searchMetadataCandidates({

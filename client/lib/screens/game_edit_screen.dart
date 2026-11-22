@@ -12,6 +12,7 @@ import "../services/logged_http.dart" as http;
 import "package:path_provider/path_provider.dart";
 
 import "../models/game.dart";
+import "../models/scraper_sources.dart";
 import "../utils/description_markdown.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
@@ -26,6 +27,7 @@ import '../widgets/dialog_text_input.dart';
 import '../widgets/feedback_dialog.dart';
 import "../widgets/game_description.dart";
 import "../widgets/new_game_dialog.dart";
+import "../widgets/read_scraper_sources.dart";
 import "../widgets/nsfw_image.dart";
 import "profile_edit_screen.dart";
 
@@ -60,6 +62,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
   int _lengthMinutes = 0;
   int _lengthCategory = 0;
   bool _tagsDirty = false;
+  bool _readingScraperMode = false;
   bool _versionPasswordChanged = false;
   bool _desktopBgActionsHovered = false;
   String _tagSource = "metadata";
@@ -96,7 +99,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
     if (resp.statusCode != 200) {
       final data = tryDecodeJsonMap(resp.body);
       final detail = data?["detail"]?.toString() ?? "";
-      final label = _allMetadataSources[source] ?? source;
+      final label = ScraperSources.labels[source] ?? source;
       throw Exception(
         detail.isNotEmpty ? detail : "$label 搜索失败 (${resp.statusCode})",
       );
@@ -1201,7 +1204,8 @@ class _GameEditScreenState extends State<GameEditScreen> {
       actions: [
         AppActionButton(
           icon: Icons.cloud_download_outlined,
-          label: "下载元数据",
+          label: _readingScraperMode ? "正在读取…" : "下载元数据",
+          busy: _readingScraperMode,
           onPressed: _locked ? null : _downloadMetadata,
         ),
         if (isDesktop)
@@ -2973,21 +2977,22 @@ class _GameEditScreenState extends State<GameEditScreen> {
   }
 
   Future<void> _downloadMetadata() async {
-    // Step 1: Pick source. The enabled-scrapers list is served from a local
-    // cache so the dialog opens immediately; the network copy refreshes in
-    // the background (see ApiClient.getEnabledScraperSources).
-    final enabled =
-        await context.read<GameProvider>().api.getEnabledScraperSources();
+    if (_readingScraperMode) return;
+    final api = context.read<GameProvider>().api;
+    final scope = api.sessionScope;
+    setState(() => _readingScraperMode = true);
+    final mode = await readScraperSources(context, api);
     if (!mounted) return;
-    final sources = _metadataSourcesFor(enabled);
-    // A single available source (NextMoe mode) needs no picker.
+    setState(() => _readingScraperMode = false);
+    if (mode == null || scope != api.sessionScope || _locked) return;
+    final sources = mode.choices;
     final src = sources.length == 1
         ? sources.keys.first
         : await showDialog<String>(
             context: context,
             builder: (ctx) => _MetadataSourceDialog(sources: sources),
           );
-    if (src == null || !mounted) return;
+    if (src == null || !mounted || scope != api.sessionScope) return;
 
     // Step 2: Search with inline loading + results. The NextMoe token is
     // checked inside the search call so a refresh never delays the dialog.
@@ -3001,6 +3006,7 @@ class _GameEditScreenState extends State<GameEditScreen> {
         onPick: src == "nextmoe" ? _prepareNextmoeResult : null,
       ),
     );
+    if (!mounted || scope != api.sessionScope) return;
     if (picked == "retry") {
       await _downloadMetadata();
       return;
@@ -3326,29 +3332,7 @@ class _MetadataSourceInfo {
   });
 }
 
-const _allMetadataSources = {
-  "vndb_kana": "VNDB",
-  "bangumi": "Bangumi",
-  "steam": "Steam",
-  "hikarinagi": "Hikarinagi",
-  "nextmoe": "NextMoe",
-};
-
-/// Hikarinagi and NextMoe need server-held credentials, so their search
-/// runs on the server instead of from the client.
 const _serverSideMetadataSources = {"hikarinagi"};
-
-/// NextMoe is an exclusive mode: when it is enabled the edit screen only
-/// offers NextMoe, mirroring the server-side scraper settings.
-Map<String, String> _metadataSourcesFor(List<String> enabled) {
-  if (enabled.contains("nextmoe")) {
-    return const {"nextmoe": "NextMoe"};
-  }
-  return {
-    for (final entry in _allMetadataSources.entries)
-      if (entry.key != "nextmoe") entry.key: entry.value,
-  };
-}
 
 _MetadataSourceInfo _metadataSourceInfo(String key, String fallbackLabel) {
   switch (key) {

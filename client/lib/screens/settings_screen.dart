@@ -21,6 +21,7 @@ import "agent_screen.dart";
 import "../services/agent_service.dart";
 import "../widgets/agent_scan_progress.dart";
 import '../widgets/task_progress_actions.dart';
+import '../widgets/read_scraper_sources.dart';
 import "../widgets/feedback_dialog.dart";
 import "platform_categories_screen.dart";
 import "../services/profile_service.dart";
@@ -1171,6 +1172,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   DateTime? _lastScrapeLookup;
   bool _scrapeAfterScan = false;
   String? _chainScanId;
+  (int, int)? _chainScope;
   bool _testingHikarinagi = false;
   bool _testingNextMoe = false;
   final Set<int> _testingOpenListSources = {};
@@ -1477,31 +1479,24 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     _loadPatchRoots();
   }
 
-  List<String> _enabledScraperSources() =>
-      _scraperOrder.where((source) => _sources[source] ?? false).toList();
-
   Future<void> _scanAndScrapeNow() async {
+    if (_loading) return;
+    final scope = widget.api.sessionScope;
+    setState(() => _loading = true);
     try {
       final mode = await chooseScanMode(context, widget.api, 'game');
-      if (mode == null || !mounted) return;
+      if (mode == null || !mounted || scope != widget.api.sessionScope) return;
       if (mode == 'agent') {
         await _startAgentScan();
         return;
       }
-    } catch (e) {
-      if (mounted) _toast(context, '智能体任务启动失败: $e');
-      return;
-    }
-    final sources = _enabledScraperSources();
-    if (sources.isEmpty) {
-      _toast(context, "请先启用至少一个刮削源");
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _scrapeJob = null;
-    });
-    try {
+      final sources = await readScraperSources(context, widget.api);
+      if (sources == null || !mounted || scope != widget.api.sessionScope) return;
+      if (sources.enabled.isEmpty) {
+        _toast(context, "请先启用至少一个刮削源");
+        return;
+      }
+      setState(() => _scrapeJob = null);
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/roots/refresh-all"),
         headers: widget.api.headers,
@@ -1510,7 +1505,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         throw Exception(_responseMessage(resp));
       }
       await _loadRoots();
+      if (!mounted || scope != widget.api.sessionScope) return;
       _chainScanId = (jsonDecode(resp.body) as Map)['run_id'] as String?;
+      _chainScope = scope;
       _scrapeAfterScan = true;
       _startScanStatusPolling();
       if (mounted) _toast(context, "扫描已触发，完成后会自动刮削");
@@ -1617,7 +1614,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       }
       if (!taskActive(state)) {
         final wasWaitingForScrape = _scrapeAfterScan;
-        final shouldScrape = wasWaitingForScrape && state == "completed" && _chainScanId == status['run_id'];
+        final shouldScrape = wasWaitingForScrape && _chainScope == widget.api.sessionScope && state == "completed" && _chainScanId == status['run_id'];
         _scrapeAfterScan = false;
         if (shouldScrape) {
           unawaited(_startBatchScrape(afterScan: _chainScanId));
@@ -1657,18 +1654,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
   }
 
   Future<void> _startBatchScrape({String? afterScan}) async {
-    final sources = _enabledScraperSources();
-    if (sources.isEmpty) {
-      _toast(context, "请先启用至少一个刮削源");
-      return;
-    }
     setState(() => _scraping = true);
     try {
       final resp = await http.post(
         Uri.parse("${widget.api.baseUrl}/api/scrape/batch"),
         headers: {"Content-Type": "application/json", ...widget.api.headers},
         body: jsonEncode({
-          "sources": sources,
           "mode": "missing",
           if (afterScan != null) 'after_scan_id': afterScan,
         }),
@@ -1962,10 +1953,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                       final scrapeStatus = _scrapeJob?["status"]?.toString();
                       final scrapeActive = _scraping || taskActive(scrapeStatus);
                       final actionActive = _loading || scanActive || scrapeActive || _agentScanActive;
-                      final hasScrapers = _enabledScraperSources().isNotEmpty;
                       final actionLabel = _agentScanActive ? "智能体扫描中..." : scanActive
                           ? "扫描中..."
-                          : (scrapeActive ? "刮削中..." : "扫描并刮削");
+                          : (scrapeActive ? "刮削中..." : _loading ? "正在读取…" : "扫描并刮削");
                       return Wrap(
                         spacing: 12,
                         runSpacing: 12,
@@ -1973,7 +1963,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                           SizedBox(
                             width: width,
                             child: FilledButton.tonalIcon(
-                              onPressed: !actionActive && hasScrapers
+                              onPressed: !actionActive
                                   ? _scanAndScrapeNow
                                   : null,
                               icon: actionActive
@@ -1985,9 +1975,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
                                       ),
                                     )
                                   : const Icon(Icons.sync, size: 18),
-                              label: Text(
-                                hasScrapers ? actionLabel : "未启用刮削源",
-                              ),
+                              label: Text(actionLabel),
                               style: FilledButton.styleFrom(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
@@ -2742,15 +2730,12 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
         }
         final enabled = data["enabled_scrapers"];
         if (enabled is List) {
-          final enabledSources =
-              enabled.map((value) => value.toString()).toList();
-          final enabledSet = enabledSources.toSet();
+          final enabledSet = enabled.map((value) => value.toString()).toSet();
           for (final source in _sources.keys) {
             _sources[source] = enabledSet.contains(source);
           }
           _scraperMode =
               enabledSet.contains("nextmoe") ? "nextmoe" : "classic";
-          await widget.api.rememberEnabledScraperSources(enabledSources);
         }
         final nameSource = data["nextmoe_patch_name_source"];
         if (nameSource is String && nameSource.isNotEmpty) {
@@ -2841,10 +2826,6 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
     if (!mounted) return false;
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
-      final enabled = body["enabled_scrapers"];
-      if (enabled is List) {
-        await widget.api.rememberEnabledScraperSources(enabled.cast<String>());
-      }
       if (showSuccessToast) _toast(context, "刮削源配置已保存");
       return true;
     }

@@ -3,10 +3,12 @@ import "dart:math" as math;
 import "package:flutter/material.dart";
 
 import "../services/api_client.dart";
+import "../models/scraper_sources.dart";
 import "../utils/description_markdown.dart";
 import "../utils/source_icons.dart";
 import "../utils/theme_utils.dart";
 import "app_shell.dart";
+import "read_scraper_sources.dart";
 
 Future<int?> showNewGameDialog(
   BuildContext context, {
@@ -93,7 +95,9 @@ class _NewGameDialogState extends State<NewGameDialog> {
   bool _creating = false;
   bool _searched = false;
   String? _error;
-  List<String>? _visibleSourceKeys;
+  ScraperSources? _scraperSources;
+  (int, int)? _sourceScope;
+  bool _readingMode = false;
 
   @override
   void initState() {
@@ -101,12 +105,9 @@ class _NewGameDialogState extends State<NewGameDialog> {
     final initial = widget.initialQuery.trim();
     _searchCtrl = TextEditingController(text: initial);
     _manualNameCtrl = TextEditingController(text: initial);
-    _loadVisibleSources();
-    if (initial.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _search();
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadVisibleSources();
+    });
   }
 
   @override
@@ -116,29 +117,34 @@ class _NewGameDialogState extends State<NewGameDialog> {
     super.dispose();
   }
 
-  List<_NewGameSource> get _visibleSources {
-    final keys = _visibleSourceKeys;
-    if (keys == null) return _sources;
-    return _sources.where((source) => keys.contains(source.key)).toList();
-  }
+  bool get _modeReady => _scraperSources != null && _sourceScope == widget.api.sessionScope;
+
+  List<_NewGameSource> get _visibleSources => _modeReady
+      ? _sources.where((source) => _scraperSources!.allows(source.key)).toList()
+      : const [];
 
   Future<void> _loadVisibleSources() async {
-    final enabled = await widget.api.getEnabledScraperSources();
+    if (_readingMode) return;
+    final scope = widget.api.sessionScope;
+    setState(() => _readingMode = true);
+    final sources = await readScraperSources(context, widget.api);
     if (!mounted) return;
     setState(() {
-      _visibleSourceKeys = enabled.contains("nextmoe")
-          ? const ["nextmoe"]
-          : _sources
-              .map((source) => source.key)
-              .where((key) => key != "nextmoe")
-              .toList();
-      if (!_visibleSourceKeys!.contains(_source)) {
-        _source = _visibleSourceKeys!.first;
+      _readingMode = false;
+      _sourceScope = scope;
+      _scraperSources = sources;
+      _selected = null;
+      _results = const [];
+      if (sources != null && scope == widget.api.sessionScope && !sources.allows(_source)) {
+        _source = _visibleSources.first.key;
       }
     });
+    if (_modeReady && _modeIndex == 0 && _searchCtrl.text.trim().isNotEmpty) await _search();
   }
 
   Future<void> _search() async {
+    if (_loading || _readingMode || _creating) return;
+    if (!_modeReady) return _loadVisibleSources();
     final query = _searchCtrl.text.trim();
     if (query.isEmpty) {
       setState(() {
@@ -161,18 +167,18 @@ class _NewGameDialogState extends State<NewGameDialog> {
         source: _source,
         query: query,
       );
-      if (!mounted) return;
+      if (!mounted || !_modeReady) return;
       setState(() {
         _results = results;
-        _loading = false;
         _error = results.isEmpty ? "没有找到匹配条目" : null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || !_modeReady) return;
       setState(() {
-        _loading = false;
         _error = "搜索失败：$e";
       });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -186,6 +192,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
   }
 
   Future<void> _createFromSelected() async {
+    if (!_modeReady) return;
     final result = _selected;
     if (result == null) {
       setState(() => _error = "请先选择一个元数据条目");
@@ -287,10 +294,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
     final width = math.min(size.width - 24, compact ? 520.0 : 720.0);
     final height = math.min(size.height - 24, compact ? 680.0 : 640.0);
     final visibleSources = _visibleSources;
-    final selectedSource = visibleSources.firstWhere(
-      (item) => item.key == _source,
-      orElse: () => visibleSources.first,
-    );
+    final selectedSource = visibleSources.where((item) => item.key == _source).firstOrNull;
     final status = _creating
         ? "创建中"
         : _loading
@@ -316,8 +320,9 @@ class _NewGameDialogState extends State<NewGameDialog> {
               _Header(
                 title: widget.title,
                 subtitle: "从元数据直接创建，或只创建一个手动条目。",
-                status: status,
-                busy: _loading || _creating,
+                status: _modeIndex == 0 && !_modeReady
+                    ? (_readingMode ? "正在读取…" : "未读取刮削模式") : status,
+                busy: _loading || _creating || (_modeIndex == 0 && _readingMode),
               ),
               Divider(height: 1, color: cardBorder(context)),
               Padding(
@@ -355,7 +360,9 @@ class _NewGameDialogState extends State<NewGameDialog> {
                   child: AnimatedSwitcher(
                     duration: AppMotion.fast,
                     child: _modeIndex == 0
-                        ? _buildMetadataMode(context, selectedSource, compact)
+                        ? selectedSource == null
+                            ? Center(child: Text(_readingMode ? "正在读取刮削模式…" : "请重新读取刮削模式"))
+                            : _buildMetadataMode(context, selectedSource, compact)
                         : _buildManualMode(context),
                   ),
                 ),
@@ -393,8 +400,8 @@ class _NewGameDialogState extends State<NewGameDialog> {
                     if (_modeIndex == 0)
                       AppActionButton(
                         icon: Icons.search_rounded,
-                        label: "搜索",
-                        busy: _loading,
+                        label: _readingMode ? "正在读取…" : !_modeReady ? "重试" : "搜索",
+                        busy: _loading || _readingMode,
                         onPressed: (_creating || _loading) ? null : _search,
                       ),
                     AppActionButton(
@@ -407,7 +414,7 @@ class _NewGameDialogState extends State<NewGameDialog> {
                       onPressed: _creating
                           ? null
                           : _modeIndex == 0
-                              ? _createFromSelected
+                              ? (_modeReady ? _createFromSelected : null)
                               : _createManual,
                     ),
                   ],
@@ -503,7 +510,9 @@ class _NewGameDialogState extends State<NewGameDialog> {
         const SizedBox(height: AppGap.sm),
         _SourceHint(source: selectedSource),
         const SizedBox(height: AppGap.md),
-        Expanded(child: _buildResultBody(context)),
+        Expanded(child: _results.isEmpty
+            ? Center(child: SingleChildScrollView(child: _buildResultBody(context)))
+            : _buildResultBody(context)),
       ],
     );
   }

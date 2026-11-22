@@ -244,7 +244,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
 
       await _saveScraperPrefs();
-      await widget.api.rememberEnabledScraperSources(enabledScrapers);
       try {
         await widget.api.login(_userCtrl.text.trim(), _passCtrl.text);
         if (mounted) {

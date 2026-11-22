@@ -16,6 +16,7 @@ import "package:font_awesome_flutter/font_awesome_flutter.dart";
 import "../providers/settings_provider.dart";
 
 import "../providers/game_provider.dart";
+import "../models/scraper_sources.dart";
 import "../utils/theme_utils.dart";
 import "../services/download_service.dart";
 import "../widgets/app_shell.dart";
@@ -24,6 +25,7 @@ import "../widgets/empty_state.dart";
 import "../widgets/game_grid.dart";
 import "../widgets/game_list.dart";
 import "../widgets/new_game_dialog.dart";
+import "../widgets/read_scraper_sources.dart";
 import '../widgets/task_progress_actions.dart';
 import "game_detail_screen.dart";
 import "steam_patch_screen.dart";
@@ -68,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _multiSelect = false;
   bool _isAdmin = false;
   final _selectedIds = <int>{};
+  bool _readingBatchMode = false;
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   bool _toolbarVisible = true;
@@ -1028,44 +1031,35 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchScrape() async {
-    final agentApi = context.read<GameProvider>().api;
+    if (_readingBatchMode) return;
+    final api = context.read<GameProvider>().api;
+    final scope = api.sessionScope;
+    final ids = _selectedIds.toList();
+    setState(() => _readingBatchMode = true);
+    final ScraperSources? config;
     try {
-      final method = await chooseScanMode(context, agentApi, 'game');
-      if (method == null || !mounted) return;
+      final method = await chooseScanMode(context, api, 'game');
+      if (method == null || !mounted || scope != api.sessionScope) return;
       if (method == 'agent') {
-        await startAgentTask(context, agentApi, 'scrape', gameIds: _selectedIds.toList());
+        await startAgentTask(context, api, 'scrape', gameIds: ids);
         if (mounted) await context.read<GameProvider>().loadGames();
         return;
       }
+      config = await readScraperSources(context, api);
     } catch (e) {
       if (mounted) await showFeedbackDialog(context, '$e', error: true);
       return;
+    } finally {
+      if (mounted) setState(() => _readingBatchMode = false);
     }
-    const allSrc = [
-      "hikarinagi",
-      "vndb_kana",
-      "bangumi",
-      "steam",
-      "nextmoe",
-    ];
-    final api = context.read<GameProvider>().api;
-    // The scraper mode lives in the server settings (NextMoe is exclusive);
-    // fall back to the classic set when the server cannot be reached.
-    final enabled = await api.getEnabledScraperSources();
-    if (!mounted) return;
-    final defaultSources = enabled.isEmpty
-        ? allSrc.where((source) => source != "nextmoe").toSet()
-        : enabled.toSet();
-    if (defaultSources.contains("nextmoe") && defaultSources.length > 1) {
-      defaultSources.retainAll({"nextmoe"});
-    }
-    if (defaultSources.isEmpty) defaultSources.add("vndb_kana");
+    if (!mounted || config == null || scope != api.sessionScope || !_multiSelect) return;
+    final choices = config.choices;
+    final sel = Set<String>.from(config.enabled);
+    String mode = "missing";
 
     final result = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (ctx) {
-          final sel = Set<String>.from(defaultSources);
-          String mode = "missing";
           return StatefulBuilder(
               builder: (ctx, setD) => AlertDialog(
                     title: const Text("批量刮削"),
@@ -1082,16 +1076,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                         fontSize: 13,
                                         color: Colors.grey[700])),
                                 const SizedBox(height: 4),
-                                for (final s in allSrc)
-                                  CheckboxListTile(
-                                      title: Text(_srcLabel(s)),
+                                 for (final s in choices.keys)
+                                   CheckboxListTile(
+                                       title: Text(choices[s]!),
                                       subtitle: s == "nextmoe"
                                           ? const Text(
                                               "独立模式，不能与其他源同时使用",
                                               style: TextStyle(fontSize: 11))
                                           : null,
                                       value: sel.contains(s),
-                                      onChanged: _scrapeSourceLocked(s, sel)
+                                       onChanged: choices.length == 1
                                           ? null
                                           : (v) {
                                               setD(() => v == true
@@ -1128,31 +1122,31 @@ class _HomeScreenState extends State<HomeScreen> {
                           onPressed: () => Navigator.pop(ctx),
                           child: const Text("取消")),
                       FilledButton(
-                          onPressed: () => Navigator.pop(
+                           onPressed: sel.isEmpty ? null : () => Navigator.pop(
                               ctx, {"sources": sel.toList(), "mode": mode}),
                           child: const Text("开始刮削")),
                     ],
                   ));
         });
-    if (result == null) return;
+    if (result == null || !mounted || scope != api.sessionScope) return;
     final sources = (result["sources"] as List?)?.cast<String>() ?? [];
     if (sources.isEmpty) return;
-    final mode = (result["mode"] as String?) ?? "missing";
 
     try {
       final resp = await http.post(Uri.parse("${api.baseUrl}/api/scrape/batch"),
           headers: {"Content-Type": "application/json", ...api.headers},
           body: jsonEncode({
-            "game_ids": _selectedIds.toList(),
+            "game_ids": ids,
             "sources": sources,
-            "mode": mode
+            "mode": result["mode"],
           }));
       if (resp.statusCode != 200) {
         throw Exception("HTTP ${resp.statusCode}: ${resp.body}");
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final skipped = (data["skipped_locked"] as num?)?.toInt() ?? 0;
-      final count = _selectedIds.length;
+      if (!mounted || scope != api.sessionScope) return;
+      final count = ids.length;
       setState(() {
         _activeScrape={'id':data['job_id'],'status':'pending','total_games':count,'processed_games':0};
         _scrapeProgress=0;
@@ -1181,22 +1175,6 @@ class _HomeScreenState extends State<HomeScreen> {
       actions:[TextButton(onPressed:()=>showTaskDetails(context,'刮削任务',control,job),child:const Text('查看详情')),
         TaskStopButton(key:ValueKey(id),control:control,status:job['status'],onChanged:(next)=>setState(()=>_activeScrape=next))]));
   }
-
-  bool _scrapeSourceLocked(String source, Set<String> selected) {
-    if (source == "nextmoe") {
-      return selected.any((other) => other != "nextmoe");
-    }
-    return selected.contains("nextmoe");
-  }
-
-  String _srcLabel(String s) => switch (s) {
-        "vndb_kana" => "VNDB",
-        "bangumi" => "Bangumi",
-        "steam" => "Steam",
-        "hikarinagi" => "Hikarinagi",
-        "nextmoe" => "NextMoe",
-        _ => s,
-      };
 
   Widget? _buildBottomBar(BuildContext context, bool showSteam) {
     if (_multiSelect && _selectedIds.isNotEmpty) {
@@ -1238,9 +1216,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         FilledButton.tonalIcon(
-                          onPressed: _batchScrape,
+                          onPressed: _readingBatchMode ? null : _batchScrape,
                           icon: const Icon(Icons.image_search, size: 18),
-                          label: const Text("刮削"),
+                          label: Text(_readingBatchMode ? "正在读取…" : "刮削"),
                           style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 8)),
