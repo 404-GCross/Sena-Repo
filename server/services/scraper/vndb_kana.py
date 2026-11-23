@@ -207,6 +207,7 @@ class VndbKanaScraper(BaseScraper):
             is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 2.0,
             tags=tag_items,
             aliases=aliases,
+            cover_titles=[text for row in titles for text in (row.get('title'), row.get('latin')) if text],
         )
 
     def _pick_title(self, titles: list[dict]) -> str:

@@ -10,9 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from services.agent.images import ImagePreview, image_preview, remote_image_bytes
 from services.agent.providers import ModelError
+from services.scraper.base import title_search_key
 from utils.log_redaction import redact_text
 
-COVER_POLICY_VERSION = "single-portrait-v1"
+COVER_POLICY_VERSION = "work-edition-portrait-v2"
 CHINESE_LANGUAGES = {
     "zh",
     "zh-cn",
@@ -40,6 +41,9 @@ class CoverAssessment(BaseModel):
         "unknown",
     ]
     language: Literal["zh", "other", "unknown"]
+    identity: Literal["match", "mismatch", "unknown"]
+    basis: Literal["visible_title", "official_asset", "none"]
+    visible_title: str = Field(max_length=512)
     reason: str = Field(min_length=1, max_length=240)
 
 
@@ -58,8 +62,17 @@ class CoverAsset:
 @dataclass
 class CoverDecision:
     asset: CoverAsset | None = None
+    selected: int | None = None
+    selection_reason: str = ""
     reason: str = ""
     checks: list[dict] = field(default_factory=list)
+
+
+def _same_art(a: ImagePreview, b: ImagePreview) -> bool:
+    if abs(a.width * b.height / (a.height * b.width) - 1) > 0.025:
+        return False
+    differences = [abs(x - y) for x, y in zip(a.thumbnail, b.thumbnail)]
+    return max(differences) <= 28 and sum(differences) <= 4 * len(differences)
 
 
 class CoverChecker:
@@ -102,7 +115,7 @@ class CoverChecker:
         self.assets[url] = asset
         return asset
 
-    async def choose(self, urls, metadata, preferred=None):
+    async def choose(self, urls, metadata, preferred=None, *, target):
         decision = CoverDecision()
         settings = self.runtime.settings
         if not settings.vision:
@@ -116,6 +129,17 @@ class CoverChecker:
             order.remove(preferred)
             order.insert(0, preferred)
         accepted = []
+        titles = (
+            {title_search_key(t) for t in target["titles"]}
+            - {title_search_key(t) for t in target["ambiguous_titles"]}
+            - {""}
+        )
+        official_urls = {
+            url
+            for url in urls
+            if target["source_id"]
+            and metadata.get(url, {}).get("official_work_id") == target["source_id"]
+        }
         incomplete = ""
         for start in range(0, len(order), 4):
             try:
@@ -148,14 +172,16 @@ class CoverChecker:
                 data = await self.runtime.reason(
                     "cover_quality",
                     {
+                        "target": target,
                         "covers": [
                             {
                                 "cover": index,
                                 "width": asset.preview.width,
                                 "height": asset.preview.height,
+                                "official_for_target": asset.url in official_urls,
                             }
                             for index, asset in batch.items()
-                        ]
+                        ],
                     },
                     CoverAssessments.model_json_schema(),
                     images=[asset.preview.uri for asset in batch.values()],
@@ -167,7 +193,7 @@ class CoverChecker:
                     raise ValueError("Unverified cover indexes")
                 for item in result.covers:
                     asset = batch[item.cover]
-                    check = item.model_dump()
+                    check = item.model_dump(exclude={"visible_title"})
                     check.update(
                         width=asset.preview.width,
                         height=asset.preview.height,
@@ -175,7 +201,18 @@ class CoverChecker:
                     )
                     check["reason"] = redact_text(item.reason, limit=240)
                     decision.checks.append(check)
-                    if item.layout != "single_cover":
+                    verified = item.identity == "match" and (
+                        (
+                            item.basis == "visible_title"
+                            and title_search_key(item.visible_title) in titles
+                        )
+                        or (
+                            item.basis == "official_asset"
+                            and asset.url in official_urls
+                        )
+                    )
+                    check["identity_verified"] = verified
+                    if item.layout != "single_cover" or not verified:
                         continue
                     source_language = str(
                         metadata.get(asset.url, {}).get("language") or ""
@@ -184,39 +221,63 @@ class CoverChecker:
                         item.language == "unknown"
                         and source_language in CHINESE_LANGUAGES
                     )
-                    rank = (
-                        int(chinese) if settings.cover_language == "zh" else 0,
-                        asset.preview.width * asset.preview.height
-                        if settings.high_resolution
-                        else 0,
-                        int(item.cover == preferred),
-                        -item.cover,
+                    accepted.append((item.cover, chinese, asset))
+                if (
+                    accepted
+                    and not settings.high_resolution
+                    and (
+                        settings.cover_language != "zh"
+                        or any(row[1] for row in accepted)
                     )
-                    accepted.append((rank, chinese, asset))
-                if accepted and (
-                    settings.cover_language != "zh" or any(item[1] for item in accepted)
                 ):
                     break
             except ModelError as exc:
                 incomplete = redact_text(exc, limit=240)
                 break
             except ValueError:
-                incomplete = "模型未给出与候选对应的有效构图结论"
+                incomplete = "模型未给出与候选对应的有效归属和构图结论"
                 break
         if accepted:
-            _, chinese, asset = max(accepted, key=lambda item: item[0])
-            if (
-                settings.cover_language != "zh"
-                or chinese
-                or settings.cover_fallback == "original"
-            ):
-                decision.asset = asset
-                return decision
-            decision.reason = "没有通过校验的中文单张竖版封面，已按回退策略保留现有封面"
+            if settings.cover_language == "zh":
+                chinese = [row for row in accepted if row[1]]
+                if chinese:
+                    accepted = chinese
+                elif settings.cover_fallback != "original":
+                    decision.reason = (
+                        "没有通过校验的中文单张竖版封面，已按回退策略保留现有封面"
+                    )
+                    return decision
+            index, _, asset = min(
+                accepted, key=lambda row: (row[0] != preferred, row[0])
+            )
+            why = (
+                "采用已核实作品与版本的推荐封面"
+                if index == preferred
+                else "采用符合语言策略且已核实作品与版本的来源封面"
+            )
+            if settings.high_resolution:
+                variants = [
+                    row for row in accepted if _same_art(asset.preview, row[2].preview)
+                ]
+                larger = max(
+                    variants,
+                    key=lambda row: row[2].preview.width * row[2].preview.height,
+                )
+                if (
+                    larger[2].preview.width * larger[2].preview.height
+                    > asset.preview.width * asset.preview.height
+                ):
+                    index, _, asset = larger
+                    why += "的同图高清版本"
+            decision.selected, decision.asset, decision.selection_reason = (
+                index,
+                asset,
+                why,
+            )
         else:
             decision.reason = (
                 f"封面构图校验未完成：{incomplete}；已保留现有封面"
                 if incomplete
-                else "没有通过单张竖版构图校验的封面，已保留现有封面"
+                else "没有可确认属于本作品和版本的单张竖版正封面，已保留现有封面待复核"
             )
         return decision

@@ -1,4 +1,5 @@
 import io
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +16,8 @@ import database
 from models.agent import AgentJob, AgentResult
 from models.game import Game
 from schemas.agent import AgentSettings
-from services.agent.covers import CoverChecker
+from services.agent.covers import CoverAsset, CoverChecker
+from services.agent.images import image_preview
 from services.agent.jobs import scrape_game
 from services.agent.metadata import Catalog, select_metadata
 from services.agent.providers import ModelError
@@ -44,6 +46,9 @@ def assessments(*rows):
                 "cover": index,
                 "layout": layout,
                 "language": language,
+                "identity": "match",
+                "basis": "visible_title",
+                "visible_title": "Original Game",
                 "reason": "Two independent panels"
                 if layout == "stacked"
                 else "Complete single composition",
@@ -64,6 +69,11 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
             reason=AsyncMock(),
         )
         self.checker = CoverChecker(self.config, self.runtime)
+        self.target = {
+            "titles": ["Original Game"],
+            "ambiguous_titles": [],
+            "source_id": "1",
+        }
         self.payloads = {}
         self.requests = []
 
@@ -93,13 +103,16 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         self.payloads[url] = image_bytes(width, height, **kwargs)
         return url
 
+    async def choose(self, urls, metadata, preferred=None):
+        return await self.checker.choose(urls, metadata, preferred, target=self.target)
+
     async def test_tall_stacked_primary_is_rejected_and_single_poster_is_selected(self):
         stacked = self.candidate("primary", 800, 900, stacked=True)
         poster = self.candidate("poster")
         self.runtime.reason.return_value = assessments(
             (0, "stacked", "zh"), (1, "single_cover", "zh")
         )
-        decision = await self.checker.choose([stacked, poster], {}, preferred=0)
+        decision = await self.choose([stacked, poster], {}, preferred=0)
         self.assertEqual(decision.asset.url, poster)
         self.assertEqual(decision.asset.data, self.payloads[poster])
         self.assertEqual(decision.checks[0]["layout"], "stacked")
@@ -110,14 +123,14 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         landscape = self.candidate("landscape", 900, 600)
         poster = self.candidate("poster")
         self.runtime.reason.return_value = assessments((1, "single_cover", "zh"))
-        decision = await self.checker.choose(
+        decision = await self.choose(
             [landscape, poster], {landscape: {"width": 600, "height": 900}}
         )
         self.assertEqual(decision.asset.url, poster)
         self.assertEqual(decision.checks[0]["width"], 900)
         self.assertEqual(
             self.runtime.reason.await_args.args[1]["covers"],
-            [{"cover": 1, "width": 600, "height": 900}],
+            [{"cover": 1, "width": 600, "height": 900, "official_for_target": False}],
         )
 
     async def test_large_images_are_resized_for_inspection_but_original_bytes_are_kept(
@@ -126,7 +139,7 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         poster = self.candidate("large", 1000, 1600, compress_level=0)
         self.assertGreater(len(self.payloads[poster]), 2 * 1024 * 1024)
         self.runtime.reason.return_value = assessments((0, "single_cover", "zh"))
-        decision = await self.checker.choose([poster], {})
+        decision = await self.choose([poster], {})
         self.assertEqual(decision.asset.preview.height, 1600)
         self.assertLess(len(decision.asset.preview.uri), len(decision.asset.data))
         self.assertEqual(decision.asset.data, self.payloads[poster])
@@ -135,7 +148,7 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         poster = self.candidate("candidate")
         for layout in ("stacked", "collage", "screenshot", "packaging", "unknown"):
             self.runtime.reason.return_value = assessments((0, layout, "zh"))
-            decision = await self.checker.choose([poster], {})
+            decision = await self.choose([poster], {})
             self.assertIsNone(decision.asset)
             self.assertTrue(decision.reason)
 
@@ -144,10 +157,10 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.reason.return_value = assessments((0, "single_cover", "other"))
         for fallback in ("keep", "review", "original"):
             self.runtime.settings.cover_fallback = fallback
-            decision = await self.checker.choose([poster], {})
+            decision = await self.choose([poster], {})
             self.assertEqual(decision.asset is not None, fallback == "original")
         self.runtime.reason.return_value = assessments((0, "stacked", "other"))
-        self.assertIsNone((await self.checker.choose([poster], {})).asset)
+        self.assertIsNone((await self.choose([poster], {})).asset)
 
     async def test_language_and_resolution_preferences_apply_only_to_accepted_posters(
         self,
@@ -160,27 +173,91 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.reason.return_value = assessments(
             (0, "single_cover", "zh"), (1, "single_cover", "zh"), (2, "collage", "zh")
         )
-        self.assertEqual(
-            (await self.checker.choose(urls, {}, preferred=2)).asset.url, urls[1]
-        )
+        self.assertEqual((await self.choose(urls, {}, preferred=2)).asset.url, urls[1])
 
     async def test_unknown_indexes_failed_models_and_disabled_vision_cannot_bypass_validation(
         self,
     ):
         poster = self.candidate("poster")
         self.runtime.reason.return_value = assessments((99, "single_cover", "zh"))
-        self.assertIsNone((await self.checker.choose([poster], {})).asset)
+        self.assertIsNone((await self.choose([poster], {})).asset)
         for error in (ModelError("unavailable"), AgentBudget("budget exhausted")):
             self.runtime.reason.side_effect = error
-            self.assertIsNone((await self.checker.choose([poster], {})).asset)
+            self.assertIsNone((await self.choose([poster], {})).asset)
         self.runtime.settings.vision = False
         self.runtime.reason.reset_mock()
-        self.assertIsNone((await self.checker.choose([poster], {})).asset)
+        self.assertIsNone((await self.choose([poster], {})).asset)
         self.runtime.reason.assert_not_awaited()
         self.runtime.settings.vision = True
         self.runtime.check.side_effect = AgentStopped()
         with self.assertRaises(AgentStopped):
-            await self.checker.choose([poster], {})
+            await self.choose([poster], {})
+
+    async def test_edition_and_recommendation_beat_a_larger_cross_listed_poster(self):
+        official = self.candidate("original", 411, 560)
+        shared = self.candidate("shared", 787, 1080, stacked=True)
+        variant = self.candidate("other-design", 900, 1200, stacked=True)
+        self.target.update(titles=["恋愛、借りちゃいました", "Original Game"])
+        verdict = assessments(*[(i, "single_cover", "other") for i in range(3)])
+        verdict["covers"][0]["visible_title"] = "ASa Project"
+        verdict["covers"][1]["visible_title"] = "恋愛、借りちゃいました"
+        self.runtime.reason.return_value = verdict
+        found = await self.choose([shared, official, variant], {}, preferred=1)
+        self.assertEqual(found.selected, 1)
+        self.assertFalse(found.checks[0]["identity_verified"])
+        self.assertEqual(
+            found.asset.preview.digest,
+            hashlib.sha256(self.payloads[official]).hexdigest(),
+        )
+
+    async def test_fandisc_needs_distinctive_title_or_trusted_edition_binding(self):
+        url = self.candidate("cover")
+        self.target.update(
+            titles=["Series", "Series: Tsubaki & Chinatsu"], ambiguous_titles=["Series"]
+        )
+        verdict = assessments((0, "single_cover", "zh"))
+        item = verdict["covers"][0]
+        self.runtime.reason.return_value = verdict
+        for title in ["Series", "Series: Emi & Hasumi", "ASa Project"]:
+            item["visible_title"] = title
+            self.assertIsNone((await self.choose([url], {})).asset)
+        item["visible_title"] = "Series: Tsubaki & Chinatsu"
+        self.assertIsNotNone((await self.choose([url], {})).asset)
+        item.update(visible_title="", basis="official_asset")
+        self.assertIsNone(
+            (await self.choose([url], {url: {"official_work_id": "2"}})).asset
+        )
+        self.assertIsNotNone(
+            (await self.choose([url], {url: {"official_work_id": "1"}})).asset
+        )
+        item["identity"] = "mismatch"
+        self.assertIsNone(
+            (await self.choose([url], {url: {"official_work_id": "1"}})).asset
+        )
+
+    async def test_saved_edition_id_conflict_blocks_even_a_recommended_cover(self):
+        with patch("services.agent.metadata._build_scrapers", return_value=[]):
+            catalog = Catalog(self.config, None, self.runtime)
+        catalog.results = [
+            ScraperResult(
+                title="Original Game",
+                source_name="nextmoe",
+                source_id="878",
+                cover_url=self.candidate("wrong"),
+            )
+        ]
+        self.runtime.reason.return_value = {
+            "candidate": 0,
+            "cover": 0,
+            "evidence": "Similar title",
+        }
+        result, _ = await select_metadata(
+            self.runtime, catalog, {"saved_ids": {"nextmoe_id": "122"}}
+        )
+        self.assertEqual(result.cover_url, "")
+        self.assertIn("ID 冲突", catalog.cover_review)
+        self.assertEqual(self.runtime.reason.await_count, 1)
+        await catalog.close()
 
     async def test_selection_is_checked_even_if_model_did_not_inspect_the_cover(self):
         bad = self.candidate("bad", 800, 900, stacked=True)
@@ -257,6 +334,88 @@ class AgentCoverApplyTests(unittest.IsolatedAsyncioTestCase):
         await self.client.aclose()
         await self.session.close()
         await self.engine.dispose()
+
+    async def test_record_distinguishes_recommendation_validation_and_successful_write(
+        self,
+    ):
+        candidate = ScraperResult(
+            title="中文名",
+            cover_titles=["Japanese Edition"],
+            source_id="122",
+            source_name="nextmoe",
+            cover_url="shared",
+            cover_urls=["poster"],
+        )
+        related = ScraperResult(
+            title="Other Edition",
+            source_id="878",
+            source_name="nextmoe",
+            cover_url="shared",
+        )
+        source = SimpleNamespace(
+            source_name="nextmoe",
+            search=AsyncMock(return_value=[candidate, related]),
+            search_best=AsyncMock(return_value=None),
+            close=AsyncMock(),
+        )
+        good = image_bytes(411, 560)
+
+        async def asset(url):
+            data = good if url == "poster" else image_bytes(787, 1080)
+            return CoverAsset(url, data, image_preview(data))
+
+        async def reason(skill, ctx, schema, tools=None, **kwargs):
+            if skill == "metadata":
+                await tools["search"][1]({"query": "Game"})
+                return {"candidate": 0, "cover": 0, "evidence": "Matched source record"}
+            self.assertEqual(ctx["target"]["source_id"], "122")
+            self.assertIn("Japanese Edition", ctx["target"]["titles"])
+            self.assertEqual(ctx["target"]["cross_listed_covers"], [0])
+            verdict = assessments(
+                (0, "single_cover", "zh"), (1, "single_cover", "other")
+            )
+            verdict["covers"][0].update(
+                identity="unknown", basis="none", visible_title=""
+            )
+            verdict["covers"][1]["visible_title"] = "Japanese Edition"
+            return verdict
+
+        job = AgentJob(kind="scrape", request={"retry": True})
+        self.session.add(job)
+        await self.session.commit()
+        runtime = SimpleNamespace(
+            session=self.session,
+            job=job,
+            check=AsyncMock(),
+            reason=reason,
+            settings=AgentSettings(vision=True, update_mode="overwrite"),
+        )
+        with (
+            patch("services.agent.metadata._build_scrapers", return_value=[source]),
+            patch.object(CoverChecker, "load", side_effect=asset),
+        ):
+            with patch(
+                "services.scraper.orchestrator._save_verified_cover",
+                side_effect=OSError("unwritable"),
+            ):
+                await scrape_game(runtime, self.game, self.client)
+            await scrape_game(runtime, self.game, self.client)
+        first, second = (
+            await self.session.scalars(select(AgentResult).order_by(AgentResult.id))
+        ).all()
+        self.assertEqual(first.status, "partial")
+        self.assertIsNone(first.data["cover_decision"]["saved_sha256"])
+        self.assertIsNone(first.data["cover_decision"]["saved"])
+        self.assertEqual(second.status, "applied")
+        audit = second.data["cover_decision"]
+        self.assertEqual(
+            (audit["recommended"], audit["selected"], audit["saved"]), (0, 1, 1)
+        )
+        self.assertEqual(
+            audit["saved_sha256"],
+            hashlib.sha256(Path(self.game.cover_path).read_bytes()).hexdigest(),
+        )
+        self.assertEqual(Path(self.game.cover_path).read_bytes(), good)
 
     async def test_apply_saves_the_verified_bytes_without_downloading_a_different_image(
         self,

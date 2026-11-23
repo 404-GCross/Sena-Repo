@@ -209,6 +209,7 @@ class SteamScraper(BaseScraper):
                 description=description,
                 release_date=(details.get("release_date") or {}).get("date", ""),
                 cover_url=cover_url,
+                cover_metadata={cover_url: {'official_work_id': appid}} if cover_url else {},
                 hero_url=hero_url,
                 source_id=appid,
                 source_name=self.source_name,

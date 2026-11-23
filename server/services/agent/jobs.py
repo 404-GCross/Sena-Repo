@@ -503,7 +503,10 @@ async def scrape_game(runtime, game, client):
         .all()
     )
     state = lambda: [
-        COVER_POLICY_VERSION,
+        COVER_POLICY_VERSION
+        if runtime.settings.portrait
+        and (not game.cover_path or runtime.settings.update_mode == "overwrite")
+        else "single-portrait-v1",
         game.id,
         game.name,
         game.cover_path,
@@ -574,7 +577,7 @@ async def scrape_game(runtime, game, client):
                 )
                 return
             await runtime.check()
-            await _apply_result(
+            cover_saved = await _apply_result(
                 result,
                 result.source_name,
                 game,
@@ -618,18 +621,42 @@ async def scrape_game(runtime, game, client):
                 )
             await check_game_nsfw(runtime, game, client, config)
             digest = fingerprint(state(), runtime.settings)
+            decision = catalog.cover_decision
+            audit = {}
+            if decision is not None:
+                recommended = catalog.selection.cover
+                if decision.asset is not None and not cover_saved:
+                    catalog.cover_review = "已选定封面但未写入，保留现有封面待复核"
+                saved = decision.selected if cover_saved else None
+                reason = catalog.cover_review or decision.selection_reason
+                audit["cover_decision"] = {
+                    "policy": COVER_POLICY_VERSION,
+                    "source_id": result.source_id,
+                    "recommended": recommended,
+                    "selected": decision.selected,
+                    "saved": saved,
+                    "saved_sha256": decision.asset.preview.digest
+                    if saved is not None
+                    else None,
+                    "reason": reason,
+                }
+                outcome = f"实际写入 #{saved}" if saved is not None else "未写入"
+                suggestion = f"#{recommended}" if recommended is not None else "无"
+                evidence = f"竖版封面：推荐 {suggestion}，{outcome}。{reason}。作品匹配依据：{evidence}"
+            elif catalog.cover_review:
+                evidence += '；' + catalog.cover_review
             await record(
                 runtime,
                 game.id,
                 digest,
                 "partial" if catalog.cover_review else "applied",
-                evidence
-                + ("；" + catalog.cover_review if catalog.cover_review else ""),
+                evidence,
                 {
                     "game_id": game.id,
                     "name": game.name,
                     "source": result.source_name,
                     "cover_checks": catalog.cover_checks,
+                    **audit,
                 },
             )
         except (ModelError, ValueError) as exc:

@@ -731,15 +731,16 @@ async def _apply_result(
     nsfw_enable_only: bool = False,
     allow_cover: bool = True,
     cover_data: bytes | None = None,
-):
+) -> bool:
     """Apply a scraper result to a game, respecting the scrape mode."""
     if game.metadata_locked:
         logger.debug("Skip scraper result apply for locked game %s", game.id)
-        return
+        return False
 
     overwrite = mode == "overwrite"
     images_only = mode == "images"
     metadata_only = mode == "metadata"
+    cover_saved = False
 
     # ── Images ──
     if not metadata_only:
@@ -770,6 +771,7 @@ async def _apply_result(
                     success = False
             if success:
                 game.cover_path = str(cover_path)
+                cover_saved = True
                 session.add(game)
         # Hero/landscape
         if result.hero_url and config is not None and (overwrite or images_only or not game.bg_path):
@@ -880,6 +882,7 @@ async def _apply_result(
                 overwrite=overwrite,
                 replace_existing=overwrite if replace_tags is None else replace_tags,
             )
+    return cover_saved
 
 
 async def _clear_game_tags(session: AsyncSession, game: Game) -> None:

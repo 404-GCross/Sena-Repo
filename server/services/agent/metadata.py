@@ -5,9 +5,10 @@ import dataclasses
 
 from pydantic import BaseModel, Field
 
-from services.agent.covers import CoverChecker
+from services.agent.covers import CoverChecker, CoverDecision
 from services.agent.providers import tool_spec
 from services.agent.runtime import object_schema
+from services.scraper.base import title_search_key
 from services.scraper.orchestrator import _build_scrapers
 from services.task_stop import stoppable_request
 
@@ -19,6 +20,19 @@ class Selection(BaseModel):
     translated_description: str = Field(default="", max_length=2000)
     evidence: str = Field(min_length=1, max_length=2000)
     platforms: dict[str, str] = Field(default_factory=dict)
+
+
+def _conflicting_work_ids(result, saved_ids):
+    anchors = {**result.external_ids, result.source_name: result.source_id}
+    for source, candidate in anchors.items():
+        key = "vndb" if source == "vndb_kana" else source
+        saved = str(saved_ids.get(f"{key}_id") or "").strip().lower()
+        candidate = str(candidate or "").strip().lower()
+        if key == "vndb":
+            saved, candidate = saved.removeprefix("v"), candidate.removeprefix("v")
+        if saved and candidate and saved != candidate:
+            return True
+    return False
 
 
 class Catalog:
@@ -33,6 +47,7 @@ class Catalog:
         self.cover_data = None
         self.cover_review = ""
         self.cover_checks = []
+        self.cover_decision = None
 
     async def close(self):
         try:
@@ -67,6 +82,42 @@ class Catalog:
         return list(
             dict.fromkeys([u for u in [result.cover_url, *result.cover_urls] if u])
         )[:12]
+
+    def cover_target(self, result, urls, context):
+        def names(work):
+            return list(
+                dict.fromkeys(
+                    t[:512]
+                    for t in [work.title, *work.cover_titles, *work.aliases]
+                    if t
+                )
+            )[:64]
+
+        others = [
+            row
+            for row in self.results
+            if row.source_name == result.source_name
+            and row.source_id != result.source_id
+        ]
+        other_titles = {title_search_key(t) for row in others for t in names(row)}
+        other_urls = {url for row in others for url in self.covers(row)}
+        titles = names(result)
+        return {
+            "game": context.get("game") or result.title,
+            "titles": titles,
+            "source": result.source_name,
+            "source_id": result.source_id,
+            "developer": result.developer,
+            "release_date": result.release_date,
+            "external_ids": result.external_ids,
+            "saved_ids": context.get("saved_ids", {}),
+            "ambiguous_titles": [
+                t for t in titles if title_search_key(t) in other_titles
+            ],
+            "cross_listed_covers": [
+                i for i, url in enumerate(urls) if url in other_urls
+            ],
+        }
 
     async def search(self, args):
         query = str(args.get("query", ""))[:256].strip()
@@ -236,9 +287,19 @@ async def select_metadata(runtime, catalog, context):
         result.cover_url = ""
     elif runtime.settings.portrait:
         original = catalog.results[catalog.selection.candidate]
-        decision = await catalog.cover_checker.choose(
-            catalog.covers(original), original.cover_metadata, catalog.selection.cover
-        )
+        urls = catalog.covers(original)
+        if _conflicting_work_ids(original, context.get("saved_ids", {})):
+            decision = CoverDecision(
+                reason="候选作品与已保存的作品 ID 冲突，保留现有封面待复核"
+            )
+        else:
+            decision = await catalog.cover_checker.choose(
+                urls,
+                original.cover_metadata,
+                catalog.selection.cover,
+                target=catalog.cover_target(original, urls, context),
+            )
+        catalog.cover_decision = decision
         catalog.cover_checks = decision.checks
         catalog.cover_review = decision.reason
         result.cover_url = decision.asset.url if decision.asset else ""

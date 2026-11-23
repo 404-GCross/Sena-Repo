@@ -69,6 +69,7 @@ class ScraperResult:
     is_nsfw: bool | None = None  # None means this source does not classify NSFW
     tags: list[ScrapedTag] = field(default_factory=list)
     aliases: list[str] = field(default_factory=list)  # alternative titles for search
+    cover_titles: list[str] = field(default_factory=list)  # edition titles, not user-facing aliases
 
 
 def _parse_retry_after(value: str | None) -> float | None:

@@ -21,6 +21,7 @@ class ImagePreview:
     height: int
     uri: str
     digest: str
+    thumbnail: bytes
 
 
 async def remote_image_bytes(client, reference):
@@ -64,7 +65,9 @@ def image_preview(data: bytes) -> ImagePreview:
                 width, height = image.size
                 image.thumbnail((1536, 1536))
                 output = io.BytesIO()
-                image.convert("RGB").save(output, format="JPEG", quality=85)
+                rgb = image.convert("RGB")
+                rgb.save(output, format="JPEG", quality=85)
+                thumbnail = rgb.resize((24, 32), Image.Resampling.BOX).tobytes()
     except (Image.DecompressionBombWarning, Image.DecompressionBombError):
         raise ValueError("Image dimension limit") from None
     return ImagePreview(
@@ -72,6 +75,7 @@ def image_preview(data: bytes) -> ImagePreview:
         height,
         "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode(),
         hashlib.sha256(data).hexdigest(),
+        thumbnail,
     )
 
 
