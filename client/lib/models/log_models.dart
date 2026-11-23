@@ -162,7 +162,11 @@ class LogViewerAccess {
     required this.management,
   });
 
-  bool get isUsable => serverKey.isNotEmpty && accountScope.isNotEmpty;
+  static final _segment = RegExp(r'^[A-Za-z0-9_-]{1,128}$');
+  bool get isUsable =>
+      _segment.hasMatch(serverKey) &&
+      _segment.hasMatch(accountScope) &&
+      _segment.hasMatch(sessionId);
 
   bool canRead(LogRecord record) {
     if (record.context.serverKey != serverKey) return false;

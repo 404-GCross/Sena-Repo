@@ -129,12 +129,13 @@ class ProfileService {
     final fresh = selected.userId > 0
         ? tokenForServer(selected.baseUrl, userId: selected.userId) : null;
     selected.authToken = fresh ?? selected.authToken;
+    final keepVerifiedRole = fresh != null && logScope == null;
     final promotion = selected.authToken.isEmpty
         ? ApiClient.clearTokens()
         : ApiClient.persistSessionInfo(accessToken: selected.authToken,
             serverBaseUrl: selected.baseUrl, userId: selected.userId,
-            username: selected.username, isAdmin: selected.isAdmin,
-            role: selected.isAdmin ? "admin" : "user", logScope: logScope,
+            username: selected.username, isAdmin: keepVerifiedRole ? null : selected.isAdmin,
+            role: keepVerifiedRole ? null : selected.isAdmin ? "admin" : "user", logScope: logScope,
             expectedGeneration: generation);
     generation = ApiClient.sessionGeneration;
     await promotion;

@@ -3,7 +3,6 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io";
-import "dart:typed_data";
 
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
@@ -13,30 +12,66 @@ import "package:provider/provider.dart";
 
 import "../models/log_models.dart";
 import "../providers/game_provider.dart";
+import "../services/api_client.dart";
 import "../services/logger_service.dart";
 import "../utils/theme_utils.dart";
 import "../widgets/app_shell.dart";
 import "../widgets/feedback_dialog.dart";
 
-class LogScreen extends StatefulWidget {
-  const LogScreen({super.key});
+class LogScreen extends StatelessWidget {
+  final LoggerService? logger;
+  const LogScreen({super.key, this.logger});
 
   @override
-  State<LogScreen> createState() => _LogScreenState();
+  Widget build(BuildContext context) {
+    final api = context.select<GameProvider, ApiClient>((p) => p.api);
+    return ValueListenableBuilder<int>(
+        valueListenable: logAccessChanges,
+        builder: (_, __, ___) {
+          final access = api.logViewerAccess;
+          return _ScopedLogs(
+              key: ValueKey((api, api.sessionScope, access)),
+              api: api,
+              scope: api.sessionScope,
+              access: access,
+              logger: logger ?? LoggerService());
+        });
+  }
 }
 
-class _LogScreenState extends State<LogScreen> {
+class _ScopedLogs extends StatefulWidget {
+  final ApiClient api;
+  final (int, int) scope;
+  final LogViewerAccess? access;
+  final LoggerService logger;
+  const _ScopedLogs(
+      {super.key,
+      required this.api,
+      required this.scope,
+      required this.access,
+      required this.logger});
+
+  @override
+  State<_ScopedLogs> createState() => _LogScreenState();
+}
+
+class _LogScreenState extends State<_ScopedLogs> {
   static const int _initialVisibleLimit = 80;
   static const int _loadMoreStep = 80;
 
   final _searchController = TextEditingController();
-  final _logger = LoggerService();
+  LoggerService get _logger => widget.logger;
 
   List<LogFileInfo> _files = const [];
   List<LogRecord> _entries = const [];
   LogFileInfo? _selectedFile;
-  LogViewerAccess? _access;
-  bool _started = false;
+  LogViewerAccess? get _access => widget.access;
+  bool get _current =>
+      mounted &&
+      widget.scope == widget.api.sessionScope &&
+      identical(_access, widget.api.logViewerAccess);
+  int _request = 0;
+  bool _reading = false;
   String? _error;
   String _level = "全部";
   String _module = "全部模块";
@@ -44,21 +79,14 @@ class _LogScreenState extends State<LogScreen> {
   bool _live = true;
   bool _mobileFiltersExpanded = false;
   int _visibleLimit = _initialVisibleLimit;
+  int _readLimit = 500;
   Timer? _liveTimer;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onFilterChanged);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_started) return;
-    _started = true;
-    _access = context.read<GameProvider>().api.logViewerAccess;
-    _load();
+    _load(verify: _access == null);
     _startLiveRefresh();
   }
 
@@ -79,84 +107,105 @@ class _LogScreenState extends State<LogScreen> {
     _liveTimer?.cancel();
     if (!_live) return;
     _liveTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (mounted && !_loading) _load(quiet: true);
+      if (_current && !_reading && _access != null) _load(quiet: true);
     });
   }
 
-  Future<void> _load({bool quiet = false}) async {
-    if (!quiet && mounted) setState(() => _loading = true);
-    final access = _access;
-    if (access == null || !access.isUsable) {
-      if (!mounted) return;
-      setState(() {
-        _files = const [];
-        _entries = const [];
-        _selectedFile = null;
-        _loading = false;
-        _error = "当前账号还没有可查看的日志";
-      });
-      return;
-    }
-    final files = await _logger.listFiles(access);
-    if (!mounted) return;
+  Future<void> _load(
+      {bool quiet = false,
+      bool verify = false,
+      bool interactive = false,
+      LogFileInfo? select}) async {
+    if (!_current) return;
+    final request = ++_request;
+    _reading = true;
+    if (!quiet) setState(() => _loading = true);
+    try {
+      if (verify) {
+        if (widget.api.accessToken == null) await ApiClient.restoreToken();
+        if (!_current || request != _request) return;
+        await widget.api.refreshLogContext();
+      }
+      if (!_current || request != _request) return;
+      final access = _access;
+      if (access == null || !access.isUsable) return;
+      final files = await _logger.listFiles(access);
+      if (!_current || request != _request) return;
 
-    LogFileInfo? selected;
-    if (_selectedFile != null) {
-      for (final file in files) {
-        if (file.path == _selectedFile!.path) selected = file;
+      LogFileInfo? selected;
+      final wanted = select ?? _selectedFile;
+      if (wanted != null) {
+        for (final file in files) {
+          if (file.path == wanted.path) selected = file;
+        }
+      }
+      selected ??= files.isEmpty ? null : files.first;
+      if (select != null) _readLimit = 500;
+      var fresh = selected == null
+          ? <LogRecord>[]
+          : await _logger.readEntries(access, selected, limit: _readLimit);
+      if (!_current || request != _request) return;
+      if (wanted == null && fresh.isEmpty) {
+        for (final file in files.skip(1)) {
+          fresh = await _logger.readEntries(access, file, limit: _readLimit);
+          if (!_current || request != _request) return;
+          if (fresh.isNotEmpty) {
+            selected = file;
+            break;
+          }
+        }
+        if (fresh.isEmpty) selected = null;
+      }
+      setState(() {
+        _files = selected == null ? const [] : files;
+        _selectedFile = selected;
+        _entries = fresh;
+        if (select != null) _clearFilters();
+        if (!_modules.contains(_module)) _module = '全部模块';
+        _error = null;
+      });
+    } on LogReadException catch (e) {
+      if (_current && request == _request) {
+        setState(() => _error = e.message);
+        if (interactive &&
+            mounted &&
+            ModalRoute.of(context)?.isCurrent == true) {
+          await showFeedbackDialog(context, e.message,
+              title: '日志读取失败', error: true);
+        }
+      }
+    } finally {
+      if (_current && request == _request) {
+        _reading = false;
+        setState(() => _loading = false);
       }
     }
-    selected ??= files.isEmpty ? null : files.first;
-    final sameFile = _selectedFile?.path == selected?.path;
-    final fresh = selected == null
-        ? <LogRecord>[]
-        : await _logger.readEntries(access, selected);
-    var entries = fresh;
-    if (quiet && sameFile && _entries.length > fresh.length) {
-      final seen = fresh.map((entry) => entry.raw).toSet();
-      entries = [
-        ...fresh,
-        ..._entries.where((entry) => seen.add(entry.raw)),
-      ];
-    }
-    if (!mounted) return;
-    setState(() {
-      _files = files;
-      _selectedFile = selected;
-      _entries = entries;
-      _loading = false;
-      _error = null;
-    });
   }
 
   Future<void> _selectFile(LogFileInfo file) async {
-    final access = _access;
-    if (access == null) return;
     setState(() {
       _selectedFile = file;
       _entries = const [];
-      _loading = true;
     });
-    final entries = await _logger.readEntries(access, file);
-    if (!mounted) return;
-    setState(() {
-      _entries = entries;
-      _loading = false;
-      _level = "全部";
-      _module = "全部模块";
-      _visibleLimit = _initialVisibleLimit;
-      _searchController.clear();
-    });
+    await _load(select: file, interactive: true);
+  }
+
+  void _clearFilters() {
+    _level = '全部';
+    _module = '全部模块';
+    _visibleLimit = _initialVisibleLimit;
+    _searchController.clear();
   }
 
   List<LogRecord> get _filteredEntries {
+    if (!_current || _access == null || _error != null) return const [];
     final query = _searchController.text.trim().toLowerCase();
     return _entries.where((entry) {
       final levelMatch = _level == "全部" || entry.levelLabel == _level;
       final moduleMatch = _module == "全部模块" || entry.module == _module;
       final queryMatch =
           query.isEmpty || entry.raw.toLowerCase().contains(query);
-      return levelMatch && moduleMatch && queryMatch;
+      return _access!.canRead(entry) && levelMatch && moduleMatch && queryMatch;
     }).toList();
   }
 
@@ -170,6 +219,7 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _copyVisibleLogs() async {
+    if (!_current) return;
     final text = _filteredEntries.reversed.map((entry) => entry.raw).join("\n");
     if (text.isEmpty) {
       _message("当前没有可复制的日志");
@@ -180,6 +230,7 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _exportLogs() async {
+    if (!_current) return;
     final visible = _filteredEntries.reversed.toList();
     if (visible.isEmpty) {
       _message("当前没有可导出的日志");
@@ -208,7 +259,7 @@ class _LogScreenState extends State<LogScreen> {
       type: FileType.custom,
       allowedExtensions: ["log", "txt"],
     );
-    if (path == null || path.isEmpty) return;
+    if (path == null || path.isEmpty || !_current) return;
     try {
       await File(path).writeAsString(content);
       _message("日志已导出");
@@ -218,12 +269,20 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _cleanOldLogs() async {
-    final confirmed = await confirmDestructiveAction(context, section: '日志管理', title: '清理旧日志？',
-        message: '删除 7 天前的客户端日志，当前日志不会受到影响。', action: '清理日志');
-    if (confirmed != true) return;
-    await _logger.cleanOldLogs();
-    await _load();
-    _message("旧日志已清理");
+    final confirmed = await confirmDestructiveAction(context,
+        section: '日志管理',
+        title: '清理旧日志？',
+        message: '删除 7 天前的客户端日志，当前日志不会受到影响。',
+        action: '清理日志');
+    if (!_current || confirmed != true) return;
+    try {
+      await _logger.cleanOldLogs(access: _access!);
+      if (!_current) return;
+      await _load();
+      await _message("旧日志已清理");
+    } on LogReadException catch (e) {
+      if (mounted && _current) await showFeedbackDialog(context, e.message, error: true);
+    }
   }
 
   void _toggleLive(bool value) {
@@ -232,42 +291,18 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _loadEarlierEntries() async {
+    if (!_current || _reading) return;
     if (_visibleLimit < _filteredEntries.length) {
       setState(() => _visibleLimit += _loadMoreStep);
       return;
     }
-    final access = _access;
-    final file = _selectedFile;
-    if (access == null || file == null || _entries.isEmpty) {
-      _message("没有更早的记录了");
-      return;
-    }
-    setState(() => _loading = true);
-    final older = await _logger.readEntries(
-      access,
-      file,
-      before: _entries.last.timestamp,
-    );
-    if (!mounted) return;
-    if (older.isEmpty) {
-      setState(() => _loading = false);
-      _message("没有更早的记录了");
-      return;
-    }
-    final seen = _entries.map((entry) => entry.raw).toSet();
-    final merged = [
-      ..._entries,
-      ...older.where((entry) => seen.add(entry.raw)),
-    ];
-    setState(() {
-      _entries = merged;
-      _visibleLimit += _loadMoreStep;
-      _loading = false;
-    });
+    _readLimit += 500;
+    _visibleLimit += _loadMoreStep;
+    await _load();
   }
 
   Future<void> _message(String message) async {
-    if (!mounted) return;
+    if (!_current) return;
     await showFeedbackDialog(context, message);
   }
 
@@ -281,61 +316,88 @@ class _LogScreenState extends State<LogScreen> {
         AppActionButton(
           icon: Icons.copy_all_outlined,
           label: "复制",
-          onPressed: _entries.isEmpty ? null : _copyVisibleLogs,
+          onPressed: _filteredEntries.isEmpty ? null : _copyVisibleLogs,
         ),
         AppActionButton(
           icon: Icons.file_download_outlined,
           label: "导出",
-          onPressed: _entries.isEmpty ? null : _exportLogs,
+          onPressed: _filteredEntries.isEmpty ? null : _exportLogs,
         ),
         AppActionButton(
           icon: Icons.refresh_rounded,
           label: "刷新",
-          onPressed: _loading ? null : () => _load(),
+          onPressed:
+              _loading ? null : () => _load(verify: true, interactive: true),
           busy: _loading,
         ),
       ],
       scrollable: false,
-      child: _loading && _files.isEmpty
-          ? const AppStateView.loading(title: "正在读取日志")
-          : _files.isEmpty
-              ? AppStateView(
-                  icon: Icons.article_outlined,
-                  title: "暂无日志",
-                  message: _error ?? "当前账号还没有生成可查看的日志",
-                  action: AppActionButton(
-                    icon: Icons.refresh_rounded,
-                    label: "重新读取",
-                    onPressed: _load,
-                  ),
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isDesktop = constraints.maxWidth >= 760;
-                    if (!isDesktop) return _buildMobilePage();
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildHeading(),
-                        const SizedBox(height: 14),
-                        _buildMetrics(constraints.maxWidth),
-                        const SizedBox(height: 14),
-                        _buildToolbar(constraints.maxWidth),
-                        const SizedBox(height: 14),
-                        Expanded(child: _buildDesktopLogView()),
-                      ],
-                    );
-                  },
-                ),
+      child: ValueListenableBuilder<String?>(
+          valueListenable: _logger.storageStatus,
+          builder: (_, __, ___) => _buildBody()),
     );
   }
+
+  Widget _buildBody() {
+    if (_access == null) {
+      if (_loading) return const AppStateView.loading(title: '正在确认账号');
+      return AppStateView(
+          icon: Icons.person_outline,
+          title: '尚未确认当前账号',
+          message: '请检查登录状态后重试',
+          action: _retryButton(verify: true));
+    }
+    if (_loading && _files.isEmpty) {
+      return const AppStateView.loading(title: '正在读取日志');
+    }
+    final problem =
+        _error ?? (_files.isEmpty ? _logger.storageStatus.value : null);
+    if (problem != null) {
+      return AppStateView(
+          icon: Icons.error_outline,
+          title: _error != null ? '日志读取失败' : '日志存储异常',
+          message: problem,
+          action: _retryButton());
+    }
+    if (_files.isEmpty) {
+      return AppStateView(
+          icon: Icons.article_outlined,
+          title: '当前账号暂无日志',
+          action: _retryButton());
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 760;
+        if (!isDesktop) return _buildMobilePage();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeading(),
+            const SizedBox(height: 14),
+            _buildMetrics(constraints.maxWidth),
+            const SizedBox(height: 14),
+            _buildToolbar(constraints.maxWidth),
+            const SizedBox(height: 14),
+            Expanded(child: _buildDesktopLogView()),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _retryButton({bool verify = false}) => AppActionButton(
+        icon: Icons.refresh_rounded,
+        label: '重试',
+        onPressed: () => _load(verify: verify, interactive: true),
+      );
 
   Widget _buildMobilePage() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildMobileHeader(),
+        _storageWarning(),
         const SizedBox(height: 8),
         _buildMobileToolbar(),
         const SizedBox(height: 8),
@@ -450,8 +512,7 @@ class _LogScreenState extends State<LogScreen> {
     );
   }
 
-  String get _viewLabel =>
-      _access?.management == true ? "管理员视图" : "个人视图";
+  String get _viewLabel => _access?.management == true ? "管理员视图" : "个人视图";
 
   Widget _storageWarning() {
     final message = _logger.storageStatus.value;
@@ -734,7 +795,8 @@ class _LogScreenState extends State<LogScreen> {
   Widget _buildConsole() {
     final filtered = _filteredEntries;
     final visible = filtered.take(_visibleLimit).toList(growable: false);
-    final hasMore = filtered.length > visible.length;
+    final hasMore =
+        filtered.length > visible.length || _entries.length >= _readLimit;
     return AppSurface(
       padding: EdgeInsets.zero,
       child: Column(
@@ -744,11 +806,19 @@ class _LogScreenState extends State<LogScreen> {
           const Divider(height: 1),
           Expanded(
             child: filtered.isEmpty
-                ? const AppStateView(
-                    icon: Icons.search_off_rounded,
-                    title: "没有匹配的日志",
-                    message: "尝试清空筛选条件或更换关键词",
-                  )
+                ? Center(
+                    child: SingleChildScrollView(
+                        child: _entries.isEmpty
+                            ? const AppStateView(
+                                icon: Icons.article_outlined,
+                                title: '此文件没有当前账号可查看的记录')
+                            : AppStateView(
+                                icon: Icons.search_off_rounded,
+                                title: '没有符合筛选条件的日志',
+                                action: AppActionButton(
+                                    label: '清除筛选',
+                                    icon: Icons.filter_alt_off_outlined,
+                                    onPressed: () => setState(_clearFilters)))))
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: visible.length,
@@ -859,39 +929,56 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _showRecord(LogRecord record) async {
+    if (!_current || _access?.canRead(record) != true) return;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("日志详情", style: AppText.title),
-              const SizedBox(height: 12),
-              _detailRow(
-                  "时间", record.timestamp.toString()),
-              _detailRow("级别", record.levelLabel),
-              _detailRow("模块", record.module),
-              const SizedBox(height: 8),
-              SelectableText(record.raw,
-                  style: AppText.label.copyWith(fontFamily: "monospace")),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: record.raw));
-                  if (sheetContext.mounted) Navigator.pop(sheetContext);
-                  _message("日志内容已复制");
-                },
-                icon: const Icon(Icons.copy_outlined, size: 17),
-                label: const Text("复制这条日志"),
+      builder: (sheetContext) => ValueListenableBuilder<int>(
+          valueListenable: logAccessChanges,
+          builder: (_, __, ___) {
+            if (!_current || _access?.canRead(record) != true) {
+              final route = ModalRoute.of(sheetContext);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (route != null && route.isActive) {
+                  route.navigator?.removeRoute(route);
+                }
+              });
+              return const SizedBox.shrink();
+            }
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("日志详情", style: AppText.title),
+                    const SizedBox(height: 12),
+                    _detailRow("时间", record.timestamp.toString()),
+                    _detailRow("级别", record.levelLabel),
+                    _detailRow("模块", record.module),
+                    const SizedBox(height: 8),
+                    SelectableText(record.raw,
+                        style: AppText.label.copyWith(fontFamily: "monospace")),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        if (!_current || _access?.canRead(record) != true) {
+                          return;
+                        }
+                        await Clipboard.setData(
+                            ClipboardData(text: record.raw));
+                        if (sheetContext.mounted) Navigator.pop(sheetContext);
+                        _message("日志内容已复制");
+                      },
+                      icon: const Icon(Icons.copy_outlined, size: 17),
+                      label: const Text("复制这条日志"),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-      ),
+            );
+          }),
     );
   }
 
@@ -1035,7 +1122,8 @@ class _LogRecordTileState extends State<_LogRecordTile> {
                     width: 52,
                     child: Align(
                         alignment: Alignment.topLeft,
-                        child: _LevelBadge(level: record.levelLabel, color: color))),
+                        child: _LevelBadge(
+                            level: record.levelLabel, color: color))),
                 SizedBox(
                     width: 48,
                     child: Text(record.module, style: AppText.caption)),

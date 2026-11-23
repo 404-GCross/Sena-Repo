@@ -3,6 +3,7 @@
 import "dart:convert";
 import "dart:io";
 import "dart:async";
+import "package:flutter/foundation.dart" show ValueListenable, ValueNotifier;
 
 import "logged_http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
@@ -97,10 +98,10 @@ int? _parseUserId(Object? value) {
 }
 
 /// Verified log ownership. Set only from an authenticated profile response.
-String _logServerKey = "";
-String _logAccountScope = "";
-String _logSessionId = "";
-bool _logManagement = false;
+LogViewerAccess? _logAccess;
+int? _logGeneration;
+final _logChanges = ValueNotifier<int>(0);
+ValueListenable<int> get logAccessChanges => _logChanges;
 
 String stableLogKey(String value) {
   var hash = 0x811c9dc5;
@@ -115,41 +116,41 @@ Future<void> activateLogContext({
   required String baseUrl,
   required Map<String, dynamic> profile,
 }) async {
-  if (tokenForServer(baseUrl) == null ||
-      (_cachedUserId != null && _cachedUserId != _parseUserId(profile["id"]))) return;
+  final userId = _parseUserId(profile['id']);
+  if (tokenForServer(baseUrl) == null || userId == null ||
+      (_cachedUserId != null && _cachedUserId != userId)) {
+    return;
+  }
   final scope = profile["log_scope"]?.toString() ?? "";
-  final userId = _parseUserId(profile["id"]) ?? 0;
-  final role = profile["role"]?.toString() ?? "user";
-  _logServerKey = stableLogKey(baseUrl);
-  _logAccountScope =
-      scope.isNotEmpty ? scope : stableLogKey("user:$userId");
-  _logManagement = role == "admin";
-  _logSessionId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-  LoggerService().setContext(
-    LogContext(
-      serverKey: _logServerKey,
-      accountScope: _logAccountScope,
-      sessionId: _logSessionId,
-    ),
-  );
+  _setLogAccess(baseUrl, scope.isEmpty ? stableLogKey('user:$userId') : scope,
+      profile['role'] == 'admin');
+}
+
+void _setLogAccess(String base, String scope, bool management) {
+  if (!RegExp(r'^[a-zA-Z0-9_-]{1,128}$').hasMatch(scope)) {
+    clearLogContext();
+    return;
+  }
+  final server = stableLogKey(base);
+  final old = _logAccess;
+  final same = old != null && old.serverKey == server &&
+      old.accountScope == scope && _logGeneration == _sessionGeneration;
+  if (same && old.management == management) return;
+  final session = same ? old.sessionId : DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+  _logGeneration = _sessionGeneration;
+  _logAccess = LogViewerAccess(serverKey: server, accountScope: scope, sessionId: session, management: management);
+  LoggerService().setContext(LogContext(serverKey: server, accountScope: scope, sessionId: session));
+  _logChanges.value++;
 }
 
 void clearLogContext() {
-  _logServerKey = "";
-  _logAccountScope = "";
-  _logSessionId = "";
-  _logManagement = false;
+  _logAccess = null;
+  _logGeneration = null;
   LoggerService().setContext(null);
+  _logChanges.value++;
 }
 
-LogViewerAccess? get currentLogViewerAccess => _logAccountScope.isEmpty
-    ? null
-    : LogViewerAccess(
-        serverKey: _logServerKey,
-        accountScope: _logAccountScope,
-        sessionId: _logSessionId,
-        management: _logManagement,
-      );
+LogViewerAccess? get currentLogViewerAccess => _logAccess;
 
 class AuthException implements Exception {
   final String message;
@@ -176,10 +177,18 @@ class ApiClient {
   String? get cachedRole => accessToken == null ? null : _cachedRole;
   static int get sessionGeneration => _sessionGeneration;
   (int, int) get sessionScope => (_connectionGeneration, _sessionGeneration);
-  static void invalidatePendingSession() => _sessionGeneration++;
+  static int _advanceSession() {
+    _sessionGeneration++;
+    _logChanges.value++;
+    return _sessionGeneration;
+  }
+  static void invalidatePendingSession() => _advanceSession();
 
   /// Scope the log viewer may read for the current verified account.
-  LogViewerAccess? get logViewerAccess => accessToken == null ? null : currentLogViewerAccess;
+  LogViewerAccess? get logViewerAccess => accessToken != null &&
+          _logGeneration == _sessionGeneration &&
+          _logAccess?.serverKey == stableLogKey(baseUrl)
+      ? _logAccess : null;
 
   Map<String, String> get headers {
     final token = accessToken;
@@ -257,12 +266,21 @@ class ApiClient {
       _sessionGeneration++;
     } else if (origin == null || origin != _tokenOrigin) {
       return;
+    } else if (_cachedUserId != null && userId != null && userId != _cachedUserId) {
+      throw AuthException('账号已变化，请重新登录');
     }
     _cachedUserId = userId ?? _cachedUserId;
     _cachedUsername = username ?? _cachedUsername;
     _cachedIsAdmin = isAdmin ?? _cachedIsAdmin;
     _cachedRole = role ?? _cachedRole;
     _cachedLogScope = logScope ?? _cachedLogScope;
+    if ((_cachedUserId ?? 0) > 0 && _cachedLogScope.isNotEmpty) {
+      _setLogAccess(origin, _cachedLogScope, _cachedRole == 'admin');
+    } else if (_logAccess != null && _cachedUserId != null) {
+      _setLogAccess(origin, _logAccess!.accountScope, _cachedRole == 'admin');
+    } else if (accessToken != null) {
+      _logChanges.value++;
+    }
     final snapshot = {"token": _accessToken, "origin": _tokenOrigin,
       "user_id": _cachedUserId, "username": _cachedUsername,
       "is_admin": _cachedIsAdmin, "role": _cachedRole, "log_scope": _cachedLogScope};
@@ -315,36 +333,18 @@ class ApiClient {
     bool useHttps = false,
   }) async {
     final base = serverEndpoint(host, port, useHttps);
-    if (base != _baseUrl) _connectionGeneration++;
-    _baseUrl = base;
-    await _restoreLogContextFromPrefs();
-  }
-
-  Future<void> _restoreLogContextFromPrefs() async {
-    final base = _baseUrl;
-    if (base == null || accessToken == null) return;
-    final generation = _sessionGeneration;
-    final prefs = await SharedPreferences.getInstance();
-    if (generation != _sessionGeneration || tokenForServer(base) == null) return;
-    final scope = prefs.getString("log_scope") ?? "";
-    if (scope.isEmpty) return;
-    _logServerKey = stableLogKey(base);
-    _logAccountScope = scope;
-    _logManagement = (prefs.getString("role") ?? "user") != "user";
-    _logSessionId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-    LoggerService().setContext(
-      LogContext(
-        serverKey: _logServerKey,
-        accountScope: _logAccountScope,
-        sessionId: _logSessionId,
-      ),
-    );
+    if (base != _baseUrl) {
+      _connectionGeneration++;
+      _baseUrl = base;
+      _logChanges.value++;
+    }
   }
 
   /// Re-read the verified profile so log ownership follows role changes.
   Future<void> refreshLogContext() async {
     if (accessToken == null || _baseUrl == null) return;
     final origin = _baseUrl!;
+    final scope = sessionScope;
     final generation = _sessionGeneration;
     try {
       final resp = await _client
@@ -353,10 +353,15 @@ class ApiClient {
             headers: headers,
           )
           .timeout(const Duration(seconds: 5));
+      if (scope != sessionScope || tokenForServer(origin) == null) return;
+      if (resp.statusCode == 401 || resp.statusCode == 403) {
+        _cachedLogScope = '';
+        clearLogContext();
+        return;
+      }
       if (resp.statusCode != 200) return;
       final data = tryDecodeJsonMap(resp.body);
-      if (data == null) return;
-      if (generation != _sessionGeneration) return;
+      if (data == null || _parseUserId(data['id']) == null) return;
       await _persistTokens(
         serverBaseUrl: origin, expectedGeneration: generation,
         userId: _parseUserId(data["id"]),
@@ -365,7 +370,7 @@ class ApiClient {
         role: data["role"]?.toString(),
         logScope: data["log_scope"]?.toString(),
       );
-      await activateLogContext(baseUrl: baseUrl, profile: data);
+      if (scope == sessionScope) await activateLogContext(baseUrl: origin, profile: data);
     } catch (e, stackTrace) {
       LoggerService().warn("log context refresh failed", e, stackTrace);
     }
@@ -966,7 +971,7 @@ class ApiClient {
   Future<Map<String, dynamic>> login(String username, String password) async {
     final origin = serverOrigin(_baseUrl);
     if (origin == null) throw AuthException("请先连接服务器");
-    final generation = ++_sessionGeneration;
+    final generation = _advanceSession();
     final loginUri = Uri.parse("$origin/api/auth/login");
     final started = DateTime.now();
     try {
@@ -1059,10 +1064,10 @@ class ApiClient {
           role: role,
           logScope: data["log_scope"]?.toString(),
         );
-        await activateLogContext(baseUrl: baseUrl, profile: data);
-        if (_sessionGeneration != generation + 1 || tokenForServer(origin) != token) {
+        if (_sessionGeneration != generation + 1 || tokenForServer(origin) != token || serverOrigin(_baseUrl) != origin) {
           throw AuthException("连接或账号已变化，请重试");
         }
+        await activateLogContext(baseUrl: origin, profile: data);
         data["_installed_generation"] = _sessionGeneration;
         LoggerService().info("auth login succeeded: role=$role isAdmin=$isAdmin");
         return data;
@@ -1126,7 +1131,7 @@ class ApiClient {
     bool withAuth = false,
   }) async {
     _oauthRequestId = null;
-    _oauthGeneration = purpose == "login" ? ++_sessionGeneration : null;
+    _oauthGeneration = purpose == "login" ? _advanceSession() : null;
     _oauthOrigin = serverOrigin(_baseUrl);
     final flowGeneration = _oauthGeneration;
     final flowOrigin = _oauthOrigin;

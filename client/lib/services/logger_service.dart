@@ -12,10 +12,29 @@ import "package:path_provider/path_provider.dart";
 
 import "../models/log_models.dart";
 
+class LogReadException implements Exception {
+  final String message;
+  const LogReadException(this.message);
+  @override
+  String toString() => message;
+}
+
+String _storageReason(Object error) {
+  final code = error is FileSystemException ? error.osError?.errorCode : null;
+  return switch (code) {
+    5 || 13 => '无权访问应用日志目录',
+    28 || 112 => '设备存储空间不足',
+    int value => '文件系统错误（$value）',
+    _ => '应用存储不可用（${error.runtimeType}）',
+  };
+}
+
 class LoggerService {
   static final LoggerService _instance = LoggerService._();
   factory LoggerService() => _instance;
   LoggerService._();
+  @visibleForTesting
+  LoggerService.inDirectory(Directory directory) : _logDir = directory.path;
 
   String? _logDir;
   Future<void> _writeQueue = Future<void>.value();
@@ -43,14 +62,15 @@ class LoggerService {
 
   LogContext get _effectiveContext =>
       _context ??
-      LogContext(serverKey: "device", accountScope: "", sessionId: deviceSession);
+      LogContext(
+          serverKey: "device", accountScope: "", sessionId: deviceSession);
 
   Future<String> get _dir async {
     if (_logDir != null) return _logDir!;
     final appDir = await getApplicationSupportDirectory();
-    _logDir = "${appDir.path}${Platform.pathSeparator}logs";
-    await Directory(_logDir!).create(recursive: true);
-    return _logDir!;
+    final root = Directory("${appDir.path}${Platform.pathSeparator}logs");
+    await root.create(recursive: true);
+    return _logDir = root.path;
   }
 
   String _dayStamp(DateTime value) {
@@ -129,7 +149,7 @@ class LoggerService {
       await file.writeAsString("$line\n", mode: FileMode.append, flush: true);
       if (storageStatus.value != null) storageStatus.value = null;
     } catch (e) {
-      final message = "日志写入失败: ${_sanitize(e.toString())}";
+      final message = "日志写入失败：${_storageReason(e)}";
       if (storageStatus.value == null) {
         storageStatus.value = message;
         // Console fallback so the failure is not completely silent.
@@ -173,39 +193,51 @@ class LoggerService {
 
   // ── reading (always scoped) ──────────────────────────────────────────────
 
+  List<String> _viewerDirs(String root, LogViewerAccess access) => [
+        _scopeDir(
+            root,
+            LogContext(
+                serverKey: access.serverKey,
+                accountScope: access.accountScope,
+                sessionId: access.sessionId)),
+        '$root${Platform.pathSeparator}device${Platform.pathSeparator}${access.sessionId}',
+      ];
+
   Future<List<LogFileInfo>> listFiles(LogViewerAccess access) async {
     if (!access.isUsable) return const [];
     try {
+      await flush();
       final root = await _dir;
       final sep = Platform.pathSeparator;
-      final dirs = <String>[
-        if (access.management)
-          "$root${sep}scoped${sep}${access.serverKey}"
-              "${sep}${access.accountScope}",
-        "$root${sep}device${sep}${access.sessionId}",
-      ];
+      final dirs = _viewerDirs(root, access);
       final files = <LogFileInfo>[];
       for (final dir in dirs) {
         final directory = Directory(dir);
-        if (!await directory.exists()) continue;
-        await for (final entity in directory.list()) {
-          if (entity is! File || !entity.path.endsWith(".jsonl")) continue;
-          final stat = await entity.stat();
-          files.add(
-            LogFileInfo(
-              path: entity.path,
-              name: entity.path.split(sep).last,
-              day: _dayFromName(entity.path.split(sep).last),
-              size: stat.size,
-            ),
-          );
+        try {
+          await for (final entity in directory.list(followLinks: false)) {
+            if (entity is! File || !entity.path.endsWith(".jsonl")) continue;
+            final stat = await entity.stat();
+            files.add(
+              LogFileInfo(
+                path: entity.path,
+                name: entity.path.split(sep).last,
+                day: _dayFromName(entity.path.split(sep).last),
+                size: stat.size,
+              ),
+            );
+          }
+        } on PathNotFoundException catch (e) {
+          // No directory yet is normal for an account with no records.
+          if (e.osError?.errorCode != 2 &&
+              !(Platform.isWindows && e.osError?.errorCode == 3)) {
+            rethrow;
+          }
         }
       }
       files.sort((a, b) => b.name.compareTo(a.name));
       return files;
     } catch (e) {
-      _warnOnce("读取日志列表失败", e);
-      return const [];
+      throw LogReadException('无法列出日志文件：${_storageReason(e)}');
     }
   }
 
@@ -225,24 +257,36 @@ class LoggerService {
   }) async {
     if (!access.isUsable) return const [];
     try {
-      final content = await File(file.path).readAsString();
+      final source = File(file.path);
+      if (!_viewerDirs(await _dir, access).contains(source.parent.path) ||
+          await FileSystemEntity.type(file.path, followLinks: false) ==
+              FileSystemEntityType.link) {
+        throw const LogReadException('文件不在当前账号的日志范围内');
+      }
+      final content = await source.readAsString();
       final records = <LogRecord>[];
+      bool parsedAny = false;
       for (final line in const LineSplitter().convert(content)) {
         if (line.trim().isEmpty) continue;
         final parsed = _parseLine(line);
         if (parsed == null) continue;
+        parsedAny = true;
         if (!access.canRead(parsed)) continue;
         if (before != null && !parsed.timestamp.isBefore(before)) continue;
         records.add(parsed);
+      }
+      if (!parsedAny && content.trim().isNotEmpty) {
+        throw const LogReadException('日志文件格式无法识别');
       }
       records.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       if (records.length > limit) {
         return records.sublist(0, limit);
       }
       return records;
+    } on LogReadException {
+      rethrow;
     } catch (e) {
-      _warnOnce("读取日志文件失败", e);
-      return const [];
+      throw LogReadException('无法读取日志文件：${_storageReason(e)}');
     }
   }
 
@@ -277,7 +321,7 @@ class LoggerService {
 
   void _warnOnce(String message, Object error) {
     if (storageStatus.value != null) return;
-    final text = "$message: ${_sanitize(error.toString())}";
+    final text = "$message：${_storageReason(error)}";
     storageStatus.value = text;
     debugPrint(text);
   }
@@ -299,10 +343,8 @@ class LoggerService {
       } else if (value is num || value is bool) {
         cleaned[key] = value;
       } else if (value is List) {
-        cleaned[key] = value
-            .take(20)
-            .map((item) => _sanitize(item.toString()))
-            .toList();
+        cleaned[key] =
+            value.take(20).map((item) => _sanitize(item.toString())).toList();
       } else {
         cleaned[key] = _sanitize(value.toString());
       }
@@ -332,8 +374,7 @@ class LoggerService {
       (match) => "${match.group(1)}[REDACTED]",
     );
     redacted = redacted.replaceAllMapped(
-      RegExp("(%3[f&](?:$sensitiveKeys)%3[dD])[^%&\\s]+",
-          caseSensitive: false),
+      RegExp("(%3[f&](?:$sensitiveKeys)%3[dD])[^%&\\s]+", caseSensitive: false),
       (match) => "${match.group(1)}[REDACTED]",
     );
     redacted = redacted.replaceAllMapped(
@@ -344,17 +385,20 @@ class LoggerService {
     return redacted.replaceAllMapped(
       RegExp("([\"'](?:$sensitiveKeys)[\"']\\s*:\\s*)([\"'])[^\"']*([\"'])",
           caseSensitive: false),
-      (match) => "${match.group(1)}${match.group(2)}[REDACTED]${match.group(3)}",
+      (match) =>
+          "${match.group(1)}${match.group(2)}[REDACTED]${match.group(3)}",
     );
   }
 
-  /// Delete log files older than 7 days. Internal maintenance, not viewer-scoped.
-  Future<void> cleanOldLogs() async {
+  Future<void> cleanOldLogs({LogViewerAccess? access}) async {
     try {
       final root = await _dir;
       final cutoff = DateTime.now().subtract(const Duration(days: 7));
-      await for (final entity
-          in Directory(root).list(recursive: true, followLinks: false)) {
+      final candidates = access == null
+          ? Directory(root).list(recursive: true, followLinks: false)
+          : Stream<File>.fromIterable(
+              (await listFiles(access)).map((f) => File(f.path)));
+      await for (final entity in candidates) {
         if (entity is! File) continue;
         if (!entity.path.endsWith(".jsonl") && !entity.path.endsWith(".log")) {
           continue;
@@ -364,11 +408,13 @@ class LoggerService {
           try {
             await entity.delete();
           } catch (e) {
+            if (access != null) rethrow;
             _warnOnce("清理旧日志失败", e);
           }
         }
       }
     } catch (e) {
+      if (access != null) throw LogReadException('清理日志失败：${_storageReason(e)}');
       _warnOnce("清理旧日志失败", e);
     }
   }
