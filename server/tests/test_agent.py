@@ -129,12 +129,14 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["max_tokens"], 0)
         self.assertTrue(data["patch_steam_name"])
         self.assertTrue(data["game_ask"])
+        self.assertEqual(data["background_preference"], "artwork")
         async with self.sessions() as session:
             user = await session.get(User, self.user_id)
             user.role = "user"
             await session.commit()
         for method, path, body in [
             ("GET", "/settings", None),
+            ("PUT", "/settings", {"background_preference": "screenshot"}),
             ("POST", "/test", None),
             ("GET", "/models", None),
             ("GET", "/jobs", None),
@@ -144,6 +146,16 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 method, "/api/agent" + path, json=body, headers=self.headers
             )
             self.assertEqual(response.status_code, 403)
+
+    async def test_background_preference_survives_an_older_settings_client(self):
+        url = '/api/agent/settings'
+        saved = await self.client.put(url, headers=self.headers, json={'background_preference': 'screenshot'})
+        self.assertEqual(saved.json()['background_preference'], 'screenshot')
+        self.assertFalse(saved.json()['vision'])
+        legacy = await self.client.put(url, headers=self.headers, json={'cover_language': 'source'})
+        self.assertEqual(legacy.json()['background_preference'], 'screenshot')
+        invalid = await self.client.put(url, headers=self.headers, json={'background_preference': 'other'})
+        self.assertEqual(invalid.status_code, 422)
 
     async def test_secrets_are_encrypted_and_omitted(self):
         await self.configure(

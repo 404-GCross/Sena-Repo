@@ -283,6 +283,7 @@ def _parse_work(item: dict) -> ScraperResult | None:
     if not work_id and not title:
         return None
     primary_cover = _image_url(item.get("cover"))
+    banner = _image_url(item.get("banner"))
     cover_urls = cover_candidates(
         _cover_rows(item.get("covers")),
         primary=primary_cover,
@@ -307,7 +308,8 @@ def _parse_work(item: dict) -> ScraperResult | None:
             if isinstance(c, dict) and _cover_row_url(c)
         },
         external_ids=_external_ids(item),
-        hero_url=_image_url(item.get("banner")),
+        hero_url=banner,
+        background_media=[("artwork", banner)] if banner else [],
         screenshot_urls=_image_urls(item.get("screenshots")),
         length_minutes=_playtime_minutes(item),
         source_id=work_id,

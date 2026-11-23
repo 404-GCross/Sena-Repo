@@ -49,6 +49,7 @@ from services.scanner import (
     scan_root,
     scan_source,
 )
+from services.agent.backgrounds import AgentBackgroundPolicy
 from services.scraper.orchestrator import _apply_result, scrape_single_game
 from utils.process_lock import process_lock, scan_lock_path
 
@@ -139,7 +140,7 @@ class PatchSelection(BaseModel):
 
 def fingerprint(data, settings):
     public = settings.model_dump(
-        exclude={"api_key", "proxy_password", "proxy_username", "proxy_url"}
+        exclude={"api_key", "proxy_password", "proxy_username", "proxy_url", "background_preference"}
     )
     return hashlib.sha256(
         json.dumps(
@@ -503,6 +504,7 @@ async def scrape_game(runtime, game, client):
         .all()
     )
     state = lambda: [
+        *([runtime.settings.background_preference] if not game.bg_path or runtime.settings.update_mode == "overwrite" else []),
         COVER_POLICY_VERSION
         if runtime.settings.portrait
         and (not game.cover_path or runtime.settings.update_mode == "overwrite")
@@ -577,6 +579,13 @@ async def scrape_game(runtime, game, client):
                 )
                 return
             await runtime.check()
+            background_policy = AgentBackgroundPolicy(
+                runtime.settings.background_preference, runtime.settings.update_mode == 'overwrite', result,
+            )
+            await background_policy.apply([result, *catalog.results], game, client, session, config)
+            if game.metadata_locked:
+                await record(runtime, game.id, digest, 'review', '条目已锁定，保留现有资料')
+                return
             cover_saved = await _apply_result(
                 result,
                 result.source_name,
@@ -590,6 +599,7 @@ async def scrape_game(runtime, game, client):
                 allow_cover=not runtime.settings.portrait
                 or catalog.cover_data is not None,
                 cover_data=catalog.cover_data,
+                allow_background=False,
             )
             if not game.name_locked:
                 game.name = result.title or game.name
@@ -601,14 +611,16 @@ async def scrape_game(runtime, game, client):
                     version.platform_is_fallback = False
             await session.commit()
             # Fill only missing fields so fallback cannot replace the selected cover.
-            if (
+            missing_metadata = (
                 not game.description
                 or not game.developer
                 or (
                     not game.cover_path
                     and runtime.settings.cover_fallback == "original"
                 )
-            ):
+            )
+            needs_background = not game.bg_path or (background_policy.overwrite and not background_policy.saved)
+            if missing_metadata or needs_background:
                 await scrape_single_game(
                     game,
                     catalog.scrapers,
@@ -616,8 +628,9 @@ async def scrape_game(runtime, game, client):
                     config.covers_path,
                     session,
                     config,
-                    "missing",
+                    "missing" if missing_metadata else "background",
                     allow_cover=not runtime.settings.portrait,
+                    background_policy=background_policy,
                 )
             await check_game_nsfw(runtime, game, client, config)
             digest = fingerprint(state(), runtime.settings)
@@ -645,11 +658,14 @@ async def scrape_game(runtime, game, client):
                 evidence = f"竖版封面：推荐 {suggestion}，{outcome}。{reason}。作品匹配依据：{evidence}"
             elif catalog.cover_review:
                 evidence += '；' + catalog.cover_review
+            background_failed = bool(background_policy.attempted) and not background_policy.saved
+            if background_failed:
+                evidence += '；背景候选均未写入，保留原背景，可重试'
             await record(
                 runtime,
                 game.id,
                 digest,
-                "partial" if catalog.cover_review else "applied",
+                "partial" if catalog.cover_review or background_failed else "applied",
                 evidence,
                 {
                     "game_id": game.id,
@@ -673,6 +689,9 @@ async def scrape_game(runtime, game, client):
                 config,
                 "missing",
                 allow_cover=not runtime.settings.portrait,
+                background_policy=AgentBackgroundPolicy(
+                    runtime.settings.background_preference, runtime.settings.update_mode == 'overwrite',
+                ),
             )
             await check_game_nsfw(runtime, game, client, config)
             await record(

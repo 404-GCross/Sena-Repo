@@ -12,6 +12,7 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -34,6 +35,9 @@ from .hikarinagi import HikarinagiScraper
 from .nextmoe import NextMoeScraper
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from services.agent.backgrounds import AgentBackgroundPolicy
 
 _SCRAPER_SEARCH_TIMEOUT = 45
 _GAME_SCRAPE_TIMEOUT = 300
@@ -284,9 +288,9 @@ async def _download_cover(
         return False
 
 
-def _save_verified_cover(destination: Path, data: bytes) -> None:
+def _save_verified_image(destination: Path, data: bytes) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".verified-cover-", dir=destination.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix=".verified-image-", dir=destination.parent) as temporary:
         image = Path(temporary) / "image"
         image.write_bytes(data)
         image.replace(destination)
@@ -317,6 +321,7 @@ async def _reuse_existing_metadata(
     config: Config | None,
     mode: str,
     allow_cover: bool = True,
+    allow_background: bool = True,
 ) -> bool:
     if mode == "overwrite":
         return False
@@ -359,7 +364,7 @@ async def _reuse_existing_metadata(
         if copied_cover and not game.cover_path:
             game.cover_path = copied_cover
             changed = True
-        if config is not None:
+        if config is not None and allow_background:
             copied_bg = _copy_local_asset(
                 candidate.bg_path,
                 config.backgrounds_path,
@@ -451,6 +456,7 @@ async def scrape_single_game(
     mode: str = "missing",
     job: ScrapeJob | None = None,
     allow_cover: bool = True,
+    background_policy: AgentBackgroundPolicy | None = None,
 ) -> dict:
     """Scrape a single game across all available sources.
 
@@ -480,8 +486,9 @@ async def scrape_single_game(
         query=None,
         stage="reuse_metadata",
     )
-    if await _reuse_existing_metadata(
-        session, game, covers_dir, config, mode, allow_cover=allow_cover
+    if mode != "background" and await _reuse_existing_metadata(
+        session, game, covers_dir, config, mode, allow_cover=allow_cover,
+        allow_background=background_policy is None,
     ):
         results["metadata_cache"] = ScraperResult(
             title=game.name,
@@ -496,7 +503,8 @@ async def scrape_single_game(
             stage="reused",
             last_error=None,
         )
-        if mode in {"missing", "images"} and game.cover_path:
+        needs_background = background_policy is not None and (background_policy.overwrite or not game.bg_path)
+        if mode in {"missing", "images"} and game.cover_path and not needs_background:
             return results
         if mode == "metadata" and game.description and game.developer:
             return results
@@ -692,6 +700,13 @@ async def scrape_single_game(
         for scraper in scrapers
         if scraper.source_name in results
     ]
+    if background_policy is not None and mode != 'metadata':
+        await background_policy.apply(
+            (r for _, r in ordered_results), game, client, session, config,
+        )
+        if mode == "background":
+            await session.commit()
+            return results
     if mode in {"overwrite", "images"}:
         ordered_results.reverse()
     replaced_tags = False
@@ -709,6 +724,7 @@ async def scrape_single_game(
             job=job,
             replace_tags=replace_tags,
             allow_cover=allow_cover,
+            allow_background=background_policy is None,
         )
         if replace_tags:
             replaced_tags = True
@@ -731,6 +747,7 @@ async def _apply_result(
     nsfw_enable_only: bool = False,
     allow_cover: bool = True,
     cover_data: bytes | None = None,
+    allow_background: bool = True,
 ) -> bool:
     """Apply a scraper result to a game, respecting the scrape mode."""
     if game.metadata_locked:
@@ -764,7 +781,7 @@ async def _apply_result(
                 success = await _download_cover(client, result.cover_url, cover_path)
             else:
                 try:
-                    await asyncio.to_thread(_save_verified_cover, cover_path, cover_data)
+                    await asyncio.to_thread(_save_verified_image, cover_path, cover_data)
                     success = True
                 except OSError:
                     logger.warning("Failed to save verified cover for game %s", game.id)
@@ -774,7 +791,7 @@ async def _apply_result(
                 cover_saved = True
                 session.add(game)
         # Hero/landscape
-        if result.hero_url and config is not None and (overwrite or images_only or not game.bg_path):
+        if allow_background and result.hero_url and config is not None and (overwrite or images_only or not game.bg_path):
             await _update_job_progress(
                 session,
                 job,
@@ -793,7 +810,7 @@ async def _apply_result(
                 session.add(game)
             else:
                 logger.warning(f"Hero download failed for game {game.id}")
-        elif result.hero_url and config is not None and game.bg_path:
+        elif allow_background and result.hero_url and config is not None and game.bg_path:
             logger.debug(f"Hero skipped for game {game.id}: already has bg_path ({game.bg_path})")
 
     # ── Text metadata ──

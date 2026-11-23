@@ -11,6 +11,7 @@ import random
 import re
 import time
 import unicodedata
+from typing import Literal
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -70,6 +71,7 @@ class ScraperResult:
     tags: list[ScrapedTag] = field(default_factory=list)
     aliases: list[str] = field(default_factory=list)  # alternative titles for search
     cover_titles: list[str] = field(default_factory=list)  # edition titles, not user-facing aliases
+    background_media: list[tuple[Literal['artwork', 'screenshot'], str]] = field(default_factory=list)
 
 
 def _parse_retry_after(value: str | None) -> float | None:

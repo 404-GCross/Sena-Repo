@@ -21,6 +21,35 @@ const settings = {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('background preference round-trips without image analysis', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var saved = {...settings, 'vision': false, 'background_preference': 'artwork'};
+    final api = ApiClient();
+    await api.connect('localhost');
+    await http.runWithClient(() async {
+      await tester.pumpWidget(MaterialApp(home: AgentScreen(api: api)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('游戏偏好'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('纯背景优先'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('游戏截图优先').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('保存设置'));
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(saved['background_preference'], 'screenshot');
+      expect(saved['vision'], false);
+      expect(find.text('保存成功'), findsOneWidget);
+    }, () => MockClient((request) async {
+      if (request.method == 'PUT') saved = Map<String, Object>.from(jsonDecode(request.body));
+      return http.Response(jsonEncode(saved), 200);
+    }));
+  });
+
   testWidgets('previous successful discoveries are not labelled as failures',
       (tester) async {
     final api = ApiClient();

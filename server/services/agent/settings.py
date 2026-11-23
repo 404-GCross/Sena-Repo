@@ -21,6 +21,8 @@ async def save_settings(session: AsyncSession, value: AgentSettings) -> int:
     row = await session.get(AgentConfig, 1)
     previous = dict(row.settings) if row else {}
     data = value.model_dump()
+    if "background_preference" not in value.model_fields_set and "background_preference" in previous:
+        data["background_preference"] = previous["background_preference"]
     for key in ("api_key", "proxy_password"):
         fields = (
             ("base_url", "protocol")

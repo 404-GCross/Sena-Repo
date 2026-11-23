@@ -24,6 +24,9 @@ class AgentSettings(BaseModel):
     max_tokens: int = Field(default=0, ge=0)
     rounds: int = Field(default=8, ge=2, le=20)
     cover_language: Literal["zh", "original", "source"] = "zh"
+    background_preference: Literal["artwork", "screenshot"] = Field(
+        default="artwork", description="管理员设置：智能体游戏刮削及其兜底优先选用的背景类型，首选不可用时尝试另一类。"
+    )
     cover_fallback: Literal["original", "keep", "review"] = "original"
     portrait: bool = True
     high_resolution: bool = True

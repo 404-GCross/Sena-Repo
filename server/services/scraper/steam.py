@@ -191,6 +191,13 @@ class SteamScraper(BaseScraper):
                 except Exception:
                     pass
 
+            background_media = [
+                ("artwork", url) for url in (details.get("background_raw"), hero_url) if url
+            ]
+            for shot in details.get("screenshots") or []:
+                if isinstance(shot, dict) and shot.get("path_full"):
+                    background_media.append(("screenshot", shot["path_full"]))
+
             # Genres and tags
             tag_names: list[str] = []
             seen_tags: set[str] = set()
@@ -211,6 +218,7 @@ class SteamScraper(BaseScraper):
                 cover_url=cover_url,
                 cover_metadata={cover_url: {'official_work_id': appid}} if cover_url else {},
                 hero_url=hero_url,
+                background_media=background_media,
                 source_id=appid,
                 source_name=self.source_name,
                 tags=tags,

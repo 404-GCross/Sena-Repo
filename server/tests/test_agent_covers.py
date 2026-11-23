@@ -395,7 +395,7 @@ class AgentCoverApplyTests(unittest.IsolatedAsyncioTestCase):
             patch.object(CoverChecker, "load", side_effect=asset),
         ):
             with patch(
-                "services.scraper.orchestrator._save_verified_cover",
+                "services.scraper.orchestrator._save_verified_image",
                 side_effect=OSError("unwritable"),
             ):
                 await scrape_game(runtime, self.game, self.client)

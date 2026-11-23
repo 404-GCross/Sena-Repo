@@ -333,6 +333,9 @@ class _AgentScreenState extends State<AgentScreen> {
         card('游戏刮削偏好', [
           select('cover_language', '封面语言',
               const {'zh': '中文优先', 'original': '原版优先', 'source': '跟随来源默认'}),
+          if (value!.containsKey('background_preference'))
+            select('background_preference', '背景图刮削偏好',
+                const {'artwork': '纯背景优先', 'screenshot': '游戏截图优先'}),
           select('cover_fallback', '没有合适封面时',
               const {'original': '使用原版', 'keep': '保留现有封面', 'review': '留待确认'}),
           toggle('portrait', '优先竖版封面', '校验真实尺寸和完整单张构图，排除拼接图、截图合集及包装展开图。需开启图片分析；无法确认时保留现有封面。'),
