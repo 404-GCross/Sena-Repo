@@ -96,13 +96,17 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
 
 ## Verification
 
-- Run the narrowest reliable checks available for the touched area.
-- For server Python changes, prefer at least `python -m py_compile` on edited Python files; run
-  tests when the environment has the required dependencies.
-- For Flutter changes, local `flutter analyze` is optional when Flutter/Dart is unavailable or
-  the user has accepted relying on CI. Do not block commit/push solely because the local
-  machine lacks Flutter/Dart; state that local analyze was skipped because the toolchain is
-  unavailable.
+- Verify changes locally before committing. Choose checks that exercise the changed behavior:
+  - For Flutter UI or logic, run `flutter analyze` and the relevant Flutter tests.
+  - For server Python, run `python -m py_compile` on edited files and the relevant regression
+    tests. For client-server changes, verify both ends of the affected workflow together.
+  - For native plugins, downloaders, or packaging changes, build the affected target locally.
+- If a required local check is blocked by missing tooling, name the dependency, the blocked
+  check, and what needs installing. Ask whether the user wants it installed. If approved,
+  install it and run the check locally. If declined, run the remaining local checks; defer the
+  blocked check to CI only with explicit user approval before committing or pushing. Track
+  the deferred check for the pushed commit.
+- If a local check runs and fails, fix the failure and rerun it before committing.
 - After pushing Flutter/client changes, always track the GitHub Actions analyze check for the
   pushed commit. Find the run for the pushed SHA, confirm the `Flutter analyze` job and the
   `Analyze Flutter client` step complete, and report the result. If analyze fails, inspect the
@@ -110,9 +114,8 @@ file; keep a single copy of the rules here. Long-form documentation lives on the
 - Documentation-only changes (Markdown files, `docs/`, `AGENTS.md`, comments, and other text
   changes with no code or asset changes) do not require CI tracking: commit and push without
   waiting on GitHub Actions.
-- Do not treat the broader packaging/build workflow as a substitute for analyze. The client
-  build workflow may still be running; the required CI signal for this rule is the analyze
-  job/step.
+- A packaging job does not replace Flutter analyze. Wait for the relevant platform build when
+  verifying packaging, when a build was deferred to CI, or when the user needs the artifact.
 - Report unavailable toolchains or skipped checks in the final response.
 
 ## Release Notes
