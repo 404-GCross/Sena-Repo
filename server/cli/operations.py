@@ -37,14 +37,14 @@ from cli.common import (
 from cli.versions import installed_version, source_version
 from config import Config
 from models.file_source import FileSource
-from models.game import Game, GameTag, GameVersion
+from models.game import Game, GameVersion
 from models.root_directory import RootDirectory
 from models.scrape_job import JobStatus, ScrapeJob
 from models.tag import Tag
 from models.user import User
-from services.importer import cleanup_empty_companies, import_from_root
+from services.importer import clear_scanned_games, import_from_root, verified_snapshots
 from services.scraper.orchestrator import run_batch_scrape
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.process_lock import process_lock, scan_lock_path
 
@@ -204,6 +204,7 @@ async def _run_scan(
     scrape_mode: str,
     sources: list[str] | None,
     update_last: bool,
+    clear_existing: bool = False,
 ) -> int:
     from api.settings import _load_scan_settings, _mark_auto_scan
 
@@ -225,16 +226,25 @@ async def _run_scan(
 
             rows = []
             total_games = 0
-            for root in roots:
-                label = root.source_path or root.path
-                echo(f"扫描目录 #{root.id}: {label}")
+            failed = False
+            snapshots = (
+                await verified_snapshots(roots, config, session)
+                if clear_existing
+                else {}
+            )
+            for root_id, root_type, label in [
+                (r.id, r.source_type or "local", r.source_path or r.path) for r in roots
+            ]:
+                echo(f"扫描目录 #{root_id}: {label}")
                 try:
-                    stats = await import_from_root(root.id, config, session)
+                    if clear_existing:
+                        await clear_scanned_games(session, [root_id])
+                    stats = await import_from_root(root_id, config, session, scan_override=snapshots.get(root_id), preserve_unseen=clear_existing)
                     total_games += int(stats.get("total_games") or 0)
                     rows.append(
                         [
-                            root.id,
-                            root.source_type or "local",
+                            root_id,
+                            root_type,
                             int(stats.get("new_versions") or 0),
                             int(stats.get("total_games") or 0),
                             int(stats.get("orphaned") or 0),
@@ -242,8 +252,9 @@ async def _run_scan(
                     )
                 except Exception as exc:
                     await session.rollback()
-                    rows.append([root.id, root.source_type or "local", "ERROR", "-", "-"])
-                    echo(f"目录 #{root.id} 扫描失败: {exc}", err=True)
+                    failed = True
+                    rows.append([root_id, root_type, "ERROR", "-", "-"])
+                    echo(f"目录 #{root_id} 扫描失败: {exc}", err=True)
 
             print_table(["Root", "Type", "NewVersions", "Games", "Orphaned"], rows)
             echo(f"扫描完成，共处理 {len(roots)} 个目录，当前有效游戏 {total_games} 个")
@@ -254,6 +265,8 @@ async def _run_scan(
                 except Exception as exc:
                     echo(f"记录自动扫描时间失败: {exc}", err=True)
 
+            if failed:
+                return 1
             if scrape_mode == "none":
                 return 0
 
@@ -410,24 +423,13 @@ async def cmd_clear(args) -> int:
             echo("已取消")
             return 130
         if not confirm_phrase(
-            "这会删除游戏、版本与游戏标签关联；目录配置、用户、刮削源配置会保留。",
+            "验证所有来源后重建可重建条目；手动或锁定条目和配置会保留。",
             "CLEAR",
         ):
             echo("已取消")
             return 130
 
-    async with db._session_factory() as session:
-        cleared_games = int(
-            (await session.execute(select(func.count()).select_from(Game))).scalar_one() or 0
-        )
-        await session.execute(delete(GameTag))
-        await session.execute(delete(GameVersion))
-        await session.execute(delete(Game))
-        await cleanup_empty_companies(session)
-        await session.commit()
-        audit("cli.clear", cleared_games=cleared_games)
-        echo(f"已清空游戏条目: {cleared_games}")
-
+    audit('cli.clear')
     scrape_mode = _resolve_scrape_mode(args.scrape)
     return await _run_scan(
         config,
@@ -435,6 +437,7 @@ async def cmd_clear(args) -> int:
         scrape_mode=scrape_mode,
         sources=_parse_sources(args.sources),
         update_last=True,
+        clear_existing=True,
     )
 
 

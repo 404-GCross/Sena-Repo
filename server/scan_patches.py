@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 import httpx
+from services.file_source import SourceUnavailable, local_files
 from services.task_stop import checkpoint
 
 from utils.log_redaction import redact_exception
@@ -51,10 +52,6 @@ def _load_keywords(base_dir: Path) -> dict[str, list[str]]:
                 return {k: v for k, v in data.items() if isinstance(v, list)}
         except Exception:
             pass
-    # Create with current defaults
-    base_dir.mkdir(parents=True, exist_ok=True)
-    with open(kw_path, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_TYPE_KEYWORDS, f, ensure_ascii=False, indent=2)
     return dict(DEFAULT_TYPE_KEYWORDS)
 
 
@@ -739,15 +736,10 @@ def scan_patches_dir(
     on_progress=None,
 ) -> list[dict]:
     """Scan recurisvely for archive files, auto-detect app_id and type from name."""
-    base_dir.mkdir(parents=True, exist_ok=True)
     keywords = _load_keywords(base_dir)
     archives = []
     exts = (".zip", ".ZIP", ".rar", ".RAR", ".7z", ".7Z", ".tar", ".TAR", ".gz", ".GZ", ".xz", ".XZ")
-    files: dict[Path, None] = {}
-    for f in base_dir.rglob('*'):
-        checkpoint()
-        if f.suffix.lower() in exts and f.is_file():
-            files[f] = None
+    files = {f: info.st_size for f, info in local_files(base_dir) if f.suffix.lower() in exts}
     ordered = sorted(files.keys())
     total = len(ordered)
     for index, f in enumerate(ordered, start=1):
@@ -762,7 +754,7 @@ def scan_patches_dir(
             "patch_id": _make_patch_id("local", None, rel),
             "app_id": app_id,
             "file": rel,
-            "size": f.stat().st_size,
+            "size": files[f],
             "analysis_mode": analysis_mode,
             "patch_dir": "",
             "target_dir": "",
@@ -835,13 +827,55 @@ def scan_patches_source(
 
 
 def load_existing(json_path: Path) -> dict | None:
-    if json_path.exists():
+    try:
+        raw = json_path.read_bytes()
+    except FileNotFoundError:
+        if json_path.is_symlink():
+            raise SourceUnavailable('补丁索引链接无效，已保留原文件') from None
+        return None
+    return parse_index(raw)
+
+
+def parse_index(raw: bytes) -> dict:
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise SourceUnavailable("补丁索引无法解析，已保留原文件；请检查备份") from exc
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("patches"), list)
+        or any(
+            not isinstance(p, dict)
+            or not isinstance(p.get("file"), str)
+            or not p["file"].strip()
+            for p in data["patches"]
+        )
+    ):
+        raise SourceUnavailable("补丁索引结构无效，已保留原文件；请检查备份")
+    return data
+
+
+def publish_scan_index(path: Path, data: dict):
+    import tempfile
+
+    def replace(dest, payload):
+        with tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as handle:
+            temp = Path(handle.name)
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return None
+            temp.write_bytes(payload)
+            checkpoint()
+            temp.replace(dest)
+        finally:
+            temp.unlink(missing_ok=True)
+
+    try:
+        previous = path.read_bytes()
+    except FileNotFoundError:
+        previous = None
+    if previous is not None:
+        parse_index(previous)
+        replace(path.with_suffix(".last-good.json"), previous)
+    replace(path, json.dumps(data, ensure_ascii=False, indent=2).encode())
 
 
 def merge(existing_patches: list[dict], scanned: list[dict]) -> list[dict]:
@@ -907,8 +941,7 @@ def main():
             "type": ptype,
             "manifest_status": "confirmed",
         })
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)
+        publish_scan_index(json_path, {"patches": patches})
         print(f"已添加: {file_path}")
         return
 
@@ -936,8 +969,7 @@ def main():
         if p.get("label"):
             print(f"       label={p['label']}")
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({"patches": patches}, f, ensure_ascii=False, indent=2)
+    publish_scan_index(json_path, {"patches": patches})
 
     todo = sum(1 for p in patches if p.get("manifest_status") != "confirmed")
     if todo:

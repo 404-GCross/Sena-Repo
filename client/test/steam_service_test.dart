@@ -18,6 +18,25 @@ http.Response namesResponse(List<String> ids) => http.Response(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('empty root cleanup only sends a root and run after explicit confirmation', () async {
+    final calls = <Map<String,String>>[];
+    await http.runWithClient(() async {
+      final api = ApiClient();
+      try {
+        await SteamService.scanPatches(api);
+        fail('Expected empty root warning');
+      } on EmptyPatchRoot catch (warning) {
+        expect(warning.rootId, 3);
+        await SteamService.scanPatches(api, confirmed: warning);
+      }
+    }, () => MockClient((req) async {
+      calls.add(req.url.queryParameters);
+      return calls.length == 1 ? http.Response('{"detail":{"code":"empty_patch_root","root_id":3,"run_id":"one","message":"empty"}}',409)
+        : http.Response('{"status":"completed","scanned":0}',200);
+    }));
+    expect(calls, [{'mode':'merge'}, {'mode':'merge','confirm_empty_root':'3','after_run':'one'}]);
+  });
+
   test("250 IDs are sent sequentially in batches of 100, 100 and 50", () async {
     final batches = <List<String>>[];
     var active = 0;

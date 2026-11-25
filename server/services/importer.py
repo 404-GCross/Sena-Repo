@@ -19,7 +19,7 @@ from services.cleaner import normalize_company_name, _clean_name
 from services.platforms import load_platform_rules
 from utils.regex_patterns import DEFAULT_PLATFORM, match_platform_rule
 from services.file_source import adapter_from_source, canonical_source_path
-from services.scanner import scan_root, scan_source, get_ignore_paths, normalize_game_depth
+from services.scanner import SourceUnavailable, scan_root, scan_source, get_ignore_paths, normalize_game_depth
 from services.task_stop import checkpoint
 
 logger = logging.getLogger(__name__)
@@ -67,27 +67,7 @@ def scanner_ignore_paths(
     return {path[len(prefix):] for path in paths if path.startswith(prefix)}
 
 
-async def import_from_root(
-    root_id: int,
-    config: Config,
-    session: AsyncSession,
-    *,
-    scan_override=None,
-    preserve_unseen: bool = False,
-) -> dict:
-    """Scan a root directory and import/update all discovered games.
-
-    Returns:
-        Dict with import statistics: {new_games, updated_games, new_versions, total}
-    """
-    # Load root directory record
-    result = await session.execute(
-        select(RootDirectory).where(RootDirectory.id == root_id)
-    )
-    root = result.scalar_one_or_none()
-    if root is None:
-        raise ValueError(f"Root directory with id {root_id} not found")
-
+async def read_root_snapshot(root, config, session):
     ignore_paths = await get_ignore_paths(session)
 
     source_type = root.source_type or "local"
@@ -109,15 +89,80 @@ async def import_from_root(
         scan_structure,
         scan_depth,
     )
-    if scan_override is not None:
-        scan_result = scan_override
-    elif source_type == "local":
-        scan_result = await asyncio.to_thread(scan_root, source_path, ignore_paths, scan_structure, scan_depth)
-    else:
-        adapter = adapter_from_source(source_model, source_type)
-        scan_result = await asyncio.to_thread(scan_source, adapter, source_path, ignore_paths, scan_structure, scan_depth)
+    if source_type == "local":
+        return await asyncio.to_thread(
+            scan_root, source_path, ignore_paths, scan_structure, scan_depth
+        )
+    adapter = adapter_from_source(source_model, source_type)
+    return await asyncio.to_thread(
+        scan_source, adapter, source_path, ignore_paths, scan_structure, scan_depth
+    )
+
+
+class UnexpectedEmptyRoot(SourceUnavailable):
+    def __init__(self, root_id):
+        super().__init__(
+            f"目录 #{root_id} 此前有游戏，本次为空；请检查挂载，原记录已保留"
+        )
+        self.root_id = root_id
+
+
+async def guard_empty_root(root_id, has_entries, session):
+    if (
+        not has_entries
+        and await session.scalar(
+            select(Game.id)
+            .where(
+                Game.root_id == root_id,
+                Game.entry_source == "library",
+                Game.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        is not None
+    ):
+        raise UnexpectedEmptyRoot(root_id)
+
+
+async def verified_snapshots(roots, config, session):
+    snapshots = {}
+    for root in roots:
+        snapshot = await read_root_snapshot(root, config, session)
+        checkpoint()
+        await guard_empty_root(
+            root.id, any(c.games for c in snapshot.companies), session
+        )
+        snapshots[root.id] = snapshot
+    if not snapshots:
+        raise SourceUnavailable("没有可验证的游戏根目录，未执行清理")
+    return snapshots
+
+
+async def import_from_root(
+    root_id: int,
+    config: Config,
+    session: AsyncSession,
+    *,
+    scan_override=None,
+    preserve_unseen: bool = False,
+    confirm_empty: bool = False,
+) -> dict:
+    root = await session.get(RootDirectory, root_id)
+    if root is None:
+        raise ValueError(f"Root directory with id {root_id} not found")
+    source_type = root.source_type or "local"
+    scan_result = (
+        scan_override
+        if scan_override is not None
+        else await read_root_snapshot(root, config, session)
+    )
+    checkpoint()
 
     discovered_games = sum(len(company.games) for company in scan_result.companies)
+    if confirm_empty and discovered_games:
+        raise SourceUnavailable("目录已恢复非空，未执行清理；请重新扫描")
+    if not confirm_empty and not preserve_unseen:
+        await guard_empty_root(root_id, discovered_games, session)
     discovered_archives = sum(
         len(game.archives)
         for company in scan_result.companies
@@ -199,15 +244,12 @@ async def import_from_root(
     orphans = 0
     for game in all_games.scalars().all():
         if not preserve_unseen and game.folder_path and game.folder_path not in scanned_paths:
-            if source_type != "local" or not Path(game.folder_path).exists():
+            if (confirm_empty and not scanned_paths) or source_type != "local" or not Path(game.folder_path).exists():
                 game.is_deleted = True
                 game.updated_at = datetime.utcnow()
                 orphans += 1
     if orphans:
         await session.flush()
-
-    checkpoint()
-    await session.commit()
 
     # Count total games from this root
     count_result = await session.execute(
@@ -223,6 +265,8 @@ async def import_from_root(
 
     # Clean up companies that no longer have any games
     await cleanup_empty_companies(session)
+    checkpoint()
+    await session.commit()
 
     return stats
 

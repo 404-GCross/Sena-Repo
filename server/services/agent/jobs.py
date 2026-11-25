@@ -35,10 +35,12 @@ from services.agent.runtime import (
 )
 from services.agent.settings import load_settings
 from services.task_stop import TaskStopped, stop_scope
-from services.file_source import canonical_source_path, adapter_from_source
+from services.file_source import SourceUnavailable, canonical_source_path, adapter_from_source
 from services.importer import (
     clear_scanned_games,
+    guard_empty_root,
     import_from_root,
+    read_root_snapshot,
     scanner_ignore_paths,
 )
 from services.scanner import (
@@ -186,7 +188,7 @@ async def inspect_tool(root, source, batch, settings, args):
     return await inspect_file(root, source, item, settings)
 
 
-async def discover_root(runtime, root):
+async def discover_root(runtime, root, preflight=None):
     session, config = runtime.session, load_config()
     source = await session.get(FileSource, root.source_id) if root.source_id else None
     ignored = await get_ignore_paths(session)
@@ -226,7 +228,7 @@ async def discover_root(runtime, root):
     catalog = Catalog(config, runtime.job.actor_id, runtime)
     try:
         try:
-            files = await collect_inventory(runtime, root, source, ignored)
+            files = preflight[0] if preflight is not None else await collect_inventory(runtime, root, source, ignored)
         except AgentStopped:
             raise
         except Exception:
@@ -427,7 +429,14 @@ async def discover_root(runtime, root):
             getattr(config, "_scan_structure", "company_game"),
             getattr(config, "_scan_depth", None),
         )
-        if root.source_type == "openlist":
+        if preflight is not None:
+            regular = preflight[1]
+            for company in regular.companies:
+                for group in company.games:
+                    group.archives = [
+                        a for a in group.archives if a.filepath not in assigned
+                    ]
+        elif root.source_type == "openlist":
             regular = await asyncio.to_thread(
                 scan_source,
                 adapter_from_source(source, "openlist"),
@@ -463,6 +472,12 @@ async def discover_root(runtime, root):
                 {"files": unresolved[:200]},
             )
         regular.companies.extend(groups)
+        await guard_empty_root(
+            root.id,
+            any(i["archive"] or i["path"].lower().endswith(".exe") for i in files)
+            or any(c.games for c in regular.companies),
+            session,
+        )
         await import_from_root(
             root.id, config, session, scan_override=regular, preserve_unseen=True
         )
@@ -721,10 +736,12 @@ async def patch_scan(runtime):
     roots = await api._patch_roots(session)
     current = api._load_all_patches(index)
     by_id = {api._make_patch_id(p): p for p in current}
+    inventories = []
     for root in roots:
         source = (
             await session.get(FileSource, root.source_id) if root.source_id else None
         )
+        fallback = None
         try:
             files = await collect_inventory(runtime, root, source, set())
         except AgentStopped:
@@ -751,45 +768,40 @@ async def patch_scan(runtime):
                         entry["file"] = entry["source_path"]
                         entry["source_type"] = "local"
                         entry["source_id"] = None
-                await runtime.check()
-                latest = {
-                    api._make_patch_id(p): p for p in api._load_all_patches(index)
-                }
-                for entry in fallback:
-                    entry.pop("patch_id", None)
-                    key = api._make_patch_id(entry)
-                    old = latest.get(key, {})
-                    if old.get("locked"):
-                        continue
+                files = []
+            except AgentStopped:
+                raise
+            except Exception as exc:
+                raise SourceUnavailable("补丁目录无法完整读取，原索引已保留") from exc
+        if (
+            not fallback
+            and not any(i["archive"] for i in files)
+            and any(
+                api._patch_in_root(p, root, api._get_patches_dir(config))
+                for p in current
+            )
+        ):
+            raise SourceUnavailable(f"补丁目录 #{root.id} 意外为空，原索引已保留")
+        inventories.append((root, source, files, fallback))
+    for root, source, files, fallback in inventories:
+        await runtime.check()
+        if fallback is not None:
+            latest = {api._make_patch_id(p): p for p in api._load_all_patches(index)}
+            for entry in fallback:
+                entry.pop("patch_id", None)
+                key = api._make_patch_id(entry)
+                old = latest.get(key, {})
+                if not old.get("locked"):
                     latest[key] = {
                         **entry,
                         **{k: v for k, v in old.items() if v not in (None, "")},
                         "size": entry.get("size", 0),
                     }
-                target = index / "patches.json"
-                temp = target.with_suffix(".agent.tmp")
-                temp.write_text(
-                    json.dumps({"patches": list(latest.values())}, ensure_ascii=False),
-                    encoding="utf-8",
+            if fallback:
+                api._publish_patch_index(
+                    index / "patches.json", {"patches": list(latest.values())}
                 )
-                temp.replace(target)
-                await record(
-                    runtime,
-                    root.id,
-                    "",
-                    "fallback",
-                    "智能清单不可用，该目录已使用常规补丁扫描",
-                )
-            except AgentStopped:
-                raise
-            except Exception:
-                await record(
-                    runtime,
-                    root.id,
-                    "",
-                    "review",
-                    "补丁目录无法读取，已保留原索引；请检查来源连接",
-                )
+            await record(runtime, root.id, '', 'fallback', '智能清单不可用，该目录已使用常规补丁扫描')
             continue
         for item in files:
             if not item["archive"]:
@@ -1018,23 +1030,49 @@ async def _run_job(job_id):
                 if not started.rowcount:
                     raise AgentStopped()
                 await session.commit()
+                preflight = {}
                 if job.request.get("clear_existing"):
                     await runtime.check(model=True)
                     if not settings.model.strip():
                         raise ValueError("模型尚未配置，未执行清空")
-                    root_query = select(RootDirectory.id)
+                    root_query = select(RootDirectory)
                     if job.request.get("root_ids"):
                         root_query = root_query.where(
                             RootDirectory.id.in_(job.request["root_ids"])
                         )
-                    found_roots = set((await session.execute(root_query)).scalars())
+                    selected_roots = (await session.scalars(root_query)).all()
+                    found_roots = {r.id for r in selected_roots}
                     if not found_roots or (
                         job.request.get("root_ids")
                         and found_roots != set(job.request["root_ids"])
                     ):
                         raise ValueError("游戏库目录已变化，未执行清空")
+                    ignored = await get_ignore_paths(session)
+                    from api.settings import _load_scan_settings
+
+                    _load_scan_settings(config)
+                    for root in selected_roots:
+                        source = (
+                            await session.get(FileSource, root.source_id)
+                            if root.source_id
+                            else None
+                        )
+                        items = await collect_inventory(runtime, root, source, ignored)
+                        await guard_empty_root(
+                            root.id,
+                            any(
+                                i["archive"] or i["path"].lower().endswith(".exe")
+                                for i in items
+                            ),
+                            session,
+                        )
+                        preflight[root.id] = (
+                            items,
+                            await read_root_snapshot(root, config, session),
+                        )
+                    await runtime.check()
                     cleared = await clear_scanned_games(
-                        session, job.request.get("root_ids") or None
+                        session, sorted(found_roots)
                     )
                     # Commit the clear and its consumed flag together: retries must not clear twice.
                     job.request = {
@@ -1066,8 +1104,20 @@ async def _run_job(job_id):
                             query = query.where(
                                 RootDirectory.id.in_(job.request["root_ids"])
                             )
-                        for root in (await session.execute(query)).scalars().all():
-                            await discover_root(runtime, root)
+                        failed_roots = []
+                        ids = [r.id for r in (await session.scalars(query)).all()]
+                        for rid in ids:
+                            try:
+                                root = await session.get(RootDirectory, rid)
+                                if root is None:
+                                    raise SourceUnavailable('根目录配置已变化')
+                                await discover_root(runtime, root, preflight.get(rid))
+                            except SourceUnavailable as exc:
+                                await session.rollback()
+                                await record(runtime, rid, '', 'review', str(exc))
+                                failed_roots.append(rid)
+                        if failed_roots:
+                            raise SourceUnavailable(f'目录 {failed_roots} 未完整扫描，已停止本轮后续阶段')
                     query = (
                         select(Game)
                         .where(Game.is_deleted.is_(False))
@@ -1144,7 +1194,7 @@ async def _run_job(job_id):
         except Exception as exc:
             await session.rollback()
             job.status = "failed"
-            job.message = f"任务失败（{type(exc).__name__}），已完成结果保留，可重试"
+            job.message = str(exc) if isinstance(exc, SourceUnavailable) else f"任务失败（{type(exc).__name__}），已完成结果保留，可重试"
             logger.warning(
                 "Agent job failed: job=%s reason=%s", job_id, type(exc).__name__
             )
@@ -1193,7 +1243,7 @@ async def scheduled_scan(config):
             result = {"agent": True}
         else:
             result = await _run_scan(config, update_last=True)
-        if result.get("skipped") or result.get('status') == 'cancelled':
+        if result.get("skipped") or result.get('failed_roots') or result.get('status') in {'cancelled','failed'}:
             return result
         if (
             settings.enabled

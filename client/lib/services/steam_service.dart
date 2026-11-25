@@ -8,9 +8,19 @@ import "package:file_picker/file_picker.dart";
 import "logged_http.dart" as http;
 
 import "api_client.dart";
+import "api_response_utils.dart";
 import "download_service.dart";
 import 'archive_safety.dart';
 import 'agent_service.dart';
+
+class EmptyPatchRoot implements Exception {
+  final int rootId;
+  final String runId;
+  final String message;
+  EmptyPatchRoot(this.rootId, this.runId, this.message);
+  @override
+  String toString() => message;
+}
 
 class SteamGameInfo {
   final String appId;
@@ -242,12 +252,18 @@ class SteamService {
   }
 
   /// Trigger server-side patch directory scan.
-  static Future<Map<String, dynamic>> scanPatches(ApiClient api, {String mode = "merge"}) async {
+  static Future<Map<String, dynamic>> scanPatches(ApiClient api, {String mode = "merge", EmptyPatchRoot? confirmed}) async {
     final uri = Uri.parse("${api.baseUrl}/api/steam/scan-patches")
-        .replace(queryParameters: {"mode": mode});
+        .replace(queryParameters: {"mode": mode, if (confirmed != null) ...{
+          'confirm_empty_root': '${confirmed.rootId}', 'after_run': confirmed.runId}});
     final resp = await http.post(uri, headers: api.headers);
     if (resp.statusCode == 200) return jsonDecode(resp.body) as Map<String, dynamic>;
-    throw HttpException("Failed to scan patches: ${resp.statusCode}");
+    final detail = tryDecodeJsonMap(resp.body)?['detail'];
+    if (resp.statusCode == 409 && detail is Map && detail['code'] == 'empty_patch_root' &&
+        detail['root_id'] is int && detail['run_id'] is String && detail['message'] is String) {
+      throw EmptyPatchRoot(detail['root_id'], detail['run_id'], detail['message']);
+    }
+    throw ApiResponseException(detail is String ? detail : '补丁扫描失败（HTTP ${resp.statusCode}）');
   }
 
   /// Current patch scan progress reported by the server.

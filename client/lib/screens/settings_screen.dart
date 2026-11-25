@@ -1556,7 +1556,7 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       }
       await _loadRoots();
       _startScanStatusPolling();
-      if (mounted) _toast(context, "已清理可重建条目，常规扫描已启动");
+      if (mounted) _toast(context, "常规重扫已排队，验证所有根目录后才会重建条目");
     } catch (e) {
       if (!mounted) return;
       await showFeedbackDialog(context, '$e', error: true);
@@ -2395,6 +2395,24 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
     }
   }
 
+  Future<void> _confirmEmptyRoot(int root, String run) async {
+    final scope = widget.api.sessionScope;
+    final ok = await confirmDestructiveAction(context, section: '游戏库　/　扫描',
+        title: '游戏目录 #$root 确实已搬空？', action: '确认已搬空',
+        message: '如果是挂载掉线，请取消并恢复挂载。确认后会重新检查该目录，只将确实消失的扫描条目标为已移除，不删除文件。');
+    if (!mounted || ok != true || scope != widget.api.sessionScope) return;
+    try {
+      final uri = Uri.parse('${widget.api.baseUrl}/api/roots/$root/refresh')
+          .replace(queryParameters: {'confirm_empty': 'true', 'after_run': run});
+      final resp = await http.post(uri, headers: widget.api.headers);
+      if (!mounted || scope != widget.api.sessionScope) return;
+      if (resp.statusCode != 200) throw Exception(_responseMessage(resp));
+      await _loadScanStatus();
+    } catch (e) {
+      if (mounted) await showFeedbackDialog(context, '$e', error: true);
+    }
+  }
+
   Widget _buildScanStatusCard() {
     final status = _scanStatus!["status"]?.toString() ?? "idle";
     final total = (_scanStatus!["roots_total"] as num?)?.toInt() ?? 0;
@@ -2425,6 +2443,9 @@ class _ScanSettingsPageState extends State<_ScanSettingsPage> {
       child: TaskProgressCardBody(
           actions: [if(control!=null) ...[
             TextButton(onPressed:()=>showTaskDetails(context,'常规游戏库扫描',control,_scanStatus!),child:const Text('查看详情')),
+            if (status == 'failed' && id is String)
+              for (final root in (_scanStatus!['empty_roots'] as List? ?? []).whereType<int>())
+                TextButton(onPressed: () => _confirmEmptyRoot(root, id), child: Text('确认目录 #$root 已搬空')),
             if(isActive) TaskStopButton(key:ValueKey(id),control:control,status:status,onChanged:(next){setState((){_scrapeAfterScan=false;_scanStatus=next;});}),
           ]],header:Row(
             children: [

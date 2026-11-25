@@ -25,7 +25,7 @@ from models.game import Game
 from models.ignore_list import IgnoreList
 from schemas.common import MessageResponse
 from services.scanner import normalize_game_depth, structure_from_depth
-from utils.secrets import SCRAPER_SECRET_KEYS, encryption_key_status, redact_url
+from utils.secrets import SCRAPER_SECRET_KEYS, encryption_key_status
 from utils.log_redaction import redact_exception
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -240,7 +240,7 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
     s = config.scrapers
 
     def _mask(val: str) -> str:
-        if not val:
+        if user.role != 'admin' or not val:
             return ""
         return val[:4] + "****" + val[-4:] if len(val) > 8 else "****"
 
@@ -254,7 +254,7 @@ async def get_scraper_config(user: User = Depends(get_current_user)):
         nextmoe_patch_name_source=s.nextmoe_patch_name_source,
         scraper_order=s.scraper_order,
         enabled_scrapers=s.enabled_scrapers,
-        proxy=_mask(config.proxy),
+        proxy="****" if user.role == "admin" and config.proxy else "",
     )
 
 
@@ -550,7 +550,7 @@ async def test_nextmoe(
 
 
 @router.post("/proxy-test")
-async def test_proxy(user: User = Depends(get_current_user)):
+async def test_proxy(user: User = Depends(require_admin)):
     """Test if the proxy is reachable by accessing a known URL."""
     import httpx
     from config import load_config
@@ -561,22 +561,22 @@ async def test_proxy(user: User = Depends(get_current_user)):
     try:
         async with httpx.AsyncClient(**kwargs) as client:
             resp = await client.get("https://www.google.com")
+            resp.raise_for_status()
+            latency = round(resp.elapsed.total_seconds() * 1000)
             logger.info(
-                "Proxy test succeeded: actor_id=%s target=%s status=%s latency_ms=%s",
-                user.id,
-                redact_url(config.proxy) or "direct",
+                "Proxy test: mode=%s status=%s latency_ms=%s",
+                "proxy" if config.proxy else "direct",
                 resp.status_code,
-                round(resp.elapsed.total_seconds() * 1000),
+                latency,
             )
-            return {"ok": True, "status": resp.status_code, "proxy": config.proxy or "直连", "latency_ms": round(resp.elapsed.total_seconds() * 1000)}
+            return {"ok": True, "status": resp.status_code, "latency_ms": latency}
     except Exception as exc:
         logger.warning(
-            "Proxy test failed: actor_id=%s target=%s error=%s",
-            user.id,
-            redact_url(config.proxy) or "direct",
+            "Proxy test failed: mode=%s error=%s",
+            "proxy" if config.proxy else "direct",
             type(exc).__name__,
         )
-        return {"ok": False, "error": "代理连接失败，请检查代理地址和网络状态", "proxy": config.proxy or "直连"}
+        return {"ok": False, "error": "代理连接失败，请检查代理地址和网络状态"}
 
 
 # --- Ignore List ---

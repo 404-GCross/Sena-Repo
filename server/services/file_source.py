@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -66,24 +67,43 @@ def normalize_base_url(base_url: str | None) -> str:
     return cleaned
 
 
+class SourceUnavailable(RuntimeError):
+    """An incomplete inventory must never be reconciled as an empty source."""
+
+
+def local_entries(path: Path):
+    try:
+        for entry in sorted(path.iterdir()):
+            checkpoint()
+            yield entry, entry.stat()
+    except OSError as exc:
+        raise SourceUnavailable("本地目录不可完整读取，请检查挂载和权限") from exc
+
+
+def local_files(path: Path, ignored: set[str] | None = None):
+    pending = [path]
+    while pending:
+        for entry, info in local_entries(pending.pop()):
+            if ignored and str(entry) in ignored:
+                continue
+            if stat.S_ISREG(info.st_mode):
+                yield entry, info
+            elif stat.S_ISDIR(info.st_mode) and not entry.is_symlink():
+                pending.append(entry)
+
+
 class LocalFileSource:
     def list(self, path: str) -> list[FileEntry]:
         root = Path(path)
-        if not root.is_dir():
-            return []
         entries: list[FileEntry] = []
-        for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-            try:
-                stat = entry.stat()
-            except OSError:
-                continue
+        for entry, info in local_entries(root):
             entries.append(
                 FileEntry(
                     name=entry.name,
                     path=str(entry),
-                    is_dir=entry.is_dir(),
-                    size=stat.st_size if entry.is_file() else 0,
-                    modified=str(stat.st_mtime),
+                    is_dir=stat.S_ISDIR(info.st_mode),
+                    size=info.st_size if stat.S_ISREG(info.st_mode) else 0,
+                    modified=str(info.st_mtime),
                 )
             )
         return entries
@@ -188,7 +208,19 @@ class OpenListFileSource:
 
     def list(self, path: str) -> list[FileEntry]:
         remote_path = normalize_remote_path(path)
+        # Restart from page one: combining pages across attempts can lose entries.
+        for attempt in range(2):
+            try:
+                return self._list_snapshot(remote_path, refresh=bool(attempt))
+            except (SourceUnavailable, HTTPException, ValueError, TypeError) as exc:
+                if attempt:
+                    raise SourceUnavailable(
+                        "网盘目录枚举不完整，请检查来源后重试"
+                    ) from exc
+
+    def _list_snapshot(self, remote_path: str, *, refresh: bool) -> list[FileEntry]:
         entries: list[FileEntry] = []
+        seen = set()
         page = 1
         per_page = 100
         total: int | None = None
@@ -196,17 +228,38 @@ class OpenListFileSource:
             checkpoint()
             data = self._post(
                 "/api/fs/list",
-                {"path": remote_path, "password": "", "page": page, "per_page": per_page, "refresh": False},
+                {"path": remote_path, "password": "", "page": page, "per_page": per_page, "refresh": refresh and page == 1},
             )
-            content = data.get("content") or []
-            if total is None:
-                raw_total = data.get("total")
-                total = int(raw_total) if raw_total is not None else None
+            if not isinstance(data, dict) or "content" not in data:
+                raise SourceUnavailable("网盘目录响应缺少条目列表")
+            raw_total = data.get("total")
+            if (
+                type(raw_total) is not int
+                or raw_total < 0
+                or (total is not None and total != raw_total)
+            ):
+                raise SourceUnavailable("网盘目录总数缺失或发生变化")
+            total = raw_total
+            content = data["content"]
+            if content is None and total == 0:
+                content = []
+            if not isinstance(content, list):
+                raise SourceUnavailable('网盘目录列表无效')
             for item in content:
-                name = item.get("name") or ""
-                if not name:
-                    continue
+                name = item.get("name") if isinstance(item, dict) else None
+                if (
+                    not isinstance(name, str)
+                    or not name
+                    or name in {".", ".."}
+                    or "/" in name
+                    or "\\" in name
+                    or type(item.get("is_dir")) is not bool
+                ):
+                    raise SourceUnavailable('网盘目录条目无效')
                 child_path = normalize_remote_path(posixpath.join(remote_path, name))
+                if child_path in seen:
+                    raise SourceUnavailable("网盘分页存在重复条目")
+                seen.add(child_path)
                 entries.append(
                     FileEntry(
                         name=name,
@@ -216,8 +269,10 @@ class OpenListFileSource:
                         modified=item.get("modified"),
                     )
                 )
-            if not content or len(content) < per_page or (total is not None and len(entries) >= total):
+            if len(entries) == total:
                 break
+            if not content or len(entries) > total:
+                raise SourceUnavailable('网盘目录枚举与总数不符')
             page += 1
         entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
         return entries

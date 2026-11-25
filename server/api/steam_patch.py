@@ -19,7 +19,7 @@ from models.user import User
 from models.file_source import FileSource, SteamPatchRoot
 from api.auth import get_current_user, require_admin, require_request_session
 from api.download import build_signed_patch_url, patch_download_ttl, verify_patch_download_signature, signed_download_session
-from services.file_source import adapter_from_source, normalize_base_url, normalize_remote_path
+from services.file_source import SourceUnavailable, adapter_from_source, normalize_base_url, normalize_remote_path
 from utils.log_redaction import redact_exception
 from services.task_stop import TaskStopped, checkpoint, run_id, signal_stop, stop_scope
 from utils.secrets import encrypt_secret
@@ -239,15 +239,10 @@ def _load_patches_index(patches_dir: Path) -> dict[str, dict] | None:
 def _load_all_patches(patches_dir: Path) -> list[dict]:
     """Load ALL patches from patches.json, including those with null app_id."""
     idx_path = patches_dir / "patches.json"
-    if not idx_path.is_file():
-        return []
-    try:
-        with open(idx_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return [_normalize_patch_record(p) for p in data.get("patches", [])]
-    except Exception as exc:
-        logger.error("Failed to read patch index %s: %s", idx_path, redact_exception(exc))
-        return []
+    from scan_patches import load_existing
+
+    data = load_existing(idx_path)
+    return _normalize_patch_records(data['patches']) if data is not None else []
 
 
 def _normalize_patch_record(patch: dict) -> dict:
@@ -1321,7 +1316,7 @@ async def patch_scan_status(user: User = Depends(get_current_user)):
         state = dict(_patch_scan_state)
     if user.role != "admin":
         # File names, stage text and upstream errors are management detail.
-        for key in ("current", "stage", "error", "request_key"):
+        for key in ("current", "stage", "error", "request_key", "empty_root"):
             state.pop(key, None)
     return state
 
@@ -1331,13 +1326,21 @@ async def scan_patches_endpoint(
     mode: str = Query(default="merge"),
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    confirm_empty_root: int | None = None,
+    after_run: str | None = None,
 ):
     from utils.process_lock import process_lock, scan_lock_path
     with process_lock(scan_lock_path(load_config().data_path), blocking=False) as acquired:
         if not acquired:
             raise HTTPException(status_code=409, detail="扫描或恢复正在运行，请稍后重试")
+        if confirm_empty_root is not None and (
+            not after_run
+            or after_run != _patch_scan_state.get("run_id")
+            or confirm_empty_root != _patch_scan_state.get("empty_root")
+        ):
+            raise HTTPException(409, '确认已过期，请重新扫描补丁')
         return await _patch_operation(
-            "扫描补丁", lambda: _scan_patches_locked(mode, user, session)
+            "扫描补丁", lambda: _scan_patches_locked(mode, user, session, confirm_empty_root)
         )
 
 
@@ -1368,6 +1371,7 @@ async def _patch_operation(label, work, request_key=None):
             stage=label,
             scanned=0,
             error="",
+            empty_root=None,
             started_at=time.time(),
             finished_at=0,
         )
@@ -1396,7 +1400,22 @@ async def _patch_operation(label, work, request_key=None):
             raise
 
 
-async def _scan_patches_locked(mode, user, session):
+def _patch_in_root(entry, root, default_dir):
+    if (entry.get("source_type") or "local") != root.source_type:
+        return False
+    location = entry.get("source_path") or entry["file"]
+    if root.source_type == "openlist":
+        from pathlib import PurePosixPath
+
+        if entry.get("source_id") != root.source_id:
+            return False
+        return PurePosixPath(
+            location.removeprefix(f"openlist://{root.source_id}")
+        ).is_relative_to(root.path)
+    return (default_dir / location).is_relative_to(Path(root.path))
+
+
+async def _scan_patches_locked(mode, user, session, confirm_empty_root=None):
     """Re-scan all configured patch roots and regenerate patches.json.
 
     mode=merge keeps configured metadata for files that still exist;
@@ -1416,10 +1435,20 @@ async def _scan_patches_locked(mode, user, session):
         _set_patch_scan_state(processed=index, total=total, current=name)
 
     try:
-        from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge
+        from scan_patches import scan_patches_dir, scan_patches_source, load_existing, merge, publish_scan_index
 
         scanned = []
         roots = await _patch_roots(session)
+        all_roots = roots
+        def owner(entry):
+            matches = (r for r in all_roots if _patch_in_root(entry, r, patches_dir))
+            return max(matches, key=lambda r: len(Path(r.path).parts), default=None)
+
+        if confirm_empty_root is not None:
+            roots = [r for r in roots if r.id == confirm_empty_root]
+            if not roots:
+                raise SourceUnavailable("补丁目录配置已变化，索引未修改")
+        empty_roots = []
         stage_suffix = "（含 NextMoe 补全）" if _nextmoe_mode_enabled() else ""
         for root_index, root in enumerate(roots, start=1):
             checkpoint()
@@ -1437,7 +1466,7 @@ async def _scan_patches_locked(mode, user, session):
                 result = await session.execute(select(FileSource).where(FileSource.id == root.source_id))
                 source = result.scalar_one_or_none()
                 adapter = adapter_from_source(source, "openlist")
-                scanned.extend(await asyncio.to_thread(
+                remote_scanned = await asyncio.to_thread(
                     scan_patches_source,
                     adapter,
                     root.path,
@@ -1445,7 +1474,10 @@ async def _scan_patches_locked(mode, user, session):
                     root.source_id,
                     analysis_mode,
                     on_progress,
-                ))
+                )
+                scanned.extend(remote_scanned)
+                if not remote_scanned:
+                    empty_roots.append(root)
                 continue
 
             root_path = Path(root.path)
@@ -1462,13 +1494,46 @@ async def _scan_patches_locked(mode, user, session):
                 item.pop("patch_id", None)
                 item["patch_id"] = _make_patch_id(item)
             scanned.extend(local_scanned)
+            if not local_scanned:
+                empty_roots.append(root)
 
         json_path = index_dir / "patches.json"
-        if scan_mode == "reset":
+        checkpoint()
+        existing = load_existing(json_path)
+        existing_list = existing["patches"] if existing is not None else []
+        if confirm_empty_root is not None:
+            if scanned:
+                raise SourceUnavailable("目录已恢复非空，未清理；请重新合并刷新")
+            kept = [
+                p for p in existing_list if owner(p) is not roots[0]
+            ]
+            publish_scan_index(json_path, {"patches": kept})
+            return {
+                "status": "completed",
+                "scanned": 0,
+                "message": "已清理指定空目录的补丁索引",
+            }
+        for root in empty_roots:
+            if any(owner(p) is root for p in existing_list):
+                message = f"补丁目录 #{root.id} 此前有记录，本次为空；请先检查挂载，索引未修改"
+                _set_patch_scan_state(
+                    empty_root=root.id, stage="扫描未完成", error=message
+                )
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "empty_patch_root",
+                        "root_id": root.id,
+                        "run_id": _patch_scan_state["run_id"],
+                        "message": message,
+                    },
+                )
+        if existing_list and not scanned:
+            raise SourceUnavailable("补丁清单意外为空，索引未修改")
+        if empty_roots and any(owner(p) is None for p in existing_list):
+            raise SourceUnavailable('有空目录且部分旧补丁来源无法核实，索引未修改')
+        if scan_mode == 'reset':
             existing_list = []
-        else:
-            existing = load_existing(json_path)
-            existing_list = existing.get("patches", []) if existing else []
         if scan_mode == "metadata":
             merged_patches = _normalize_patch_records(
                 _merge_metadata_reset(existing_list, scanned)
@@ -1476,7 +1541,7 @@ async def _scan_patches_locked(mode, user, session):
         else:
             merged_patches = _normalize_patch_records(merge(existing_list, scanned))
         checkpoint()
-        _publish_patch_index(json_path, {'patches': merged_patches})
+        publish_scan_index(json_path, {'patches': merged_patches})
         logger.info(
             "Patch scan finished: roots=%d scanned=%d indexed=%d index=%s",
             len(roots),
@@ -1492,8 +1557,15 @@ async def _scan_patches_locked(mode, user, session):
             finished_at=time.time(),
         )
         return {"message": "扫描完成", "scanned": len(scanned), "directory": str(index_dir)}
+    except HTTPException:
+        raise
     except TaskStopped:
         raise
+    except SourceUnavailable as exc:
+        _set_patch_scan_state(
+            status="failed", stage="扫描未完成", error=str(exc), finished_at=time.time()
+        )
+        raise HTTPException(409, str(exc)) from None
     except asyncio.CancelledError:
         logger.warning("Patch scan cancelled")
         _set_patch_scan_state(
@@ -1511,7 +1583,9 @@ async def _scan_patches_locked(mode, user, session):
             error=redact_exception(e),
             finished_at=time.time(),
         )
-        raise HTTPException(status_code=500, detail="Patch scan failed; check server logs")
+        raise HTTPException(
+            status_code=500, detail="Patch scan failed; check server logs"
+        )
 
 def _publish_patch_index(path, data):
     temp = path.with_suffix(".scan.tmp")

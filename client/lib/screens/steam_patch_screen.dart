@@ -436,8 +436,9 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
     await _scanServerPatches(mode);
   }
 
-  Future<void> _scanServerPatches(String mode) async {
+  Future<void> _scanServerPatches(String mode, {EmptyPatchRoot? confirmed}) async {
     final api = context.read<GameProvider>().api;
+    final scope = api.sessionScope;
     setState(() {
       _serverLoading = true;
       _serverStatus = switch (mode) {
@@ -447,14 +448,18 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       };
     });
     try {
-      final result = await SteamService.scanPatches(api, mode: mode);
-      if (!mounted) return;
+      final result = await SteamService.scanPatches(api, mode: mode, confirmed: confirmed);
+      if (!mounted || scope != api.sessionScope) return;
       final scanned = (result["scanned"] as int?) ?? 0;
       setState(() {
         _serverLoading = false;
       });
       await _loadServerPatches();
       if (!mounted) return;
+      if (confirmed != null) {
+        await _showMsg(result['message']?.toString() ?? '已清理指定空目录的补丁索引');
+        return;
+      }
       if(result['status']=='cancelled') {setState(()=>_serverStatus='扫描已停止，原补丁索引已保留');return;}
       if (_commonDir != null && _commonDir!.isNotEmpty) {
         setState(() => _tabIndex = 0);
@@ -463,12 +468,21 @@ class _SteamPatchScreenState extends State<SteamPatchScreen> {
       } else {
         _showMsg("扫描完成，找到 $scanned 个补丁文件");
       }
+    } on EmptyPatchRoot catch (e) {
+      if (!mounted || scope != api.sessionScope) return;
+      setState(() { _serverLoading = false; _serverStatus = e.message; });
+      final ok = await confirmDestructiveAction(context, section: 'Steam 补丁　/　扫描',
+        title: '补丁目录 #${e.rootId} 确实已搬空？', message: '${e.message}。如果只是掉盘，请取消并恢复挂载。确认后会重新检查，只移除这个空目录的索引记录和安装规则。', action: '确认已搬空');
+      if (ok == true && mounted && scope == api.sessionScope) await _scanServerPatches('merge', confirmed: e);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || scope != api.sessionScope) return;
       setState(() {
         _serverLoading = false;
         _serverStatus = "扫描失败: $e";
       });
+      await _showMsg('扫描失败：$e', error: true);
+    } finally {
+      if (mounted && scope != api.sessionScope) setState(() => _serverLoading = false);
     }
   }
 

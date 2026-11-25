@@ -5,6 +5,7 @@ from __future__ import annotations
 from utils.log_redaction import redact_exception
 
 import logging
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -13,17 +14,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.ignore_list import IgnoreList
-from services.file_source import FileEntry, FileSourceAdapter
+from services.file_source import FileEntry, FileSourceAdapter, SourceUnavailable, local_entries, local_files
 from services.task_stop import checkpoint
 from utils.file_utils import is_archive
 
 logger = logging.getLogger(__name__)
 
 MAX_GAME_DEPTH = 8
-
-
-class SourceUnavailable(RuntimeError):
-    """A file source could not be listed; callers must not treat it as empty."""
 
 
 @dataclass
@@ -100,9 +97,6 @@ def scan_root(
     root = Path(root_path)
     depth = normalize_game_depth(structure, game_depth)
 
-    if not root.is_dir():
-        return result
-
     if depth == 0:
         company = CompanyFolder(name=root.name or str(root), path=str(root))
         for archive in _local_archives_recursive(root, ignore_paths):
@@ -130,18 +124,18 @@ def scan_root(
     # Backward compatibility: archives directly under the parent level still
     # become individual games, as the old company_game scanner allowed.
     for parent_dir in _local_dirs_at_depth(root, max(0, depth - 1), ignore_paths):
-        for file_entry in sorted(parent_dir.iterdir(), key=lambda p: p.name.lower()):
+        for file_entry, info in local_entries(parent_dir):
             file_path = str(file_entry)
             if file_path in ignore_paths:
                 continue
-            if not file_entry.is_file() or not is_archive(file_entry.name):
+            if not stat.S_ISREG(info.st_mode) or not is_archive(file_entry.name):
                 continue
             company = _local_company_for_archive_parent(root, parent_dir, depth, companies)
             company.games.append(
                 GameFolder(
                     name=file_entry.stem,
                     path=file_path,
-                    archives=[_archive_from_local(file_entry)],
+                    archives=[ArchiveFile(file_entry.name, file_path, info.st_size)],
                 )
             )
 
@@ -161,15 +155,18 @@ def scan_source(
     result = ScanResult(root_path=root_path)
     depth = normalize_game_depth(structure, game_depth)
 
+    listings: dict[str, list[FileEntry]] = {}
     def children(path: str) -> list[FileEntry]:
         checkpoint()
         try:
-            return source.list(path)
+            if path not in listings:
+                listings[path] = source.list(path)
+            return listings[path]
         except Exception as exc:
             logger.warning("Failed to list source path %s: %s", path, redact_exception(exc))
             # Returning an empty list here would look like "the folder is gone"
             # and the importer would mark every game under it as deleted.
-            raise SourceUnavailable(f"无法读取 {path}: {exc}") from exc
+            raise SourceUnavailable("网盘目录枚举不完整，请检查来源后重试") from exc
 
     def archives_recursive(path: str) -> list[ArchiveFile]:
         found: list[ArchiveFile] = []
@@ -229,19 +226,12 @@ def scan_source(
     return result
 
 
-def _archive_from_local(path: Path) -> ArchiveFile:
-    return ArchiveFile(path.name, str(path), path.stat().st_size)
-
-
 def _local_archives_recursive(path: Path, ignore_paths: set[str]) -> list[ArchiveFile]:
-    archives: list[ArchiveFile] = []
-    for file_entry in path.rglob("*"):
-        checkpoint()
-        file_path = str(file_entry)
-        if file_path in ignore_paths:
-            continue
-        if file_entry.is_file() and is_archive(file_entry.name):
-            archives.append(_archive_from_local(file_entry))
+    archives = [
+        ArchiveFile(entry.name, str(entry), info.st_size)
+        for entry, info in local_files(path, ignore_paths)
+        if is_archive(entry.name)
+    ]
     return sorted(archives, key=lambda a: a.filepath.lower())
 
 
@@ -253,14 +243,10 @@ def _local_dirs_at_depth(root: Path, depth: int, ignore_paths: set[str]) -> list
         next_dirs: list[Path] = []
         for directory in current:
             checkpoint()
-            try:
-                entries = sorted(directory.iterdir(), key=lambda p: p.name.lower())
-            except OSError:
-                continue
-            for entry in entries:
+            for entry, info in local_entries(directory):
                 if str(entry) in ignore_paths:
                     continue
-                if entry.is_dir():
+                if stat.S_ISDIR(info.st_mode):
                     next_dirs.append(entry)
         current = next_dirs
         if not current:
