@@ -1160,13 +1160,11 @@ class _GameEditScreenState extends State<GameEditScreen> {
     switch (platform.toLowerCase()) {
       case "pc":
         return Colors.blue;
-      case "krkr":
+      case "安卓直装":
         return Colors.green;
-      case "ons":
-        return Colors.orange;
-      case "ty":
+      case "手机模拟器":
         return Colors.purple;
-      case "直装":
+      case "ios":
         return Colors.teal;
       case "未分类":
         return Colors.blueGrey;

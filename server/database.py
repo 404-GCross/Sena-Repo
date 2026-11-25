@@ -24,36 +24,31 @@ class Base(DeclarativeBase):
     pass
 
 
-# Initial platform categories and their detection rules (first match wins).
+def _archive_marker(pattern: str) -> tuple[str, str]:
+    # Platform tags in a filename must not override the APK/IPA container.
+    return ("regex", rf"(?:{pattern})(?!.*\.(?:apk|ipa)\Z)")
+
+
+_IOS_TAG = r"(?<![a-z0-9])ios(?![a-z0-9])"
+
+
 DEFAULT_PLATFORM_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
-    ("PC", [("regex", r"[\[\(（]PC[\]\)）]")]),
+    ("PC", [_archive_marker(r"[\[\(（]PC[\]\)）]")]),
     (
-        "KRKR",
+        "手机模拟器",
         [
-            ("regex", r"[\[\(（]KRKR[\]\)）]"),
-            ("regex", r"[\[\(（]KR[\]\)）]"),
-            ("keyword", "krkr"),
-            ("regex", r"^KR_"),
-            ("keyword", "kirikiroid"),
-        ],
-    ),
-    ("ONS", [("regex", r"[\[\(（]ONS[\]\)）]")]),
-    (
-        "Ty",
-        [
-            ("regex", r"[\[\(（]Ty[\]\)）]"),
-            ("regex", r"[\[\(（]Ar[\]\)）]"),
-            ("keyword", "tyranor"),
+            _archive_marker(r"krkr|kirikiroid|onscripter|tyranor|手机模拟器"),
+            _archive_marker(r"^KR_|[\[\(（【](?:KR|ONS|Ty|Ar)[\]\)）】]"),
         ],
     ),
     (
-        "直装",
+        "安卓直装",
         [
-            ("keyword", "直装"),
-            ("keyword", "安卓"),
-            ("regex", r"\.apk$"),
+            ("regex", r"\.apk\Z"),
+            _archive_marker(rf"^(?!.*{_IOS_TAG}).*(?:直装|安卓|(?<![a-z0-9])android(?![a-z0-9]))"),
         ],
     ),
+    ("iOS", [("regex", r"\.ipa\Z"), _archive_marker(_IOS_TAG)]),
 ]
 
 

@@ -18,6 +18,7 @@ from models.root_directory import RootDirectory
 from models.user import User
 from schemas.agent import AgentSettings
 from services.agent.jobs import scrape_game
+from services.file_source import FileEntry
 from services.importer import import_from_root
 from services.platforms import load_platform_rules
 from services.scanner import ArchiveFile, CompanyFolder, GameFolder, ScanResult
@@ -76,19 +77,32 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
     async def test_default_rules_use_pc_without_shadowing_other_categories(self):
         async with self.sessions() as session:
             rules = await load_platform_rules(session, self.config)
-            names = set(
-                (await session.execute(select(PlatformCategory.name))).scalars()
-            )
-        self.assertNotIn("未分类", names)
+            categories = await platforms.list_platforms(self.user, session)
+        self.assertEqual([c.name for c in categories], ["PC", "手机模拟器", "安卓直装", "iOS"])
         for filename, expected in {
             "Game.zip": "PC",
             "Game[PC].7z": "PC",
-            "Game[KR].zip": "KRKR",
-            "Game[ONS].zip": "ONS",
-            "Game[Ty].zip": "Ty",
-            "Game.apk": "直装",
+            "Game[KR].zip": "手机模拟器",
+            "Game[KRKR].rar": "手机模拟器",
+            "KR_Game.7z": "手机模拟器",
+            "Game_kirikiroid.zip": "手机模拟器",
+            "Game[ONS].zip": "手机模拟器",
+            "Game_ONScripter.7z": "手机模拟器",
+            "Game[手机模拟器].zip": "手机模拟器",
+            "Game（Ty）.zip": "手机模拟器",
+            "Game[Ar].zip": "手机模拟器",
+            "Game_tyranor.zip": "手机模拟器",
+            "Game[安卓直装].zip": "安卓直装",
+            "直装_Game.apk": "安卓直装",
+            "Game[KRKR][iOS].APK": "安卓直装",
+            "Game[直装].ipa": "iOS",
+            "Game[PC][ONS].IPA": "iOS",
+            "游戏[iOS].zip": "iOS",
+            "iOS直装_游戏.7z": "iOS",
+            "Studios.zip": "PC",
         }.items():
-            self.assertEqual(match_platform(filename, rules), expected)
+            with self.subTest(filename=filename):
+                self.assertEqual(match_platform(filename, rules), expected)
         self.assertEqual(match_platform("Game.zip", []), "PC")
         self.assertEqual(
             match_platform("Game.zip", [PlatformRule("未分类", "regex", ".*")]), "PC"
@@ -97,6 +111,38 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
             match_platform("Game.zip", [PlatformRule("Switch", "keyword", "game")]),
             "Switch",
         )
+
+    async def test_ipa_import_from_local_and_remote_sources(self):
+        directory = Path(self.temp.name) / "library"
+        directory.mkdir()
+        (directory / "本地[PC].IPA").touch()
+        self.config._scan_depth = 0
+        remote_file = FileEntry("网盘[直装].ipa", "/library/网盘[直装].ipa", False, 30)
+        async with self.sessions() as session:
+            local = RootDirectory(path=str(directory))
+            remote = RootDirectory(path="openlist://0/library", source_type="openlist", source_path="/library")
+            session.add_all([local, remote])
+            await session.commit()
+            await import_from_root(local.id, self.config, session)
+            with patch("services.importer.adapter_from_source", return_value=SimpleNamespace(list=lambda _: [remote_file])):
+                await import_from_root(remote.id, self.config, session)
+            versions = (await session.scalars(select(GameVersion))).all()
+            self.assertEqual({(v.filename, v.platform, v.platform_is_fallback) for v in versions}, {
+                ("本地[PC].IPA", "iOS", False), ("网盘[直装].ipa", "iOS", False),
+            })
+            categories = await platforms.list_platforms(self.user, session)
+            self.assertEqual(next(c.version_count for c in categories if c.name == "iOS"), 2)
+
+    async def test_existing_platform_categories_are_not_reseeded(self):
+        async with self.sessions() as session:
+            emulator = await session.scalar(select(PlatformCategory).where(PlatformCategory.name == "手机模拟器"))
+            emulator.name = "KRKR"
+            _, versions = await self.seed_game(session, [("KRKR", False)])
+            version_id = versions[0].id
+        await database.create_tables()
+        async with self.sessions() as session:
+            self.assertEqual((await session.get(GameVersion, version_id)).platform, "KRKR")
+            self.assertNotIn("手机模拟器", [c.name for c in await platforms.list_platforms(self.user, session)])
 
     async def test_upgrade_moves_legacy_versions_and_preserves_existing_choices(self):
         async with self.sessions() as session:
@@ -264,14 +310,14 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
                 session,
             )
             (await session.get(Game, versions[2].game_id)).metadata_locked = True
-            ons = (
+            emulator = (
                 await session.execute(
-                    select(PlatformCategory).where(PlatformCategory.name == "ONS")
+                    select(PlatformCategory).where(PlatformCategory.name == "手机模拟器")
                 )
             ).scalar_one()
             session.add(
                 PlatformCategoryRule(
-                    category_id=ons.id, kind="keyword", pattern="game.zip"
+                    category_id=emulator.id, kind="keyword", pattern="game.zip"
                 )
             )
             await session.commit()
@@ -280,7 +326,7 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
                 await session.refresh(version)
             self.assertEqual(
                 [(v.platform, v.platform_is_fallback) for v in versions],
-                [("ONS", False), ("PC", False), ("PC", True)],
+                [("手机模拟器", False), ("PC", False), ("PC", True)],
             )
 
     async def test_agent_retries_fallback_pc_without_overwriting_manual_pc(self):
@@ -299,7 +345,7 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
             async def select_metadata(runtime, catalog, context):
                 attempts.append(context)
                 values = (
-                    {} if len(attempts) == 1 else {str(v.id): "ONS" for v in versions}
+                    {} if len(attempts) == 1 else {str(v.id): "手机模拟器" for v in versions}
                 )
                 catalog.selection = SimpleNamespace(platforms=values)
                 return ScraperResult(
@@ -324,7 +370,7 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(attempts[0]["files"][0]["platform_is_fallback"])
             self.assertEqual(
                 [(v.platform, v.platform_is_fallback) for v in versions],
-                [("ONS", False), ("PC", False)],
+                [("手机模拟器", False), ("PC", False)],
             )
 
     async def test_agent_preserves_pc_confirmed_while_metadata_is_applying(self):
@@ -339,7 +385,7 @@ class PlatformDefaultsTests(unittest.IsolatedAsyncioTestCase):
 
             async def select_metadata(runtime, catalog, context):
                 catalog.selection = SimpleNamespace(
-                    platforms={str(versions[0].id): "ONS"}
+                    platforms={str(versions[0].id): "手机模拟器"}
                 )
                 return ScraperResult(title=game.name), "Verified files"
 

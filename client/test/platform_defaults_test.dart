@@ -19,10 +19,9 @@ void main() {
     addTearDown(provider.dispose);
     expect(provider.platforms.map((item) => item.name), [
       "PC",
-      "KRKR",
-      "ONS",
-      "Ty",
-      "直装",
+      "手机模拟器",
+      "安卓直装",
+      "iOS",
     ]);
     expect(provider.platforms.first.isSystem, isTrue);
   });
@@ -48,7 +47,7 @@ void main() {
         },
         {
           "id": 2,
-          "name": "KRKR",
+          "name": "手机模拟器",
           "is_system": false,
           "sort_order": 1,
           "version_count": 1,

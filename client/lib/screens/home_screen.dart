@@ -1312,13 +1312,11 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (name.toLowerCase()) {
       case "pc":
         return Icons.desktop_windows;
-      case "krkr":
+      case "手机模拟器":
+        return Icons.sports_esports_outlined;
+      case "安卓直装":
         return Icons.android;
-      case "ons":
-        return Icons.language;
-      case "ty":
-        return Icons.phone_android;
-      case "直装":
+      case "ios":
         return Icons.phone_iphone;
       case "未分类":
         return Icons.help_outline;

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 # Supported archive extensions
-ARCHIVE_EXTENSIONS = {".rar", ".zip", ".7z", ".apk", ".tar", ".gz", ".xz", ".bz2"}
+ARCHIVE_EXTENSIONS = {".rar", ".zip", ".7z", ".apk", ".ipa", ".tar", ".gz", ".xz", ".bz2"}
 
 
 def is_archive(filepath: str | Path) -> bool:

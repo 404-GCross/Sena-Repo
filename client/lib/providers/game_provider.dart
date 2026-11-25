@@ -65,9 +65,8 @@ class GameProvider extends ChangeNotifier {
   /// Unfiltered list, for batch operations that must see hidden entries too.
   List<GameSummary> get allGames => _games;
 
-  /// Fallback categories for older servers without the platforms API.
   static List<PlatformCategory> _fallbackPlatforms() {
-    const names = ["PC", "KRKR", "ONS", "Ty", "直装"];
+    const names = ["PC", "手机模拟器", "安卓直装", "iOS"];
     return [
       for (var index = 0; index < names.length; index++)
         PlatformCategory(

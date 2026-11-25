@@ -35,7 +35,7 @@ class GameSummary(BaseModel):
     cover_path: str | None = None
     cover_revision: str | None = None
     is_nsfw: bool = False
-    platform_summary: str = ""  # e.g. "PC, KRKR"
+    platform_summary: str = ""  # e.g. "PC, iOS"
     tag_names: list[str] = []
     imported_at: datetime
     length: int = 0

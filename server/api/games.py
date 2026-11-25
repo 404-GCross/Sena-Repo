@@ -912,8 +912,6 @@ async def update_version(
 
     if body.platform is not None:
         platform_value = body.platform.strip()
-        if platform_value == "KR":
-            platform_value = "KRKR"
         if not platform_value:
             raise HTTPException(status_code=400, detail="平台不能为空")
         exists = (
