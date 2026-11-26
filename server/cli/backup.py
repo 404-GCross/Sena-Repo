@@ -23,18 +23,21 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
 import sqlite3
+import tempfile
 import zipfile
 import zlib
-from contextlib import ExitStack
+from collections import Counter
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import selectinload
 
 import database as db
@@ -140,8 +143,35 @@ def _basename(value: Any) -> str | None:
     return text.rsplit("/", 1)[-1] or None
 
 
+def _private_directory(path: Path) -> Path:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name == "posix":
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchmod(fd, 0o700)
+        finally:
+            os.close(fd)
+    return path
+
+
+def backups_root(config) -> Path:
+    return _private_directory(Path(config.data_path or "/data") / "backups")
+
+
 def backup_dir(config) -> Path:
-    return Path(config.data_path or "/data") / "backups" / "sena-backup"
+    return _private_directory(backups_root(config) / "sena-backup")
+
+
+@contextmanager
+def staged_backup(destination: Path):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".sena-backup-", delete=False) as tmp:
+        path = Path(tmp.name)
+    try:
+        yield path
+        path.replace(destination)
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def backup_file_name(suffix: str, scope: str = SCOPE_ALL) -> str:
@@ -182,13 +212,14 @@ def resolve_output(args, config, suffix: str, scope: str = SCOPE_ALL) -> Path:
 # ── export ──
 
 
-async def _export_file_sources(session) -> list[dict[str, Any]]:
-    rows = list(
-        (await session.execute(select(FileSource).order_by(FileSource.id))).scalars()
-    )
+async def _export_file_sources(session, source_keys: dict[int, str], *, only_selected=False) -> list[dict]:
+    query = select(FileSource).order_by(FileSource.id)
+    if only_selected:
+        query = query.where(FileSource.id.in_(source_keys))
+    rows = await session.scalars(query)
     return [
         {
-            "key": f"src-{index}",
+            "key": source_keys[source.id],
             "name": source.name,
             "type": source.type,
             "base_url": source.base_url,
@@ -196,17 +227,16 @@ async def _export_file_sources(session) -> list[dict[str, Any]]:
             "password": _safe_decrypt(source.password),
             "enabled": bool(source.enabled),
         }
-        for index, source in enumerate(rows, 1)
+        for source in rows
     ]
 
 
-async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
-    company_rows = list((await session.execute(select(Company))).scalars())
+async def _export_library(session, source_keys: dict[int, str] | None = None) -> dict[str, list[dict[str, Any]]]:
+    if source_keys is None:
+        ids = await session.scalars(select(FileSource.id))
+        source_keys = {source_id: f"src-{source_id}" for source_id in ids}
+    company_rows = (await session.scalars(select(Company).order_by(Company.id))).all()
     companies = {c.id: c.name for c in company_rows}
-    source_rows = list(
-        (await session.execute(select(FileSource).order_by(FileSource.id))).scalars()
-    )
-    source_keys = {source.id: f"src-{index}" for index, source in enumerate(source_rows, 1)}
     root_rows = list(
         (await session.execute(select(RootDirectory).order_by(RootDirectory.id))).scalars()
     )
@@ -216,15 +246,15 @@ async def _export_library(session) -> dict[str, list[dict[str, Any]]]:
     versions = list(
         (await session.execute(select(GameVersion).order_by(GameVersion.id))).scalars()
     )
-    tags = list((await session.execute(select(Tag))).scalars())
-    game_tags = list((await session.execute(select(GameTag))).scalars())
-    ignored = list((await session.execute(select(IgnoreList))).scalars())
+    tags = (await session.scalars(select(Tag).order_by(Tag.id))).all()
+    game_tags = (await session.scalars(select(GameTag).order_by(GameTag.id))).all()
+    ignored = (await session.scalars(select(IgnoreList).order_by(IgnoreList.id))).all()
 
     tag_names = {t.id: t.name for t in tags}
     root_paths = {r.id: r.path for r in root_rows}
 
     return {
-        "file_sources": await _export_file_sources(session),
+        "file_sources": await _export_file_sources(session, source_keys),
         "roots": [
             {
                 "key": root_keys[root.id],
@@ -338,19 +368,13 @@ async def _export_platform_categories(session) -> list[dict[str, Any]]:
     ]
 
 
-async def _export_steam_patch(session, config) -> dict[str, Any]:
+async def _export_steam_patch(session, config, source_keys: dict[int, str]) -> dict[str, Any]:
     steam_patch: dict[str, Any] = {"rules": [], "roots": []}
-    source_rows = list((await session.execute(select(FileSource))).scalars())
-    source_keys = {source.id: f"src-{index}" for index, source in enumerate(
-        sorted(source_rows, key=lambda item: item.id), 1
-    )}
 
     index_path = patch_rules.patch_index_path(config)
     if index_path.is_file():
         index_data = patch_rules.load_patch_index(index_path)
-        steam_patch["rules"] = patch_rules.rule_entries(
-            index_data["patches"], source_keys=source_keys
-        )
+        steam_patch["rules"] = patch_rules.rule_entries(index_data["patches"], source_keys)
     keywords, _ = patch_rules.read_keywords(patch_rules.keywords_path(config))
     if keywords:
         steam_patch["keywords"] = keywords
@@ -362,7 +386,7 @@ async def _export_steam_patch(session, config) -> dict[str, Any]:
         {
             "path": root.path,
             "source_type": root.source_type,
-            "source_key": source_keys.get(root.source_id),
+            "source_key": source_keys.get(root.source_id) if root.source_type == "openlist" else None,
             "source_name": root.source_name,
             "analysis_mode": root.analysis_mode,
         }
@@ -374,7 +398,7 @@ async def _export_steam_patch(session, config) -> dict[str, Any]:
 async def _export_accounts(session) -> dict[str, list[dict[str, Any]]]:
     users = list((await session.execute(select(User).order_by(User.id))).scalars())
     binding_rows = list(
-        (await session.execute(select(UserOAuthBinding))).scalars()
+        (await session.execute(select(UserOAuthBinding).order_by(UserOAuthBinding.id))).scalars()
     )
     bindings_by_user: dict[int, list[UserOAuthBinding]] = {}
     for binding in binding_rows:
@@ -478,20 +502,17 @@ async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
     }
 
     async with db._session_factory() as session:
+        await session.execute(text("BEGIN"))
+        source_rows = (await session.execute(select(FileSource.id, FileSource.name))).all()
+        source_keys = {source_id: f"src-{source_id}" for source_id, _ in source_rows}
+        if scope in (SCOPE_ALL, SCOPE_PATCH):
+            payload["steam_patch"] = await _export_steam_patch(session, config, source_keys)
         if scope in (SCOPE_ALL, SCOPE_LIBRARY):
-            library = await _export_library(session)
+            library = await _export_library(session, source_keys)
             library["platform_categories"] = await _export_platform_categories(session)
             payload["accounts"] = await _export_accounts(session)
-        else:
-            # Patch-only archives still need the file sources their roots point at.
-            library = {"file_sources": await _export_file_sources(session)}
-        payload["library"] = library
-        if scope in (SCOPE_ALL, SCOPE_PATCH):
-            payload["steam_patch"] = await _export_steam_patch(session, config)
-    if scope in (SCOPE_ALL, SCOPE_LIBRARY):
-        payload["settings"] = _export_settings(config)
-        from models.agent import AgentConfig
-        async with db._session_factory() as session:
+            payload["settings"] = _export_settings(config)
+            from models.agent import AgentConfig
             agent = await session.get(AgentConfig, 1)
             if agent is not None:
                 payload["settings"]["agent"] = {
@@ -501,28 +522,39 @@ async def build_payload(config, scope: str = SCOPE_ALL) -> dict[str, Any]:
                     "proxy_password": "",
                     "proxy_username": "",
                 }
+        else:
+            steam_patch = payload["steam_patch"]
+            used_keys = {root["source_key"] for root in steam_patch["roots"]}
+            used_keys.update(rule["identity"]["source_key"] for rule in steam_patch["rules"])
+            selected = {source_id: key for source_id, key in source_keys.items() if key in used_keys}
+            sources = await _export_file_sources(session, selected, only_selected=True)
+            name_counts = Counter(name for _, name in source_rows)
+            for source in sources:
+                if name_counts[source["name"]] > 1:
+                    # A same-name sibling may have been omitted from this patch-only archive.
+                    source["match_by_address"] = True
+            library = {"file_sources": sources}
+        payload["library"] = library
 
     return payload
 
 
-def _media_key(path: Path) -> str:
-    """Content-addressed name: identical images dedupe, different ones never clash."""
+def _media_key(handle, suffix: str) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"{digest.hexdigest()[:24]}{path.suffix.lower()}"
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+    return f"{digest.hexdigest()[:24]}{suffix.lower()}"
 
 
-def collect_media(config, payload: dict[str, Any]) -> dict[str, dict[str, Path]]:
+def collect_media(config, payload: dict[str, Any], include_media: bool = True) -> dict[str, dict[str, Path]]:
     """Map media references to content keys and record which files to archive."""
-    directories = media_dirs(config)
+    directories = media_dirs(config) if include_media else {}
     libraries: dict[str, dict[str, Path]] = {kind: {} for kind in MEDIA_KINDS}
     cache: dict[str, dict[str, str | None]] = {kind: {} for kind in MEDIA_KINDS}
 
     def resolve(kind: str, value: Any) -> str | None:
         name = _basename(value)
-        if not name:
+        if not include_media or not name:
             return None
         if name in cache[kind]:
             return cache[kind][name]
@@ -530,7 +562,8 @@ def collect_media(config, payload: dict[str, Any]) -> dict[str, dict[str, Path]]
         if not path.is_file():
             cache[kind][name] = None
             return None
-        key = _media_key(path)
+        with path.open("rb") as handle:
+            key = _media_key(handle, path.suffix)
         cache[kind][name] = key
         libraries[kind][key] = path
         return key
@@ -551,19 +584,37 @@ def collect_media(config, payload: dict[str, Any]) -> dict[str, dict[str, Path]]
     return libraries
 
 
+async def prepare_backup(config, scope: str, include_media: bool):
+    payload = await build_payload(config, scope=scope)
+    media = await asyncio.to_thread(collect_media, config, payload, include_media)
+    return payload, media
+
+
 def write_backup(output: Path, payload: dict[str, Any], media: dict[str, dict[str, Path]],
                  *, include_media: bool) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if not include_media:
-        patch_rules.write_json(output, payload)
-        return
-    tmp_path = output.with_name(f".{output.name}.{secrets.token_hex(3)}.tmp")
-    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(JSON_NAME, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
-        for kind, files in media.items():
-            for key, path in files.items():
-                archive.write(path, f"media/{kind}/{key}", compress_type=zipfile.ZIP_STORED)
-    tmp_path.replace(output)
+    manifest = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    with staged_backup(output) as tmp:
+        if include_media:
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(JSON_NAME, manifest)
+                for kind, files in media.items():
+                    for key, path in files.items():
+                        archive.write(path, f"media/{kind}/{key}", compress_type=zipfile.ZIP_STORED)
+        else:
+            tmp.write_text(manifest, encoding="utf-8")
+
+        written = read_backup_payload(tmp)
+        if written != payload:
+            fail("备份内容与导出数据不一致", 3)
+        verified = normalise_payload(written)
+        if include_media:
+            with backup_limits.open_backup_zip(tmp) as archive:
+                for kind, entries in verified["media"].items():
+                    for key, metadata in entries.items():
+                        info = archive.getinfo(f"media/{kind}/{key}")
+                        with archive.open(info) as handle:
+                            if info.file_size != metadata["size"] or _media_key(handle, Path(key).suffix) != key:
+                                fail("备份期间图片内容发生变化，请重试", 3)
 
 
 async def cmd_backup(args) -> int:
@@ -575,8 +626,7 @@ async def cmd_backup(args) -> int:
     include_media = (not json_only) and scope != SCOPE_PATCH
     output = resolve_output(args, config, ".zip" if include_media else ".json", scope)
 
-    payload = await build_payload(config, scope=scope)
-    media = collect_media(config, payload)
+    payload, media = await prepare_backup(config, scope, include_media)
     await asyncio.to_thread(
         write_backup, output, payload, media, include_media=include_media
     )
@@ -626,12 +676,12 @@ def list_auto_backups(config) -> list[Path]:
     return sorted(files, key=lambda item: item.stat().st_mtime, reverse=True)
 
 
-def prune_auto_backups(config, retention: dict[str, int]) -> list[str]:
+def prune_auto_backups(config, retention: dict[str, int], latest: Path) -> list[str]:
     """Grandfather-father-son cleanup; only files this feature created."""
     files = list_auto_backups(config)
     if not files:
         return []
-    keep: set[Path] = set()
+    keep: set[Path] = {latest}
     last = int(retention.get("last") or 0)
     if last > 0:
         keep.update(files[:last])
@@ -685,47 +735,10 @@ def prune_auto_backups(config, retention: dict[str, int]) -> list[str]:
     return removed
 
 
-async def backup_fingerprint(config) -> str:
-    """Cheap change stamp: row counts, newest timestamps and data-file mtimes."""
-    async with db._session_factory() as session:
-        counts: dict[str, int] = {}
-        for key, model in (
-            ("games", Game),
-            ("versions", GameVersion),
-            ("users", User),
-            ("tags", Tag),
-            ("game_tags", GameTag),
-            ("roots", RootDirectory),
-            ("sources", FileSource),
-            ("ignored", IgnoreList),
-            ("categories", PlatformCategory),
-        ):
-            total = (
-                await session.execute(select(func.count()).select_from(model))
-            ).scalar()
-            counts[key] = int(total or 0)
-        latest_game = (await session.execute(select(func.max(Game.updated_at)))).scalar()
-        latest_version = (
-            await session.execute(select(func.max(GameVersion.checksum_updated_at)))
-        ).scalar()
-
-    data_dir = Path(config.data_path or "/data")
-    stamps: list[int] = []
-    for path in (
-        patch_rules.patch_index_path(config),
-        patch_rules.keywords_path(config),
-        data_dir / "scan_settings.json",
-        data_dir / "scraper_config.json",
-        Path(config.covers_path),
-        Path(config.backgrounds_path),
-        data_dir / "avatars",
-    ):
-        try:
-            stamps.append(int(path.stat().st_mtime_ns))
-        except OSError:
-            stamps.append(0)
-    payload = [sorted(counts.items()), str(latest_game), str(latest_version), stamps]
-    return hashlib.sha256(json.dumps(payload).encode("utf-8")).hexdigest()
+def backup_fingerprint(payload: dict, include_media: bool) -> str:
+    content = {key: value for key, value in payload.items() if key != "exported_at"}
+    encoded = json.dumps([include_media, content], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 async def run_auto_backup(config) -> dict[str, Any]:
@@ -764,41 +777,41 @@ async def run_auto_backup(config) -> dict[str, Any]:
                     )
                     return {"skipped": "low-space", "error": message}
 
-            fingerprint = await backup_fingerprint(config)
-            if settings.get("skip_if_unchanged") and fingerprint == settings.get(
-                "last_fingerprint"
-            ):
+            scope = str(settings.get("scope") or SCOPE_ALL)
+            include_media = bool(settings.get("include_media")) and scope != SCOPE_PATCH
+            payload, media = await prepare_backup(config, scope, include_media)
+            fingerprint = await asyncio.to_thread(backup_fingerprint, payload, include_media)
+            root = backup_dir(config)
+            settings = sched.load_backup_settings(config)
+            previous = root / Path(settings.get("last_file") or "").name
+            if (settings.get("skip_if_unchanged") and fingerprint == settings.get("last_fingerprint")
+                    and is_auto_backup(previous)):
                 sched.save_backup_settings(
                     config,
                     sched.record_skip(
                         settings,
                         now=started,
                         reason="unchanged",
-                        fingerprint=fingerprint,
                     ),
                 )
                 return {"skipped": "unchanged"}
 
-            scope = str(settings.get("scope") or SCOPE_ALL)
-            include_media = bool(settings.get("include_media")) and scope != SCOPE_PATCH
             suffix = ".zip" if include_media else ".json"
-            output = backup_dir(config) / auto_backup_name(suffix, scope)
-            payload = await build_payload(config, scope=scope)
-            media = collect_media(config, payload)
+            output = root / auto_backup_name(suffix, scope)
             await asyncio.to_thread(
                 write_backup, output, payload, media, include_media=include_media
             )
-            removed = await asyncio.to_thread(
-                prune_auto_backups, config, settings.get("retention") or {}
-            )
-            sched.save_backup_settings(
+            saved = sched.save_backup_settings(
                 config,
                 sched.record_success(
-                    settings,
+                    sched.load_backup_settings(config),
                     now=started,
                     file_name=output.name,
                     fingerprint=fingerprint,
                 ),
+            )
+            removed = await asyncio.to_thread(
+                prune_auto_backups, config, saved["retention"], output
             )
             return {
                 "file": output.name,
@@ -1029,7 +1042,7 @@ async def import_file_sources(
 
         candidates = existing.get(name, [])
         source = None
-        if len(candidates) == 1 and backup_name_counts[name] == 1:
+        if len(candidates) == 1 and backup_name_counts[name] == 1 and not entry.get("match_by_address"):
             source = candidates[0]
         elif candidates:
             # Duplicate names exist on one side; pair them by address instead.
@@ -1041,8 +1054,6 @@ async def import_file_sources(
                 ),
                 None,
             )
-            if source is None and backup_name_counts[name] == 1:
-                source = candidates[0]
 
         if source is None:
             source = FileSource(name=name, **fields)
@@ -1770,14 +1781,14 @@ def _database_path(config) -> Path:
 
 
 def _snapshot_database(config, target: Path) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
     source = sqlite3.connect(str(_database_path(config)))
     try:
-        destination = sqlite3.connect(str(target))
-        try:
-            source.backup(destination)
-        finally:
-            destination.close()
+        with staged_backup(target) as tmp:
+            destination = sqlite3.connect(str(tmp))
+            try:
+                source.backup(destination)
+            finally:
+                destination.close()
     finally:
         source.close()
 
@@ -1795,16 +1806,11 @@ def _restore_database(config, snapshot: Path) -> None:
         source.close()
 
 
-def _write_text_atomic(path: Path, text: str, mode: int | None = None) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f".{path.name}.{secrets.token_hex(3)}.tmp")
-    tmp_path.write_text(text, encoding="utf-8")
-    if mode is not None:
-        try:
-            tmp_path.chmod(mode)
-        except OSError:
-            pass
-    tmp_path.replace(path)
+def _write_text_atomic(path: Path, text: str, *, preserve_mode: bool = False) -> None:
+    with staged_backup(path) as tmp:
+        tmp.write_text(text, encoding="utf-8")
+        if preserve_mode and path.is_file():
+            shutil.copymode(path, tmp)
 
 
 class _RestoreJournal:
@@ -1815,13 +1821,13 @@ class _RestoreJournal:
         self.snapshot = snapshot
         self.journal_path = journal_path
         self.backups: dict[str, Path] = {}
+        self.original_stats: dict[str, os.stat_result] = {}
         self.missing: list[Path] = []
         self.created_media: list[Path] = []
 
     @classmethod
     def begin(cls, config) -> "_RestoreJournal":
         safety = backup_dir(config)
-        safety.mkdir(parents=True, exist_ok=True)
         stamp = f"{utc_timestamp()}-{secrets.token_hex(3)}"
         snapshot = safety / f"db-before-restore-{stamp}.sqlite3"
         journal_path = safety / "restore-in-progress.json"
@@ -1840,8 +1846,11 @@ class _RestoreJournal:
             return
         if path.is_file():
             copy = self.snapshot.with_name(f"{self.snapshot.stem}-{path.name}")
-            shutil.copy2(path, copy)
+            original_stat = path.stat()
+            with staged_backup(copy) as tmp:
+                shutil.copyfile(path, tmp)
             self.backups[str(path)] = copy
+            self.original_stats[str(path)] = original_stat
         else:
             self.missing.append(path)
         self.write()
@@ -1879,7 +1888,11 @@ class _RestoreJournal:
                 lines.append(f"无法删除恢复时写入的图片: {path}")
         for key, copy in self.backups.items():
             try:
-                shutil.copy2(copy, key)
+                with staged_backup(Path(key)) as tmp:
+                    shutil.copyfile(copy, tmp)
+                    original = self.original_stats[key]
+                    os.utime(tmp, ns=(original.st_atime_ns, original.st_mtime_ns))
+                    tmp.chmod(original.st_mode & 0o777)
             except OSError:
                 lines.append(f"无法还原文件: {key}")
         for path in self.missing:
@@ -1956,7 +1969,7 @@ def import_settings(config, settings: dict[str, Any], journal: "_RestoreJournal"
     if isinstance(scan, dict) and scan:
         path = data_dir / "scan_settings.json"
         journal.record_file(path)
-        _write_text_atomic(path, json.dumps(scan, ensure_ascii=False, indent=2))
+        _write_text_atomic(path, json.dumps(scan, ensure_ascii=False, indent=2), preserve_mode=True)
         from api.settings import _load_scan_settings
 
         _load_scan_settings(config)
@@ -1970,7 +1983,7 @@ def import_settings(config, settings: dict[str, Any], journal: "_RestoreJournal"
                 payload[key] = encrypt_secret(value)
         path = data_dir / "scraper_config.json"
         journal.record_file(path)
-        _write_text_atomic(path, json.dumps(payload, indent=2, ensure_ascii=False), mode=0o600)
+        _write_text_atomic(path, json.dumps(payload, indent=2, ensure_ascii=False))
         from config import reload_persisted_scraper_config
 
         reload_persisted_scraper_config(config)
@@ -2016,7 +2029,7 @@ def _apply_custom_regex(config, entries: list[Any], journal: "_RestoreJournal") 
         data = {}
     data["custom_regex"] = cleaned
     journal.record_file(path)
-    _write_text_atomic(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
+    _write_text_atomic(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False), preserve_mode=True)
     config.custom_regex = [
         CustomRegex(
             pattern=item["pattern"],

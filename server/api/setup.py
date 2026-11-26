@@ -104,6 +104,7 @@ async def import_setup_backup(
     """Restore a senacli backup archive on a server with no administrator yet."""
     from cli import backup as backup_cli
     from cli.common import CliError
+    from api.backup import store_uploaded_backup
 
     status = await setup_status(session)
     if status.has_admin:
@@ -119,42 +120,11 @@ async def import_setup_backup(
         raise HTTPException(status_code=400, detail="只支持 .zip 或 .json 备份文件")
 
     config = load_config()
-    uploads_dir = Path(config.data_path or "/data") / "backups"
-    uploads_dir.mkdir(parents=True, exist_ok=True)
+    uploads_dir = backup_cli.backups_root(config)
     stored = uploads_dir / (
         f"uploaded-{backup_cli.utc_timestamp()}-{secrets.token_hex(4)}{suffix}"
     )
-    size = 0
-    upload_limit = (backup_limits.MAX_JSON_BYTES if suffix == ".json"
-                    else backup_limits.MAX_ARCHIVE_BYTES)
-    try:
-        with stored.open("wb") as handle:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > upload_limit:
-                    raise HTTPException(status_code=413, detail="备份文件大小超过限制")
-                handle.write(chunk)
-    except OSError as exc:
-        stored.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
-    except BaseException:
-        stored.unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
-
-    try:
-        payload = backup_cli.normalise_payload(backup_cli.read_backup_payload(stored))
-    except CliError as exc:
-        stored.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # malformed archives should not 500
-        stored.unlink(missing_ok=True)
-        logger.warning("Setup import failed to read archive: %s", type(exc).__name__)
-        raise HTTPException(status_code=400, detail="备份文件无法解析") from exc
+    size, payload = await store_uploaded_backup(file, stored)
 
     try:
         result = await backup_cli.apply_restore(

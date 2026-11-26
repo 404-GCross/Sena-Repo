@@ -200,7 +200,10 @@ def rule_entries(
             continue
         identity = _identity_from_patch(patch)
         if source_keys is not None:
-            identity["source_key"] = source_keys.get(patch.get("source_id"))
+            identity["source_key"] = (
+                source_keys.get(_int_or_zero(identity["source_id"]))
+                if identity["source_type"] == "openlist" else None
+            )
         entries.append(
             {
                 "identity": identity,

@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
 BACKUP_SUFFIXES = {".zip", ".json"}
-MAX_BACKUP_UPLOAD_BYTES = 16 * 1024 ** 3
 BACKUP_PREFIXES = ("sena-backup-", "uploaded-", "auto-sena-backup-")
 
 
@@ -42,10 +41,7 @@ def _backup_source(name: str) -> str:
 
 
 def _backups_root() -> Path:
-    config = load_config()
-    root = Path(config.data_path or "/data") / "backups"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return backup_cli.backups_root(load_config())
 
 
 def _is_backup_file(path: Path) -> bool:
@@ -119,22 +115,19 @@ async def export_backup(body: ExportRequest, user: User = Depends(require_admin)
     suffix = ".zip" if include_media else ".json"
     output = backup_cli.new_backup_path(config, suffix, scope)
 
-    payload = await backup_cli.build_payload(config, scope=scope)
-    media = backup_cli.collect_media(config, payload)
-    payload["media"] = {kind: [path.name for path in files] for kind, files in media.items()}
     logger.info(
         "Backup export started: actor_id=%s scope=%s media=%s",
         user.id,
         scope,
         include_media,
     )
-    await asyncio.to_thread(
-        backup_cli.write_backup,
-        output,
-        payload,
-        media,
-        include_media=include_media,
-    )
+    try:
+        payload, media = await backup_cli.prepare_backup(config, scope, include_media)
+        await asyncio.to_thread(
+            backup_cli.write_backup, output, payload, media, include_media=include_media
+        )
+    except (CliError, backup_limits.BackupLimitError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     library = payload["library"]
     logger.info(
@@ -181,6 +174,30 @@ async def delete_backup(name: str, user: User = Depends(require_admin)):
     return {"message": "备份已删除"}
 
 
+async def store_uploaded_backup(file: UploadFile, destination: Path):
+    limit = (backup_limits.MAX_JSON_BYTES if destination.suffix == ".json"
+             else backup_limits.MAX_ARCHIVE_BYTES)
+    size = 0
+    try:
+        with backup_cli.staged_backup(destination) as tmp:
+            with tmp.open("wb") as handle:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise HTTPException(status_code=413, detail="备份文件大小超过限制")
+                    handle.write(chunk)
+            payload = backup_cli.normalise_payload(backup_cli.read_backup_payload(tmp))
+        return size, payload
+    except CliError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="备份文件无法解析") from exc
+    finally:
+        await file.close()
+
+
 @router.post("/import")
 async def import_backup(
     file: UploadFile = File(...),
@@ -205,38 +222,7 @@ async def import_backup(
     stored = _backups_root() / (
         f"uploaded-{backup_cli.utc_timestamp()}-{user.id}-{secrets.token_hex(3)}{suffix}"
     )
-    size = 0
-    try:
-        with stored.open("wb") as handle:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                limit = backup_limits.MAX_JSON_BYTES if suffix == ".json" else MAX_BACKUP_UPLOAD_BYTES
-                if size > limit:
-                    raise HTTPException(status_code=413, detail="备份文件大小超过限制")
-                handle.write(chunk)
-    except OSError as exc:
-        stored.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="备份文件写入失败") from exc
-    except BaseException:
-        stored.unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
-
-    try:
-        payload = backup_cli.normalise_payload(backup_cli.read_backup_payload(stored))
-    except CliError as exc:
-        stored.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        stored.unlink(missing_ok=True)
-        logger.warning(
-            "Backup import failed: stage=read error=%s", redact_exception(exc)
-        )
-        raise HTTPException(status_code=400, detail="备份文件无法解析") from exc
+    size, payload = await store_uploaded_backup(file, stored)
 
     try:
         result = await backup_cli.apply_restore(

@@ -138,6 +138,13 @@ async def lifespan(app: FastAPI):
     configure_logging("server", config.data_path)
     logger = logging.getLogger("sena-repo")
     logger.info("Starting Sena Repo server...")
+    from cli.backup import backup_dir
+
+    if (Path(config.data_path) / "backups").is_dir():
+        try:
+            backup_dir(config)
+        except OSError as exc:
+            logger.error("Could not secure existing backup directories: %s", type(exc).__name__)
     from api.settings import migrate_scraper_config_secrets
 
     migrate_scraper_config_secrets(config)

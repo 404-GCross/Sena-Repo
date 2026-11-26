@@ -310,12 +310,9 @@ def record_skip(
     *,
     now: datetime,
     reason: str,
-    fingerprint: str | None = None,
     delay_minutes: int = 0,
 ) -> dict[str, Any]:
     settings["last_result"] = reason
-    if fingerprint is not None:
-        settings["last_fingerprint"] = fingerprint
     if delay_minutes:
         settings["next_run_at"] = (now + timedelta(minutes=delay_minutes)).timestamp()
     else:
