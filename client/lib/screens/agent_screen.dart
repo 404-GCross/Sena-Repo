@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/task_progress_actions.dart';
 import '../widgets/dialog_picker.dart';
+import '../widgets/agent_result_view.dart';
 
 import '../services/agent_service.dart';
 import '../services/api_client.dart';
@@ -566,6 +567,9 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
   String? error;
   bool review = false, loading = false;
   int offset = 0;
+  String bucket = 'all';
+  int requestVersion = 0;
+  bool acting = false;
   Timer? timer;
   @override
   void initState() {
@@ -580,22 +584,25 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
     super.dispose();
   }
 
-  Future<void> load() async {
-    if (loading) return;
+  Future<void> load({bool replace = false}) async {
+    if (loading && !replace) return;
+    final version = ++requestVersion;
     loading = true;
     try {
       final data = await service.request(
           'GET',
           widget.jobId == null
               ? '/jobs?offset=$offset'
-              : '/jobs/${widget.jobId}?offset=$offset&review_only=$review');
-      if (mounted) {
+              : '/jobs/${widget.jobId}?view=items&bucket=$bucket&offset=$offset&review_only=$review');
+      if (mounted && version == requestVersion) {
         setState(() {
           if (widget.jobId == null) {
             rows = data as List;
           } else {
             job = Map<String, dynamic>.from(data);
-            rows = job!['results'] as List;
+            rows = (job!['items'] ?? job!['results'] ?? []) as List;
+            bucket = job!['bucket'] as String? ?? bucket;
+            offset = job!['offset'] as int? ?? offset;
             if (!taskActive(job!['status'])) {
               timer?.cancel();
             }
@@ -604,13 +611,18 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted && version == requestVersion && error != '$e') {
+        setState(() => error = '$e');
+        await showFeedbackDialog(context, '$e', title: '未能读取任务', error: true);
+      }
     } finally {
-      loading = false;
+      if (mounted && version == requestVersion) setState(() => loading = false);
     }
   }
 
   Future<void> action(String path, [Object? body]) async {
+    if (acting) return;
+    setState(() => acting = true);
     try {
       final data = await service.request('POST', path, body);
       if (mounted && data is Map && data['id'] != null) {
@@ -620,9 +632,11 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
                 builder: (_) => AgentJobsScreen(
                     api: widget.api, jobId: data['id'] as int)));
       }
-      await load();
+      await load(replace: true);
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) await showFeedbackDialog(context, '$e', title: '操作失败', error: true);
+    } finally {
+      if (mounted) setState(() => acting = false);
     }
   }
 
@@ -702,8 +716,34 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
         ));
   }
 
+  void selectPage(String filter, int pageOffset) {
+    setState(() {
+      bucket = filter;
+      offset = pageOffset;
+      rows = [];
+    });
+    load(replace: true);
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    if (job?.containsKey('item_counts') == true) {
+      final id = widget.jobId!;
+      return AgentResultView(
+        job: job!, items: rows.cast<Map>(), bucket: bucket, offset: offset,
+        loading: loading, busy: acting, onPage: selectPage,
+        refresh: () => load(replace: true),
+        control: TaskControl(widget.api, '/api/agent/jobs/$id', '/api/agent/jobs/$id/cancel', id),
+        onStopped: (data) {
+          setState(() => job = {...job!, ...data});
+          load(replace: true);
+        },
+        onRetry: () => action('/jobs/$id/retry?unfinished_only=true'),
+        onIgnore: (ids) => action('/results/ignore', {'ids': ids}),
+        recordDetails: resultDetails, statusLabel: label, reviewStatuses: reviewStatuses,
+      );
+    }
+    return Scaffold(
       appBar: AppBar(
           title: Text(widget.jobId == null ? '智能体任务' : '分析结果'),
           actions: [
@@ -800,4 +840,5 @@ class _AgentJobsScreenState extends State<AgentJobsScreen> {
               child: const Text('下一页'))
         ]),
       ]));
+  }
 }

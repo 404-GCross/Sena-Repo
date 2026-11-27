@@ -153,6 +153,15 @@ def fingerprint(data, settings):
 
 async def record(runtime, key, digest, status, summary, data=None):
     await runtime.session.refresh(runtime.job)
+    data = dict(data or {})
+    current = runtime.job.current_item or {}
+    if current.get("kind") == "directory":
+        data.update(item_kind="directory", root_id=current["key"])
+    elif current.get("key") == str(key):
+        data.update(item_kind=current["kind"])
+        data.setdefault("name", current["name"])
+        if not status.startswith("nsfw_"):
+            runtime.job.current_item = None
     runtime.session.add(
         AgentResult(
             job_id=runtime.job.id,
@@ -160,10 +169,16 @@ async def record(runtime, key, digest, status, summary, data=None):
             fingerprint=digest,
             status=status,
             summary=summary[:2000],
-            data=data or {},
+            data=data,
         )
     )
     runtime.job.message = summary[:500]
+    await runtime.session.commit()
+
+
+async def start_item(runtime, kind, key, name):
+    runtime.job.current_item = {"kind": kind, "key": str(key), "name": str(name)}
+    runtime.job.message = "正在扫描目录" if kind == "directory" else "正在分析条目"
     await runtime.session.commit()
 
 
@@ -546,8 +561,8 @@ async def scrape_game(runtime, game, client):
         and not any(v.platform_is_fallback for v in versions)
         and await cached(runtime, digest)
     ):
-        await record(runtime, game.id, digest, "cached", "复用未变化条目的已应用结果")
         await check_game_nsfw(runtime, game, client, config)
+        await record(runtime, game.id, digest, "cached", "复用未变化条目的已应用结果")
         return
     catalog = Catalog(config, runtime.job.actor_id, runtime)
     platforms = set((await session.execute(select(PlatformCategory.name))).scalars())
@@ -662,6 +677,8 @@ async def scrape_game(runtime, game, client):
                     "source_id": result.source_id,
                     "selected_source": decision.source if decision.asset else None,
                     "selected_source_id": decision.source_id if decision.asset else None,
+                    "orientation": ("landscape" if decision.asset.preview.width > decision.asset.preview.height else "portrait") if cover_saved and decision.asset else None,
+                    "language": next((check.get("language") for check in decision.checks if check.get("cover") == saved), None),
                     "recommended": recommended,
                     "selected": decision.selected,
                     "saved": saved,
@@ -689,6 +706,7 @@ async def scrape_game(runtime, game, client):
                     "name": game.name,
                     "source": result.source_name,
                     "cover_checks": catalog.cover_checks,
+                    "background_failed": background_failed,
                     **audit,
                 },
             )
@@ -697,7 +715,7 @@ async def scrape_game(runtime, game, client):
             if runtime.settings.portrait:
                 summary += "；封面需通过作品和构图校验，已保留现有封面"
             await runtime.check()
-            await scrape_single_game(
+            fallback = await scrape_single_game(
                 game,
                 catalog.scrapers,
                 client,
@@ -717,7 +735,7 @@ async def scrape_game(runtime, game, client):
                 digest,
                 outcome,
                 summary,
-                {"game_id": game.id},
+                {"game_id": game.id, "fallback_completed": bool(fallback and game.cover_path and game.description and game.developer)},
             )
     finally:
         await catalog.close()
@@ -740,6 +758,7 @@ async def patch_scan(runtime):
     by_id = {api._make_patch_id(p): p for p in current}
     inventories = []
     for root in roots:
+        await start_item(runtime, "directory", root.id, root.path)
         source = (
             await session.get(FileSource, root.source_id) if root.source_id else None
         )
@@ -785,25 +804,56 @@ async def patch_scan(runtime):
         ):
             raise SourceUnavailable(f"补丁目录 #{root.id} 意外为空，原索引已保留")
         inventories.append((root, source, files, fallback))
+    selected_keys = set(runtime.job.request.get("patch_keys") or [])
+    plan = {}
+    for root, _, files, fallback in inventories:
+        for entry in fallback or []:
+            entry.pop("patch_id", None)
+            key = api._make_patch_id(entry)
+            if not selected_keys or key in selected_keys:
+                plan[key] = Path(entry.get("display_file") or entry["file"]).name
+        for item in files:
+            if item["archive"]:
+                key = api._make_patch_id({"source_type": root.source_type, "source_id": root.source_id, "source_path": item["path"]})
+                if not selected_keys or key in selected_keys:
+                    plan[key] = Path(item["relative"]).name
+    runtime.job.item_plan = plan
+    runtime.job.current_item = None
+    await session.commit()
+    session.expire(runtime.job, ["item_plan"])
     for root, source, files, fallback in inventories:
         await runtime.check()
         if fallback is not None:
+            await start_item(runtime, "directory", root.id, root.path)
             latest = {api._make_patch_id(p): p for p in api._load_all_patches(index)}
+            fallback_keys = []
             for entry in fallback:
-                entry.pop("patch_id", None)
                 key = api._make_patch_id(entry)
+                if selected_keys and key not in selected_keys:
+                    continue
                 old = latest.get(key, {})
-                if not old.get("locked"):
+                fallback_keys.append(key)
+                if not old.get("locked") and not old.get("metadata_locked"):
                     latest[key] = {
                         **entry,
                         **{k: v for k, v in old.items() if v not in (None, "")},
                         "size": entry.get("size", 0),
                     }
-            if fallback:
+            if fallback_keys:
                 api._publish_patch_index(
                     index / "patches.json", {"patches": list(latest.values())}
                 )
-            await record(runtime, root.id, '', 'fallback', '智能清单不可用，该目录已使用常规补丁扫描')
+            await record(runtime, root.id, '', 'fallback', '智能清单不可用，该目录已使用常规补丁扫描', {"fallback_completed": True})
+            for key in fallback_keys:
+                await runtime.check()
+                await start_item(runtime, "patch", key, plan[key])
+                result = latest[key]
+                if result.get("locked") or result.get("metadata_locked"):
+                    await record(runtime, key, "", "skipped", "补丁已锁定，保留原配置")
+                else:
+                    confirmed = result.get("manifest_status") == "confirmed"
+                    await record(runtime, key, "", "applied" if confirmed else "review",
+                                 "常规扫描已完成" if confirmed else "补丁已识别，安装配置待确认", {"patch": result})
             continue
         for item in files:
             if not item["archive"]:
@@ -821,13 +871,12 @@ async def patch_scan(runtime):
                 "analysis_mode": root.analysis_mode or "auto",
             }
             key = api._make_patch_id(record_data)
-            if (
-                runtime.job.request.get("patch_keys")
-                and key not in runtime.job.request["patch_keys"]
-            ):
+            if selected_keys and key not in selected_keys:
                 continue
             previous = dict(by_id.get(key) or {})
+            await start_item(runtime, "patch", key, plan[key])
             if previous.get("locked") or previous.get("metadata_locked"):
+                await record(runtime, key, "", "skipped", "补丁已锁定，保留原配置")
                 continue
             digest = fingerprint(
                 [
@@ -997,7 +1046,8 @@ async def patch_scan(runtime):
                 ],
                 runtime.settings,
             )
-            await record(runtime, key, digest, outcome, summary, {"patch": merged})
+            await record(runtime, key, digest, outcome, summary, {"patch": merged,
+                         "fallback_completed": outcome.endswith("fallback") and merged.get("manifest_status") == "confirmed"})
 
 
 async def run_job(job_id):
@@ -1059,6 +1109,7 @@ async def _run_job(job_id):
                             if root.source_id
                             else None
                         )
+                        await start_item(runtime, "directory", root.id, root.path)
                         items = await collect_inventory(runtime, root, source, ignored)
                         await guard_empty_root(
                             root.id,
@@ -1100,7 +1151,7 @@ async def _run_job(job_id):
                     from api.settings import _load_scan_settings
 
                     _load_scan_settings(config)
-                    if job.kind == "game":
+                    if job.kind == "game" and not job.request.get("game_ids"):
                         query = select(RootDirectory)
                         if job.request.get("root_ids"):
                             query = query.where(
@@ -1113,6 +1164,7 @@ async def _run_job(job_id):
                                 root = await session.get(RootDirectory, rid)
                                 if root is None:
                                     raise SourceUnavailable('根目录配置已变化')
+                                await start_item(runtime, "directory", rid, root.path)
                                 await discover_root(runtime, root, preflight.get(rid))
                             except SourceUnavailable as exc:
                                 await session.rollback()
@@ -1120,11 +1172,7 @@ async def _run_job(job_id):
                                 failed_roots.append(rid)
                         if failed_roots:
                             raise SourceUnavailable(f'目录 {failed_roots} 未完整扫描，已停止本轮后续阶段')
-                    query = (
-                        select(Game)
-                        .where(Game.is_deleted.is_(False))
-                        .options(selectinload(Game.company))
-                    )
+                    query = select(Game.id, Game.name).where(Game.is_deleted.is_(False)).order_by(Game.id)
                     if job.kind == "game":
                         query = query.where(
                             Game.root_id.in_(
@@ -1137,12 +1185,16 @@ async def _run_job(job_id):
                         query = query.where(Game.root_id.in_(job.request["root_ids"]))
                     if job.request.get("game_ids"):
                         query = query.where(Game.id.in_(job.request["game_ids"]))
-                    game_ids = [g.id for g in (await session.execute(query)).scalars()]
+                    plan = dict((await session.execute(query)).all())
+                    job.item_plan = {str(key): name for key, name in plan.items()}
+                    job.current_item = None
+                    await session.commit()
+                    session.expire(job, ["item_plan"])
                     config.covers_path.mkdir(parents=True, exist_ok=True)
                     async with httpx.AsyncClient(
                         timeout=30, proxy=config.proxy or None, trust_env=False
                     ) as client:
-                        for game_id in game_ids:
+                        for game_id in plan:
                             await runtime.check()
                             try:
                                 game = (
@@ -1155,7 +1207,9 @@ async def _run_job(job_id):
                                         .options(selectinload(Game.company))
                                     )
                                 ).scalar_one_or_none()
-                                if game is None:
+                                await start_item(runtime, "game", game_id, game.name if game else plan[game_id])
+                                if game is None or game.metadata_locked:
+                                    await record(runtime, game_id, "", "skipped", "条目已移除" if game is None else "条目已锁定，保留现有资料")
                                     continue
                                 await scrape_game(runtime, game, client)
                             except AgentStopped:
@@ -1200,6 +1254,7 @@ async def _run_job(job_id):
             logger.warning(
                 "Agent job failed: job=%s reason=%s", job_id, type(exc).__name__
             )
+        job.current_item = None
         job.finished_at = datetime.utcnow()
         await session.commit()
         return job.status

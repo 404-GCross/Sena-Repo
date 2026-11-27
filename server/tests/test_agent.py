@@ -61,6 +61,97 @@ class FakeScraper:
 
 
 class AgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_item_view_groups_before_pagination_and_tracks_real_current_item(self):
+        async with self.sessions.begin() as session:
+            job = AgentJob(kind="game", status="running", request={"kind": "game"},
+                           item_plan={str(i): f"游戏 {i}" for i in range(34)},
+                           current_item={"kind": "game", "key": "32", "name": "游戏 32", "stage": "校验封面"})
+            session.add(job)
+            await session.flush()
+            job_id = job.id
+            def add(key, status, data):
+                session.add(AgentResult(job_id=job_id, key=str(key), status=status, fingerprint="", summary="依据", data=data))
+            for i in range(31):
+                add(i, "applied", {"game_id": i, "item_kind": "game", "cover_decision": {"saved": 0, "orientation": "landscape"}})
+                add(i, "nsfw_skipped", {"game_id": i})
+            add(31, "partial", {"game_id": 31, "cover_decision": {"saved": None}})
+            add(31, "nsfw_checked", {"game_id": 31})
+            add(31, "review", {"item_kind": "directory"})
+        url = f"/api/agent/jobs/{job_id}"
+        async def get(**params):
+            res = await self.client.get(url, params={"view": "items", **params}, headers=self.headers)
+            self.assertEqual(res.status_code, 200, res.text)
+            return res.json()
+        page = await get()
+        self.assertEqual(page["item_counts"], {"scanning": 1, "success": 31, "failed": 1, "waiting": 1})
+        self.assertEqual(page["preparation_failed"], 1)
+        self.assertEqual(page["items"][0]["brief"], "校验封面")
+        failed = (await get(bucket="failed"))["items"]
+        self.assertEqual([r["key"] for r in failed], ["31"])
+        self.assertEqual(len(failed[0]["records"]), 2)
+        self.assertIn("未找到匹配封面", failed[0]["brief"])
+        success = await get(bucket="success", offset=30)
+        self.assertEqual(success["items"][0]["brief"], "已用横版封面")
+        self.assertFalse(success["has_more"])
+        async with self.sessions.begin() as session:
+            (await session.get(AgentJob, job_id)).status = "cancelled"
+        stopped = await get(bucket="scanning")
+        self.assertEqual(stopped["bucket"], "failed")
+        self.assertIsNone(stopped["current_item"])
+        self.assertEqual(stopped["item_counts"]["unfinished"], 2)
+        await self.configure()
+        with patch("api.agent.launch"):
+            retry = await self.client.post(url + "/retry?unfinished_only=true", headers=self.headers)
+        self.assertEqual(retry.status_code, 200, retry.text)
+        async with self.sessions() as session:
+            retried = await session.get(AgentJob, retry.json()["id"])
+            self.assertCountEqual(retried.request["game_ids"], [31, 32, 33])
+            self.assertFalse(retried.request["clear_existing"])
+
+    async def test_legacy_job_distinguishes_directory_and_game_with_same_numeric_key(self):
+        async with self.sessions.begin() as session:
+            job = AgentJob(kind="game", status="completed", request={"kind": "game"})
+            session.add(job)
+            await session.flush()
+            for status, data in [("identified", {"groups": [{"name": "同名游戏"}]}),
+                                 ("applied", {"name": "同名游戏", "game_id": 1}), ("nsfw_unknown", {"game_id": 1})]:
+                session.add(AgentResult(job_id=job.id, key="1", status=status, fingerprint="", summary="依据", data=data))
+            job_id = job.id
+        url = f"/api/agent/jobs/{job_id}"
+        async def get():
+            return (await self.client.get(url + "?view=items", headers=self.headers)).json()
+        grouped = await get()
+        self.assertFalse(grouped["plan_known"])
+        self.assertEqual(grouped["item_counts"], {"failed": 1})
+        self.assertEqual(grouped["preparation_count"], 1)
+        self.assertIn("图片尺度未确定", grouped["items"][0]["brief"])
+        legacy = (await self.client.get(url, headers=self.headers)).json()
+        self.assertEqual(len(legacy["results"]), 3)
+        await self.client.post("/api/agent/results/ignore", headers=self.headers, json={"ids": [legacy["results"][-1]["id"]]})
+        self.assertEqual((await get())["item_counts"], {"success": 1})
+        final = await self.client.get(url + "?view=items&bucket=scanning", headers=self.headers)
+        self.assertEqual(final.json()["bucket"], "success")
+
+    async def test_patch_retry_keeps_only_unfinished_keys_and_never_counts_a_root_as_a_patch(self):
+        await self.configure()
+        async with self.sessions.begin() as session:
+            job = AgentJob(kind="patch", status="interrupted", request={"kind": "patch"},
+                           item_plan={"sp_1": "patch.zip", "sp_2": "patch.zip"})
+            session.add(job)
+            await session.flush()
+            job_id = job.id
+            for key, status, details in [("sp_1", "model_fallback", {"item_kind": "patch", "fallback_completed": True}),
+                                         ("1", "fallback", {"item_kind": "directory", "fallback_completed": True})]:
+                session.add(AgentResult(job_id=job_id, key=key, status=status, fingerprint="", summary="依据", data=details))
+        url = f"/api/agent/jobs/{job_id}"
+        data = (await self.client.get(url + "?view=items", headers=self.headers)).json()
+        self.assertEqual(data["item_counts"], {"success": 1, "unfinished": 1})
+        self.assertEqual(data["preparation_failed"], 0)
+        with patch("api.agent.launch"):
+            retried = (await self.client.post(url + "/retry?unfinished_only=true", headers=self.headers)).json()
+        async with self.sessions() as session:
+            self.assertEqual((await session.get(AgentJob, retried["id"])).request["patch_keys"], ["sp_2"])
+
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

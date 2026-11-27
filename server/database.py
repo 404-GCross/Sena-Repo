@@ -171,6 +171,10 @@ async def create_tables():
 
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        agent_columns = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(agent_jobs)")}
+        for column in ("item_plan", "current_item"):
+            if column not in agent_columns:
+                await conn.exec_driver_sql(f"ALTER TABLE agent_jobs ADD COLUMN {column} JSON")
         game_columns = {row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(games)")}
         if "is_nsfw" not in game_columns:
             await conn.exec_driver_sql(

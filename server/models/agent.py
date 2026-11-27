@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, String, Text
+from sqlalchemy.orm import deferred
 
 from database import Base
 
@@ -19,6 +20,8 @@ class AgentJob(Base):
     kind = Column(String(16), nullable=False)
     status = Column(String(24), nullable=False, default="pending")
     request = Column(JSON, nullable=False, default=dict)
+    item_plan = deferred(Column(JSON, nullable=True))
+    current_item = Column(JSON, nullable=True)
     calls = Column(Integer, nullable=False, default=0)
     tokens = Column(Integer, nullable=False, default=0)
     cancel_requested = Column(Boolean, nullable=False, default=False)

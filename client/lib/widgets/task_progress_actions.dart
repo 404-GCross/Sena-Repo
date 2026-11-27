@@ -65,10 +65,12 @@ class TaskStopButton extends StatefulWidget {
     required this.control,
     required this.status,
     required this.onChanged,
+    this.confirmStop = false,
   });
   final TaskControl control;
   final Object? status;
   final ValueChanged<Map<String, dynamic>> onChanged;
+  final bool confirmStop;
   @override
   State<TaskStopButton> createState() => _TaskStopButtonState();
 }
@@ -97,6 +99,21 @@ class _TaskStopButtonState extends State<TaskStopButton> {
           ? null
           : () async {
               final control = widget.control;
+              if (widget.confirmStop &&
+                  await confirmAppAction(
+                        context,
+                        section: '智能体任务',
+                        title: '停止扫描？',
+                        message: '已完成的结果保留，尚未完成的条目不计为失败。',
+                        action: '停止',
+                      ) !=
+                      true) {
+                return;
+              }
+              if (!mounted ||
+                  widget.control.id != control.id ||
+                  !taskActive(widget.status))
+                return;
               setState(() => sending = true);
               try {
                 final data = await control.request(stop: true);
@@ -105,13 +122,14 @@ class _TaskStopButtonState extends State<TaskStopButton> {
                   widget.onChanged(data);
                 }
               } catch (e) {
-                if (mounted)
+                if (context.mounted) {
                   await showFeedbackDialog(
                     context,
                     '$e',
                     title: '未能停止任务',
                     error: true,
                   );
+                }
               } finally {
                 if (mounted) setState(() => sending = false);
               }

@@ -3,6 +3,7 @@ import json
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, update
@@ -15,6 +16,7 @@ from models.agent import AgentJob, AgentResult
 from models.user import User
 from schemas.agent import AgentRequest, AgentSettings, IgnoreResults
 from services.agent.jobs import launch
+from services.agent.results import REVIEW_STATUSES, item_index, item_page
 from services.agent.providers import ModelClient, ModelError, tool_spec
 from services.agent.inventory import archive_inventory
 from services.agent.patch_alignment import PatchInventories, copy_candidate, file_digest
@@ -25,18 +27,6 @@ from utils.process_lock import process_lock
 
 router = APIRouter(
     prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_admin)]
-)
-REVIEW_STATUSES = (
-    "review",
-    "fallback",
-    "partial",
-    "unmatched",
-    "budget_fallback",
-    "model_fallback",
-    "validation_fallback",
-    "config_fallback",
-    "source_fallback",
-    "nsfw_unknown",
 )
 
 
@@ -335,10 +325,14 @@ async def job_detail(
     offset: int = Query(0, ge=0),
     review_only: bool = False,
     session: AsyncSession = Depends(get_session),
+    view: Literal["records", "items"] = "records",
+    bucket: Literal["all", "scanning", "success", "failed", "preparation"] = "all",
 ):
     job = await session.get(AgentJob, job_id)
     if job is None:
         raise HTTPException(404, "任务不存在")
+    if view == "items":
+        return {**job_out(job), **await item_page(session, job, bucket, offset)}
     query = select(AgentResult).where(AgentResult.job_id == job_id)
     if review_only:
         query = query.where(AgentResult.status.in_(REVIEW_STATUSES))
@@ -401,6 +395,7 @@ async def retry_job(
     job_id: int,
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    unfinished_only: bool = False,
 ):
     job = await session.get(AgentJob, job_id)
     if job is None:
@@ -410,6 +405,18 @@ async def retry_job(
     body = AgentRequest.model_validate(job.request)
     # Reuse completed fingerprints; failed items have no successful cache entry.
     body.retry = False
+    if unfinished_only:
+        index = await item_index(session, job)
+        keys = index.unfinished
+        body.clear_existing = False
+        if keys:
+            if job.kind == "patch":
+                body.patch_keys = keys
+            else:
+                body.game_ids = [int(k) for k in keys]
+            body.retry = True
+        elif not index.restart_preparation:
+            raise HTTPException(409, "没有待重试的条目")
     return await create_job(body, user.id, session)
 
 
@@ -418,7 +425,9 @@ async def ignore_result(result_id: int, session: AsyncSession = Depends(get_sess
     result = await session.get(AgentResult, result_id)
     if result is None:
         raise HTTPException(404, "结果不存在")
-    result.status = "ignored"
+    if result.status != "ignored":
+        result.data = {**(result.data or {}), "ignored_status": result.status}
+        result.status = "ignored"
     await session.commit()
     return {"message": "已忽略，不修改游戏或补丁"}
 
@@ -436,6 +445,7 @@ async def ignore_results(
         )
     ).scalars()
     for result in rows:
+        result.data = {**(result.data or {}), "ignored_status": result.status}
         result.status = "ignored"
     await session.commit()
     return {"message": "已批量忽略，不修改游戏或补丁"}
@@ -451,6 +461,7 @@ async def interrupt_jobs():
             )
         ).scalars():
             job.status = 'cancelled' if job.cancel_requested else 'interrupted'
+            job.current_item = None
             job.message = '任务已停止，已完成结果保留' if job.cancel_requested else '服务重启，任务已中断；可重试未完成内容'
             job.finished_at = datetime.utcnow()
         await session.commit()
