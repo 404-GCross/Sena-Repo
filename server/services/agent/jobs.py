@@ -660,6 +660,8 @@ async def scrape_game(runtime, game, client):
                 audit["cover_decision"] = {
                     "policy": COVER_POLICY_VERSION,
                     "source_id": result.source_id,
+                    "selected_source": decision.source if decision.asset else None,
+                    "selected_source_id": decision.source_id if decision.asset else None,
                     "recommended": recommended,
                     "selected": decision.selected,
                     "saved": saved,
@@ -668,9 +670,9 @@ async def scrape_game(runtime, game, client):
                     else None,
                     "reason": reason,
                 }
-                outcome = f"实际写入 #{saved}" if saved is not None else "未写入"
+                outcome = f"实际写入 {decision.source} #{saved}" if saved is not None else "未写入"
                 suggestion = f"#{recommended}" if recommended is not None else "无"
-                evidence = f"竖版封面：推荐 {suggestion}，{outcome}。{reason}。作品匹配依据：{evidence}"
+                evidence = f"封面：{result.source_name} 推荐 {suggestion}，{outcome}。{reason}。作品匹配依据：{evidence}"
             elif catalog.cover_review:
                 evidence += '；' + catalog.cover_review
             background_failed = bool(background_policy.attempted) and not background_policy.saved
@@ -693,7 +695,7 @@ async def scrape_game(runtime, game, client):
         except (ModelError, ValueError) as exc:
             outcome, summary = fallback_details(exc)
             if runtime.settings.portrait:
-                summary += "；竖版封面需通过构图校验，已保留现有封面"
+                summary += "；封面需通过作品和构图校验，已保留现有封面"
             await runtime.check()
             await scrape_single_game(
                 game,

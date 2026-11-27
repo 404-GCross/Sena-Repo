@@ -191,6 +191,9 @@ class VndbKanaScraper(BaseScraper):
             for alias in (item.get("aliases") or [])
             if str(alias or "").strip()
         ]
+        cover_titles = [text for row in titles for text in (row.get("title"), row.get("latin")) if text]
+        if item.get("title"):
+            cover_titles.insert(0, item["title"])
 
         return ScraperResult(
             title=title,
@@ -198,6 +201,7 @@ class VndbKanaScraper(BaseScraper):
             description=(item.get("description") or ""),
             release_date=(item.get("released") or ""),
             cover_url=cover,
+            cover_urls=[item["image"]["url"]] if (item.get("image") or {}).get("url") else [],
             hero_url=hero,
             screenshot_urls=all_shots,
             source_id=str(item.get("id", "")),
@@ -207,7 +211,7 @@ class VndbKanaScraper(BaseScraper):
             is_nsfw=float((item.get("image") or {}).get("sexual") or 0) >= 2.0,
             tags=tag_items,
             aliases=aliases,
-            cover_titles=[text for row in titles for text in (row.get('title'), row.get('latin')) if text],
+            cover_titles=cover_titles,
         )
 
     def _pick_title(self, titles: list[dict]) -> str:

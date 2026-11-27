@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,7 +15,7 @@ from services.agent.providers import ModelError
 from services.scraper.base import title_search_key
 from utils.log_redaction import redact_text
 
-COVER_POLICY_VERSION = "work-edition-portrait-v2"
+COVER_POLICY_VERSION = "work-edition-cover-v3"
 CHINESE_LANGUAGES = {
     "zh",
     "zh-cn",
@@ -44,6 +46,9 @@ class CoverAssessment(BaseModel):
     identity: Literal["match", "mismatch", "unknown"]
     basis: Literal["visible_title", "official_asset", "none"]
     visible_title: str = Field(max_length=512)
+    subtitle: str = Field(default="", max_length=256)
+    edition: str = Field(default="", max_length=128)
+    other_titles: list[Annotated[str, Field(min_length=1, max_length=512)]] = Field(default_factory=list, max_length=4)
     reason: str = Field(min_length=1, max_length=240)
 
 
@@ -66,6 +71,67 @@ class CoverDecision:
     selection_reason: str = ""
     reason: str = ""
     checks: list[dict] = field(default_factory=list)
+    priority: int = 4
+    source: str = ""
+    source_id: str = ""
+
+
+def _title_keys(title: str) -> set[str]:
+    keys = {title_search_key(title)} - {""}
+    text = unicodedata.normalize("NFKC", title)
+    # D.C. II ~Da Capo II~ repeats the initials and numeral, not an edition subtitle.
+    match = re.search(
+        r"\b(?P<initials>(?:[a-z]\.){2,})\s*(?P<number>[ivx]+|[0-9]+)?\s*"
+        r"[~〜](?P<words>[a-z ]+?)(?P<repeat>[ivx]+|[0-9]+)?[~〜]", text, re.I,
+    )
+    if match:
+        initials = "".join(word[0] for word in match["words"].split())
+        number = match["number"] or ""
+        if (title_search_key(match["initials"]) == initials.casefold()
+                and number.casefold() == (match["repeat"] or "").casefold()):
+            short = text[:match.start()] + match["initials"] + number + text[match.end():]
+            keys.add(title_search_key(short))
+    return keys
+
+
+def _match_printed_title(text, aliases, ambiguous):
+    key = title_search_key(text)
+    if key in ambiguous:
+        return []
+    if key in aliases:
+        return [aliases[key]]
+    # Older models sometimes transcribe an entire bilingual logo in a single field.
+    for first, alias in aliases.items():
+        if key.startswith(first):
+            second = key[len(first):]
+            if (second in aliases and first.isascii() != second.isascii()
+                    and any(c.isalpha() for c in first) and any(c.isalpha() for c in second)):
+                return [alias, aliases[second]]
+    return []
+
+
+def _identity_check(item, aliases, ambiguous, official):
+    printed = [" ".join(filter(None, (item.visible_title, item.subtitle, item.edition))), *item.other_titles]
+    matches = [_match_printed_title(text, aliases, ambiguous) for text in printed]
+    if item.basis == "official_asset":
+        has_evidence = official and (not any(t.strip() for t in printed) or all(matches))
+    else:
+        has_evidence = item.basis == "visible_title" and all(matches)
+    verified = item.identity == "match" and has_evidence
+    check = item.model_dump(include={"layout", "language", "identity", "basis"})
+    check.update(
+        reason=redact_text(item.reason, limit=240),
+        printed_titles=[redact_text(re.sub(r"https?://\S+", "[链接]", t, flags=re.I), limit=512) for t in printed if t],
+        matched_titles=[redact_text(t, limit=512) for group in matches for t in group],
+        identity_verified=verified,
+    )
+    if item.layout != "single_cover":
+        check["rejection"] = "不是完整单张正封面"
+    elif item.identity != "match":
+        check["rejection"] = "作品或版本不符" if item.identity == "mismatch" else "作品或版本归属不明"
+    elif not verified:
+        check["rejection"] = "图上完整标题未匹配到无歧义的作品和版本别名" if item.basis == "visible_title" else "缺少可信的版本绑定"
+    return check
 
 
 def _same_art(a: ImagePreview, b: ImagePreview) -> bool:
@@ -115,11 +181,34 @@ class CoverChecker:
         self.assets[url] = asset
         return asset
 
-    async def choose(self, urls, metadata, preferred=None, *, target):
+    async def _assess_batch(self, batch, target, official_urls, assessments):
+        keys = {i: (asset.preview.digest, asset.url in official_urls) for i, asset in batch.items()}
+        pending = {}
+        for i, key in keys.items():
+            if key not in assessments:
+                pending.setdefault(key, i)
+        if pending:
+            indexes = list(pending.values())
+            data = await self.runtime.reason(
+                "cover_quality",
+                {"target": target, "covers": [
+                    {"cover": i, "width": batch[i].preview.width, "height": batch[i].preview.height,
+                     "official_for_target": batch[i].url in official_urls} for i in indexes
+                ]},
+                CoverAssessments.model_json_schema(),
+                images=[batch[i].preview.uri for i in indexes],
+            )
+            result = CoverAssessments.model_validate(data)
+            if len(result.covers) != len(indexes) or {item.cover for item in result.covers} != set(indexes):
+                raise ValueError("Unverified cover indexes")
+            assessments.update((keys[item.cover], item) for item in result.covers)
+        return {i: assessments[key] for i, key in keys.items()}
+
+    async def choose(self, urls, metadata, preferred=None, *, target, assessments=None):
         decision = CoverDecision()
         settings = self.runtime.settings
         if not settings.vision:
-            decision.reason = "未开启图片分析，无法确认单张竖版封面，已保留现有封面"
+            decision.reason = "未开启图片分析，无法确认单张正封面，已保留现有封面"
             return decision
         if not urls:
             decision.reason = "来源没有封面候选，已保留现有封面"
@@ -129,11 +218,10 @@ class CoverChecker:
             order.remove(preferred)
             order.insert(0, preferred)
         accepted = []
-        titles = (
-            {title_search_key(t) for t in target["titles"]}
-            - {title_search_key(t) for t in target["ambiguous_titles"]}
-            - {""}
-        )
+        ambiguous = {key for title in target["ambiguous_titles"] for key in _title_keys(title)}
+        aliases = {key: title for title in target["titles"] for key in _title_keys(title) if key not in ambiguous}
+        if assessments is None:
+            assessments = {}
         official_urls = {
             url
             for url in urls
@@ -155,12 +243,12 @@ class CoverChecker:
                                 "reason": "图片无法读取或超出分析限制",
                             }
                         )
-                    elif asset.preview.height <= asset.preview.width:
+                    elif asset.preview.height == asset.preview.width:
                         decision.checks.append(
                             {
                                 "cover": index,
                                 "layout": "other",
-                                "reason": "实际尺寸不是竖版",
+                                "reason": "正方形图片，不是竖版或横版封面",
                                 "width": asset.preview.width,
                                 "height": asset.preview.height,
                             }
@@ -169,50 +257,18 @@ class CoverChecker:
                         batch[index] = asset
                 if not batch:
                     continue
-                data = await self.runtime.reason(
-                    "cover_quality",
-                    {
-                        "target": target,
-                        "covers": [
-                            {
-                                "cover": index,
-                                "width": asset.preview.width,
-                                "height": asset.preview.height,
-                                "official_for_target": asset.url in official_urls,
-                            }
-                            for index, asset in batch.items()
-                        ],
-                    },
-                    CoverAssessments.model_json_schema(),
-                    images=[asset.preview.uri for asset in batch.values()],
-                )
-                result = CoverAssessments.model_validate(data)
-                if len(result.covers) != len(batch) or {
-                    item.cover for item in result.covers
-                } != set(batch):
-                    raise ValueError("Unverified cover indexes")
-                for item in result.covers:
-                    asset = batch[item.cover]
-                    check = item.model_dump(exclude={"visible_title"})
+                verdicts = await self._assess_batch(batch, target, official_urls, assessments)
+                for index, item in verdicts.items():
+                    asset = batch[index]
+                    check = _identity_check(item, aliases, ambiguous, asset.url in official_urls)
                     check.update(
+                        cover=index,
                         width=asset.preview.width,
                         height=asset.preview.height,
                         sha256=asset.preview.digest,
                     )
-                    check["reason"] = redact_text(item.reason, limit=240)
                     decision.checks.append(check)
-                    verified = item.identity == "match" and (
-                        (
-                            item.basis == "visible_title"
-                            and title_search_key(item.visible_title) in titles
-                        )
-                        or (
-                            item.basis == "official_asset"
-                            and asset.url in official_urls
-                        )
-                    )
-                    check["identity_verified"] = verified
-                    if item.layout != "single_cover" or not verified:
+                    if "rejection" in check:
                         continue
                     source_language = str(
                         metadata.get(asset.url, {}).get("language") or ""
@@ -221,14 +277,17 @@ class CoverChecker:
                         item.language == "unknown"
                         and source_language in CHINESE_LANGUAGES
                     )
-                    accepted.append((item.cover, chinese, asset))
+                    if settings.cover_language == "zh" and not chinese and settings.cover_fallback != "original":
+                        check["rejection"] = "语言策略不允许非中文封面回退"
+                        continue
+                    rank = 2 if asset.preview.width > asset.preview.height else 0
+                    if settings.cover_language == "zh" and not chinese:
+                        rank += 1
+                    accepted.append((index, rank, asset))
                 if (
                     accepted
                     and not settings.high_resolution
-                    and (
-                        settings.cover_language != "zh"
-                        or any(row[1] for row in accepted)
-                    )
+                    and any(row[1] == 0 for row in accepted)
                 ):
                     break
             except ModelError as exc:
@@ -238,15 +297,8 @@ class CoverChecker:
                 incomplete = "模型未给出与候选对应的有效归属和构图结论"
                 break
         if accepted:
-            if settings.cover_language == "zh":
-                chinese = [row for row in accepted if row[1]]
-                if chinese:
-                    accepted = chinese
-                elif settings.cover_fallback != "original":
-                    decision.reason = (
-                        "没有通过校验的中文单张竖版封面，已按回退策略保留现有封面"
-                    )
-                    return decision
+            decision.priority = min(row[1] for row in accepted)
+            accepted = [row for row in accepted if row[1] == decision.priority]
             index, _, asset = min(
                 accepted, key=lambda row: (row[0] != preferred, row[0])
             )
@@ -274,10 +326,12 @@ class CoverChecker:
                 asset,
                 why,
             )
+            if asset.preview.width > asset.preview.height:
+                decision.selection_reason += "（横版回退）"
         else:
             decision.reason = (
                 f"封面构图校验未完成：{incomplete}；已保留现有封面"
                 if incomplete
-                else "没有可确认属于本作品和版本的单张竖版正封面，已保留现有封面待复核"
+                else "没有符合语言策略且可核实作品和版本的单张正封面，已保留现有封面待复核"
             )
         return decision

@@ -147,6 +147,7 @@ class BangumiScraper(BaseScraper):
             description=item.get("summary", ""),
             release_date=item.get("date", "") or item.get("air_date", ""),
             cover_url=cover,
+            cover_titles=[name for name in (item.get("name"), item.get("name_cn")) if name],
             source_id=str(item.get("id", "")),
             source_name=self.source_name,
             is_nsfw=bool(item.get("nsfw", False)),

@@ -122,7 +122,7 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_dimensions_override_upstream_portrait_metadata(self):
         landscape = self.candidate("landscape", 900, 600)
         poster = self.candidate("poster")
-        self.runtime.reason.return_value = assessments((1, "single_cover", "zh"))
+        self.runtime.reason.return_value = assessments((0, "single_cover", "zh"), (1, "single_cover", "other"))
         decision = await self.choose(
             [landscape, poster], {landscape: {"width": 600, "height": 900}}
         )
@@ -130,7 +130,8 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision.checks[0]["width"], 900)
         self.assertEqual(
             self.runtime.reason.await_args.args[1]["covers"],
-            [{"cover": 1, "width": 600, "height": 900, "official_for_target": False}],
+            [{"cover": 0, "width": 900, "height": 600, "official_for_target": False},
+             {"cover": 1, "width": 600, "height": 900, "official_for_target": False}],
         )
 
     async def test_large_images_are_resized_for_inspection_but_original_bytes_are_kept(
@@ -204,7 +205,7 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.reason.return_value = verdict
         found = await self.choose([shared, official, variant], {}, preferred=1)
         self.assertEqual(found.selected, 1)
-        self.assertFalse(found.checks[0]["identity_verified"])
+        self.assertFalse(next(c for c in found.checks if c["cover"] == 0)["identity_verified"])
         self.assertEqual(
             found.asset.preview.digest,
             hashlib.sha256(self.payloads[official]).hexdigest(),
@@ -234,6 +235,82 @@ class AgentCoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(
             (await self.choose([url], {url: {"official_work_id": "1"}})).asset
         )
+
+    async def test_clover_days_bilingual_logo_requires_complete_unambiguous_titles(self):
+        url = self.candidate("clover")
+        self.target["titles"] = ["幸运草的约定", "Clover Days"]
+        verdict = assessments((0, "single_cover", "zh"))
+        item = verdict["covers"][0]
+        self.runtime.reason.return_value = verdict
+        for main, others in [("幸运草的约定", ["Clover Day’s"]), ("Clover Day’s\n幸运草的约定", [])]:
+            item.update(visible_title=main, other_titles=others)
+            decision = await self.choose([url], {})
+            self.assertEqual(decision.selected, 0)
+            self.assertCountEqual(decision.checks[0]["matched_titles"], self.target["titles"])
+        item.update(visible_title="幸运草的约定", other_titles=["Clover Day’s Plus"])
+        self.assertIsNone((await self.choose([url], {})).asset)
+        item.update(other_titles=[], edition="Plus")
+        self.assertIsNone((await self.choose([url], {})).asset)
+
+    async def test_to_you_accepts_printed_subtitle_without_repeated_acronym_expansion(self):
+        self.target["titles"] = ["D.C. II ~Da Capo II~ To You - Side Episodes"]
+        url = self.candidate("dc-side")
+        verdict = assessments((0, "single_cover", "other"))
+        item = verdict["covers"][0]
+        item.update(visible_title="D.C.Ⅱ To You", subtitle="Side Episodes")
+        self.runtime.reason.return_value = verdict
+        self.assertEqual((await self.choose([url], {})).selected, 0)
+        for title, subtitle in [("D.C.III To You", "Side Episodes"), ("D.C.II", ""), ("D.C.II To You", "Sakura Edition")]:
+            item.update(visible_title=title, subtitle=subtitle)
+            self.assertIsNone((await self.choose([url], {})).asset)
+
+    async def test_yun2_prefers_verified_landscape_over_wrong_portrait_and_screenshot(self):
+        self.target["titles"] = ["D.C. II ~Featuring Yun2!~"]
+        urls = [self.candidate("wrong"), self.candidate("scene", 900, 600), self.candidate("yun2", 450, 338)]
+        verdict = assessments((0, "single_cover", "zh"), (1, "screenshot", "zh"), (2, "single_cover", "other"))
+        for item, title in zip(verdict["covers"], ["D.C.III Featuring Yun!", "D.C.II Featuring Yun2!", "D.C. II Featuring Yun2!"]):
+            item["visible_title"] = title
+        self.runtime.reason.return_value = verdict
+        decision = await self.choose(urls, {}, preferred=0)
+        self.assertEqual(decision.selected, 2)
+        self.assertEqual(decision.asset.data, self.payloads[urls[2]])
+        self.assertIn("横版", decision.selection_reason)
+        self.runtime.settings.cover_fallback = "keep"
+        self.assertIsNone((await self.choose(urls, {})).asset)
+
+    def test_portrait_first_source_does_not_hide_all_landscapes(self):
+        portraits = [f"portrait-{i}" for i in range(12)]
+        work = ScraperResult(cover_urls=portraits, cover_metadata={"wide": {"width": 450, "height": 338}})
+        self.assertEqual(Catalog.covers(work), [*portraits, "wide"])
+
+    async def test_bound_vndb_portrait_beats_primary_landscape_without_replacing_metadata(self):
+        primary = ScraperResult(title="初恋时间胶囊", cover_titles=["初恋タイムカプセル"], source_name="nextmoe", source_id="1248",
+                                cover_url=self.candidate("wide", 900, 600))
+        alt = ScraperResult(title="初恋タイムカプセル", source_name="vndb_kana", source_id="v4065",
+                            cover_url=self.candidate("same-wide", 900, 600), cover_urls=[self.candidate("vertical", 341, 496)])
+        scraper = SimpleNamespace(source_name="vndb_kana", search=AsyncMock(return_value=[alt]), close=AsyncMock())
+        with patch("services.agent.metadata._build_scrapers", return_value=[scraper]):
+            catalog = Catalog(self.config, None, self.runtime)
+        catalog.cover_checker = self.checker
+        catalog.results = [primary]
+        ids = {"nextmoe_id": "1248", "vndb_id": "v4065"}
+        pick = {"candidate": 0, "cover": 0, "evidence": "Matched stored work ID"}
+        wide, portrait = assessments((0, "single_cover", "zh")), assessments((1, "single_cover", "other"))
+        wide["covers"][0]["visible_title"] = primary.title
+        portrait["covers"][0]["visible_title"] = alt.title
+        self.runtime.reason.side_effect = [pick, wide, portrait]
+        result, _ = await select_metadata(self.runtime, catalog, {"saved_ids": ids})
+        scraper.search.assert_awaited_once_with("v4065")
+        self.assertEqual((result.source_name, result.title), ("nextmoe", primary.title))
+        self.assertEqual(result.cover_url, alt.cover_urls[0])
+        self.assertEqual(catalog.cover_decision.source_id, "v4065")
+        self.assertEqual(len(self.runtime.reason.await_args.kwargs["images"]), 1)
+        self.assertEqual([(c["source_id"], c["cover"]) for c in catalog.cover_checks], [("1248", 0), ("v4065", 0), ("v4065", 1)])
+        alt.external_ids = {"nextmoe": "999"}
+        self.runtime.reason.side_effect = [pick, wide]
+        result, _ = await select_metadata(self.runtime, catalog, {"saved_ids": ids})
+        self.assertEqual(result.cover_url, primary.cover_url)
+        await catalog.close()
 
     async def test_saved_edition_id_conflict_blocks_even_a_recommended_cover(self):
         with patch("services.agent.metadata._build_scrapers", return_value=[]):

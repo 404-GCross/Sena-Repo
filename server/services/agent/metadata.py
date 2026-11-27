@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 
 from pydantic import BaseModel, Field
 
 from services.agent.covers import CoverChecker, CoverDecision
 from services.agent.providers import tool_spec
-from services.agent.runtime import object_schema
+from services.agent.runtime import AgentBudget, object_schema
 from services.scraper.base import title_search_key
 from services.scraper.orchestrator import _build_scrapers
 from services.task_stop import stoppable_request
@@ -22,17 +23,19 @@ class Selection(BaseModel):
     platforms: dict[str, str] = Field(default_factory=dict)
 
 
-def _conflicting_work_ids(result, saved_ids):
-    anchors = {**result.external_ids, result.source_name: result.source_id}
-    for source, candidate in anchors.items():
+def _work_id(source, value):
+    value = str(value or "").strip().lower()
+    return value.removeprefix("v") if source in {"vndb", "vndb_kana"} else value
+
+
+def _anchor_matches(result, saved_ids):
+    matches = []
+    for source, candidate in {**result.external_ids, result.source_name: result.source_id}.items():
         key = "vndb" if source == "vndb_kana" else source
-        saved = str(saved_ids.get(f"{key}_id") or "").strip().lower()
-        candidate = str(candidate or "").strip().lower()
-        if key == "vndb":
-            saved, candidate = saved.removeprefix("v"), candidate.removeprefix("v")
-        if saved and candidate and saved != candidate:
-            return True
-    return False
+        saved = saved_ids.get(f"{key}_id")
+        if saved and candidate:
+            matches.append(_work_id(source, candidate) == _work_id(source, saved))
+    return matches
 
 
 class Catalog:
@@ -79,9 +82,17 @@ class Catalog:
 
     @staticmethod
     def covers(result):
-        return list(
+        urls = list(
             dict.fromkeys([u for u in [result.cover_url, *result.cover_urls] if u])
         )[:12]
+        # A source's portrait-first picker can fill all twelve slots before its first wide cover.
+        if len(urls) == 12:
+            for url, info in result.cover_metadata.items():
+                if url not in urls and info.get("width", 0) > info.get("height", 0) > 0:
+                    urls.append(url)
+                    if len(urls) == 16:
+                        break
+        return urls
 
     def cover_target(self, result, urls, context):
         def names(work):
@@ -118,6 +129,83 @@ class Catalog:
                 i for i, url in enumerate(urls) if url in other_urls
             ],
         }
+
+    async def bound_cover_sources(self, original, saved_ids):
+        primary_ids = {f"{key}_id": value for key, value in original.external_ids.items()}
+        primary_key = "vndb" if original.source_name == "vndb_kana" else original.source_name
+        primary_ids[f"{primary_key}_id"] = original.source_id
+        for scraper in self.scrapers:
+            source = scraper.source_name
+            if source == original.source_name:
+                continue
+            key = "vndb" if source == "vndb_kana" else source
+            saved = _work_id(source, saved_ids.get(f"{key}_id"))
+            if not re.fullmatch(r"[1-9][0-9]*", saved):
+                continue
+            try:
+                await self.runtime.check(model=True)
+            except AgentBudget:
+                self.cover_checks.append({"source": source, "source_id": saved, "reason": "模型预算或配置已变化，停止补查"})
+                return
+            try:
+                query = f"v{saved}" if key == "vndb" else saved
+                rows = await asyncio.wait_for(stoppable_request(scraper.search(query)), timeout=35)
+            except Exception as exc:
+                self.cover_checks.append({"source": source, "source_id": saved,
+                                          "reason": f"按作品 ID 读取来源失败：{type(exc).__name__}"})
+                continue
+            for row in rows:
+                if (row.source_name == source and _work_id(source, row.source_id) == saved
+                        and all(_anchor_matches(row, saved_ids)) and all(_anchor_matches(row, primary_ids))):
+                    yield row
+                    break
+            else:
+                self.cover_checks.append({"source": source, "source_id": saved, "reason": "来源没有返回该作品 ID 的匹配记录"})
+
+    async def choose_cover(self, original, context):
+        saved_ids = context.get("saved_ids", {})
+        matches = _anchor_matches(original, saved_ids)
+        if not all(matches):
+            return CoverDecision(reason="候选作品与已保存的作品 ID 冲突，保留现有封面待复核")
+
+        primary = self.cover_target(original, self.covers(original), context)
+        assessments = {}
+
+        async def inspect(work, preferred=None):
+            urls = self.covers(work)
+            target = self.cover_target(work, urls, context)
+            target["game"] = primary["game"]
+            metadata = work.cover_metadata
+            if work is not original:
+                target["primary_work"] = primary
+                primary_keys = {title_search_key(title) for title in primary["titles"]}
+                ambiguous = list(dict.fromkeys(primary["ambiguous_titles"] + target["ambiguous_titles"]))
+                shared = primary_keys.intersection(title_search_key(t) for t in target["titles"])
+                shared.difference_update(title_search_key(t) for t in ambiguous)
+                # A broader catalog ID locates artwork, but cannot certify a different edition.
+                if shared - {""}:
+                    target["titles"] = list(dict.fromkeys(primary["titles"] + target["titles"]))
+                else:
+                    target["titles"] = primary["titles"]
+                    metadata = {url: {"language": value.get("language")} for url, value in metadata.items()}
+                target["ambiguous_titles"] = ambiguous
+            decision = await self.cover_checker.choose(urls, metadata, preferred, target=target, assessments=assessments)
+            decision.source, decision.source_id = work.source_name, work.source_id
+            for check in decision.checks or [{"reason": decision.reason}]:
+                self.cover_checks.append({**check, "source": work.source_name, "source_id": work.source_id})
+            return decision
+
+        best = await inspect(original, self.selection.cover)
+        if self.runtime.settings.vision and matches and best.priority > 0:
+            async for work in self.bound_cover_sources(original, saved_ids):
+                candidate = await inspect(work)
+                if candidate.priority < best.priority:
+                    best = candidate
+                elif best.asset is None and candidate.checks:
+                    best.reason = candidate.reason
+                if best.priority == 0:
+                    break
+        return best
 
     async def search(self, args):
         query = str(args.get("query", ""))[:256].strip()
@@ -287,20 +375,8 @@ async def select_metadata(runtime, catalog, context):
         result.cover_url = ""
     elif runtime.settings.portrait:
         original = catalog.results[catalog.selection.candidate]
-        urls = catalog.covers(original)
-        if _conflicting_work_ids(original, context.get("saved_ids", {})):
-            decision = CoverDecision(
-                reason="候选作品与已保存的作品 ID 冲突，保留现有封面待复核"
-            )
-        else:
-            decision = await catalog.cover_checker.choose(
-                urls,
-                original.cover_metadata,
-                catalog.selection.cover,
-                target=catalog.cover_target(original, urls, context),
-            )
+        decision = await catalog.choose_cover(original, context)
         catalog.cover_decision = decision
-        catalog.cover_checks = decision.checks
         catalog.cover_review = decision.reason
         result.cover_url = decision.asset.url if decision.asset else ""
         catalog.cover_data = decision.asset.data if decision.asset else None
